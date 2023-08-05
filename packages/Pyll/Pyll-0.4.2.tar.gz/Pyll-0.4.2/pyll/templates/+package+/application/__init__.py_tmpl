@@ -1,0 +1,62 @@
+from pyll.router import RouteFactory
+from pyll import config
+
+from pyll.middleware import CSRFMiddleware, make_eval_exception, make_error_middleware
+from .route_map import make_routes
+from .configuration import make_config
+
+from beaker.middleware import SessionMiddleware
+from paste.cascade import Cascade
+from paste.registry import RegistryManager, make_registry_manager
+from paste.urlparser import StaticURLParser
+from paste.auth.cookie import make_auth_cookie
+from paste.config import ConfigMiddleware
+from paste.recursive import make_recursive_middleware
+from paste.deploy.converters import asbool
+
+
+def make_app(global_conf, static_files=True, **app_conf):
+    # Make app for paste app factory
+    _config = make_config(global_conf, app_conf)
+    routes = make_routes()
+
+    app = RouteFactory(routes)
+
+    # CSRF Middleware (turn off for remote testing from local machine Ajax
+    # calls)
+    if _config['csrf']:
+        app = CSRFMiddleware(app, _config)
+
+    app = ConfigMiddleware(app, _config)
+
+    # Session Middleware
+    app = SessionMiddleware(app, _config)
+
+    # Custom Middleware Below:
+    # app = SomeCoolMiddlewareOfMine(app, _config)
+
+    # Establish the Registry for this application
+    app = make_registry_manager(app, _config)
+
+    # Throw an exception to update request and forward to intended location.
+    app = make_recursive_middleware(app, _config)
+
+    # Scans for REMOTE_USER and persists it across requests.  This middleware
+    # can be used for transient sessions as well.
+    app = make_auth_cookie(app, _config,
+        secret="QWERTYUTREWQERTYIUYTREWQRTYUTREFDSGHJKFDAEWDFSGH")
+
+    # Error Middleware
+    if _config['debug']:
+        app = make_eval_exception(app, _config)
+    else:
+        app = make_error_middleware(app, _config)
+
+    if asbool(static_files):
+        # Serve static files
+        static_app = StaticURLParser(_config['pyll.paths']['static'])
+        app = Cascade([static_app, app])
+    app.config = _config
+    config.push_process_config(_config)
+
+    return app

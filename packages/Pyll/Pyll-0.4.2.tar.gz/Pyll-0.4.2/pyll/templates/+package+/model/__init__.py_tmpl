@@ -1,0 +1,74 @@
+import os
+from hashlib import sha1
+import datetime
+from datetime import datetime
+import transaction
+import sqlalchemy
+from sqlalchemy import ForeignKey, Column, Table
+from sqlalchemy.types import Integer, DateTime, Boolean, Unicode, UnicodeText, Float
+from sqlalchemy.orm import relation, synonym, relationship, backref
+from sqlalchemy.orm import scoped_session, sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.associationproxy import association_proxy
+from sqlalchemy.sql import and_, or_, not_
+from zope.sqlalchemy import ZopeTransactionExtension
+
+
+__all__ = ['User', 'Group', 'Permission', 'db', 'DataBase', 'EmailAddress']
+
+# DBSession Object
+db =  scoped_session(sessionmaker(extension=ZopeTransactionExtension()))
+
+from ${package}.model.base import DBBase
+DataBase = declarative_base(cls=DBBase)
+metadata = DataBase.metadata
+
+def init_model(engine):
+    db.configure(bind=engine)
+
+    def insert():
+        DataBase.metadata.drop_all(engine)
+        DataBase.metadata.create_all(engine)
+
+        with transaction.manager:
+            # Create the groups for two types of users (for now)
+            auth_group = Group(u'auth', u'Regular user account.')
+            admin_group = Group(u'admin', u'Administrative user account.')
+            auth_group.permissions.append(Permission(u'auth'))
+            admin_group.permissions.append(Permission(u'admin'))
+
+            # add them to the db session
+            db.add(auth_group)
+            db.add(admin_group)
+            transaction.commit()
+
+            # Create the admin user so we can always access the system as admin.
+            su = User(first_name=u'Admin', last_name=u'User', username=u'${author_email}')
+            su._set_password('admin')
+            su.groups.append(admin_group)
+            su.email_addresses.append(EmailAddress(name=u'Work', email=u'nobody@gmail.com'))
+            su.email_addresses.append(EmailAddress(name=u'Home', email=u'nobody@hotmail.net'))
+            db.add(su)
+
+            eu = User(first_name=u'Regular', last_name=u'User', username=u'regular@domain.com')
+            eu._set_password('password')
+            eu.groups.append(auth_group)
+            eu.email_addresses.append(EmailAddress(name=u'Work', email=u'regular@gmail.com'))
+            eu.email_addresses.append(EmailAddress(name=u'Home', email=u'regular@hotmail.net'))
+            db.add(eu)
+
+            ou = User(first_name=u'Other', last_name=u'User', username=u'other@domain.com')
+            ou._set_password('password')
+            ou.groups.append(auth_group)
+            ou.email_addresses.append(EmailAddress(name=u'Work', email=u'other@gmail.com'))
+            ou.email_addresses.append(EmailAddress(name=u'Home', email=u'other@hotmail.net'))
+            db.add(ou)
+
+            transaction.commit()
+
+    insert()
+
+from ${package}.model.core import User, Group, Permission, AdminGroup, AdminUser, Address, Ticket, \
+    TicketNote, TicketPriority, TicketStatus, TicketType, Company, Context, Note, EmailAddress, Telephone
+
