@@ -1,0 +1,10 @@
+__version__ = "0.1.1"
+__git_commiter_name__ = "Arnon Yaari"
+__git_commiter_email__ = "wiggin15@yahoo.com"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '6f858588f85518c555a3cd2d9dd05f8e591334e1'
+__git_head_subject__ = "Merge branch 'develop'"
+__git_head_message__ = ''
+__git_dirty_diff__ = ''
