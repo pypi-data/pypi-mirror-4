@@ -1,0 +1,387 @@
+#! /usr/bin/env python
+
+# Software License Agreement (BSD License)
+#
+# Copyright (c) 2012, Thibault Kruse
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+#
+#  * Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+#  * Redistributions in binary form must reproduce the above
+#    copyright notice, this list of conditions and the following
+#    disclaimer in the documentation and/or other materials provided
+#    with the distribution.
+#  * Neither the name of Willow Garage, Inc. nor the names of its
+#    contributors may be used to endorse or promote products derived
+#    from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+# FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+# COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+# INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+# BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+# ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+
+from __future__ import print_function
+import os
+import sys
+from signal import SIGTERM
+import subprocess
+from argparse import ArgumentParser
+
+VERSION = '0.0.1'
+
+IGNORE_DIRS = {
+    '.bzr': 'Bazaar',
+    '.cdv': 'Codeville',
+    '~.dep': 'Interface Builder',
+    '~.dot': 'Interface Builder',
+    '~.nib': 'Interface Builder',
+    '~.plst': 'Interface Builder',
+    '.git': 'Git',
+    '.hg': 'Mercurial',
+    '.pc': 'quilt',
+    '.svn': 'Subversion',
+    '_MTN': 'Monotone',
+    'blib': 'Perl module building',
+    'CVS': 'CVS',
+    'RCS': 'RCS',
+    'SCCS': 'SCCS',
+    '_darcs': 'darcs',
+    '_sgbak': 'Vault/Fortress',
+    'autom4te.cache': 'autoconf',
+    'cover_db': 'Devel::Cover',
+    '_build': 'Module::Build'}
+
+MAPPING_EXT = {
+    'actionscript':  ['as', 'mxml'],
+    'ada':           ['ada', 'adb', 'ads'],
+    'asm':           ['asm', 's'],
+    'batch':         ['bat', 'cmd'],
+    'cc':            ['c', 'h', 'xs'],
+    'cfmx':          ['cfc', 'cfm', 'cfml'],
+    'clojure':       ['clj'],
+    'cpp':           ['cpp', 'cc', 'cxx', 'm', 'hpp', 'hh', 'h', 'hxx'],
+    'csharp':        ['cs'],
+    'css':           ['css'],
+    'delphi':        ['pas', 'int', 'dfm', 'nfm', 'dof', 'dpk', 'dproj', 'groupproj', 'bdsgroup', 'bdsproj'],
+    'elisp':         ['el'],
+    'erlang':        ['erl', 'hrl'],
+    'fortran':       ['f', 'f77', 'f90', 'f95', 'f03', 'for', 'ftn', 'fpp'],
+    'go':            ['go'],
+    'groovy':        ['groovy', 'gtmpl', 'gpp', 'grunit'],
+    'haskell':       ['hs', 'lhs'],
+    'hh':            ['h'],
+    'html':          ['htm', 'html', 'shtml', 'xhtml'],
+    'java':          ['java', 'properties'],
+    'js':            ['js'],
+    'jsp':           ['jsp', 'jspx', 'jhtm', 'jhtml'],
+    'lisp':          ['lisp', 'lsp'],
+    'lua':           ['lua'],
+    'make':          ['mk', 'mak', 'make', 'cmake'],
+    'mason':         ['mas', 'mhtml', 'mpl', 'mtxt'],
+    'objc':          ['m', 'h'],
+    'objcpp':        ['mm', 'h'],
+    'ocaml':         ['ml', 'mli'],
+    'parrot':        ['pir', 'pasm', 'pmc', 'ops', 'pod', 'pg', 'tg'],
+    'perl':          ['pl', 'pm', 'pm6', 'pod', 't'],
+    'php':           ['php', 'phpt', 'php3', 'php4', 'php5', 'pht'],
+    'plone':         ['pt', 'cpt', 'metadata', 'cpy', 'py'],
+    'python':        ['py'],
+    'rake':          ['rake'],
+    'ruby':          ['rb', 'rhtml', 'rjs', 'rxml', 'erb', 'rake', 'spec'],
+    'scala':         ['scala'],
+    'scheme':        ['scm', 'ss'],
+    'shell':         ['sh', 'bash', 'csh', 'tcsh', 'ksh', 'zsh'],
+    'smalltalk':     ['st'],
+    'sql':           ['sql', 'ctl'],
+    'tcl':           ['tcl', 'itcl', 'itk'],
+    'tex':           ['tex', 'cls', 'sty', 'bib', 'faq', 'man'],
+    'text':          ['txt', 'rst', 'md', 'me'],
+    'tt':            ['tt', 'tt2', 'ttml'],
+    'vb':            ['bas', 'cls', 'frm', 'ctl', 'vb', 'resx'],
+    'verilog':       ['v', 'vh', 'sv'],
+    'vhdl':          ['vhd', 'vhdl'],
+    'vim':           ['vim'],
+    'yaml':          ['yaml', 'yml'],
+    'xml':           ['xml', 'dtd', 'xsl', 'xslt', 'ent']}
+
+GREP_FLAGS = {
+    'invert-match': (None, 'select non-matching lines'),
+    'files-with-matches': ('-l', 'print only names of FILEs containing matches'),
+    'files-without-match': ('-L', 'print only names of FILEs containing no match'),
+    'count': ('-c', 'print only a count of matching lines per FILE'),
+    'no-filename': (None, 'suppress the prefixing filename on output'),
+    'only-matching': ('-o', 'show only the part of a line matching PATTERN')}
+
+GREP_ARGS = {
+    'before-context': ('-B', 'print N lines of leading context'),
+    'after-context': ('-A', 'print N lines of trailing context'),
+    'context': ('-C', 'print N lines of output context')}
+
+# flags we shall use by default unless specified with --no-...
+GREP_DEFAULT_FLAGS = {
+    'color': (None, 'colorize output'),
+    'line-number': (None, 'line number with output lines'),
+    'ignore-case': (None, 'ignore case distinctions'),
+    'with-filename': (None, 'show_filename')
+    }
+
+FIND_FLAGS = {
+    'writable': (None, 'Only search in files with write permission'),
+    'executable': (None, 'Only search in files that can be executed')}
+
+FIND_ARGS = {
+    'maxdepth': (None, 'Do not search deeper in folder structure than this'),
+    'mindepth': (None, 'Search at least at this depth in folder structure'),
+
+
+
+    'word-regexp': ('-w', 'force PATTERN to match only whole words'),
+    'line-regexp': ('-x', 'force PATTERN to match only whole lines')}
+
+
+def create_find_cmd(args):
+    ignoredirs = ''
+    if not args.unrestricted:
+        ignoredirs = ' '.join(["-not -iwholename '*%s%s%s*'" % (os.path.sep, name, os.path.sep) for name in IGNORE_DIRS])
+    selectfiles = ''
+    if not args.all_types:
+        select_types = []
+        for etype in MAPPING_EXT:
+            if args.__dict__[etype] is True:
+                select_types.append(etype)
+        if not args.type:
+            if not select_types:
+                # select all
+                for etype in MAPPING_EXT:
+                    select_types.append(etype)
+        else:
+            select_types.extend(args.type)
+        select_exts = []
+        for etype in select_types:
+            try:
+                select_exts.extend(MAPPING_EXT[etype])
+            except KeyError:
+                raise ValueError('Unknown type: %s' % args.type)
+
+        # scriptname_filer = "\(.*%s[^.]*\)\|" % os.path.sep
+        selectfiles = "-regex '\(.*%s[^.]*\)\|\(.*\.\(%s\)$\)'" % (os.path.sep, '\|'.join(select_exts))
+    find_flags = []
+    for find_flag in FIND_FLAGS:
+        if args.__dict__[find_flag] is True:
+            find_flags.append('-%s' % find_flag)
+    follow_arg = ('-L'
+                  if args.follow
+                  else '')
+    find_args = []
+    for find_arg in FIND_ARGS:
+        find_arg_val = args.__dict__[find_arg]
+        if find_arg_val is not None:
+            find_args.append('-%s %s' % (find_arg, find_arg_val))
+    cmd = 'find %s %s %s %s -type f %s %s -print0' % (follow_arg,
+                                                         ' '.join(args.path),
+                                                         ' '.join(find_args),
+                                                         ' '.join(find_flags),
+                                                         ignoredirs,
+                                                         selectfiles)
+    return cmd
+
+
+def create_defer_cmd(args):
+    if not args.max_args:
+        args.max_args = 100
+    # Must check for False, not None
+    if args.jobs is False:
+        cmd = 'xargs -0 -n %s' % (args.max_args)
+    else:
+        if args.jobs is None:
+            # substracts 1 of #cpus
+            args.jobs = '-1'
+
+        cmd = 'parallel -0 --use-cpus-instead-of-cores -n %s -m -j %s -k' % (args.max_args, args.jobs)
+    return cmd
+
+
+def create_grep_cmd(args):
+    grep_flags = []
+    for flag in GREP_DEFAULT_FLAGS:
+        grep_flags.append("--%s" % flag)
+    for grep_flag in GREP_FLAGS:
+        if args.__dict__[grep_flag] is True:
+            grep_flags.append('--%s' % grep_flag)
+    grep_args = []
+    for grep_arg in GREP_ARGS:
+        grep_arg_val = args.__dict__[grep_arg]
+        if grep_arg_val is not None:
+            grep_args.append('--%s %s' % (grep_arg, grep_arg_val))
+
+    if not args.pattern:
+        cmd = ''
+    else:
+        cmd = ('grep --binary-files=without-match %s %s %s' %
+               (' '.join(grep_flags),
+                ' '.join(grep_args),
+                args.pattern))
+    return cmd
+
+
+def create_cmd(args):
+    find_cmd = create_find_cmd(args)
+    defer_cmd = create_defer_cmd(args)
+    grep_cmd = create_grep_cmd(args)
+
+    full_cmd = '%s | %s %s' % (find_cmd, defer_cmd, grep_cmd)
+    return full_cmd
+
+
+def run_cmd(cmd):
+    try:
+        proc = subprocess.Popen(cmd,
+                                shell=True,
+                                cwd=os.getcwd(),
+                                preexec_fn=os.setsid)
+        proc.communicate()
+    except KeyboardInterrupt as keyi:
+        os.killpg(proc.pid, SIGTERM)
+        raise keyi
+    return proc.returncode
+
+
+def get_help():
+    return """Combines find, xargs/parallel and grep with whitelists of files to search.
+Searches code files, types can be restricted to one of %s""" % (','.join(sorted(MAPPING_EXT.keys())))
+
+
+def get_epilog():
+    return """Directories ignored: %s""" % (', '.join(IGNORE_DIRS.keys()))
+
+def add_option(parser, option, short=None, **kwargs):
+    if short is not None:
+        parser.add_argument(short, '--%s' % option,
+                            **kwargs)
+    else:
+        parser.add_argument('--%s' % option,
+                            **kwargs)
+
+
+def main():
+    argparser = ArgumentParser(description=get_help(),
+                               epilog=get_epilog())
+    argparser.add_argument('pattern',
+                           nargs='?',
+                           action='store',
+                           help='pattern to search for in files')
+    argparser.add_argument('path',
+                           action='append',
+                           nargs='*',
+                           help='paths to search')
+    argparser.add_argument('--type',
+                           action='append',
+                           help='only print command, do not execute')
+    argparser.add_argument('--type-help',
+                           metavar='TYPE',
+                           action='append',
+                           help='help on one type')
+    argparser.add_argument('--dry',
+                           action='store_true',
+                           help='only print command, do not execute')
+    argparser.add_argument('-v', '--version',
+                           action='store_true',
+                           help='Version info')
+    argparser.add_argument('-a', '--all-types',
+                           action='store_true',
+                           help='Search any file found, still excludes certain directories')
+    argparser.add_argument('-u', '--unrestricted',
+                           action='store_true',
+                           help='Search any file and any folder')
+    argparser.add_argument('-n', '--no-recurse',
+                           action='store_true',
+                           help='Do not recure into other folders')
+    argparser.add_argument('--follow',
+                           action='store_true',
+                           help='follow symlinks')
+
+    find_group = argparser.add_argument_group('optional find arguments')
+
+    for find_flag, (short, arg_help) in FIND_FLAGS.items():
+        add_option(find_group, find_flag, short=short, help=arg_help, dest=find_flag)
+
+    for find_arg, (short, arg_help) in FIND_ARGS.items():
+        add_option(find_group, find_arg, short=short, help=arg_help, dest=find_arg)
+
+    defer_group = argparser.add_argument_group('optional xargs arguments')
+
+    defer_group.add_argument('-j', '--jobs',
+                             metavar='N',
+                             nargs='?',
+                             action='store',
+                             default=False,
+                             help='Run search in parallel using N jobs')
+
+    defer_group.add_argument('--max-args',
+                             metavar='N',
+                             nargs='?',
+                             action='store',
+                             default=100,
+                             help='Use at most max-args arguments per grep command.')
+
+    grep_group = argparser.add_argument_group('optional grep arguments')
+
+    for grep_flag, (short, flag_help) in GREP_FLAGS.items():
+        add_option(grep_group, grep_flag, short=short, help=flag_help, dest=grep_flag)
+
+    for grep_arg, (short, arg_help) in GREP_ARGS.items():
+        add_option(grep_group, grep_arg, short=short, help=arg_help, dest=grep_arg)
+
+    # do not want to clutter help with all types
+    if '--help' in sys.argv:
+        args = argparser.parse_args()
+
+    for ext_type in MAPPING_EXT:
+        argparser.add_argument('--%s' % ext_type,
+                               action='store_true')
+
+    args = argparser.parse_args()
+
+    if args.no_recurse:
+        args.maxdepth = '1'
+
+
+    if args.version:
+        print("ackg version %s" % VERSION)
+        cmd = 'find --version; xargs --version;grep --version;parallel --version'
+        run_cmd(cmd)
+        sys.exit(0)
+
+    args.path = args.path[0]
+    if args.path == []:
+        args.path = ['.']
+    # print(args)
+    # print(args.__dict__)
+    cmd = create_cmd(args)
+    # print(cmd)
+    if args.type_help:
+        if args.type_help in MAPPING_EXT:
+            print("Type '%s' scans files with extentions %s" % (args.type_help, MAPPING_EXT[args.type_help]))
+        else:
+            argparser.error('Unknown type %s' % args.type_help)
+        sys.exit(0)
+    if args.dry:
+        print(cmd)
+    else:
+        sys.exit(run_cmd(cmd))
+
+
+if __name__ == '__main__':
+    main()
