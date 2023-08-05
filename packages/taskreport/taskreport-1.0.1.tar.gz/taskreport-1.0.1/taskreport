@@ -1,0 +1,204 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+#
+#  Copyright © 2012 Alicia Bel and Thibaut Horel
+#
+#  This program is free software: you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation, either version 3 of the License, or
+#  (at your option) any later version.
+
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+from __future__ import unicode_literals
+from argparse import ArgumentParser
+import ConfigParser
+import os
+import json
+from subprocess import Popen, PIPE
+from time import strftime
+import smtplib
+from email.mime.text import MIMEText
+from email import Charset
+from datetime import datetime
+from codecs import open
+from cgi import escape
+
+# redifines the utf-8 encoding used in the email module
+# so that it uses the quoted-printable Content-Transfer-Encoding instead of Base64
+# and avoid emails being classified as spam
+Charset.add_charset('utf-8',Charset.SHORTEST,Charset.QP,'utf-8')
+
+def parseConfigFile(configFileName):
+    parser = ConfigParser.ConfigParser()
+    try:
+        parser.readfp(open(configFileName, encoding='utf8'))
+    except ConfigParser.ParsingError:
+        print "Unable to read configuration file"
+        exit(1)
+
+    # get SMTP conf and mail conf from the configuration file
+    try:
+        smtpConf = {key: parser.get('SMTP', key)
+                    for key in ['userName', 'passwd', 'server', 'port']}
+        mailConf = {key: parser.get('MAIL', key) for key in ['address', 'subject']}
+    except ConfigParser.NoSectionError as s:
+        print s
+        exit(1)
+    except ConfigParser.NoOptionError as s:
+        print s
+        exit(1)
+
+    # split address list
+    mailConf["address"] = mailConf["address"].split(',')
+
+    #Filters
+    try:
+        filtersList = [ (s, parser.get(s, 'filter'))
+                        for s in parser.sections() if s != 'SMTP' and s != 'MAIL' ]
+    except ConfigParser.NoOptionError as s:     
+        print s
+        exit(1)
+
+    return smtpConf, mailConf, filtersList
+
+def section_to_JSON(title, filter):
+    raw_section = Popen("task {} export".format(filter),
+                        stdout=PIPE, shell=True).stdout.read().decode("utf8")
+    task_list = json.loads("[" + raw_section + "]")
+    section = {"title": title, "task_list": task_list}
+    return section
+
+def format_date(datetime_string, format="%a, %d %b"):
+    if not datetime_string:
+        return ""
+    return datetime.strptime(datetime_string[:-1], "%Y%m%dT%H%M%S").strftime(format)
+
+def format_task(task):
+    description = escape(task["description"])
+    try:
+        result = "\t<li><b>{}</b>: {}".format(format_date(task["due"]), description)
+    except KeyError: #no due date found)
+        result =  "\t<li>{}".format(description)
+    #Annotations
+    try:
+        annotations = task["annotations"]
+        result += "\n\t\t<ul>\n"
+        result += "\n".join(["\t\t\t<li>{}</li>".format(escape(a["description"]))
+                             for a in task["annotations"]]) + "\n"
+        result += "\t\t</ul>\n\t</li>"
+    except KeyError:
+        result += "</li>"
+
+    return result
+
+def format_section(section):
+
+    #section title
+    result = "<h2>{}</h2>\n".format(escape(section["title"]))
+
+    #section content
+    result += "<ul>\n"
+    result += '\n'.join(map(format_task, section["task_list"])) + "\n"
+    result += "</ul>"
+
+    return result
+
+def format_email(section_list):
+
+    formatted_section_list = [section for section in map(format_section, section_list)
+                              if section != None]
+
+    result = "<!doctype html>\n<html>\n<head>\n\t<style>\n\t</style>\n\
+             \t<meta charset=\"utf-8\" />\n\
+             \t<title>Task report</title>\n\
+             </head>\n<body>\n"
+    result += "\n\n".join(map(format_section, section_list)) + "\n"
+    result += "</body>\n</html>"
+
+    return result
+
+def send_email(email, smtpConf, mailConf):
+
+    #create message
+
+    # we encode the email with "utf8" before giving it as the first argument
+    # of MIMEText. We need to specify the encoding used as a third argument: this
+    # will add a header to the email specifying that the email was encoded
+    # using utf8, this is necessary if we want the email client on the receiving
+    # end to be able to decode the email.
+    message = MIMEText(email, "html", "utf-8")
+    message["Subject"] = mailConf["subject"]
+    message["From"] = smtpConf["userName"]
+
+    #open smtp session, send email and close session
+    session = smtplib.SMTP(smtpConf["server"], int(smtpConf["port"]))
+    session.ehlo()
+    session.starttls()
+    session.ehlo()
+    session.login(smtpConf["userName"], smtpConf["passwd"])
+
+    #one mail is sent for each address in the mailing list
+    for address in mailConf['address']:
+        message["To"] = address
+        session.sendmail(smtpConf["userName"], address, message.as_string())
+    session.close()
+
+if __name__ == '__main__':
+    #Arguments parsing
+    parser = ArgumentParser(description='Task report generation')
+    parser.add_argument('-c', dest='configFileName', default='~/.taskreport',
+                        help='Name of configuration file [~/.taskreport]')
+    parser.add_argument('-m', nargs='*', dest='mailingList', 
+                        help='Destination mail adresses')
+    parser.add_argument('-t', dest='templateFileName',
+                        help='File name of the template file to use')
+    parser.add_argument('-o', dest='outputFileName',
+                        help='Put the rendered html in the specified file\
+                              instead of sending it')
+    parser.add_argument('-d', action='store_true', dest='dry_run',
+                        help='Perform a dry-run: only print the generated html\
+                              to the standard output')
+    args = parser.parse_args()
+
+    #Parsing of configuration file
+    configFileName = os.path.expanduser(args.configFileName)
+    smtpConfig, mailConfig, filtersList = parseConfigFile(configFileName)
+
+    #Mailing list
+    if args.mailingList:
+        mailConfig["address"] = args.mailingList
+
+    #Report content generation and formatting
+    section_list = [section_to_JSON(f[0], f[1]) for f in filtersList]
+    section_list = [section for section in section_list if section["task_list"]]
+
+    if not section_list:
+        exit(0)
+
+    if args.templateFileName:
+       from jinja2 import FileSystemLoader, Environment
+
+       env = Environment(loader=FileSystemLoader(["/", os.getcwd()]))
+       env.filters['format_date'] = format_date
+       template = env.get_template(os.path.expanduser(args.templateFileName))
+       email = template.render(section_list=section_list)
+    else:
+       email = format_email(section_list)
+
+    email = email.encode("utf8")
+    if email:
+        if args.dry_run:
+            print email
+        elif args.outputFileName:
+            f = open(os.path.expanduser(args.outputFileName), "w")
+            f.write(email)
+            f.close()
+        else:
+            send_email(email, smtpConfig, mailConfig)
