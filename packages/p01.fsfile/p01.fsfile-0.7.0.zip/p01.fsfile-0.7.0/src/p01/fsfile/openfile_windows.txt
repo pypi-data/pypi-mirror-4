@@ -1,0 +1,176 @@
+Windows has the bad habit of not allowing to delete *open* files.
+
+Testing
+-------
+
+Now start with the testing setup:
+
+  >>> import os
+  >>> from p01.fsfile import interfaces
+  >>> from p01.fsfile import storage
+
+We also need a tmp directory:
+
+  >>> import os
+  >>> import tempfile
+  >>> tmpDir = tempfile.mkdtemp()
+  >>> tmpPath = os.path.join(tmpDir, 'tmp')
+  >>> flatStoragePath = os.path.join(tmpDir, 'flat')
+  >>> bigStoragePath = os.path.join(tmpDir, 'big')
+  >>> os.mkdir(tmpPath)
+  >>> os.mkdir(flatStoragePath)
+  >>> os.mkdir(bigStoragePath)
+
+  >>> tmpPath
+  '.../tmp'
+
+  >>> flatStoragePath
+  '.../flat'
+
+  >>> bigStoragePath
+  '.../big'
+
+Before we can start with IFSFile or IFSSTorage testing, we need to provide a
+ITMPFile. This tmp file provides some data which we can use for create a
+file storage file. Let's create a fake tmp file and use them in our FSFile.
+
+  >>> class TMPFile(object):
+  ...     size = 0
+  ...     _p_serial = None
+  ...     def __init__(self, tmpPath):
+  ...         self.tmpPath = tmpPath
+  ...         self._file = file(self.tmpPath, 'wb')
+  ...         _p_serial = 123
+  ...
+  ...     def read(self, size=-1):
+  ...         return self._file.read(size)
+  ...
+  ...     def close(self):
+  ...         self._file.close()
+  ...
+  ...     def seek(self, offset, whence=0):
+  ...         return self._file.seek(offset, whence)
+  ...
+  ...     def tell(self):
+  ...         if self.closed:
+  ...             return 0
+  ...         return self._file.tell()
+  ...
+  ...     def fileno(self):
+  ...         return self._file.fileno()
+  ...
+  ...     def __iter__(self):
+  ...         return self._file.__iter__()
+  ...
+  ...     def write(self, s):
+  ...         self.size = len(s)
+  ...         return self._file.write(s)
+  ... 
+  ...     def release(self):
+  ...         if os.path.exists(self.tmpPath):
+  ...             os.remove(self.tmpPath)
+  ... 
+  ...     @property
+  ...     def closed(self):
+  ...         return self._file.closed
+
+Create a flat storage:
+
+  >>> flatStorage = storage.FlatPathFSStorage(flatStoragePath)
+  >>> flatStorage
+  <FlatPathFSStorage u'' at u'.../flat'>
+
+Since our test depends on the ZODB _p_oid argument, we need to setup DB and
+commit our storage to this DB:
+
+  >>> from ZODB.tests import util
+  >>> import transaction
+  >>> db = util.DB()
+  >>> conn = db.open()
+  >>> conn.root()['Application'] = flatStorage
+  >>> transaction.commit()
+
+
+getFileReader
+-------------
+
+We can get an IFSFileReader adapter from a storage. This file reader adapter
+provides IResult and can be used as direct download wrapper. But first we need
+to register our IFSFileReader adapter:
+
+  >>> import zope.component
+  >>> from p01.fsfile.file import FSFileReader
+  >>> from p01.fsfile.file import getFileReader
+  >>> zope.component.provideAdapter(FSFileReader)
+  >>> zope.component.provideAdapter(getFileReader)
+
+Of course we didn't find the file we removed above, let's create a new file:
+
+  >>> tmpFilePath = os.path.abspath(os.path.join(flatStoragePath, u'tmp2.txt'))
+  >>> tmpFile = TMPFile(tmpFilePath)
+  >>> tmpFile.write('New file')
+  >>> tmpFile.close()
+  >>> fsFile = flatStorage.store(tmpFile, u'new.txt')
+
+Now try again to get the file reader from storage:
+
+  >>> firstFileReader = flatStorage.getFileReader(fsFile)
+  >>> firstFileReader
+  <FSFileReader for u'.../flat/0x00_0x00_0x00_0x00_0x00_0x00_0x00_0x03-...-...-...-...' from u''>
+
+We also can adapt IFSFileReader directly to the IFSFile. But first we need to
+register the IFSStorage as a utility:
+
+  >>> zope.component.provideUtility(flatStorage, interfaces.IFSStorage,
+  ...     name=flatStorage.storageName)
+
+  >>> secondFileReader = interfaces.IFSFileReader(fsFile)
+  >>> secondFileReader
+  <FSFileReader for u'.../flat/0x00_0x00_0x00_0x00_0x00_0x00_0x00_0x03-...-...-...-...' from u''>
+
+Now remove the new fs file from the file system:
+
+  >>> flatStorage.remove(fsFile)
+  >>> flatStorage.removeGhostFiles()
+  >>> os.listdir(flatStorage.path)
+  [u'0x00_0x00_0x00_0x00_0x00_0x00_0x00_0x03-...-...-...-...']
+
+As you can see the file didn't get removed from the file system how bad. And
+even worse we have to ignore the OSError for permission deny because this will
+force to keep a reference the open file handle and would not allow to remove
+the file for a couple seconds or minutes.
+
+Anyway, close the open file reader:
+
+  >>> firstFileReader.close()
+  >>> secondFileReader.close()
+
+Now we should be able to remove our file from the file system:
+
+  >>> os.listdir(flatStorage.path)
+  [u'0x00_0x00_0x00_0x00_0x00_0x00_0x00_0x03-...-...-...-...']
+
+  >>> flatStorage.remove(fsFile)
+  >>> flatStorage.removeGhostFiles()
+
+  >>> os.listdir(flatStorage.path)
+  []
+
+Now check if all directories are empty:
+
+  >>> os.listdir(tmpPath)
+  []
+
+  >>> os.listdir(flatStoragePath)
+  []
+
+  >>> os.listdir(tmpDir)
+  ['big', 'flat', 'tmp']
+
+And cleanup our directories:
+
+  >>> import shutil
+  >>> shutil.rmtree(tmpDir)
+
+  >>> os.path.exists(tmpDir)
+  False
