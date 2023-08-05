@@ -1,0 +1,10 @@
+__version__ = "0.2.6"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '860ff69a1cd71277ec1fa8bb81c336290d1a9a6a'
+__git_head_subject__ = 'Finished release v0.2.6.'
+__git_head_message__ = '# By Guy Rozendorn (2) and Tal Yalon (1)\n# Via Tal Yalon\n* release/v0.2.6:\n  trivial: add missing import to AsiInternalError\n  STORAGEMODEL-169\n  empty commit after version v0.2.5'
+__git_dirty_diff__ = ''
