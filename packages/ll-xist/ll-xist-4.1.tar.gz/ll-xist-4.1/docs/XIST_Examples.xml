@@ -1,0 +1,329 @@
+<?xml version='1.0' encoding='utf-8'?>
+<spc:wrap xmlns="http://xmlns.livinglogic.de/xist/ns/doc" xmlns:spc="http://xmlns.livinglogic.de/xist/ns/specials">
+<section><h>Creating &html;</h>
+
+<p>You can create and output &html; like this:</p>
+
+<prog>
+from ll.xist import xsc
+from ll.xist.ns import html, xml, meta
+
+node = xsc.Frag(
+	xml.XML(),
+	html.DocTypeXHTML10transitional(),
+	html.html(
+		html.head(
+			meta.contenttype(),
+			html.title("Example page")
+		),
+		html.body(
+			html.h1("Welcome to the example page"),
+			html.p(
+				"This example page has a link to the ",
+				html.a("Python home page", href="http://www.python.org/"),
+				"."
+			)
+		)
+	)
+)
+
+print node.conv().bytes(encoding="us-ascii")
+</prog>
+
+<p> You can also use <lit>with</lit> blocks (and the unary <lit>+</lit> operator) to generate the same &html;:</p>
+
+<prog>
+from ll.xist import xsc
+from ll.xist.ns import html, xml, meta
+
+with xsc.build():
+	with xsc.Frag() as node:
+		+xml.XML()
+		+html.DocTypeXHTML10transitional()
+		with html.html():
+			with html.head():
+				+meta.contenttype()
+				+html.title("Example page")
+			with html.body():
+				+html.h1("Welcome to the example page")
+				with html.p():
+					+xsc.Text("This example page has a link to the ")
+					with html.a():
+						with xsc.addattr("href"):
+							+xsc.Text(""http://www.python.org/"")
+						+xsc.Text("Python home page")
+					+xsc.Text(".")
+
+print node.conv().bytes(encoding="us-ascii")
+</prog>
+
+</section>
+
+
+<section><h>Defining new elements</h>
+
+<p>You can define new elements and how they should be converted to &html;
+(or other &xml; vocabularies) like this:</p>
+
+<prog>
+from ll.xist import xsc
+from ll.xist.ns import html, xml, meta
+
+class cheeseshoplink(xsc.Element):
+	class Attrs(xsc.Element.Attrs):
+		class name(xsc.TextAttr): pass
+
+	def convert(self, converter):
+		e = html.a(
+			self.attrs.name,
+			href=("http://cheeseshop.python.org/pypi/", self.attrs.name)
+		)
+		return e.convert(converter)
+
+names = ["ll-xist", "cx_Oracle", "PIL"]
+
+node = xsc.Frag(
+	xml.XML(),
+	html.DocTypeXHTML10transitional(),
+	html.html(
+		html.head(
+			meta.contenttype(),
+			html.title("Cheeseshop links")
+		),
+		html.body(
+			html.h1("Cheeseshop links"),
+			html.ul(html.li(cheeseshoplink(name=name)) for name in names)
+		)
+	)
+)
+
+print node.conv().bytes(encoding="us-ascii")
+</prog>
+
+</section>
+
+
+<section><h>Parsing &html;</h>
+
+<p>Parsing &html; is done like this:</p>
+
+<prog>
+from ll.xist import parse
+from ll.xist.ns import html
+
+node = parse.tree(
+	parse.URL("http://www.python.org/"),
+	parse.Tidy(),
+	parse.NS(html),
+	parse.Node()
+)
+</prog>
+
+</section>
+
+
+<section><h>Finding and counting nodes</h>
+
+<p>The following example shows you how to output the &url;s of all images
+inside links on Python's homepage:</p>
+
+<tty>
+<prompt>&gt;&gt;&gt; </prompt><input>from ll.xist import parse</input>
+<prompt>&gt;&gt;&gt; </prompt><input>from ll.xist.ns import html</input>
+<prompt>&gt;&gt;&gt; </prompt><input>node = parse.tree(</input>
+<prompt>... </prompt><input>	parse.URL("http://www.python.org/"),</input>
+<prompt>... </prompt><input>	parse.Expat(ns=True),</input>
+<prompt>... </prompt><input>	parse.Node()</input>
+<prompt>... </prompt><input>)</input>
+<prompt>&gt;&gt;&gt; </prompt><input>for img in node.walknodes(html.a/html.img):</input>
+<prompt>... </prompt><input>   print img.attrs.src</input>
+<prompt>... </prompt><input></input>
+http://www.python.org/images/python-logo.gif
+http://www.python.org/images/trans.gif
+http://www.python.org/images/trans.gif
+http://www.python.org/images/success/nasa.jpg
+</tty>
+
+<p>If you want to output both the links and the image &url;s, do the
+following:</p>
+
+<tty>
+<prompt>&gt;&gt;&gt; </prompt><input>from ll.xist import parse, xfind</input>
+<prompt>&gt;&gt;&gt; </prompt><input>from ll.xist.ns import html</input>
+<prompt>&gt;&gt;&gt; </prompt><input>node = parse.tree(</input>
+<prompt>... </prompt><input>	parse.URL("http://www.python.org/"),</input>
+<prompt>... </prompt><input>	parse.Expat(ns=True),</input>
+<prompt>... </prompt><input>	parse.Node()</input>
+<prompt>... </prompt><input>)</input>
+<prompt>&gt;&gt;&gt; </prompt><input>for path in node.walkpaths(html.a/html.img):</input>
+<prompt>... </prompt><input>   print path[-2].attrs.href, path[-1].attrs.src</input>
+http://www.python.org/ http://www.python.org/images/python-logo.gif
+http://www.python.org/#left%2dhand%2dnavigation http://www.python.org/images/trans.gif
+http://www.python.org/#content%2dbody http://www.python.org/images/trans.gif
+http://www.python.org/about/success/usa http://www.python.org/images/success/nasa.jpg
+</tty>
+
+<p>If you want to count the number of links on the page you can do the
+following:</p>
+
+<tty>
+<prompt>&gt;&gt;&gt; </prompt><input>from ll import misc</input>
+<prompt>&gt;&gt;&gt; </prompt><input>from ll.xist import parse</input>
+<prompt>&gt;&gt;&gt; </prompt><input>from ll.xist.ns import html</input>
+<prompt>&gt;&gt;&gt; </prompt><input>node = parse.tree(</input>
+<prompt>... </prompt><input>	parse.URL("http://www.python.org/"),</input>
+<prompt>... </prompt><input>	parse.Expat(ns=True),</input>
+<prompt>... </prompt><input>	parse.Node()</input>
+<prompt>... </prompt><input>)</input>
+<prompt>&gt;&gt;&gt; </prompt><input>misc.count(node.walk(html.a))</input>
+83
+</tty>
+
+</section>
+
+
+<section><h>Replacing text</h>
+
+<p>This example demonstrates how to make a copy of an &xml; tree with some
+text replacements:</p>
+
+<prog>
+from ll.xist import xsc, parse
+
+def p2p(node, converter):
+	if isinstance(node, xsc.Text):
+		node = node.replace("Python", "Parrot")
+		node = node.replace("python", "parrot")
+	return node
+
+node = parse.tree(
+	parse.URL("http://www.python.org/"),
+	parse.Expat(ns=True),
+	parse.Node()
+)
+
+node = node.mapped(p2p)
+node.write(open("parrot_index.html", "wb"))
+</prog>
+
+</section>
+
+
+<section><h>Converting &html; to &xist; code</h>
+
+<p>The class <pyref module="ll.xist.present" class="CodePresenter"><class>ll.xist.present.CodePresenter</class></pyref>
+makes it possible to output an &xist; tree as usable Python source code:</p>
+
+<tty>
+<prompt>&gt;&gt;&gt;</prompt> <input>from ll.xist import parse, present</input>
+<prompt>&gt;&gt;&gt; </prompt><input>node = parse.tree(</input>
+<prompt>... </prompt><input>	parse.URL("http://www.python.org/"),</input>
+<prompt>... </prompt><input>	parse.Expat(ns=True),</input>
+<prompt>... </prompt><input>	parse.Node()</input>
+<prompt>... </prompt><input>)</input>
+<prompt>&gt;&gt;&gt;</prompt> <input>print present.CodePresenter(node)</input>
+ll.xist.xsc.Frag(
+	ll.xist.ns.html.html(
+		ll.xist.ns.html.head(
+			ll.xist.ns.html.meta(
+				http_equiv='content-type',
+				content='text/html; charset=utf-8'
+			),
+			ll.xist.ns.html.title(
+				'Python Programming Language -- Official Website'
+			),
+			ll.xist.ns.html.meta(
+				name='keywords',
+				content='python programming language object oriented web free source'
+			),
+			<rep>[... Many lines deleted ...]</rep>
+						u'\n\tCopyright \xa9 1990-2007, ',
+						ll.xist.ns.html.a(
+							'Python Software Foundation',
+							href='http://www.python.org/psf'
+						),
+						ll.xist.ns.html.br(),
+						ll.xist.ns.html.a(
+							'Legal Statements',
+							href='http://www.python.org/about/legal'
+						),
+						'\n      ',
+						id='footer'
+					),
+					'\n\n\n    ',
+					id='body-main'
+				),
+				'\n  ',
+				id='content-body'
+			),
+			'\n'
+		),
+		lang='en'
+	)
+)
+</tty>
+</section>
+
+
+<section><h>Using converter contexts to pass information between elements</h>
+
+<p>Converter contexts can be used to pass information between elements.
+The following example will generate &html; <lit>&lt;h1&gt;</lit>, ..., <lit>&lt;h6&gt;</lit>
+elements according to the nesting depth of a <lit>&lt;section&gt;</lit> element.</p>
+
+<prog>
+from ll.xist import xsc
+
+class section(xsc.Element):
+	class Attrs(xsc.Element.Attrs):
+		class title(xsc.TextAttr): pass
+
+	class Context(xsc.Element.Context):
+		def __init__(self):
+			xsc.Element.Context.__init__(self)
+			self.level = 1
+
+	def convert(self, converter):
+		context = converter[self]
+		elementname = "h{}".format(min(context.level, 6))
+		node = xsc.Frag(
+			getattr(converter.target, elementname)(self.attrs.title),
+			self.content
+		)
+		context.level += 1
+		node = node.convert(converter)
+		context.level -= 1
+		return node
+
+with xsc.build():
+	with section(title="Python Tutorial") as document:
+		with section(title="Using the Python Interpreter"):
+			with section(title="Invoking the Interpreter"):
+				+section(title="Argument Passing")
+				+section(title="Interactive Mode")
+			with section(title="The Interpreter and Its Environment"):
+				+section(title="Error Handling")
+				+section(title="Executable Python Scripts")
+				+section(title="Source Code Encoding")
+				+section(title="The Interactive Startup File")
+
+print document.conv().bytes()
+</prog>
+
+<p>The output of this script will be:</p>
+
+<tty>
+&lt;h1&gt;Python Tutorial&lt;/h1&gt;
+&lt;h2&gt;Using the Python Interpreter&lt;/h2&gt;
+&lt;h3&gt;Invoking the Interpreter&lt;/h3&gt;
+&lt;h4&gt;Argument Passing&lt;/h4&gt;
+&lt;h4&gt;Interactive Mode&lt;/h4&gt;
+&lt;h3&gt;The Interpreter and Its Environment&lt;/h3&gt;
+&lt;h4&gt;Error Handling&lt;/h4&gt;
+&lt;h4&gt;Executable Python Scripts&lt;/h4&gt;
+&lt;h4&gt;Source Code Encoding&lt;/h4&gt;
+&lt;h4&gt;The Interactive Startup File&lt;/h4&gt;
+</tty>
+
+</section>
+</spc:wrap>
