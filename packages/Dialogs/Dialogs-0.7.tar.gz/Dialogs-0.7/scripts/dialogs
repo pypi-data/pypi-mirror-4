@@ -1,0 +1,196 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import sys
+import os
+import getopt
+import logging
+import time
+
+from dialogs.version import DIALOGS_VERSION
+
+GOOGLE_API_KEY= "AIzaSyCjUiaoRKX7BZ6twcQj0yW1Y6ElstWeELA"
+
+def usage():
+    print """The LAAS-CNRS 'Dialogs' module (v.""" + DIALOGS_VERSION + """).
+
+Usage:
+dialog [OPTIONS] [speaker]
+  -h, --help            Displays this message and exits
+  -v, --version         Returns Dialogs version
+  -t, --test            Runs unit-tests
+  -d, --debug           Sets verbosity to debug
+  -s, --silent          The module won't output anything
+  -p, --process=        Processes the given sentence and exits
+  --demo                Start Dialogs in demo mode (insert pause between each steps)
+  --speech              Use speech recognition instead of text input
+  --lang=               If using speech recognition, the input langage (default: en-US)
+  --orohost=            Host of ORO ontology server
+  --oroport=            Port of ORO ontology server
+
+This module reads on stdin user input in natural language, parse it, call 
+resolution routines when ambiguous concepts are used, and finally generate RDF 
+statements that are an interpretation of the input.
+
+It includes as well a verbalization module that conversely turns RDF statements
+into a sentence in natural language.
+
+More details on http://dialogs.openrobots.org
+"""
+
+def unit_tests():
+    print("Please run the 'dialogs_test' Python script.")
+
+
+logger = logging.getLogger('dialogs')
+logger.setLevel(logging.WARNING)
+
+py_logger = logging.getLogger('pyoro')
+py_logger.setLevel(logging.CRITICAL)
+
+
+#hack that tries to find out the current prefix and then the data directory
+DATA_DIR = os.path.abspath(__file__).split('bin')[0].split('src')[0] + '/share/dialogs/'
+
+#default for ORO_SERVER
+ORO_HOST = 'localhost'
+ORO_PORT = 6969
+
+#By default, don't start in demo mode
+demo = False
+
+#By default, use text input
+use_speech = False
+reco = None
+translator = None
+lang = 'en-US'
+single_sentence = None
+
+try:
+    optlist, args = getopt.getopt(sys.argv[1:], 'htdsvp:', ['help', 'test', 'debug', 'silent', 'speech', 'lang=', 'version', 'process=', 'demo', 'orohost=', 'oroport='])
+except getopt.GetoptError, err:
+    # print help information and exit:
+    print str(err) # will print something like "option -a not recognized"
+    usage()
+    sys.exit(2)
+
+for o, a in optlist:
+    if o in ("-h", "--help"):
+        usage()
+        sys.exit(0)
+    elif o in ("-v", "--version"):
+        print("dialog - " + DIALOGS_VERSION)
+        sys.exit(0)
+    elif o in ("-t", "--test"):
+        unit_tests()
+        sys.exit(0)
+    elif o in ("-d", "--debug"):
+        logger.setLevel(logging.DEBUG)
+    elif o in ("-s", "--silent"):
+        logger.setLevel(logging.CRITICAL)
+    elif o in ("-p", "--process"):
+        single_sentence = a
+    elif o in ("--speech"):
+        from gspeett import gspeett
+        use_speech = True
+    elif o in ("--lang"):
+        lang = a
+    elif o in ("--demo"):
+        demo = True
+        logger.setLevel(logging.DEBUG)
+    elif o in ("--orohost"):
+        ORO_HOST = a
+    elif o in ("--oroport"):
+        ORO_PORT = int(a)
+    else:
+        print "Unhandled option " + o
+        usage()
+        sys.exit(2)
+
+if args:
+    speaker = args[0]
+else:
+    speaker = None
+
+log_handler = logging.StreamHandler()
+formatter = logging.Formatter("%(message)s")
+
+# add formatter to log_handler
+log_handler.setFormatter(formatter)
+# add log_handler to logger
+logger.addHandler(log_handler)
+
+#Loggers are set, we can import other modules.
+
+from dialogs.resources_manager import ResourcePool
+from dialogs.dialog_core import Dialog
+
+logger.info("**** DIALOGS module ****")
+logger.info("v." + DIALOGS_VERSION + "\n")
+
+# Do all resource management: loading word dictionaries, connecting to
+# the ontology server...
+ResourcePool().init(DATA_DIR, ORO_HOST, ORO_PORT)
+
+if speaker and ResourcePool().ontology_server:
+    ResourcePool().ontology_server.add([speaker + " rdf:type Agent"])
+    logger.info(speaker + " added to the ontology")
+
+dialog = Dialog(speaker, demo = demo)
+
+dialog.start()
+
+
+if single_sentence:
+    dialog.input(single_sentence)
+    time.sleep(0.1) # Leave some time to dialog to process the input
+    dialog.stop()
+else:
+    
+    if use_speech:
+        reco = gspeett.GoogleVoiceRecognition(lang)
+        if lang != 'en-US':
+            translator = gspeett.GoogleTranslator(GOOGLE_API_KEY, to='en-US')
+        
+    running = True
+    while running:
+        if not dialog.is_alive(): # ...the Dialog thread has been interupted? (for instance, user saying 'Goodbye')
+            break
+        
+        try:
+            
+            if use_speech:
+                if dialog.waiting_for_more_info or not dialog.in_interaction:
+                    res = []
+                    while len(res)==0:
+                        
+                        logger.info("Speak now!")
+                        res = reco.mic()
+                    
+                    if lang != 'en-US':
+                        res = translator.translate(res[0])
+                        logger.info(res)
+                        dialog.input(res)
+                    else:
+                        dialog.input(res[0])
+                    
+            else:
+                data = sys.stdin.readline()
+                if data != "":
+                    dialog.input(data)
+            
+            time.sleep(0.1) # Leave some time to dialog to process the input, in case of 'Goodbye'
+            
+            
+        except KeyboardInterrupt:
+            logger.info("Leaving now.")
+            running = False
+            dialog.stop()
+
+dialog.join()
+
+#Closing the connection to ORO
+ResourcePool().close()
+
+logger.info("Bye bye!")
+sys.exit()
