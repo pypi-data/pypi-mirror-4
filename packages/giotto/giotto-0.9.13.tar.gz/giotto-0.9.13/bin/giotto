@@ -1,0 +1,110 @@
+#!/usr/bin/env python
+import argparse
+import sys
+import stat
+import os
+from jinja2 import Template
+from giotto.demo import demo_application
+
+parser = argparse.ArgumentParser(
+    description="""Giotto Project Creator. Use this utility to creat a new Giotto project,
+     or to add a new concrete controller to an existing project"""
+)
+parser.add_argument('--demo', action='store_true', help='Add the demo application')
+parser.add_argument('--http', action='store_true', help='Add the HTTP controller')
+parser.add_argument('--irc', action='store_true', help='Add the IRC controller')
+parser.add_argument('--cmd', action='store_true', help='Add the command line controller')
+args = parser.parse_args()
+
+config_template = '''import os
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from giotto.utils import better_base
+
+Base = better_base()
+
+from sqlite3 import dbapi2 as sqlite
+engine = create_engine('sqlite+pysqlite:///file.db', module=sqlite)
+
+session = sessionmaker(bind=engine)()
+cache = None
+auth_session = None
+
+project_path = os.path.dirname(os.path.abspath(__file__))
+
+from jinja2 import Environment, FileSystemLoader
+jinja2_env = Environment(loader=FileSystemLoader(project_path))
+
+debug = True
+error_template = None'''
+
+template_controller = '''\
+#!/usr/bin/env python
+# coding: utf-8
+
+import argparse
+import sys
+from giotto.utils import initialize_giotto
+
+import config
+initialize_giotto(config)
+
+from manifest import manifest
+'''
+
+blank_application = '''from giotto.programs import GiottoProgram, ProgramManifest
+from giotto.views import BasicView
+
+manifest = ProgramManifest({
+    '': GiottoProgram(
+        model=[lambda: "hello world"],
+        view=BasicView
+    )
+})'''
+
+try:
+    open('manifest.py', 'r')
+except IOError:
+    # create a blank manifest file (if one doesn't already exist)
+    f = open('manifest.py', 'w')
+    if args.demo:
+        f.write(demo_application)
+    else:
+        f.write(blank_application)
+
+try:
+    open('config.py', 'r')
+except IOError:
+    # create a blank config file (if one doesn't already exist)
+    f = open('config.py', 'w')
+    f.write(config_template)
+
+if args.http:
+    from giotto.controllers.http import http_execution_snippet
+    filename = 'http'
+    f = open(filename, 'w')
+    st = os.stat(filename)
+    f.write(template_controller + http_execution_snippet)
+    os.chmod(filename, st.st_mode | stat.S_IEXEC)
+
+if args.irc:
+    from giotto.controllers.irc_ import irc_execution_snippet
+    filename = 'irc'
+    f = open(filename, 'w')
+    f.write(template_controller + irc_execution_snippet)
+    st = os.stat(filename)
+    os.chmod(filename, st.st_mode | stat.S_IEXEC)
+
+if args.cmd:
+    from giotto.controllers.cmd import cmd_execution_snippet
+    filename = 'cmd'
+    f = open(filename, 'w')
+    f.write(template_controller + cmd_execution_snippet)
+    st = os.stat(filename)
+    os.chmod(filename, st.st_mode | stat.S_IEXEC)
+
+
+
+
+
+
