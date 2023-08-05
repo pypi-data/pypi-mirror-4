@@ -1,0 +1,6 @@
+from test_settings import *  # noqa
+
+
+PAYLINE_MERCHANT_ID = '11140893378662'
+PAYLINE_KEY = 'jmsMElMAegcMYcFH4igU'
+PAYLINE_VADNBR = '1234567'
