@@ -1,0 +1,166 @@
+#!/usr/bin/env python
+# Copyright (C) 2011,2012 Eric Leblond <eric@regit.org>
+#
+# You can copy, redistribute or modify this Program under the terms of
+# the GNU General Public License version 3 as published by the Free
+# Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# version 3 along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+# 02110-1301, USA.
+
+import argparse
+import sys
+import os
+import bisect
+import ConfigParser
+from coccigrep import COCCIGREP_VERSION
+from coccigrep import CocciGrep, CocciGrepConfig, CocciException
+from coccigrep import CocciException, CocciRunException, CocciConfigException
+
+cocciinst = CocciGrepConfig()
+coccigrep = CocciGrep()
+
+try:
+    local_cocci_dir = cocciinst.get('global', 'local_cocci_dir')
+    if local_cocci_dir:
+        dirList = []
+        try:
+            dirList = os.listdir(local_cocci_dir)
+            full_dirList = []
+            for cfile in dirList:
+                full_dirList.append(os.path.join(local_cocci_dir,cfile))
+            coccigrep.add_operations(full_dirList)
+        except OSError:
+            sys.stderr.write('Warning: unable to open local cocci dir \"%s\"\n' % (local_cocci_dir))
+        except:
+            pass
+except ConfigParser.NoOptionError:
+    pass
+operations = coccigrep.get_operations()
+
+parser = argparse.ArgumentParser(prog='coccigrep', description='Semantic grep based on coccinelle',
+                                 epilog='Run `coccigrep -L -v` to a complete description of available search.')
+parser.add_argument('-t', '--type', default=None, help='C type that is being looked for')
+parser.add_argument('-a', '--attribute', default=None, help='C attribute that is set')
+parser.add_argument('-o', '--operation', default='used', help='Operation on structure', choices=operations)
+parser.add_argument('-s', '--sp', default=None, help='Semantic patch to use')
+parser.add_argument('-C', '--context', dest='context', type=int, default=0, help='Number of lines before and after context')
+parser.add_argument('-A', '--after-context', dest='after', type=int, default=cocciinst.getint('output', 'after'), help='Number of lines after context')
+parser.add_argument('-B', '--before-context', dest='before', type=int, default=cocciinst.getint('output', 'before'), help='Number of lines before context')
+parser.add_argument('-p', '--process', dest='ncpus', type=int, default=cocciinst.getint('global', 'concurrency_level'), help='Number of cpus to use')
+parser.add_argument('-c', '--color', action='store_const', default=cocciinst.getboolean('output', 'color'), const=True, help='colorize output (need pygments)')
+parser.add_argument('--cpp', action='store_const', default=cocciinst.getboolean('global', 'cpp'), const=True, help='Activate coccinelle C++ support')
+parser.add_argument('-V', '--vim', action='store_const', const=True, default=cocciinst.getboolean('output', 'vim'), help='vim output')
+parser.add_argument('-E', '--emacs', action='store_const', const=True, default=cocciinst.getboolean('output', 'emacs'), help='emacs output')
+parser.add_argument('-f', '--output-format', dest='oformat', default=cocciinst.get('output', 'format'), help='colorize format for output', choices=['term', 'html'])
+parser.add_argument('-v', '--verbose', action='store_const', const=True, help='verbose output (including coccinelle error)', default=cocciinst.getboolean('global', 'verbose'))
+parser.add_argument('file', metavar='file', nargs='*', help='List of files', default=None)
+parser.add_argument('-L', '--list-operations', const=True, dest='listop', action='store_const', help='List available operations', default=None)
+parser.add_argument('-l', '--file-list', default=None, dest='file_list', help='File containing a list of files to search in')
+parser.add_argument('-U', '--undefined', default=None , help='Set define variables to unset when parsing code (comma as separator)')
+parser.add_argument('-D', '--defined', default=None , help='Set define variables to set when parsing code (comma as separator)')
+parser.add_argument('--version', action='version', version='%(prog)s ' + COCCIGREP_VERSION)
+
+args = parser.parse_args()
+
+try:
+    spatch = cocciinst.get('global', 'spatch')
+    coccigrep.set_spatch_cmd(spatch)
+except ConfigParser.NoOptionError:
+    pass
+
+if args.listop:
+    if args.verbose == False:
+        print ", ".join(operations)
+    else:
+        for operation in operations:
+            print coccigrep.get_operation_info(operation)
+    sys.exit(0)
+
+if args.attribute != None and args.operation == 'used':
+    args.operation = 'deref'
+
+if args.verbose:
+    coccigrep.set_verbose()
+
+if args.undefined:
+    coccigrep.add_options(["--undefined", args.undefined])
+
+if args.defined:
+    coccigrep.add_options(["--defined", args.defined])
+
+if args.sp != None:
+    coccigrep.add_operations([args.sp])
+    args.operation = coccigrep.get_operation_name(args.sp)
+
+if args.cpp:
+    if args.verbose:
+        sys.stdout.write("Activating C++ support.\n")
+    coccigrep.set_cpp()
+
+if args.ncpus > 1:
+    if not coccigrep.set_concurrency(args.ncpus):
+        sys.stderr.write("Warning: Concurrency not available on this system.\n")
+
+if args.file_list:
+	for line in open(args.file_list, 'r'):
+		args.file.append(line.rstrip())
+
+# Find all the files to parse
+files = []
+for arg in args.file:
+    if os.path.isfile(arg):
+        position = bisect.bisect(files, arg)
+        if ((arg.endswith((".c", ".h")) or
+            (arg.endswith(".cpp") and args.cpp)) and
+            (position == 0 or files[position-1] != arg)):
+            bisect.insort(files, arg)
+    elif os.path.isdir(arg):
+        for dirpath, dirnames, filenames in os.walk(arg):
+            for filename in filenames:
+                complete_name = os.path.join(dirpath, filename)
+                position = bisect.bisect(files, complete_name)
+                if ((complete_name.endswith((".c", ".h")) or
+                    (complete_name.endswith(".cpp") and args.cpp)) and
+                    (position == 0 or files[position-1] != complete_name)):
+                    bisect.insort(files, complete_name)
+    else:
+        sys.stderr.write("'%s' is neither a file or a directory cannot continue.\n" % arg)
+        sys.exit(1)
+
+try:
+    coccigrep.setup(args.type, args.attribute, args.operation)
+    coccigrep.run(files)
+except CocciRunException, err:
+    sys.stderr.write("Runtime error: " + str(err) + "\n")
+    sys.exit(1)
+except CocciConfigException, err:
+    sys.stderr.write("Config error: " + str(err) + "\n")
+    sys.exit(1)
+
+if args.context:
+    args.after = args.context
+    args.before = args.context
+
+if args.vim:
+    output = coccigrep.display(mode='vim')
+elif args.emacs:
+    output = coccigrep.display(mode='emacs')
+elif args.color:
+    output = coccigrep.display(mode='color', oformat=args.oformat, before=args.before, after=args.after)
+else:
+    output = coccigrep.display(mode='raw', before=args.before, after=args.after)
+
+if len(output) > 0:
+    print output
+else:
+    if args.verbose:
+        sys.stderr.write("No match found in %s\n" % (",".join(args.file)))
+    sys.exit(1)
