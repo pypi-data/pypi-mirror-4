@@ -1,0 +1,10 @@
+__version__ = "0.5.6-develop-2-g7dcb929"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = 'develop'
+__git_remote_tracking_branch__ = 'origin/develop'
+__git_remote_url__ = 'git@gitserver:/host/infi-projector.git'
+__git_head_hash__ = '7dcb9297eba26eecca091b109f704654ed29da67'
+__git_head_subject__ = 'HOSTDEV-619 using a speicifc version of zc.buildout when bootstrapping'
+__git_head_message__ = ''
+__git_dirty_diff__ = ''
