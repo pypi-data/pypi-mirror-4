@@ -1,0 +1,10 @@
+__version__ = "0.0.1-develop-15-gfbe1846"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = 'develop'
+__git_remote_tracking_branch__ = 'origin/develop'
+__git_remote_url__ = 'git@gitserver:host/infi-jira-cli.git'
+__git_head_hash__ = 'fbe184674a6a70b2eaa7c8c73fece1aa3dd09636'
+__git_head_subject__ = 'HOSTDEV-556 fix'
+__git_head_message__ = ''
+__git_dirty_diff__ = ''
