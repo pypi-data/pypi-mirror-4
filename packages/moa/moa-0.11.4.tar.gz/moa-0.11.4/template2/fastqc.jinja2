@@ -1,0 +1,111 @@
+### run
+
+mkdir -p `dirname {{ touch }}`
+mkdir -p {{ output_dir }}
+
+fastqc {{ input }} --outdir={{ output_dir }}
+touch {{ touch }}
+
+### report
+#!/usr/bin/env python
+
+import os
+
+fields = [x for x in """
+Basic Statistics
+Per base sequence quality
+Per sequence quality scores
+Per base sequence content
+Per base GC content
+Per sequence GC content
+Per base N content
+Sequence Length Distribution
+Sequence Duplication Levels
+Overrepresented sequences
+Kmer Content
+""".split("\n") if x]
+
+data = {}
+xdata = {}
+for name in os.listdir('{{output_dir}}'):
+    report_path = os.path.join('{{output_dir}}', name)
+    if name[-7:] != '_fastqc': continue
+    if not os.path.isdir(name): continue
+    rid = name[:-7]
+    summary_file = os.path.join(report_path, 'summary.txt')
+    stats = []
+    with open(summary_file) as F:
+        data[rid] = [x.split()[0] for x in F.read().split("\n") if x.strip()]
+        
+    data_file = os.path.join(report_path, 'fastqc_data.txt')    
+    with open(data_file) as F:
+        xdata[rid] = {}        
+        for line in F:
+            ls = line.strip().split("\t",1)
+            if line.find('Encoding') == 0:
+                xdata[rid]['Encoding'] = ls[1]
+            if line.find('Total Sequences') == 0:
+                xdata[rid]['Noseqs'] = ls[1]
+            if line.find('Sequence length') == 0:
+                xdata[rid]['Seqlen'] = ls[1]
+            if line.find('%GC') == 0:
+                xdata[rid]['GC'] = ls[1]
+
+kys = data.keys()
+kys.sort()
+names = [ 'overall', 'base<br>Qual', 'seq<br>Qual',
+          'content', 'base<br>GC', 'seq<br>GC',
+          'base<br>N', 'seq<br>len', 'dupl', 'over<br>rep',
+          'kmer']
+
+with open('report.md', 'w') as F:
+    F.write("FastQC report\n=============\n\n")
+    F.write("<table cellspacing='0' cellpadding='4'>\n")
+    F.write("<tr><td colspan='5'></td>")
+    for i in range(len(fields)):
+        F.write("<th>%s</th>" % (i+1))
+    F.write("</tr><tr><td></td>")
+    F.write("<td style='font-size: 60%; vertical-align: top;'>encoding</td>")
+    F.write("<td style='font-size: 60%; vertical-align: top;'>no<br>reads</td>")
+    F.write("<td style='font-size: 60%; vertical-align: top;'>read<br>len</td>")
+    F.write("<td style='font-size: 60%; vertical-align: top;'>GC</td>")
+
+    for i in names:
+        F.write("<td style='font-size: 60%%; vertical-align: top;'>%s</td>\n" % i)
+    F.write('</tr>')
+                
+
+    for k in kys:
+        F.write("<tr>")
+        F.write("<th style='border-right: 1px solid black; padding-right: 10px;'>\n")
+        F.write("%s</a></th>\n" % k)
+        F.write("<td style='border-right: 1px solid black; font-size: 60%%'>%s</td>" %
+                xdata[k]['Encoding'])
+        F.write("<td style='border-right: 1px solid black; font-size: 60%%'>%s</td>" %
+                xdata[k]['Noseqs'])
+        F.write("<td style='border-right: 1px solid black; font-size: 60%%'>%s</td>" %
+                xdata[k]['Seqlen'])
+        F.write("<td style='border-right: 1px solid black; font-size: 60%%'>%s</td>" %
+                xdata[k]['GC'])
+        for i, s in enumerate(data[k]):
+            F.write("<td><a style='font-size:90%;color:")
+            if s == 'PASS':
+                F.write("green")
+            elif s == 'FAIL':
+                F.write("red")
+            else:
+                F.write("gold")
+            F.write("' href='%s_fastqc/fastqc_report.html#M%d'>%s</a></td>\n" % (k,i, s ))
+
+        F.write("</tr>\n")
+    F.write("</table>\n")
+    F.write("<br>")
+    F.write("<table>\n")
+    F.write("<tr><th colspan='4'>Column descriptions</th></tr><tr>\n")
+    for i, f in enumerate(fields):
+        if not i % 2:
+            F.write('</tr>\n<tr>')
+        F.write("<th style='padding: 5px'>%s</th><td style='padding: 5px'>%s</td>" % (i+1, f))
+    F.write("</tr></table>\n")
+
+
