@@ -1,0 +1,131 @@
+# encoding: utf-8
+import datetime
+from south.db import db
+from south.v2 import SchemaMigration
+from django.db import models
+
+class Migration(SchemaMigration):
+
+    def forwards(self, orm):
+        
+        # Adding model 'SEO'
+        db.create_table('asv_seo_seo', (
+            ('id', self.gf('django.db.models.fields.AutoField')(primary_key=True)),
+            ('content_type', self.gf('django.db.models.fields.related.ForeignKey')(to=orm['contenttypes.ContentType'])),
+            ('object_id', self.gf('django.db.models.fields.PositiveIntegerField')()),
+            ('title_en', self.gf('django.db.models.fields.CharField')(max_length=128, blank=True)),
+            ('title_ru', self.gf('django.db.models.fields.CharField')(max_length=128, blank=True)),
+            ('keywords_en', self.gf('django.db.models.fields.TextField')(blank=True)),
+            ('keywords_ru', self.gf('django.db.models.fields.TextField')(blank=True)),
+            ('description_en', self.gf('django.db.models.fields.TextField')(blank=True)),
+            ('description_ru', self.gf('django.db.models.fields.TextField')(blank=True)),
+            ('de', self.gf('django.db.models.fields.DateTimeField')(auto_now_add=True, blank=True)),
+            ('lm', self.gf('django.db.models.fields.DateTimeField')(auto_now=True, blank=True)),
+        ))
+        db.send_create_signal('asv_seo', ['SEO'])
+
+        # Adding model 'SEO4articles'
+        db.create_table('asv_seo_seo4articles', (
+            ('id', self.gf('django.db.models.fields.AutoField')(primary_key=True)),
+            ('content_type', self.gf('django.db.models.fields.related.ForeignKey')(to=orm['contenttypes.ContentType'])),
+            ('object_id', self.gf('django.db.models.fields.PositiveIntegerField')()),
+            ('lang', self.gf('django.db.models.fields.CharField')(default=u'ru', max_length=2, blank=True)),
+            ('title', self.gf('django.db.models.fields.CharField')(max_length=128, blank=True)),
+            ('keywords', self.gf('django.db.models.fields.TextField')(blank=True)),
+            ('description', self.gf('django.db.models.fields.TextField')(blank=True)),
+            ('de', self.gf('django.db.models.fields.DateTimeField')(auto_now_add=True, blank=True)),
+            ('lm', self.gf('django.db.models.fields.DateTimeField')(auto_now=True, blank=True)),
+        ))
+        db.send_create_signal('asv_seo', ['SEO4articles'])
+
+        # Adding model 'AnalPerm'
+        db.create_table('asv_seo_analperm', (
+            ('id', self.gf('django.db.models.fields.AutoField')(primary_key=True)),
+            ('active', self.gf('django.db.models.fields.BooleanField')(default=True)),
+            ('system', self.gf('django.db.models.fields.SlugField')(max_length=32, db_index=True)),
+            ('key', self.gf('django.db.models.fields.SlugField')(unique=True, max_length=512, db_index=True)),
+            ('name', self.gf('django.db.models.fields.CharField')(max_length=512, blank=True)),
+        ))
+        db.send_create_signal('asv_seo', ['AnalPerm'])
+
+        # Adding model 'WebCounter'
+        db.create_table('asv_seo_webcounter', (
+            ('id', self.gf('django.db.models.fields.AutoField')(primary_key=True)),
+            ('active', self.gf('django.db.models.fields.BooleanField')(default=True)),
+            ('name', self.gf('django.db.models.fields.CharField')(max_length=128, blank=True)),
+            ('code', self.gf('django.db.models.fields.TextField')()),
+            ('de', self.gf('django.db.models.fields.DateTimeField')(auto_now_add=True, blank=True)),
+            ('lm', self.gf('django.db.models.fields.DateTimeField')(auto_now=True, blank=True)),
+        ))
+        db.send_create_signal('asv_seo', ['WebCounter'])
+
+
+    def backwards(self, orm):
+        
+        # Deleting model 'SEO'
+        db.delete_table('asv_seo_seo')
+
+        # Deleting model 'SEO4articles'
+        db.delete_table('asv_seo_seo4articles')
+
+        # Deleting model 'AnalPerm'
+        db.delete_table('asv_seo_analperm')
+
+        # Deleting model 'WebCounter'
+        db.delete_table('asv_seo_webcounter')
+
+
+    models = {
+        'asv_seo.analperm': {
+            'Meta': {'ordering': "(u'system', u'name')", 'object_name': 'AnalPerm'},
+            'active': ('django.db.models.fields.BooleanField', [], {'default': 'True'}),
+            'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
+            'key': ('django.db.models.fields.SlugField', [], {'unique': 'True', 'max_length': '512', 'db_index': 'True'}),
+            'name': ('django.db.models.fields.CharField', [], {'max_length': '512', 'blank': 'True'}),
+            'system': ('django.db.models.fields.SlugField', [], {'max_length': '32', 'db_index': 'True'})
+        },
+        'asv_seo.seo': {
+            'Meta': {'ordering': "(u'content_type', u'de')", 'object_name': 'SEO'},
+            'content_type': ('django.db.models.fields.related.ForeignKey', [], {'to': "orm['contenttypes.ContentType']"}),
+            'de': ('django.db.models.fields.DateTimeField', [], {'auto_now_add': 'True', 'blank': 'True'}),
+            'description_en': ('django.db.models.fields.TextField', [], {'blank': 'True'}),
+            'description_ru': ('django.db.models.fields.TextField', [], {'blank': 'True'}),
+            'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
+            'keywords_en': ('django.db.models.fields.TextField', [], {'blank': 'True'}),
+            'keywords_ru': ('django.db.models.fields.TextField', [], {'blank': 'True'}),
+            'lm': ('django.db.models.fields.DateTimeField', [], {'auto_now': 'True', 'blank': 'True'}),
+            'object_id': ('django.db.models.fields.PositiveIntegerField', [], {}),
+            'title_en': ('django.db.models.fields.CharField', [], {'max_length': '128', 'blank': 'True'}),
+            'title_ru': ('django.db.models.fields.CharField', [], {'max_length': '128', 'blank': 'True'})
+        },
+        'asv_seo.seo4articles': {
+            'Meta': {'ordering': "(u'content_type', u'de')", 'object_name': 'SEO4articles'},
+            'content_type': ('django.db.models.fields.related.ForeignKey', [], {'to': "orm['contenttypes.ContentType']"}),
+            'de': ('django.db.models.fields.DateTimeField', [], {'auto_now_add': 'True', 'blank': 'True'}),
+            'description': ('django.db.models.fields.TextField', [], {'blank': 'True'}),
+            'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
+            'keywords': ('django.db.models.fields.TextField', [], {'blank': 'True'}),
+            'lang': ('django.db.models.fields.CharField', [], {'default': "u'ru'", 'max_length': '2', 'blank': 'True'}),
+            'lm': ('django.db.models.fields.DateTimeField', [], {'auto_now': 'True', 'blank': 'True'}),
+            'object_id': ('django.db.models.fields.PositiveIntegerField', [], {}),
+            'title': ('django.db.models.fields.CharField', [], {'max_length': '128', 'blank': 'True'})
+        },
+        'asv_seo.webcounter': {
+            'Meta': {'ordering': "(u'lm',)", 'object_name': 'WebCounter'},
+            'active': ('django.db.models.fields.BooleanField', [], {'default': 'True'}),
+            'code': ('django.db.models.fields.TextField', [], {}),
+            'de': ('django.db.models.fields.DateTimeField', [], {'auto_now_add': 'True', 'blank': 'True'}),
+            'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
+            'lm': ('django.db.models.fields.DateTimeField', [], {'auto_now': 'True', 'blank': 'True'}),
+            'name': ('django.db.models.fields.CharField', [], {'max_length': '128', 'blank': 'True'})
+        },
+        'contenttypes.contenttype': {
+            'Meta': {'ordering': "('name',)", 'unique_together': "(('app_label', 'model'),)", 'object_name': 'ContentType', 'db_table': "'django_content_type'"},
+            'app_label': ('django.db.models.fields.CharField', [], {'max_length': '100'}),
+            'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
+            'model': ('django.db.models.fields.CharField', [], {'max_length': '100'}),
+            'name': ('django.db.models.fields.CharField', [], {'max_length': '100'})
+        }
+    }
+
+    complete_apps = ['asv_seo']
