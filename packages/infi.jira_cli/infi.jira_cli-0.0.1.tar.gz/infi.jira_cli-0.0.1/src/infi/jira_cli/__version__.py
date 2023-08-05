@@ -1,0 +1,10 @@
+__version__ = "0.0.1"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = 'b6870ab7a0d7a7d7d05838dd8ed7203fc8154a19'
+__git_head_subject__ = 'Finished release v0.0.1.'
+__git_head_message__ = '* release/v0.0.1:\n  TRIVIAL some tests\n  TRIVIAL formatting\n  TRIVIAL jissue start and stop implemented\n  TRIVIAL jissue list output is dedented\n  TRIVIAL jissue list properly shows comments\n  TRIVIAL jissue list shows the status\n  TRIVIAL forgot to indent the usage in the README\n  TRIVIAL updated usage in README\n  TRIVIAL reverse list support\n  TRIVIAL documentation-related touchups\n  Some command implemented\n  added all project files\n  empty commit after version v0'
+__git_dirty_diff__ = ''
