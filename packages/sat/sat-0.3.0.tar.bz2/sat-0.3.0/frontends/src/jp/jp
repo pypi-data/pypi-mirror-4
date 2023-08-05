@@ -1,0 +1,395 @@
+#! /usr/bin/python
+# -*- coding: utf-8 -*-
+
+"""
+jp: a SAT command line tool
+Copyright (C) 2009, 2010, 2011, 2012, 2013 Jérôme Poisson (goffi@goffi.org)
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+"""
+
+from __future__ import with_statement
+
+#consts
+name = u"jp"
+about = name+u""" v%s (c) Jérôme Poisson (aka Goffi) 2009, 2010, 2011, 2012
+
+---
+"""+name+u""" Copyright (C) 2009, 2010, 2011, 2012, 2013 Jérôme Poisson (aka Goffi)
+This program comes with ABSOLUTELY NO WARRANTY;
+This is free software, and you are welcome to redistribute it
+under certain conditions.
+---
+
+This software is a command line tool for jabber
+Get the latest version at http://www.goffi.org
+"""
+
+global pbar_available
+pbar_available = True #checked before using ProgressBar
+
+### logging ###
+import logging
+from logging import debug, info, error, warning
+logging.basicConfig(level=logging.DEBUG,
+                    format='%(message)s')
+###
+
+import gettext
+gettext.install('jp', "i18n", unicode=True)
+
+import sys
+import os
+from os.path import abspath, basename, dirname
+from optparse import OptionParser
+from sat.tools.jid import JID
+import gobject
+from sat_frontends.bridge.DBus import DBusBridgeFrontend,BridgeExceptionNoService
+import tarfile
+import tempfile
+import shutil
+import unicodedata
+try:
+    from progressbar import ProgressBar, Percentage, Bar, ETA, FileTransferSpeed
+except ImportError, e:
+        info (_('ProgressBar not available, please download it at http://pypi.python.org/pypi/progressbar'))
+        info (_('Progress bar deactivated\n--\n'))
+        pbar_available=False
+
+
+
+
+class JP():
+    def __init__(self):
+        try:
+            self.bridge=DBusBridgeFrontend()
+        except BridgeExceptionNoService:
+            print(_(u"Can't connect to SàT backend, are you sure it's launched ?"))
+            import sys
+            sys.exit(1)
+        self.transfer_data = None
+
+    def check_options(self):
+        """Check command line options"""
+        usage=_("""
+        %prog [options] [FILE1 FILE2 ...] JID
+        %prog -w [options] [JID1 JID2 ...]
+
+        %prog --help for options list
+        """)
+        version = unicode(self.bridge.getVersion())
+        parser = OptionParser(usage=usage,version=about % version)
+
+        parser.add_option("-p", "--profile", action="store", type="string", default='@DEFAULT@',
+                    help=_("Use PROFILE profile key (default: %default)"))
+        parser.add_option("-b", "--bz2", action="store_true", default=False,
+                    help=_("Make a bzip2 tarball"))
+        parser.add_option("-w", "--wait-file", action="store_true", default=False,
+                    help=_("Wait for a file to be sent by a contact"))
+        parser.add_option("-m", "--multiple", action="store_true", default=False,
+                    help=_("Accept multiple files (you'll have to stop manually)"))
+        parser.add_option("-f", "--force", action="store_true", default=False,
+                    help=_("Force overwritting of existing files"))
+        parser.add_option("-g", "--progress", action="store_true", default=False,
+                    help=_("Show progress bar"))
+        parser.add_option("-s", "--separate", action="store_true", default=False,
+                    help=_("Separate xmpp messages: send one message per line instead of one message alone."))
+        parser.add_option("-n", "--new-line", action="store_true", default=False,
+                    help=_("Add a new line at the beginning of the input (usefull for ascii art ;))"))
+        parser.add_option("--connect", action="store_true", default=False,
+                    help=_("Connect the profile before doing anything else"))
+        parser.add_option("--pipe-in", action="store_true", default=False,
+                    help=_("Wait for the reception of a pipe stream"))
+        parser.add_option("--pipe-out", action="store_true", default=False,
+                    help=_("Pipe a stream out "))
+
+        (self.options, args) = parser.parse_args()
+
+        if len(args) < 1 and not self.options.wait_file:
+            parser.error(_("You must specify the destination JID (Jabber ID)").encode('utf-8'))
+
+        if self.options.wait_file or self.options.pipe_in:
+            #several jid
+            self.dest_jids = [arg.decode('utf-8') for arg in args]
+        else:
+            #one dest_jid, other args are files
+            self.dest_jid = JID(args[-1].decode('utf-8'))
+            self.files = args[:-1]
+
+        if not pbar_available and self.options.progress:
+            self.options.progress = False
+            error (_("Option progress is not available, deactivated."))
+
+        if self.options.progress or self.options.wait_file or self.options.connect or self.options.pipe_in:
+            self.start_loop = True  #We have to use loop for these options
+        else:
+            self.start_loop = False
+        
+            
+        return args
+
+    def check_jabber_status(self):
+        """Check that jabber status is allright"""
+        def cantConnect():
+            error(_(u"Can't connect profile"))
+            exit(1)
+
+        
+        self.profile = self.bridge.getProfileName(self.options.profile)
+        if not self.profile:
+            error(_("The profile asked doesn't exist"))
+            exit(1)
+
+        if self.options.connect: #if connection is asked, we connect the profile
+            self.bridge.asyncConnect(self.profile, self.connected, cantConnect)
+            return
+        elif not self.bridge.isConnected(self.profile):
+            error(_(u"Profile [%(profile)s] is not connected, please connect it before using jp, or use --connect option") % { "profile": self.profile })
+            exit(1)
+
+        self.connected()
+
+    def check_jids(self):
+        """Check jids validity, transform roster name to corresponding jids"""
+        names2jid = {}
+        nodes2jid = {}
+
+        for contact in self.bridge.getContacts(self.options.profile):
+            _jid, attr, groups = contact
+            if attr.has_key("name"):
+                names2jid[attr["name"].lower()] = _jid
+            nodes2jid[JID(_jid).node.lower()] = _jid
+
+        def expandJid(jid):
+            _jid = jid.lower()
+            if _jid in names2jid:
+                expanded = names2jid[_jid]
+            elif _jid in nodes2jid:
+                expanded = nodes2jid[_jid]
+            else:
+                expanded = jid
+            return unicode(expanded)
+
+        def check(jid):
+            if not jid.is_valid:
+                error (_("%s is not a valid JID !"), self.dest_jid)
+                exit(1)
+
+        try:
+            self.dest_jid = expandJid(self.dest_jid)
+            check(self.dest_jid)
+        except AttributeError:
+            pass
+        try:
+            for i in range(len(self.dest_jids)):
+                self.dest_jids[i] = expandJid(self.dest_jids[i])
+                check(self.dest_jids[i])
+        except AttributeError:
+            pass
+
+    def clean_ustr(self, ustr):
+        """Clean unicode string
+        remove special characters from unicode string"""
+        def valid_chars(unicode_source):
+            for char in unicode_source:
+                if unicodedata.category(char) == 'Cc' and char!='\n':
+                    continue
+                yield char
+        return ''.join(valid_chars(ustr))
+
+
+    def send_stdin(self):
+        """Send incomming data on stdin to jabber contact"""
+        header = "\n" if self.options.new_line else ""
+
+        if self.options.separate:  #we send stdin in several messages
+            if header:
+                self.bridge.sendMessage(self.dest_jid, header, profile_key=self.profile)
+            while (True):
+                line = self.clean_ustr(sys.stdin.readline().decode('utf-8','ignore'))
+                if not line:
+                    break
+                self.bridge.sendMessage(self.dest_jid, line.replace("\n",""), profile_key=self.profile)
+        else:
+            self.bridge.sendMessage(self.dest_jid, header + self.clean_ustr(u"".join([stream.decode('utf-8','ignore') for stream in sys.stdin.readlines()])), profile_key=self.profile)
+
+
+    def pipe_out(self):
+        """Create named pipe, and send stdin to it"""
+        tmp_dir = tempfile.mkdtemp()
+        fifopath = os.path.join(tmp_dir,"pipe_out")
+        os.mkfifo(fifopath)
+        self.bridge.pipeOut(self._getFullJid(self.dest_jid), fifopath, {}, profile_key=self.profile)
+        with open(fifopath, 'w') as f:
+            shutil.copyfileobj(sys.stdin, f)
+        shutil.rmtree(tmp_dir)
+
+
+    def send_files(self):
+        """Send files to jabber contact"""
+
+        for file in self.files:
+            if not os.path.exists(file):
+                error (_(u"File [%s] doesn't exist !") % file)
+                exit(1)
+            if not self.options.bz2 and os.path.isdir(file):
+                error (_("[%s] is a dir ! Please send files inside or use compression") % file)
+                exit(1)
+
+        full_dest_jid = self._getFullJid(self.dest_jid)
+        if self.options.bz2:
+            tmpfile = (basename(self.files[0]) or basename(dirname(self.files[0])) ) + '.tar.bz2' #FIXME: tmp, need an algorithm to find a good name/path
+            if os.path.exists(tmpfile):
+                error (_("tmp file (%s) already exists ! Please remove it"), tmpfile)
+                exit(1)
+            warning(_("bz2 is an experimental option at an early dev stage, use with caution"))
+            #FIXME: check free space, writting perm, tmp dir, filename (watch for OS used)
+            info(_("Starting compression, please wait..."))
+            sys.stdout.flush()
+            bz2=tarfile.open(tmpfile, "w:bz2")
+            for file in self.files:
+                info(_("Adding %s"), file)
+                bz2.add(file)
+            bz2.close()
+            info(_("OK !"))
+            path = abspath(tmpfile)
+            self.transfer_data = self.bridge.sendFile(full_dest_jid, path, {}, profile_key=self.profile)
+        else:
+            for file in self.files:
+                path = abspath(file)
+                self.transfer_data = self.bridge.sendFile(full_dest_jid, path, {}, profile_key=self.profile) #FIXME: show progress only for last transfer_id
+
+
+    def _getFullJid(self, param_jid):
+        """Return the full jid if possible (add last resource when find a bare jid"""
+        _jid = JID(param_jid)
+        if not _jid.resource:
+            #if the resource is not given, we try to add the last known resource
+            last_resource = self.bridge.getLastResource(param_jid, self.options.profile)
+            if last_resource:
+                return "%s/%s" % (_jid.short, last_resource)
+        return param_jid
+
+
+    def askConfirmation(self, confirm_id, confirm_type, data, profile):
+        """CB used for file transfer, accept files depending on parameters"""
+        if profile != self.profile:
+            debug("Ask confirmation ignored: not our profile")
+            return
+        answer_data={}
+        if confirm_type == "FILE_TRANSFER":
+            if not self.options.wait_file:
+                return
+            if self.dest_jids and not JID(data['from']).short in [JID(_jid).short for _jid in self.dest_jids]:
+                return #file is not sent by a filtered jid
+                
+            answer_data["dest_path"] = os.getcwd()+'/'+data['filename']
+
+            if self.options.force or not os.path.exists(answer_data["dest_path"]):
+                self.bridge.confirmationAnswer(confirm_id, True, answer_data, profile)
+                info(_("Accepted file [%(filename)s] from %(sender)s") % {'filename':data['filename'], 'sender':data['from']})
+                self.transfer_data = confirm_id
+            else:
+                self.bridge.confirmationAnswer(confirm_id, False, answer_data, profile)
+                warning(_("Refused file [%(filename)s] from %(sender)s: a file with the same name already exist") % {'filename':data['filename'], 'sender':data['from']})
+                
+
+            if not self.options.multiple and not self.options.progress:
+                #we just accept one file
+                self.loop.quit()
+        elif confirm_type == "PIPE_TRANSFER":
+            if not self.options.pipe_in:
+                return
+            if self.dest_jids and not JID(data['from']).short in [JID(_jid).short for _jid in self.dest_jids]:
+                return #pipe stream is not sent by a filtered jid
+            
+            tmp_dir = tempfile.mkdtemp()
+            fifopath = os.path.join(tmp_dir,"pipe_in")
+            answer_data["dest_path"] = fifopath
+            os.mkfifo(fifopath)
+            self.bridge.confirmationAnswer(confirm_id, True, answer_data, profile)
+            with open(fifopath, 'r') as f:
+                shutil.copyfileobj(f, sys.stdout)
+            shutil.rmtree(tmp_dir)
+            self.loop.quit()
+                
+                
+    def actionResult(self, action_type, action_id, data, profile):
+        #FIXME
+        info (_("FIXME: actionResult not implemented"))
+
+    def confirmation_reply(self):
+        """Auto reply to confirmations requests"""
+        #we register incoming confirmation
+        self.bridge.register("askConfirmation", self.askConfirmation)
+        
+        #and we ask those we have missed
+        for confirm_id, confirm_type, data in self.bridge.getWaitingConf(self.profile):
+            self.askConfirmation(confirm_id, confirm_type, data, self.profile)
+
+    def progressCB(self):
+        if self.transfer_data:
+            transfer_id = self.transfer_data
+            data = self.bridge.getProgress(transfer_id, self.profile)
+            if data:
+                if not data['position']:
+                    data['position'] = '0'
+                if not self.pbar:
+                    #first answer, we must construct the bar
+                    self.pbar = ProgressBar(int(data['size']),[_("Progress: "),Percentage()," ",Bar()," ",FileTransferSpeed()," ",ETA()])
+                    self.pbar.start()
+                    
+                self.pbar.update(int(data['position']))
+            elif self.pbar:
+                self.pbar.finish()
+                if not self.options.multiple:
+                    self.loop.quit()
+                return False
+
+        return True
+
+    def go(self):
+        self.check_options()
+        self.check_jabber_status()
+        if self.start_loop:
+            self.loop = gobject.MainLoop()
+            try:
+                self.loop.run()
+            except KeyboardInterrupt:
+                info(_("User interruption: good bye"))
+
+    def connected(self):
+        """This is called when the profile is connected"""
+        self.check_jids()
+        if self.options.wait_file or self.options.pipe_in:
+            self.confirmation_reply()
+        else:
+            if self.files:
+                self.send_files()
+            elif self.options.pipe_out:
+                self.pipe_out()
+            else:
+                self.send_stdin()
+
+        if self.options.progress:
+            self.pbar = None
+            gobject.timeout_add(10, self.progressCB)
+
+        if self.start_loop and not self.options.progress and not self.options.wait_file and not self.options.pipe_in:
+            self.loop.quit()
+
+
+if __name__ == "__main__":
+    jp = JP()
+    jp.go()
