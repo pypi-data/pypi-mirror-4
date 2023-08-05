@@ -1,0 +1,358 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>4.1. The pipeline architecture &mdash; Boing 0.3.1 documentation</title>
+    
+    <link rel="stylesheet" href="_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     '0.3.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <script type="text/javascript" src="_static/sidebar.js"></script>
+    <link rel="top" title="Boing 0.3.1 documentation" href="index.html" />
+    <link rel="up" title="4. Underlying concepts" href="concepts.html" />
+    <link rel="next" title="5. Nodes reference table" href="uris.html" />
+    <link rel="prev" title="4. Underlying concepts" href="concepts.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+	<li class="right" style="margin-right: 10px">
+	   |
+	  <a href="https://github.com/olivopaolo/boing" title="Repository at GitHub">
+	    repository</a></li>
+        <li class="right">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right">
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right">
+          <a href="uris.html" title="5. Nodes reference table"
+             accesskey="N">next</a> |</li>
+        <li class="right">
+          <a href="concepts.html" title="4. Underlying concepts"
+             accesskey="P">previous</a> |</li>
+        <li>
+	  <a href="index.html">Home</a> | <a href="documentation.html">Documentation</a> &raquo;</li>
+          <li><a href="concepts.html" accesskey="U">4. Underlying concepts</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="the-pipeline-architecture">
+<h1>4.1. The pipeline architecture<a class="headerlink" href="#the-pipeline-architecture" title="Permalink to this headline">¶</a></h1>
+<p>Boing pipelines are made by directed graphs, where the edge direction
+defines the data flow between the nodes. There are three types of
+nodes:</p>
+<ul class="simple">
+<li><em>producers</em> provide the data;</li>
+<li><em>consumers</em> process the incoming data;</li>
+<li><em>workers</em> are both consumers and producers;</li>
+</ul>
+<p>The type of a node directly influences how the node can be connected
+to the other nodes: producers only accept outgoing connections, while
+consumers accept incoming connections only. Workers are composed by
+both the producer and consumer interfaces, so they can have both
+incoming and outgoing connections. <a class="reference internal" href="#connections"><em>Figure 4.1</em></a>
+shows an example of both valid and invalid connections.</p>
+<div class="figure align-center" id="connections">
+<img src="_images/connections.svg" width="60%" /><p class="caption">Figure 4.1: Valid and invalid connections between producers (P),
+consumers (C) and workers (W).</p>
+</div>
+<div class="section" id="the-producer-consumer-model">
+<h2>4.1.1. The producer-consumer model<a class="headerlink" href="#the-producer-consumer-model" title="Permalink to this headline">¶</a></h2>
+<p>The core infrastructure of Boing pipelines is the producer-consumer
+model, which defines how the data is propagated through the
+pipeline. The model performs a pull technology, but it is extended by
+using the <em>Observer</em> pattern: consumers must subscribe to the
+producers in order to receive their products; for each subscribed
+consumer, producers keep a record containing the list of the pending
+products. When a producer has a new product, for each registered
+consumer it enqueues the product in the associated product list and it
+triggers the consumer, which synchronously or asynchronously can
+require its own pending products. Then, at the consumer&#8217;s request, the
+producer sends all the correspondent pending products to the consumer
+and it cleans the correspondent buffer. The entire pipeline is run in
+a single thread, thus an eventloop is used to handle the asynchronous
+nodes. <a class="reference internal" href="#postproductsequence"><em>Figure 4.2</em></a> shows the UML sequence
+diagram that defines the data exchange between producers and
+consumers.</p>
+<div class="figure align-center" id="postproductsequence">
+<img src="_images/postProductSequence.svg" width="80%" /><p class="caption">Figure 4.2: UML sequence diagram defining the producer-consumer model</p>
+</div>
+<div class="admonition-see-also admonition seealso">
+<p class="first admonition-title">See also</p>
+<p class="last">classes <tt class="xref py py-class docutils literal"><span class="pre">boing.core.Producer</span></tt> and
+<tt class="xref py py-class docutils literal"><span class="pre">boing.core.Consumer</span></tt></p>
+</div>
+</div>
+<div class="section" id="supply-and-demand">
+<h2>4.1.2. Supply and demand<a class="headerlink" href="#supply-and-demand" title="Permalink to this headline">¶</a></h2>
+<p>In many situations, a data source can provide a wide range of
+information, but consumers may not be interested in all of it. For
+this reason, in order to save processing time, the model permits to
+assign a request to each consumer. Every time a producer has a new
+product, it tests the request of each registered consumer and only if
+it matches the product, the producer notifies the consumer the new
+product. This behavior enables to process and transfer only the useful
+information, while the useless part is not processed. Requests can be
+added up so that a producer can easily know the entire request of all
+its registered consumers. The union of all the registered consumers&#8217;
+requests is called <em>aggregate demand</em>.</p>
+<p>On the other side, it is good to know what a producer can supply. For
+this reason the model permits to assign an offer to the producers,
+which must be the list of templates of the products it can
+provide. Using its offer, a producer can say a priori whether it can
+meet a consumer&#8217;s request. Composing the offer and the aggregate
+demand, it is possible to calculate the <em>demanded offer</em>, which
+represents the subset of the offer that is currently being demanded.</p>
+<p>As an example, consider two producers <em>P1</em> and <em>P2</em> and two consumers
+<em>C1</em> and <em>C2</em> connected as shown in <a class="reference internal" href="#supplydemand"><em>figure 4.3</em></a>. It is possible to observe that the aggregate demand
+of <em>P1</em> is equal to the union of the requests of both <em>C1</em> and
+<em>C2</em>. Moreover, even if <em>P1</em> produces both <em>A</em> and <em>B</em>, only the
+products <em>A</em> are sent to <em>C1</em>, while both <em>A</em> and <em>B</em> products are
+sent to <em>C2</em>. Also note that <em>P2</em>&#8216;s <em>demandedOffer</em> is only <em>B</em>,
+because <em>P2</em> is only connected to <em>C2</em> and this one does not require
+the products <em>C</em>.</p>
+<div class="figure align-center" id="supplydemand">
+<img src="_images/supplydemand.svg" width="65%" /><p class="caption">Figure 4.3: Example of supply and demand behavior.</p>
+</div>
+<div class="admonition note">
+<p class="first admonition-title">Note</p>
+<p class="last">It is important to understand that a node&#8217;s offer does not impose
+that the only products that the nodes produces are coherent with
+the offer and even that it is sure that the node will ever produce
+such products. The offer is only used to describe the node standard
+behavior. <em>It&#8217;s easier said than done!</em></p>
+</div>
+<div class="admonition-see-also admonition seealso">
+<p class="first admonition-title">See also</p>
+<p class="last">classes <tt class="xref py py-mod docutils literal"><span class="pre">boing.core.Offer</span></tt> and <tt class="xref py py-mod docutils literal"><span class="pre">boing.core.Request</span></tt></p>
+</div>
+<p>As previously seen, it is possible to create long pipelines by
+serializing worker nodes. In order to spread the supply and demand
+strategy, a worker node must be able to propagate the requests of the
+consumers it is connected to in addition to its own request and to
+propagate the offer of the producers it is connected to in addition to
+its own offer. In order to understand such necessity, consider the
+pipeline shown in <a class="reference internal" href="#propagation"><em>figure 4.4</em></a>: in this case the
+worker <em>W</em> is not propagating its neighbors&#8217; requests and offers (the
+variables <em>isPropagantingRequest</em> and <em>isPropagatingOffer</em> are false),
+so that its own request and offer, which are defined by the variables
+<em>_selfRequest</em> and <em>_selfOffer</em>, are actually the same of its (public)
+request and offer. In this case, it is possible to notice that even if
+the consumer <em>C</em> require the products <em>B</em>, such demand is hidden by
+the worker <em>W</em>, so that even if the producer <em>P</em> can provide <em>B</em>
+products, it can&#8217;t see anyone interested to them, so they are not
+produced.</p>
+<div class="figure align-center" id="propagation">
+<img src="_images/propagation.svg" width="90%" /><p class="caption">Figure 4.4: The worker <em>W</em> is not propagating its connected
+consumers&#8217; requests, thus the producer <em>P</em> does not provides the
+products <em>B</em>.</p>
+</div>
+<p>The <a class="reference internal" href="#propagation2"><em>figure 4.5</em></a> shows the same pipeline as before
+with the difference that the worker <em>W</em> is now propagating its
+neighbors&#8217; requests and offers. It is possible to notice that the
+request of <em>W</em> is equal to the union of the request of <em>C</em> and its own
+request, and its public offer is equal to the union of the offer of
+<em>P</em> and its own offer. <em>W</em> is now requiring <em>B</em> products
+because a subsequent node is also requiring them, thus <em>P</em> will produce
+and dispatch them.</p>
+<div class="figure align-center" id="propagation2">
+<img src="_images/propagation2.svg" width="90%" /><p class="caption">Figure 4.5: Example of supply and demand behavior.</p>
+</div>
+<div class="admonition note">
+<p class="first admonition-title">Note</p>
+<p class="last">It is important to understand that the variables
+<em>isPropagatingRequest</em> and <em>isPropagatingOffer</em> do not control the
+output of <em>W</em>, but only the fact that its request and offer are
+determined by accumulating the neighbors requests and offers. The
+fact that <em>W</em> forwards <em>B</em> products only depends on the specific
+implementation of <em>W</em>. See class <tt class="xref py py-class docutils literal"><span class="pre">boing.core.Functor</span></tt> for
+product forwarding cases.</p>
+</div>
+</div>
+<div class="section" id="the-wise-worker-and-the-auto-configuration-feature">
+<h2>4.1.3. The wise worker and the auto-configuration feature<a class="headerlink" href="#the-wise-worker-and-the-auto-configuration-feature" title="Permalink to this headline">¶</a></h2>
+<p>As formerly described, <em>worker</em> nodes are both consumers and
+producers, and they can be considered as the pipeline&#8217;s processing
+units. Workers normally calculate simple or atomic operations because
+they can be easily serialized in order to compose more complex
+processing pipelines. Boing pipelines can be modified dynamically in
+order to evolve and fit a flexible environment. This may entail that
+not all the processing units are really necessary in order to compute
+the expected result. In order to avoid a waste of time, the pipeline
+exploits a auto-configuration technique based on the nodes&#8217;
+supply-demand knowledge. This technique, exploited by the <em>Wise
+Workers</em>, can be summarized into the following two rules:</p>
+<ol class="arabic simple">
+<li>the worker&#8217;s request is nullified if no one requires the worker&#8217;s
+own products;</li>
+<li>the worker&#8217;s offer is nullified if its own request is not satisfied.</li>
+</ol>
+<p>As an example consider the pipeline in <a class="reference internal" href="#wiseworker"><em>figure 4.6</em></a>:
+the producer <em>P</em> provides the products <em>A</em>, which are required by the
+consumer <em>C</em>; this one also requires the products <em>B</em>, but <em>P</em> cannot
+provide them. For this reason the worker <em>W</em>, which can produce <em>B</em>
+from <em>A</em>, has been employed. Since <em>B</em> is required by <em>C</em>, <em>W</em> is
+currently active. In this example the worker <em>W</em> is set to forward all
+the products it receives even it is not directly interested to them.</p>
+<div class="figure align-center" id="wiseworker">
+<img src="_images/wiseworker.svg" width="90%" /><p class="caption">Figure 4.6: The producer <em>P</em> provides the products <em>A</em>, while the
+worker <em>W</em> produces the products <em>B</em> using the products
+<em>A</em>. Both <em>A</em> and <em>B</em> are actually required by the consumer <em>C</em>.</p>
+</div>
+<p>Now suppose that the consumer <em>C</em> changes its own request to <em>A</em>
+only. In this case, nobody is interested to <em>B</em> anymore, thus,
+following the first rule of the <em>Wise Worker</em>, the worker stops
+requiring <em>A</em> for itself and it passes into an inactive state, but,
+since it is propagating <em>C</em>&#8216;s requests, it still requires <em>A</em>
+products. <a class="reference internal" href="#wiseworker2"><em>Figure 4.7</em></a> shows the state of the
+pipeline in this case.</p>
+<div class="figure align-center" id="wiseworker2">
+<img src="_images/wiseworker2.svg" width="90%" /><p class="caption">Figure 4.7: If <em>C</em> does not require products <em>B</em> anymore, the
+worker <em>W</em> automatically stops producing them and requiring <em>A</em>
+products for itself, but since it is propagating <em>C</em>&#8216;s requests,
+it still requires <em>A</em> products so it can forward them to <em>C</em>.</p>
+</div>
+<p>Considering the pipeline in <a class="reference internal" href="#wiseworker"><em>figure 4.6</em></a>, a
+different situation may arrive: if the producer <em>P</em> changes its offer
+to <em>D</em>, no one will provide the products <em>A</em>, thus, following the
+second rule of the <em>Wise Worker</em>, since the worker&#8217;s request is not
+satisfied anymore, it nullifies its own offer. The resulted pipeline
+is shown in <a class="reference internal" href="#wiseworker3"><em>figure 4.8</em></a>. In this case requests do
+not change, so that no more products are exchanged between the nodes.</p>
+<div class="figure align-center" id="wiseworker3">
+<img src="_images/wiseworker3.svg" width="90%" /><p class="caption">Figure 4.8: Considering the pipeline of <a class="reference internal" href="#wiseworker"><em>figure 4.6</em></a>, if the producer <em>P</em> starts producing <em>B</em> only,
+the worker&#8217;s request is not satisfied anymore, so it
+automatically nullifies its default offer.</p>
+</div>
+<p>In some cases workers do not previously know the products they
+provide since it only depends on the products they will receive. As
+an example, a worker may forward only a subset of the products it
+receives or it may make simple changes to the products it requires and
+then forward them. In those cases, it is not possible to set the offer
+in advance of the pipeline execution, thus the first rule of the <em>Wise
+Worker</em> cannot be applied. In order to handle those cases, the <em>Wise
+Workers</em> can use the <em>Tunneling</em> exception, that makes the first rule
+considering the entire propagated offer instead of the worker&#8217;s own
+offer.</p>
+<p>As an example consider the pipeline in <a class="reference internal" href="#tunneling"><em>figure 4.9</em></a>:
+the worker <em>W</em> simply forwards the products it receives so it has not
+its own offer. Despite this, thanks to the tunneling exception, <em>W</em> is
+still active, since its global offer matches the request of <em>C</em>.</p>
+<div class="figure align-center" id="tunneling">
+<img src="_images/tunneling.svg" width="90%" /><p class="caption">Figure 4.9: When using the tunneling option, the propagated
+offer is considered to determine if the worker is active instead
+of its own offer only.</p>
+</div>
+<p>Concrete workers using the tunneling feature are the
+<tt class="xref py py-class docutils literal"><span class="pre">Filter</span></tt> and
+<tt class="xref py py-class docutils literal"><span class="pre">Calibration</span></tt> classes.</p>
+<div class="admonition-see-also admonition seealso">
+<p class="first admonition-title">See also</p>
+<p class="last">classes <tt class="xref py py-class docutils literal"><span class="pre">boing.core.economy.WiseWorker</span></tt> and
+<tt class="xref py py-class docutils literal"><span class="pre">boing.core.Functor</span></tt></p>
+</div>
+<span class="target" id="node-composition"></span><div class="admonition-todo admonition" id="index-0">
+<p class="first admonition-title">Todo</p>
+<ul class="last simple">
+<li>Describe the composite nodes and node syntax (+ and | operators).</li>
+</ul>
+</div>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+  <!--<h3><a href="documentation.html">Table Of Contents</a></h3> -->
+  <h3>Contents</h3>
+  <ul>
+<li><a class="reference internal" href="#">4.1. The pipeline architecture</a><ul>
+<li><a class="reference internal" href="#the-producer-consumer-model">4.1.1. The producer-consumer model</a></li>
+<li><a class="reference internal" href="#supply-and-demand">4.1.2. Supply and demand</a></li>
+<li><a class="reference internal" href="#the-wise-worker-and-the-auto-configuration-feature">4.1.3. The wise worker and the auto-configuration feature</a></li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="concepts.html"
+                        title="previous chapter">4. Underlying concepts</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="uris.html"
+                        title="next chapter">5. Nodes reference table</a></p>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+	<li class="right" style="margin-right: 10px">
+	   |
+	  <a href="https://github.com/olivopaolo/boing" title="Repository at GitHub">
+	    repository</a></li>
+        <li class="right">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right">
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right">
+          <a href="uris.html" title="5. Nodes reference table"
+             >next</a> |</li>
+        <li class="right">
+          <a href="concepts.html" title="4. Underlying concepts"
+             >previous</a> |</li>
+        <li>
+	  <a href="index.html">Home</a> | <a href="documentation.html">Documentation</a> &raquo;</li>
+          <li><a href="concepts.html" >4. Underlying concepts</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2012, INRIA.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>
