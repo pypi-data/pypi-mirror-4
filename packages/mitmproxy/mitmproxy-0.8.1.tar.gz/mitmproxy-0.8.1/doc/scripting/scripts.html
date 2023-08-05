@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"><head><meta  content="text/html; charset=utf-8" http-equiv="Content-Type"/>
+
+
+<link  href="../01-reset-fonts-grids-base.css" type="text/css" rel="StyleSheet"/>
+<link  href="../02-docstyle.css" type="text/css" rel="StyleSheet"/>
+<link  href="../syntax.css" type="text/css" rel="StyleSheet"/>
+<title>Scripts</title></head><body><div id="doc">
+    <div style="" id="hd" class="doc">
+                <div id="nav">
+                        <a href="../scripting.html">prev</a>
+ |
+            <a href="../index.html">index</a> |
+                        <a href="../ssl.html">next</a>
+
+        </div>
+
+        <h1><a href="../index.html">mitmproxy 0.9 docs</a></h1>
+    </div>
+    <div id="bd">
+        <div id="yui-main">
+            <div style="" class="yui-b">
+                <h1>Scripts</h1>
+                <p><strong>mitmproxy</strong> has a powerful scripting API that allows you to modify flows
+on-the-fly or rewrite previously saved flows locally. </p>
+
+<p>The mitmproxy scripting API is event driven - a script is simply a Python
+module that exposes a set of event methods. Here's a complete mitmproxy script
+that adds a new header to every HTTP response before it is returned to the
+client:</p>
+
+<div class="example"><div class="highlight"><pre><span class="k">def</span> <span class="nf">response</span><span class="p">(</span><span class="n">context</span><span class="p">,</span> <span class="n">flow</span><span class="p">):</span>
+    <span class="n">flow</span><span class="o">.</span><span class="n">response</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s">&quot;newheader&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;foo&quot;</span><span class="p">]</span>
+</pre></div>
+
+<div class="example_legend">(examples/add_header.py)</div></div>
+
+<p>The first argument to each event method is an instance of ScriptContext that
+lets the script interact with the global mitmproxy state. The <strong>response</strong>
+event also gets an instance of Flow, which we can use to manipulate the
+response itself.</p>
+
+<h2>Events</h2>
+
+<h3>start(ScriptContext)</h3>
+
+<p>Called once on startup, before any other events.</p>
+
+<p>###clientconnect(ScriptContext, ClientConnect)</p>
+
+<p>Called when a client initiates a connection to the proxy. Note that
+a connection can correspond to multiple HTTP requests.</p>
+
+<p>###request(ScriptContext, Flow)</p>
+
+<p>Called when a client request has been received. The <strong>Flow</strong> object is
+guaranteed to have a non-None <strong>request</strong> attribute.</p>
+
+<h3>response(ScriptContext, Flow)</h3>
+
+<p>Called when a server response has been received. The <strong>Flow</strong> object is
+guaranteed to have non-None <strong>request</strong> and <strong>response</strong> attributes.</p>
+
+<h3>error(ScriptContext, Flow)</h3>
+
+<p>Called when a flow error has occurred, e.g. invalid server responses, or
+interrupted connections. This is distinct from a valid server HTTP error
+response, which is simply a response with an HTTP error code. The <strong>Flow</strong>
+object is guaranteed to have non-None <strong>request</strong> and <strong>error</strong> attributes.</p>
+
+<h3>clientdisconnect(ScriptContext, ClientDisconnect)</h3>
+
+<p>Called when a client disconnects from the proxy.</p>
+
+<h3>done(ScriptContext)</h3>
+
+<p>Called once on script shutdown, after any other events.</p>
+
+<h2>API</h2>
+
+<p>The main classes you will deal with in writing mitmproxy scripts are:</p>
+
+<table class="kvtable">
+    <tr>
+        <th>libmproxy.flow.ClientConnection</th>
+        <td>Describes a client connection.</td>
+    </tr>
+    <tr>
+        <th>libmproxy.flow.ClientDisconnection</th>
+        <td>Describes a client disconnection.</td>
+    </tr>
+    <tr>
+        <th>libmproxy.flow.Error</th>
+        <td>A communications error.</td>
+    </tr>
+    <tr>
+        <th>libmproxy.flow.Flow</th>
+        <td>A collection of objects representing a single HTTP transaction.</td>
+    </tr>
+    <tr>
+        <th>libmproxy.flow.Headers</th>
+        <td>HTTP headers for a request or response.</td>
+    </tr>
+    <tr>
+        <th>libmproxy.flow.ODict</th>
+
+        <td>A dictionary-like object for managing sets of key/value data. There
+        is also a variant called CaselessODict that ignores key case for some
+        calls (used mainly for headers).</td>
+    </tr>
+    <tr>
+        <th>libmproxy.flow.Response</th>
+        <td>An HTTP response.</td>
+    </tr>
+    <tr>
+        <th>libmproxy.flow.Request</th>
+        <td>An HTTP request.</td>
+    </tr>
+    <tr>
+        <th>libmproxy.flow.ScriptContext</th>
+        <td> A handle for interacting with mitmproxy's from within scripts.  </td>
+    </tr>
+    <tr>
+        <th>libmproxy.certutils.SSLCert</th>
+        <td>Exposes information SSL certificates.</td>
+    </tr>
+</table>
+
+<p>The canonical API documentation is the code. You can view the API documentation
+using pydoc (which is installed with Python by default), like this:</p>
+
+<pre class="terminal">
+> pydoc libmproxy.flow.Request
+</pre>
+
+<h2>Running scripts on saved flows</h2>
+
+<p>Sometimes, we want to run a script on <strong>Flow</strong> objects that are already
+complete.  This happens when you start a script, and then load a saved set of
+flows from a file (see the "scripted data transformation" example on the
+<a href="../mitmdump.html">mitmdump</a> page). It also happens when you run a
+one-shot script on a single flow through the <em>|</em> (pipe) shortcut in mitmproxy.</p>
+
+<p>In this case, there are no client connections, and the events are run in the
+following order: <strong>start</strong>, <strong>request</strong>, <strong>response</strong>, <strong>error</strong>, <strong>done</strong>.  If
+the flow doesn't have a <strong>response</strong> or <strong>error</strong> associated with it, the
+matching event will be skipped. </p>
+
+            </div>
+        </div>
+    </div>
+    <div style="" id="ft" class="doc">
+        <p>© mitmproxy project, 2012</p>
+    </div>
+</div>
+</body></html>

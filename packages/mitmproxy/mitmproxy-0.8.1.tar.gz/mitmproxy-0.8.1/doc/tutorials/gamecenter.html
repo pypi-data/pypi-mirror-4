@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"><head><meta  content="text/html; charset=utf-8" http-equiv="Content-Type"/>
+
+
+<link  href="../01-reset-fonts-grids-base.css" type="text/css" rel="StyleSheet"/>
+<link  href="../02-docstyle.css" type="text/css" rel="StyleSheet"/>
+<link  href="../syntax.css" type="text/css" rel="StyleSheet"/>
+<title>Setting highscores on Apple's GameCenter</title></head><body><div id="doc">
+    <div style="" id="hd" class="doc">
+                <div id="nav">
+                        <a href="30second.html">prev</a>
+ |
+            <a href="../index.html">index</a> |
+                        <a href="../faq.html">next</a>
+
+        </div>
+
+        <h1><a href="../index.html">mitmproxy 0.9 docs</a></h1>
+    </div>
+    <div id="bd">
+        <div id="yui-main">
+            <div style="" class="yui-b">
+                <h1>Setting highscores on Apple&#39;s GameCenter</h1>
+                <h2>The setup</h2>
+
+<p>In this tutorial, I'm going to show you how simple it is to creatively
+interfere with Apple Game Center traffic using mitmproxy. To set things up, I
+registered my mitmproxy CA certificate with my iPhone - there's a <a href="../certinstall/ios.html">step by step
+set of instructions</a> elsewhere in this manual. I then
+started mitmproxy on my desktop, and configured the iPhone to use it as a
+proxy. </p>
+
+<h2>Taking a look at the Game Center traffic</h2>
+
+<p>Lets take a first look at the Game Center traffic. The game I'll use in this
+tutorial is <a href="http://itunes.apple.com/us/app/super-mega-worm/id388541990?mt=8">Super Mega
+Worm</a> - a
+great little retro-apocalyptic sidescroller for the iPhone: </p>
+
+<p><center>
+    <img src="supermega.png"/>
+</center></p>
+
+<p>After finishing a game (take your time), watch the traffic flowing through
+mitmproxy:</p>
+
+<p><center>
+    <img src="one.png"/>
+</center></p>
+
+<p>We see a bunch of things we might expect - initialisation, the retrieval of
+leaderboards and so forth. Then, right at the end, there's a POST to this
+tantalising URL:</p>
+
+<pre>
+https://service.gc.apple.com/WebObjects/GKGameStatsService.woa/wa/submitScore
+</pre>
+
+<p>The contents of the submission are particularly interesting:</p>
+
+<div class="highlight"><pre><span class="nt">&lt;plist</span> <span class="na">version=</span><span class="s">&quot;1.0&quot;</span><span class="nt">&gt;</span>
+<span class="nt">&lt;dict&gt;</span>
+    <span class="nt">&lt;key&gt;</span>category<span class="nt">&lt;/key&gt;</span>
+    <span class="nt">&lt;string&gt;</span>SMW_Adv_USA1<span class="nt">&lt;/string&gt;</span>
+    <span class="nt">&lt;key&gt;</span>score-value<span class="nt">&lt;/key&gt;</span>
+    <span class="nt">&lt;integer&gt;</span>55<span class="nt">&lt;/integer&gt;</span>
+    <span class="nt">&lt;key&gt;</span>timestamp<span class="nt">&lt;/key&gt;</span>
+    <span class="nt">&lt;integer&gt;</span>1301553284461<span class="nt">&lt;/integer&gt;</span>
+<span class="nt">&lt;/dict&gt;</span>
+<span class="nt">&lt;/plist&gt;</span>
+</pre></div>
+
+<p>This is a <a href="http://en.wikipedia.org/wiki/Property_list">property list</a>,
+containing an identifier for the game, a score (55, in this case), and a
+timestamp. Looks pretty simple to mess with.</p>
+
+<h2>Modifying and replaying the score submission</h2>
+
+<p>Lets edit the score submission. First, select it in mitmproxy, then press
+<strong>enter</strong> to view it. Make sure you're viewing the request, not the response -
+you can use <strong>tab</strong> to flick between the two. Now press <strong>e</strong> for edit. You'll
+be prompted for the part of the request you want to change - press <strong>b</strong> for
+body.  Your preferred editor (taken from the EDITOR environment variable) will
+now fire up. Lets bump the score up to something a bit more ambitious:</p>
+
+<div class="highlight"><pre><span class="nt">&lt;plist</span> <span class="na">version=</span><span class="s">&quot;1.0&quot;</span><span class="nt">&gt;</span>
+<span class="nt">&lt;dict&gt;</span>
+    <span class="nt">&lt;key&gt;</span>category<span class="nt">&lt;/key&gt;</span>
+    <span class="nt">&lt;string&gt;</span>SMW_Adv_USA1<span class="nt">&lt;/string&gt;</span>
+    <span class="nt">&lt;key&gt;</span>score-value<span class="nt">&lt;/key&gt;</span>
+    <span class="nt">&lt;integer&gt;</span>2200272667<span class="nt">&lt;/integer&gt;</span>
+    <span class="nt">&lt;key&gt;</span>timestamp<span class="nt">&lt;/key&gt;</span>
+    <span class="nt">&lt;integer&gt;</span>1301553284461<span class="nt">&lt;/integer&gt;</span>
+<span class="nt">&lt;/dict&gt;</span>
+<span class="nt">&lt;/plist&gt;</span>
+</pre></div>
+
+<p>Save the file and exit your editor. </p>
+
+<p>The final step is to replay this modified request. Simply press <strong>r</strong> for
+replay.</p>
+
+<h2>The glorious result and some intrigue</h2>
+
+<p><center>
+    <img src="leaderboard.png"/>
+</center></p>
+
+<p>And that's it - according to the records, I am the greatest Super Mega Worm
+player of all time. </p>
+
+<p>Curiously, the top competitors' scores are all the same: 2,147,483,647. If you
+think that number seems familiar, you're right: it's 2^31-1, the maximum value
+you can fit into a signed 32-bit int. Now let me tell you another peculiar
+thing about Super Mega Worm - at the end of every game, it submits your highest
+previous score to the Game Center, not your current score.  This means that it
+stores your highscore somewhere, and I'm guessing that it reads that stored
+score back into a signed integer. So, if you <em>were</em> to cheat by the relatively
+pedestrian means of modifying the saved score on your jailbroken phone, then
+2^31-1 might well be the maximum score you could get. Then again, if the game
+itself stores its score in a signed 32-bit int, you could get the same score
+through perfect play, effectively beating the game. So, which is it in this
+case? I'll leave that for you to decide.</p>
+
+            </div>
+        </div>
+    </div>
+    <div style="" id="ft" class="doc">
+        <p>© mitmproxy project, 2012</p>
+    </div>
+</div>
+</body></html>
