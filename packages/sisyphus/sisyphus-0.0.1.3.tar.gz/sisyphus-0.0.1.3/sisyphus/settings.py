@@ -1,0 +1,8 @@
+import logging
+
+SISYPHUS_WORKER_QUEUE_NAME = "Sisyphus.work"
+SISYPHUS_SCHEDULER_QUEUE_NAME = "Sisyphus.scheduler"
+AUTO_DECORATOR_NAME="resurrecting_stone"
+SISYPHUS_WORKER_TTL=900
+SISYPHUS_JOIN_TTL=10
+LOG_LEVEL=logging.INFO
