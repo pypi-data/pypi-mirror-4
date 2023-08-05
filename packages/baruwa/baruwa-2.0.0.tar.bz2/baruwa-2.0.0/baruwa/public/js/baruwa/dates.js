@@ -1,0 +1,1 @@
+var BaruwaDateString;BaruwaDateString=function(r){var d,pad;d=new Date(r);pad=function(n){if(n<10)return '0'+n;else return n;};return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+' '+pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());};
