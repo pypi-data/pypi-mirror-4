@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+#
+#
+
+## bootstrap
+
+import warnings
+warnings.simplefilter("ignore")
+
+import os, sys
+sys.path.insert(0, os.getcwd())
+
+## options parser
+
+from fbf.utils.opts import makeircconfig, makeircopts
+from fbf.lib.datadir import setdatadir, getdatadir
+
+opts = makeircopts()
+if opts.datadir: setdatadir(opts.datadir)
+
+## print version
+
+from fbf.version import getversion
+print(getversion('IRC'))
+
+
+## fbf imports
+
+from fbf.utils.exception import handle_exception
+from fbf.lib.partyline import partyline
+from fbf.drivers.irc.bot import IRCBot
+from fbf.lib.boot import plugin_packages, boot
+from fbf.utils.log import setloglevel
+from fbf.lib.errors import NoOwnerSet
+from fbf.lib.fleet import getfleet
+from fbf.utils.mainloop import mainloop
+from fbf.lib.threads import start_new_thread
+from fbf.lib.eventhandler import mainhandler
+import fbf.lib.users as users
+import fbf
+
+## basic imports
+
+import logging
+import time
+import os
+
+## loglevel
+
+setloglevel(opts.loglevel or "warning", not opts.nocolors, opts.datadir)
+
+## boot
+
+boot(opts.datadir)
+
+## runtime
+
+if opts.owner:
+    u = users.users_boot()
+    u.make_owner(opts.owner)
+
+cfg = makeircconfig(opts)
+
+if opts.name: cfg.name = opts.name
+else: cfg.name = "default-irc"
+cfg.save()
+
+## resume or start the bot
+
+if opts.doresume and os.path.isfile(opts.doresume):
+    logging.warn("irc - resuming from %s" % opts.doresume)
+    if True:
+        fleet = getfleet()
+        fleet.resume(opts.doresume)
+        fleet.startok.wait()
+    partyline.resume(opts.doresume)
+    os.unlink(opts.doresume)
+else:
+    try:
+        bot = IRCBot(cfg)
+    except NoOwnerSet as ex:
+        print("owner is not set in %s - use the -o option" % str(ex))
+        os._exit(1)
+    if opts.channel and not opts.channel in bot.cfg.channels:
+        bot.cfg.channels.append(opts.channel)
+        bot.cfg.save()
+    start_new_thread(bot.boot, ())
+
+if opts.api:
+    from fbf.api import server
+    server.runapiserver(opts.apiport)
+else: mainloop()
