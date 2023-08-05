@@ -1,0 +1,10 @@
+__version__ = "0.6.2"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = 'fa2b15a6f23724f2950c1141b3db1ec5cb6f7cb4'
+__git_head_subject__ = 'Finished release v0.6.2.'
+__git_head_message__ = '# By Guy Rozendorn (2) and Arnon Yaari (1)\n* release/v0.6.2:\n  TRIVIAL updated README.md\n  TRIVIAL updated README.md\n  empty commit after version v0.6.1'
+__git_dirty_diff__ = ''
