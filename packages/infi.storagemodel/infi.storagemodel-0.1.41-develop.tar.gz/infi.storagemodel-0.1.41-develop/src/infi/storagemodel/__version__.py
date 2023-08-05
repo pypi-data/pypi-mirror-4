@@ -1,0 +1,10 @@
+__version__ = "0.1.41-develop"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = 'develop'
+__git_remote_tracking_branch__ = 'origin/develop'
+__git_remote_url__ = 'git@gitserver:/host/storagemodel.git'
+__git_head_hash__ = 'e5ea12d4d3802150f0d14101d69c77ff80bac2b3'
+__git_head_subject__ = 'empty commit after version v0.1.41'
+__git_head_message__ = ''
+__git_dirty_diff__ = ''
