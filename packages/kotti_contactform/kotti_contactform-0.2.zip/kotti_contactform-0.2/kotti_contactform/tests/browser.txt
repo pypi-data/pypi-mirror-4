@@ -1,0 +1,102 @@
+kotti_contactform browser tests
+===============================
+
+Setup and Login
+---------------
+
+  >>> import pytest
+  >>> from kotti import testing
+  >>> tools = testing.setUpFunctional(
+  ... **{'kotti.configurators': 'kotti_contactform.kotti_configure',
+  ...    'pyramid.includes': 'pyramid_mailer.testing',
+  ...   })
+  >>> browser = tools['Browser']()
+  >>> ctrl = browser.getControl
+
+  >>> browser.open(testing.BASE_URL + '/edit')
+  >>> "Log in" in browser.contents
+  True
+  >>> ctrl("Username or email").value = "admin"
+  >>> ctrl("Password").value = "secret"
+  >>> ctrl(name="submit").click()
+  >>> "Welcome, Administrator" in browser.contents
+  True
+
+Add a ContactForm
+-----------------
+
+  >>> browser.getLink("Add").click()
+  >>> browser.getLink("Contact form").click()
+  >>> ctrl("Title").value = "new contact form"
+  >>> ctrl("Recipient").value = "test@localhost.local"
+  >>> ctrl("Body").value = "The body text"
+  >>> ctrl("save").click()
+  >>> "Successfully added item" in browser.contents
+  True
+  >>> browser.url == testing.BASE_URL + '/new-contact-form/'
+  True
+  >>> browser.getLink("Edit").click()
+  >>> "new contact form" in browser.contents
+  True
+
+View ContactForm
+----------------
+
+  >>> browser.open(testing.BASE_URL + '/new-contact-form/')
+  >>> "Address" in browser.contents
+  True
+  >>> "The body text" in browser.contents
+  True
+
+Submit ContactForm
+------------------
+
+  >>> ctrl("Full Name").value = "Test"
+  >>> ctrl("E-Mail Address").value = "wrong email"
+  >>> ctrl("Subject").value = "foosubject"
+  >>> ctrl("Your message").value = "test message"
+  >>> ctrl("submit").click()
+  >>> "Invalid email address" in browser.contents
+  True
+  >>> browser.open(testing.BASE_URL + '/new-contact-form/')
+  >>> ctrl("Full Name").value = "Test"
+  >>> ctrl("E-Mail Address").value = "foo@example.com"
+  >>> ctrl("Subject").value = "foosubject"
+  >>> ctrl("Your message").value = "test message"
+  >>> import cStringIO
+  >>> ctrl("Attachment").add_file(cStringIO.StringIO('test content'),
+  ...                             'text/plain', 'foo.txt')
+  >>> ctrl("submit").click()
+  >>> "Thanks for your submission" in browser.contents
+  True
+
+Submit ContactForm with too big attachment file
+-----------------------------------------------
+
+  >>> browser.open(testing.BASE_URL + '/new-contact-form/')
+  >>> ctrl("Full Name").value = "Test"
+  >>> ctrl("E-Mail Address").value = "foo@example.com"
+  >>> ctrl("Subject").value = "foosubject"
+  >>> ctrl("Your message").value = "test message"
+  >>> import cStringIO
+  >>> big_content = "x"*12*1024*1024
+  >>> ctrl("Attachment").add_file(cStringIO.StringIO(big_content),
+  ...                             'text/plain', 'foo.txt')
+  >>> ctrl("submit").click()
+  >>> "Maximum file size" in browser.contents
+  True
+
+
+Add a ContactForm without attachement
+-------------------------------------
+
+  >>> browser.open(testing.BASE_URL)
+  >>> browser.getLink("Contact form").click()
+  >>> ctrl("Title").value = "contact form no attachment"
+  >>> ctrl("Recipient").value = "test@localhost.local"
+  >>> ctrl("Body").value = "The body text"
+  >>> ctrl("Show attachment ").selected = False
+  >>> ctrl("save").click()
+  >>> browser.url == testing.BASE_URL + '/contact-form-no-attachment/'
+  True
+  >>> with pytest.raises(LookupError): ctrl("Attachment")
