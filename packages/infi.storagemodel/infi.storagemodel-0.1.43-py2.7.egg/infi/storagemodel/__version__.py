@@ -1,0 +1,10 @@
+__version__ = "0.1.43"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '9bf9791a3e4b1b767e0ba974adc440655fa5efe7'
+__git_head_subject__ = 'Finished release v0.1.43.'
+__git_head_message__ = "* release/v0.1.43:\n  Freezing dependencies\n  TRIVIAL skeleton update\n  TRIVIAL logging message\n  STORAGEMODEL-194\n  STORAGEMODEL-193 running partprobe and udev settle with timoeout\n  STORAGEMODEL-191 rescan_scsi_bus: forgot execute_async\n  STORAGEMODEL-192 fixed SyntaxError in previous commit\n  STORAGEMODEL-192 rescan_scsi_bus: refactoring workarounds for kernel bugs\n  STORAGEMODEL-191 try SIGKILL on stuck processes\n  STORAGEMODEL-191 rescan_scsi_bus: running 'sync' with timeout\n  TRIVIAL rescan_scsi_bus: avoiding removing luns when target is removed only on Ubuntu\n  empty commit after version v0.1.42"
+__git_dirty_diff__ = ''
