@@ -1,0 +1,7 @@
+Arguments
+=========
+
+::
+
+   
+    >> interact (locals())
