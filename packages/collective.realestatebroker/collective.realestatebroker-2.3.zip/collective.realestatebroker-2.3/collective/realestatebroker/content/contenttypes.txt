@@ -1,0 +1,211 @@
+Real estate broker content types
+================================
+
+Realestatebroker has two content types. One for *homes* and one for
+*businesses*.
+
+    >>> from collective.realestatebroker.content.residential import Residential
+    >>> from collective.realestatebroker.content.commercial import Commercial
+
+Interfaces
+----------
+
+Both implement interfaces:
+
+    >>> from collective.realestatebroker.interfaces import IRealEstateContent
+    >>> from collective.realestatebroker.interfaces import IResidential
+    >>> from collective.realestatebroker.interfaces import ICommercial
+    >>> IRealEstateContent.implementedBy(Residential)
+    True
+    >>> IResidential.implementedBy(Residential)
+    True
+    >>> IRealEstateContent.implementedBy(Commercial)
+    True
+    >>> ICommercial.implementedBy(Commercial)
+    True
+
+For flash mass-upload we need to implement IUploadingCapable.
+
+    >>> from Products.PloneFlashUpload.interfaces import IUploadingCapable
+    >>> IUploadingCapable.implementedBy(Residential)
+    True
+    >>> IUploadingCapable.implementedBy(Commercial)
+    True
+
+Fields
+------
+
+By nature, a real estate object deals with a sizeable number of fields
+(address, price details, kind of house, extras, etc.). A large number of them
+are country-specific. With plone 3.0, there's a fancy way to extend existing
+schemas (ISchema), which is made even simpler by the ``schemaextender``
+product. We therefore have the luxury of restricting the number of fields and
+to suggest integrators to add their own extra fields.
+
+Schemata allow a handy subdivision (especially with plone 3.0's user
+interface) of fields, so we'll offer a standard set that can be extended by
+custom fields.
+
+- Generic data such as address, description, main text.
+
+- Price information (which has lots of scope for country-specific additions).
+
+- Measurements.
+
+- Object details such as kind of building, construction year, heating system,
+  insulation.
+
+- Environment: garden and outside details like description of the environment.
+
+- Location (= google maps).
+
+To be future-proof, we're implementing the content types as archetypes with
+zope3 interface around them. Bit of a double work, but OK for now. Let's test
+some basic presense of fields:
+
+    >>> residential_schema = Residential.schema
+    >>> 'constructYear' in residential_schema
+    True
+    >>> 'garage' in residential_schema
+    True
+    >>> 'price' in residential_schema
+    True
+    >>> 'parking' in residential_schema # from commercial!
+    False
+    >>> 'parking' in Commercial.schema
+    True
+
+There are a lot of fields, so we're subdividing them into schemata, even
+though there will probably be custom-made edit forms.
+
+    >>> some_fields = residential_schema.getSchemataFields('default')
+    >>> len(some_fields) > 0
+    True
+    >>> some_fields = residential_schema.getSchemataFields('financial')
+    >>> len(some_fields) > 0
+    True
+    >>> some_fields = residential_schema.getSchemataFields('non-existing')
+    >>> len(some_fields) > 0
+    False
+
+Schema extension
+----------------
+
+Real estate objects are very locale-dependent. So it will be necessary to do
+customization to the fields. archetypes.schemaextender is a great tool for
+that.
+
+First we ensure that the field isn't available yet.
+
+    >>> res = Residential('res')
+    Traceback (most recent call last):
+    ...
+    TypeError: ('Could not adapt', <Residential at >, <InterfaceClass Products.Archetypes.interfaces._schema.ISchema>)
+
+Ouch, this is a unittest, so the zcml-loaded ISchema adapter doesn't work
+yet. We'll have to enable it by hand. Just a default plone will do this for
+you.
+
+    >>> from archetypes.schemaextender.interfaces import IOrderableSchemaExtender
+    >>> from zope import interface
+    >>> from Products.Archetypes import atapi
+    >>> from Products.Archetypes.Schema.factory import instanceSchemaFactory
+    >>> from zope import component
+    >>> component.provideAdapter(instanceSchemaFactory)
+
+To prevent that we need to make too much mock objects for this unittest, we'll
+need to remove the fieldproperties as they require too much wiring.
+
+    >>> from Products.Archetypes.atapi import ATFieldProperty
+    >>> for attr in ['address', 'description', 'zipcode', 'city', 'price', 'house_type', 'rooms', 'text', 'acceptance', 'area', 'floor_area', 'volume', 'construct_year', 'location', 'kind_of_building', 'heating', 'insulation', 'garden', 'kind_of_garden', 'storage', 'kind_of_storage', 'garage', 'kind_of_garage']:
+    ...     delattr(Residential, attr)
+
+So, now we can grab the schema the official way.
+
+    >>> res = Residential('res')
+    >>> schema = res.Schema()
+    >>> 'price' in schema
+    True
+    >>> 'extra_field' in schema
+    False
+
+One thing that archetypes.schemaextender needs is that your contenttype is
+implementing the IExtensible interface, which is a marker interface used by
+schemaextender to find the objects it needs to work on. For Residential and
+Commercial, this is already done.
+
+    >>> from archetypes.schemaextender.interfaces import IExtensible
+    >>> IExtensible.implementedBy(Residential)
+    True
+
+Now that the basics are in place, we can now start with the work you'll have
+to do yourself in your own extensions.
+
+Step 1. archetypes.schemaextender's ``configure.zcml`` should be applied, so
+include an entry ``archetypes.schemaextender`` in your zcml section if you use
+buildout. For this unittest we'll do the work by hand:
+
+    >>> from archetypes.schemaextender.extender import instanceSchemaFactory
+    >>> component.provideAdapter(instanceSchemaFactory)
+
+Step 2. Create field classes for the fields you want to adapt. Say, a
+StringField. Make sure you inherit from ExtensionField, first.
+
+    >>> from archetypes.schemaextender.field import ExtensionField
+    >>> class ExtendedStringField(ExtensionField, atapi.StringField):
+    ...     pass
+
+Step 3. Create a schema extender. An extender is a named adapter behind the
+scenes, so you have to say which interface you adapt. In our case,
+IResidential and/or ICommercial.
+
+    >>> class MyExtender(object):
+    ...     component.adapts(IResidential)
+    ...     interface.implements(IOrderableSchemaExtender)
+    ...     _fields = [ExtendedStringField(
+    ...         'extra_field',
+    ...         storage=atapi.AnnotationStorage(),
+    ...         widget = atapi.StringWidget(label = u'Extra field')
+    ...         ),
+    ...                ]
+    ...     def __init__(self, context):
+    ...         self.context = context
+    ...     def getFields(self):
+    ...         return self._fields
+    ...     def getOrder(self, original):
+    ...         # Possibility to move fields.
+    ...         return original
+
+Step 4. Wire up your extender with some zcml by defining an adapter with your
+extender as the "factory" and give it some name (so that it is a named
+adapter). We'll again enable it manually here (it *is* a unit test):
+
+    >>> component.provideAdapter(MyExtender,
+    ...                          name=u"dutch.test")
+    >>> res = Residential('res')
+    >>> schema = res.Schema()
+    >>> 'price' in schema
+    True
+    >>> 'extra_field' in schema
+    True
+
+
+
+Influence on templates and pdf export
+-------------------------------------
+
+Unless you're doing real strange things, all templates and also the PDF export
+ought to work just fine with your additions. Most of the fields are rendered
+automatically by archetypes and this also works for everything you add with
+schemaextender.
+
+You can mark a field with `selfrendered=True`, in that case the field is not
+included in the automatic rendering. By default, this is "on" for the address
+and the main body text, for instance. So if you add a field that you want to
+render yourself, this is the way.
+
+Editor note
+-----------
+
+Note: this is the `content/contenttypes.txt` inside the realestatebroker
+product. So don't edit it directly on plone.org, but in svn.
