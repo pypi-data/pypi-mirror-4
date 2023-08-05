@@ -1,0 +1,21 @@
+Hashish
+=======
+
+A simple mixin that provides password hashing functionality.  It uses a
+configurable salt count to set a field.  It is designed to be easy to use
+in most instances
+
+Example Usage with SqlAlchemy
+-----------------------------
+
+    :::python
+    class Account(Base,HashishMixin):
+        __PASSWORD_FIELD__ = "password_hash"  # Defaults to "hash"
+        __SALT_COUNT__ = 4  # Defaults to 2
+
+        password_hash = Column(String)
+
+
+    test_account = Account()
+    test_account.password = "SuperSecretPasswordYo!"
+    test_account.validate("SuperSecretPasswordYo!")  # True if the hashes match using the same salt.
