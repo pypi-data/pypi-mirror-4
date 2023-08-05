@@ -1,0 +1,307 @@
+**************************************************************************
+itools 0.16.0
+**************************************************************************
+
+1. Import changes
+=================
+
+The API has been flatten. All functions, constants, classes and exceptions
+of a package are available at the package's root level (no need to go search
+a function in some module). Only exception is "itools.cms", which is too big
+to have a flat API.
+
+Also, all modules are now in lowercase.
+
+These and other minor changes in the organization of the code, made it
+necessary to modify some import statements. Some examples:
+
+  from itools.catalog.queries import Equal, Phrase         # Before
+  from itools.catalog import EqQuery, PhraseQuery          # Now
+
+  from itools.xml.parser import Parser, START_ELEMENT
+  from itools.xml import Parser, START_ELEMENT, END
+
+  from itools.cms.utils import checkid
+  from itools.rest import checkid
+
+  from itools.cms.Handler import Handler
+  from itools.cms.base import Handler
+
+  from itools.cms.Folder import Folder
+  from itools.cms.folder import Folder
+
+  from itools.cms.WebSite import WebSite
+  from itools.cms.website import WebSite
+
+The list is not exhaustive, as it would be too large; you will have to
+check the source code when an import fails.
+
+
+2. itools.catalog
+=================
+
+The programming interface has changed notably. Check the documentation for
+the complete details on how the new API works:
+
+  http://download.ikaaro.org/doc/itools/index.html
+
+
+2.1 The format has changed
+--------------------------
+
+The format of the catalog has changed again. This just means that existing
+catalog instances must be rebuilt.
+
+
+2.2 Creating a new catalog
+--------------------------
+
+The most important change is that the catalog is not anymore built around
+the itools.handlers package, so its programming interface to create, load
+and save the catalog has changed:
+
+To Create a new catalog. Before:
+
+  from itools.catalog import Catalog
+
+  catalog = Catalog(fields=[
+      ('name', 'keyword', True, True),
+      ('text', 'text', True, False),
+  ])
+  catalog.save_state_to('catalog')
+  catalog = Catalog('catalog')
+
+Now:
+
+  from itools.catalog import make_catalog, KeywordField, TextField
+
+  catalog = make_catalog('catalog',
+      KeywordField('name', is_stored=True)
+      TextField('text'),
+  )
+
+As you can appreciate the definition of the fields to index has changed
+too. This is meanly to allow the possibility to define custom fields.
+
+
+2.3 Save the changes
+--------------------
+
+To save the changes made to the catalog, it is a bit different.
+
+Before:
+
+  catalog.save_state()
+
+Now:
+
+  catalog.commit()
+
+
+2.4 Indexing and Unindexing
+---------------------------
+
+There are a couple of high level features that have been added to the
+catalog, and that affect the way we index and unindex documents.
+
+2.4.1 Indexing
+..............
+
+Now like before we can index a dictonary that contains a key/value pair
+for every field.
+
+But now indexing an object where the fields to be indexed are the object's
+attributes does not work anymore.
+
+If we want to index objects other than dictionaries we can use the higher
+level CatalogAware class. Just inherit from CatalogAware and define a
+method "get_catalog_indexes" that returns the dictionary that will finally
+be indexed.
+
+
+2.4.2 UnIndexing
+................
+
+The catalog has now the concept of "external id". When creating a new
+catalog, the first field we define is the "external id". For example:
+
+  catalog = make_catalog('catalog',
+      KeywordField('name', is_stored=True)
+      TextField('text'),
+  )
+ 
+Here the external id is the field "name". It is required that this field
+to be indexed and stored, and that it uniquely identfies the document.
+
+Now the method "unidex_catalog" expects the external id instead of the
+internal id.
+
+Before:
+
+  for brain in catalog.search(name='toto').get_documents():
+      catalog.unindex_document(brain.__number__)
+
+Now:
+
+  catalog.unindex_document('toto')
+
+
+2.5 Queries
+-----------
+
+The queries are much the same, but they have been renamed to append the
+prefix "Query". This is part of the work to flat the API.
+
+Before:
+
+  from itools.catalog.queries import Equal, Phrase, Range, And, Or
+
+Now:
+
+  from itools.catalog import (EqQuery, PhraseQuery, RangeQuery, AndQuery,
+      OrQuery)
+
+
+
+3. itools.xml
+=============
+
+3.1 Parser
+----------
+
+There have been some small changes to the parser programming interface.
+
+The START_ELEMENT value is a three-items tuple, instead of four. The
+namespaces are returned as simple attributes:
+
+  # Before
+  if event == START_ELEMENT:
+      tag_uri, tag_name, attributes, ns_decls = value
+
+  # NOW
+  if event == START_ELEMENT:
+      tag_uri, tag_name, attributes = value
+
+Neither the text nodes nor the element attributes are deserialized now.
+The parser always returns the values as byte strings in the source
+encoding.
+
+
+3.2 Documents
+-------------
+
+The state for XML document handlers is not anymore an element-tree, but
+a sequence of events as they are returned by the XML parser.
+
+This means existing code that manipulates the element-tree will need to
+be updated to work with a list of events instead.
+
+
+4. itools.cms
+=============
+
+4.1 Build Metadata
+------------------
+
+The method "build_metadata" has been moved from the container to the
+sub-object. This is to say, a handler builds its own metadata.
+
+Before:
+
+  metadata = self.build_metadata(handler)
+
+Now:
+
+  metadata = handler.build_metadata()
+
+
+4.2 Add and remove CMS objects
+------------------------------
+
+Two new methods, "set_object" and "del_object", are to be used when adding
+and removing CMS objects; instead of the lower level handler methods
+"set_handler" and "del_handler":
+
+  handler = self.set_handler('name', handler)            # Before
+  handler, metadata = self.set_object('name', handler)   # Now
+
+  del_handler('name')
+  del_object('name')
+
+
+4.3 Definition of the catalog fields
+------------------------------------
+
+As we have seen earlier, the way to define the catalog fields has changed.
+
+Before:
+
+  class Root(...):
+      _catalog_fields = [
+          ('abspath', 'keyword', True, True),
+          ('text', 'text, True, False),
+          ...
+
+Now:
+
+  from itools.catalog import KeywordField, TextField
+
+  class Root(...):
+      _catalog_fields = [
+          KeywordField('abspath', is_stored=True),
+          TextField('text'),
+          ...
+
+
+4.4 Usage of the catalog
+------------------------
+
+The catalog is not anymore a handler, so the way to get it is different.
+We do not need to get it anyway, better to use the Root's API.
+
+Before:
+
+  catalog = root.get_handler('.catalog')
+  catalog.search(query)
+
+Now:
+
+  root.search(query)
+
+Also, we will rarely need to reindex a handler by ourselves, since now the
+methods "set_property" and "del_property" will automatically do it.
+
+However, if we need to do it, the API has changed too:
+
+Before:
+
+  root.reindex_handler(handler)
+
+Now:
+
+  from itools.cms.catalog import schedule_to_reindex
+
+  schedule_to_reindex(handler)
+
+
+4.5 Send HTML
+-------------
+
+Now we send HTML to the client, this means the skins must be modified to
+look like this:
+
+    # Load the template
+    handler = self.get_template()
+
+    # Build the output
+    s = ['<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"\n'
+         '  "http://www.w3.org/TR/html4/strict.dtd">']
+    # STL
+    prefix = Path(handler.get_abspath())
+    data = stl(handler, namespace, prefix=prefix)
+    s.append(data)
+
+    return ''.join(s)
+
+We add first the HTML header, then we call STL, which by default produces
+HTML output.
