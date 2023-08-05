@@ -1,0 +1,148 @@
+# -*- coding: utf-8 -*-
+# Copyright (C) 2008-2012, Luis Pedro Coelho <luis@luispedro.org>
+# vim: set ts=4 sts=4 sw=4 expandtab smartindent:
+# 
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+#  of this software and associated documentation files (the "Software"), to deal
+#  in the Software without restriction, including without limitation the rights
+#  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+#  copies of the Software, and to permit persons to whom the Software is
+#  furnished to do so, subject to the following conditions:
+# 
+# The above copyright notice and this permission notice shall be included in
+#  all copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+#  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+#  THE SOFTWARE.
+
+'''
+Thresholding Module
+===================
+
+Thresholding functions:
+
+:otsu(): Otsu method
+:rc(): Riddler-Calvard's method
+'''
+
+from __future__ import division
+import numpy as np
+from .histogram import fullhistogram
+from . import _histogram
+from .internal import _verify_is_integer_type
+__all__ = [
+        'otsu',
+        'rc',
+    ]
+
+
+def otsu(img, ignore_zeros=False):
+    """
+    T = otsu(img, ignore_zeros=False)
+
+    Calculate a threshold according to the Otsu method.
+
+    Parameters
+    ----------
+    img : an image as a numpy array.
+        This should be of an unsigned integer type.
+    ignore_zeros : Boolean
+        whether to ignore zero-valued pixels
+        (default: False)
+
+    Returns
+    -------
+    T : integer
+        the threshold
+    """
+    _verify_is_integer_type(img, 'otsu')
+    hist = fullhistogram(img)
+    hist = hist.astype(np.double)
+    if ignore_zeros:
+        hist[0] = 0
+    return _histogram.otsu(hist)
+
+
+def rc(img, ignore_zeros=False):
+    """
+    T = rc(img, ignore_zeros=False)
+
+    Calculate a threshold according to the Riddler-Calvard method.
+
+    Parameters
+    ----------
+    img : ndarray
+        Image of any type
+    ignore_zeros : boolean, optional
+        Whether to ignore zero valued pixels (default: False)
+
+    Returns
+    -------
+    T : float
+        threshold
+    """
+    hist = fullhistogram(img)
+    if ignore_zeros:
+        if hist[0] == img.size:
+            return 0
+        hist[0] = 0
+    N = hist.size
+
+    # Precompute most of what we need:
+    first_moment = np.cumsum(np.arange(N) * hist)
+    cumsum = np.cumsum(hist)
+
+    r_first_moment = np.flipud(np.cumsum(np.flipud(np.arange(N) * hist)))
+    r_cumsum = np.flipud(np.cumsum(np.flipud(hist)))
+
+    maxt = N-1
+    while hist[maxt] == 0:
+        maxt -= 1
+
+    res = maxt
+    t = 0
+    while t < min(maxt, res):
+        if cumsum[t] and r_cumsum[t+1]:
+            res = (first_moment[t]/cumsum[t] + r_first_moment[t+1]/r_cumsum[t+1])/2
+        t += 1
+    return res
+
+def soft_threshold(f, tval):
+    '''
+    thresholded = soft_threshold(f, tval)
+
+    Soft threshold function
+
+                         ^           /
+                         |          /
+                         |         /
+                         |        /
+                         |       /
+     - - - - - - - - - - - - - - - - - ->
+                  /      |
+                 /       |
+                /        |
+               /         |
+              /          |
+             /           |
+
+    Parameters
+    ----------
+    f : ndarray
+    tval : scalar
+
+    Returns
+    -------
+    thresholded : ndarray
+    '''
+   
+    f = f * (np.abs(f) > tval)
+    f -= tval * (f > tval)
+    f += tval * (f < -tval)
+    return f
+
