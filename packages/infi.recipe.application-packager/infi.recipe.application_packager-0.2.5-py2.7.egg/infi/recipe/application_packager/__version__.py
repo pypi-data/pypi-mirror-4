@@ -1,0 +1,10 @@
+__version__ = "0.2.5"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = 'c5c33fdd2bb634bc21bce12c647a299a1ce5b039'
+__git_head_subject__ = 'Finished release v0.2.5.'
+__git_head_message__ = '* release/v0.2.5:\n  TRIVIAL downloading wix binaries from repo.infinidat.com instead of codeplex\n  empty commit after version v0.2.4'
+__git_dirty_diff__ = ''
