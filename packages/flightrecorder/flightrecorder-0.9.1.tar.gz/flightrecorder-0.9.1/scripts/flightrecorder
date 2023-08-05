@@ -1,0 +1,413 @@
+#!/usr/bin/env python
+#
+#   flightrecorder  Flight recorder interface
+#   Copyright (C) 2011  Tom Payne <twpayne@gmail.com>
+#
+#   This program is free software: you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation, either version 3 of the License, or
+#   (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+
+from ConfigParser import ConfigParser, NoSectionError, NoOptionError
+import datetime
+import json
+import logging
+from math import acos, ceil, cos, pi, sin
+from optparse import OptionParser
+import os
+import os.path
+import re
+import sys
+import time
+import zipfile
+
+from flightrecorder import FlightRecorder
+from flightrecorder.common import parse_openair
+from flightrecorder.errors import NotAvailableError, TimeoutError
+from flightrecorder.firmware import firmware
+from flightrecorder.utc import UTC
+import flightrecorder.waypoint as waypoint
+
+
+class UserError(RuntimeError):
+
+    def __init__(self, message):
+        RuntimeError.__init__(self)
+        self.message = message
+
+
+class RangeSet(object):
+
+    def __init__(self, s):
+        self.slices = []
+        for f in re.split(r'\s*,\s*', s):
+            m = re.match(r'\A(\d*)(?:(-)(\d*))?\Z', f)
+            if not m:
+                raise UserError('invalid range %r' % f)
+            start = int(m.group(1)) if m.group(1) else None
+            if m.group(2):
+                stop = int(m.group(3)) if m.group(3) else None
+            else:
+                stop = start
+            self.slices.append(slice(start, stop))
+
+    def __contains__(self, x):
+        for sl in self.slices:
+            if sl.start is not None and x < sl.start:
+                continue
+            if sl.stop is not None and sl.stop < x:
+                continue
+            return True
+        return False
+
+
+def abbreviator(items):
+    result = {}
+    for item in items:
+        for key in (item[:i] for i in xrange(1, len(item) + 1)):
+            if key in result:
+                result[key] = None
+            else:
+                result[key] = item
+    return result
+
+
+def distance_between(w1, w2):
+    d = sin(pi * w1.lat / 180.0) * sin(pi * w2.lat / 180.0) + cos(pi * w1.lat / 180.0) * cos(pi * w2.lat / 180.0) * cos(pi * (w1.lon - w2.lon) / 180.0)
+    return 6371000.0 * acos(d) if d < 1.0 else 0.0
+
+
+def fr_ctr_download(options, args):
+    fr = FlightRecorder(options.device, options.model)
+    if args:
+        raise UserError('extra arguments on command line %r' % args)
+    json.dump([ctr.to_json() for ctr in fr.ctrs()], sys.stdout, indent=4, sort_keys=True)
+    sys.stdout.write('\n')
+
+
+def fr_ctr_information(options, args):
+    fr = FlightRecorder(options.device, options.model)
+    if args:
+        raise UserError('extra arguments on command line %r' % args)
+    ctri = fr.ctri()
+    print '%s: actual %d, maximum %d, free %d' % (options.basename, ctri.actual, ctri.maximum, ctri.free)
+
+
+def fr_ctr_upload(options, args):
+    fr = FlightRecorder(options.device, options.model)
+    for arg in args:
+        for ctr in parse_openair(open(arg)):
+            print '%s: uploading %s' % (options.basename, ctr.name)
+            fr.ctr_upload(ctr, options.warning_distance)
+
+
+def fr_flash(options, args):
+    fr = FlightRecorder(options.device, options.model)
+    if not args:
+        raise UserError('missing argument')
+    elif len(args) > 1:
+        raise UserError('extra arguments on command line %r' % args[1:])
+    for model, srf in firmware(open(args[0])):
+        sys.stderr.write('%s: flashing   0%%  --:--' % options.basename)
+        percentage, remaining = 0, None
+        start = time.time()
+        for i, n in fr.flash(model, srf):
+            prev_percentage = percentage
+            percentage = 100 * i / n
+            prev_remaining = remaining
+            now = time.time()
+            if now - start < 8:
+                remaining = None
+            else:
+                remaining = (n - i) * (now - start) / i
+            if percentage != prev_percentage or remaining != prev_remaining:
+                sys.stderr.write('\b\b\b\b\b\b\b\b\b\b\b%3d%%  ' % percentage)
+                if remaining is None:
+                    sys.stderr.write('--:--')
+                else:
+                    sys.stderr.write('%02d:%02d' % divmod(remaining, 60))
+        sys.stderr.write('\b\b\b\b\b\b\b\b\b\b\b100%%  %02d:%02d\n' % divmod(time.time() - start, 60))
+        return
+    raise UserError('no firmware found')
+
+
+def fr_json(options, args):
+    if args:
+        raise UserError('extra arguments on command line %r' % args)
+    fr = FlightRecorder(options.device, options.model)
+    json.dump(fr.to_json(), sys.stdout, indent=4, sort_keys=True)
+    sys.stdout.write('\n')
+
+
+def fr_get(options, args):
+    if not args:
+        raise UserError('missing argument')
+    elif len(args) > 1:
+        raise UserError('extra arguments on command line %r' % args[1:])
+    fr = FlightRecorder(options.device, options.model)
+    print fr.get(args[0])
+
+
+def fr_id(options, args):
+    if args:
+        raise UserError('extra arguments on command line %r' % args)
+    fr = FlightRecorder(options.device, options.model)
+    print '%s: found %s %s, serial number %s, software version %s (%s) on %s' % (options.basename, fr.manufacturer, fr.model, fr.serial_number, fr.software_version, fr.pilot_name, fr.io.filename)
+
+
+def fr_set(options, args):
+    if len(args) < 2:
+        raise UserError('missing argument(s)')
+    elif len(args) > 2:
+        raise UserError('extra arguments on command line %r' % args[1:])
+    fr = FlightRecorder(options.device, options.model)
+    fr.set(args[0], args[1])
+
+
+def fr_tracks_download_helper(options, args, zf):
+    fr = FlightRecorder(options.device, options.model)
+    count = 0
+    range_sets = list(RangeSet(arg) for arg in args)
+    for i, track in enumerate(fr.tracks()):
+        if range_sets and not any(i + 1 in rs for rs in range_sets):
+            continue
+        if zf is None and os.path.exists(os.path.join(options.directory, track.igc_filename)) and not options.overwrite:
+            sys.stderr.write('%s: skipping %s\n' % (options.basename, track.igc_filename))
+            continue
+        sys.stderr.write('%s: downloading %s    0%%  --:--' % (options.basename, track.igc_filename))
+        here = track.datetime
+        percentage, remaining = 0, None
+        start = time.time()
+        for line in track.igc:
+            m = re.match(r'\AB(\d\d)(\d\d)(\d\d)', line)
+            if m:
+                hour, minute, second = (int(g) for g in m.groups())
+                here = here.replace(hour=hour, minute=minute, second=second)
+            m = re.match(r'\AHFDTE(\d\d)(\d\d)(\d\d)', line)
+            if m:
+                day, month, year = (int(g) for g in m.groups())
+                here = datetime.datetime(2000 + year, month, day, 0, 0, 0, tzinfo=UTC())
+            prev_percentage = percentage
+            percentage = int(100 * (here - track.datetime).seconds / track.duration.seconds)
+            percentage = max(min(percentage, 100), 0)
+            prev_remaining = remaining
+            now = time.time()
+            if here == track.datetime or now - start < 2:
+                remaining = None
+            else:
+                remaining = ceil((now - start) * max((track.datetime + track.duration - here).seconds, 0) / (here - track.datetime).seconds)
+                remaining = max(remaining, 0)
+                if prev_remaining is not None:
+                    remaining = min(remaining, prev_remaining)
+            if percentage != prev_percentage or remaining != prev_remaining:
+                sys.stderr.write('\b\b\b\b\b\b\b\b\b\b\b%3d%%  ' % percentage)
+                if remaining is None:
+                    sys.stderr.write('--:--')
+                else:
+                    sys.stderr.write('%02d:%02d' % divmod(remaining, 60))
+        duration = time.time() - start
+        sys.stderr.write('\b\b\b\b\b\b\b\b\b\b\b100%%  %02d:%02d\n' % divmod(duration, 60))
+        count += 1
+        yield track
+    sys.stderr.write('%s: %d tracklogs downloaded\n' % (options.basename, count))
+
+
+def fr_tracks_download(options, args):
+    for track in fr_tracks_download_helper(options, args, None):
+        with open(os.path.join(options.directory, track.igc_filename), 'w') as output:
+            for line in track.igc:
+                output.write(line)
+
+
+def fr_tracks_list(options, args):
+    fr = FlightRecorder(options.device, options.model)
+    json.dump(dict(tracks=[track.to_json() for track in fr.tracks()]), sys.stdout, indent=4, sort_keys=True)
+    sys.stdout.write('\n')
+
+
+def fr_tracks_zip(options, args):
+    filename = 'tracks.zip'
+    if args and re.search(r'\.zip\Z', args[0], re.I):
+        filename, args = args[0], args[1:]
+    zf = zipfile.ZipFile(filename, 'w')
+    for track in fr_tracks_download_helper(options, args, zf):
+        zi = zipfile.ZipInfo(track.igc_filename)
+        zi.date_time = (track.datetime + track.duration).timetuple()[:6]
+        zi.external_attr = 0644 << 16
+        zf.writestr(zi, ''.join(track.igc))
+    zf.close()
+
+
+def fr_waypoints_remove(options, args):
+    fr = FlightRecorder(options.device, options.model)
+    if args:
+        for arg in args:
+            fr.waypoint_remove(arg)
+    else:
+        try:
+            fr.waypoint_remove()
+        except NotAvailableError:
+            pass
+        waypoints = list(fr.waypoints())
+        while waypoints:
+            start = time.time()
+            sys.stderr.write('%s: removing waypoints    0%%  --:--' % options.basename)
+            for i, w in enumerate(waypoints):
+                fr.waypoint_remove(w.device_name)
+                now = time.time()
+                minutes, seconds = divmod(ceil((len(waypoints) - i - 1) * (now - start) / (i + 1)), 60)
+                sys.stderr.write('\b\b\b\b\b\b\b\b\b\b\b%3d%%  %02d:%02d' % (100 * (i + 1) / len(waypoints), minutes, seconds))
+            duration = time.time() - start
+            sys.stderr.write('\b\b\b\b\b\b\b\b\b\b\b100%%  %02d:%02d\n' % divmod(duration, 60))
+            sys.stderr.write('%s: %d waypoints removed\n' % (options.basename, len(waypoints)))
+            waypoints = list(fr.waypoints())
+
+
+def fr_waypoints_download(options, args):
+    if not args:
+        output = sys.stdout
+    elif len(args) == 1:
+        output = open(args[0], 'w')
+    else:
+        raise UserError('extra arguments on command line: %r' % args[1:])
+    if options.format:
+        format = abbreviator('compegps formatgeo oziexplorer seeyou'.split()).get(options.format)
+        if format is None:
+            raise UserError('unknown waypoint format %r' % options.format)
+    else:
+        format = 'formatgeo'
+    fr = FlightRecorder(options.device, options.model)
+    waypoint.dump(fr.waypoints(), output, format=format)
+
+
+def fr_waypoints_upload(options, args):
+    if not args:
+        input = sys.stdin
+    elif len(args) == 1:
+        input = open(args[0])
+    else:
+        raise UserError('extra arguments on command line: %r' % args[1:])
+    fr = FlightRecorder(options.device, options.model)
+    waypoints = waypoint.load(input)
+    while waypoints:
+        file_waypoints = {}
+        start = time.time()
+        sys.stderr.write('%s: uploading waypoints    0%%  --:--' % options.basename)
+        for i, w in enumerate(waypoints):
+            file_waypoints[fr.waypoint_upload(w)] = w
+            now = time.time()
+            minutes, seconds = divmod(ceil((len(waypoints) - i - 1) * (now - start) / (i + 1)), 60)
+            sys.stderr.write('\b\b\b\b\b\b\b\b\b\b\b%3d%%  %02d:%02d' % (100 * (i + 1) / len(waypoints), minutes, seconds))
+        duration = time.time() - start
+        sys.stderr.write('\b\b\b\b\b\b\b\b\b\b\b100%%  %02d:%02d\n' % divmod(duration, 60))
+        sys.stderr.write('%s: %d waypoints uploaded\n' % (options.basename, len(waypoints)))
+        sys.stderr.write('%s: verifying...' % options.basename)
+        device_waypoints = dict((w.device_name, w) for w in fr.waypoints())
+        missing, inaccurate, horizontal_errors = [], [], []
+        for device_name, file_waypoint in file_waypoints.items():
+            if device_name not in device_waypoints:
+                missing.append(file_waypoint)
+                continue
+            device_waypoint = device_waypoints[device_name]
+            horizontal_error = distance_between(file_waypoint, device_waypoint)
+            horizontal_errors.append(horizontal_error)
+            if horizontal_error > fr.waypoint_precision or device_waypoint.alt != int(file_waypoint.alt):
+                inaccurate.append(file_waypoint)
+                continue
+        sys.stderr.write('\b\b\b\b\b\b\b\b\b\b\b\b%d waypoints ok' % (len(file_waypoints) - len(missing) - len(inaccurate)))
+        if missing:
+            sys.stderr.write(', %d missing' % len(missing))
+        if inaccurate:
+            sys.stderr.write(', %d innacurate' % len(inaccurate))
+        sys.stderr.write(', maximum error %.1fm\n' % max(horizontal_errors))
+        waypoints = missing
+
+
+def execute(options, args, commands):
+    for i, arg in enumerate(args):
+        abbr = abbreviator(key for key in commands.keys() if key is not None)
+        if arg in abbr:
+            command = abbr[arg]
+            if command is None:
+                raise UserError('ambiguous command \'%s\'' % ' '.join(args[:i + 1]))
+            elif callable(commands[command]):
+                return commands[command](options, args[i + 1:])
+            else:
+                commands = commands[command]
+        else:
+            return commands[None](options, args[i:])
+    return commands[None](options, [])
+
+
+def main(argv):
+    config_parser = ConfigParser()
+    config_parser.read(('/etc/flightrecorderrc', os.path.expanduser('~/.flightrecorderrc')))
+    parser = OptionParser()
+    parser.add_option('-d', '--device', metavar='DEVICE', help='set device filename')
+    parser.add_option('-D', '--directory', metavar='DIRECTORY', help='set output directory')
+    parser.add_option('-f', '--format', metavar='FORMAT', help='set output format')
+    parser.add_option('-o', '--overwrite', action='store_true', help='re-download already downloaded tracklogs')
+    parser.add_option('-m', '--model', metavar='TYPE', type='choice', choices=FlightRecorder.SUPPORTED_MODELS, help='set device type')
+    parser.add_option('-v', '--verbose', action='count', dest='level', help='show debugging information')
+    parser.add_option('-w', '--warning-distance', metavar='METERS', type=int, help='warning distance')
+    parser.set_defaults(directory='.')
+    parser.set_defaults(level=0)
+    parser.set_defaults(warning_distance=2000)
+    for section, key, function in (
+            ('debug', 'level', config_parser.getint),
+            ('instrument', 'device', config_parser.get),
+            ('instrument', 'model', config_parser.get),
+            ('tracks', 'directory', lambda s, k: os.path.expanduser(config_parser.get(s, k))),
+            ('tracks', 'overwrite', config_parser.getboolean),
+            ('waypoints', 'format', config_parser.get)):
+        try:
+            parser.set_default(key, function(section, key))
+        except (NoSectionError, NoOptionError):
+            pass
+    options, args = parser.parse_args(argv[1:])
+    options.basename = os.path.basename(argv[0])
+    logging.basicConfig(level=logging.WARN - 10 * options.level)
+    try:
+        execute(options, args, {
+                None: fr_tracks_download,
+                'ctr': {
+                    None: fr_ctr_download,
+                    'download': fr_ctr_download,
+                    'information': fr_ctr_information,
+                    'upload': fr_ctr_upload},
+                'flash': fr_flash,
+                'get': fr_get,
+                'id': fr_id,
+                'json': fr_json,
+                'set': fr_set,
+                'tracks': {
+                    None: fr_tracks_download,
+                    'download': fr_tracks_download,
+                    'list': fr_tracks_list,
+                    'zip': fr_tracks_zip},
+                'waypoints': {
+                    None: fr_waypoints_download,
+                    'remove': fr_waypoints_remove,
+                    'download': fr_waypoints_download,
+                    'upload': fr_waypoints_upload}})
+    except UserError, e:
+        sys.stdout.write('%s: %s\n' % (options.basename, e.message))
+        return 1
+    except TimeoutError, e:
+        sys.stdout.write('%s: no flight recorder found, or timeout waiting for data\n' % options.basename)
+    except NotAvailableError:
+        sys.stdout.write('%s: command not available on this device\n' % options.basename)
+        return 1
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv))
