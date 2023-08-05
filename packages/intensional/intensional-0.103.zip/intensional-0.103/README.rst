@@ -1,0 +1,44 @@
+Intensional (rule-defined) sets for Python.
+
+Overview
+========
+
+There are two ways of defining a set: intensional and extensional. Extensional
+sets like ``set([1,3,5,'daisy'])`` enumerate every member of the set explicitly.
+
+Intensional sets, in contrast, are defined by rules. For example "the set of all
+prime numbers" or "every word beginning with ``'a'`` and ending with ``'t'``.
+Intensional sets are often infinite. It may be possible to generate a list of
+their members, but it's not as simple as a "give me everything you've got!"
+``for`` loop.
+
+Once you know what you're looking for, intensional sets are *everywhere*.
+Python doesn't represent them directly, but regular expressions, many list
+comprehensions, and all manner of testing and filtering operations are really
+faces of the intensional set concept. Many functions test whether something
+'qualifies'. ``os.path.isdir(d)`` for example, tests whether ``d`` is in the set
+of legitimate directories, and ``isinstance(s, str)`` tests whether ``s`` is a
+member of the set of ``str`` objects. Even the core ``if`` conditional can be
+construed as testing for membership in an intensional set--the set of all items
+that pass the test.
+
+Many such tests have a temporal aspect--they determine whether a value is a
+member *right now*. The answer may change in the future, if
+conditions change. Others tests are invariant over time. ``%%734`` will never be a
+valid Python identifier, no matter how many times it's tested--unless the rules
+of the overall Python universe change, that is.
+
+Intensional sets are part and parcel of all programming, even if they're not
+explicitly represented or called by that name.``intensional`` helps Python
+programs represent intensional sets directly.
+
+**NB** Active construciton zone. Very alpha!
+
+Installation
+============
+
+::
+
+    pip install intensional
+    
+(You may need to prefix this with "sudo " to authorize installation.)
