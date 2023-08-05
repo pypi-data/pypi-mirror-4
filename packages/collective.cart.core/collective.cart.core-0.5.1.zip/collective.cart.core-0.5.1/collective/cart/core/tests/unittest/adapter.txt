@@ -1,0 +1,224 @@
+Imports and Defines
+====
+    >>> from mock import Mock
+    >>> from zope.annotation.interfaces import IAnnotations
+    >>> from zope.component import getMultiAdapter, getUtility, provideAdapter, provideUtility
+    >>> from zope.interface import alsoProvides, implements
+    >>> from zope.annotation.attribute import AttributeAnnotations
+    >>> from OFS.interfaces import IItem
+    >>> from Products.ZCatalog.interfaces import IZCatalog
+    >>> from Products.CMFPlone.interfaces.siteroot import IPloneSiteRoot
+    >>> provideAdapter(AttributeAnnotations)
+    >>> from Products.Archetypes.Schema.factory import instanceSchemaFactory
+    >>> provideAdapter(instanceSchemaFactory)
+    >>> from decimal import Decimal
+
+IProduct
+====
+    >>> from collective.cart.core.interfaces import IAddableToCart
+    >>> class Document(object):
+    ...     implements(IAddableToCart, IItem)
+    ...     def __init__(self, **kwargs):
+    ...         for k, v in kwargs.items(): setattr(self, k, v)
+    ...     def UID(self):
+    ...         return self.uid
+    ...     def Title(self):
+    ...         return self.title
+    ...     def absolute_url(self):
+    ...         return self.url
+    >>> doc = Document(
+    ...     id='doc01',
+    ...     uid='uid01',
+    ...     title="Document01",
+    ...     url='doc01_url',
+    ... )
+    >>> alsoProvides(doc, IAddableToCart)
+    >>> IAddableToCart.providedBy(doc)
+    True
+    >>> from collective.cart.core.interfaces import IProduct
+    >>> from collective.cart.core.adapter.product import Product
+    >>> provideAdapter(Product)
+    >>> product = IProduct(doc)
+    >>> product
+    <collective.cart.core.adapter.product.Product object at ...>
+    >>> product.uid
+    'uid01'
+    >>> product.title
+    'Document01'
+    >>> product.url
+    'doc01_url'
+    >>> product.price
+    0.0
+    >>> from collective.cart.core.content.product import ProductAnnotations
+    >>> IAnnotations(doc)['collective.cart.core'] = ProductAnnotations()
+    >>> cannotasions = IAnnotations(doc)['collective.cart.core']
+    >>> product.price
+    0.0
+    >>> product.price = Decimal('5.00')
+    >>> product.price == Decimal('5.00')
+    True
+    >>> cannotasions.price == Decimal('5.00')
+    True
+    >>> product.stock
+    0
+    >>> product.stock = 10
+    >>> product.stock
+    10
+    >>> cannotasions.stock
+    10
+    >>> product.max_addable_quantity
+    100
+    >>> product.max_addable_quantity = 30
+    >>> product.max_addable_quantity
+    30
+    >>> cannotasions.max_addable_quantity
+    30
+    >>> product.unlimited_stock
+    False
+    >>> product.unlimited_stock = True
+    >>> product.unlimited_stock
+    True
+    >>> cannotasions.unlimited_stock
+    True
+    >>> product.addable_quantity
+    30
+    >>> product.stock = 100
+    >>> product.addable_quantity
+    30
+    >>> product.unlimited_stock = False
+    >>> product.addable_quantity
+    30
+    >>> product.stock = 20
+    >>> product.addable_quantity
+    20
+    >>> product.stock = 3
+    >>> from collective.cart.core.interfaces import ISelectRange
+    >>> from collective.cart.core.utility.miscellaneous import SelectRange
+    >>> provideUtility(SelectRange(), provides=ISelectRange)
+    >>> product.select_quantity
+    '<select id="quantity" name="quantity"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select>'
+    >>> from collective.cart.core.adapter.portal import Portal
+    >>> provideAdapter(Portal)
+    >>> product.input_quantity
+    '<input type="text "id="quantity" name="quantity" size="3" value="" />'
+
+
+ICartProduct
+====
+    >>> from collective.cart.core.interfaces import ICartProductContentType
+    >>> class Content(object):
+    ...     implements(ICartProductContentType)
+    ...     def __init__(self, **kwargs):
+    ...         for k, v in kwargs.items(): setattr(self, k, v)
+    >>> context = Content()
+    >>> context.uid = 'someuid'
+    >>> context.price = Decimal('5.00')
+    >>> context.quantity = 3
+    >>> context.title = 'Product01'
+    >>> context.subtotal = Decimal('15.00')
+    >>> from collective.cart.core.interfaces import ICartProduct
+    >>> from collective.cart.core.adapter.cart import CartProductAdapter
+    >>> provideAdapter(CartProductAdapter)
+    >>> cpadapter = ICartProduct(context)
+    >>> cpadapter.uid
+    'someuid'
+    >>> cpadapter.price == Decimal('5.00')
+    True
+    >>> cpadapter.quantity
+    3
+    >>> cpadapter.title
+    'Product01'
+    >>> cpadapter.subtotal == Decimal('15.00')
+    True
+
+
+IPortalCartProperties
+====
+    >>> from Products.CMFPlone.interfaces.properties import IPropertiesTool
+    >>> class Tool(object):
+    ...     implements(IPropertiesTool)
+    ...     def __init__(self, **kwargs):
+    ...         for k, v in kwargs.items(): setattr(self, k, v)
+    ...     def getProperty(self, name):
+    ...         return getattr(self, name)
+    ...     def _updateProperty(self, name, value):
+    ...         setattr(self, name, value)
+    >>> ccp = Tool(
+    ...     currency='EUR',
+    ...     currency_symbol='',
+    ...     symbol_location='Behind',
+    ...     cancel_page='',
+    ...     content_types=[],
+    ...     decimal_type='.',
+    ...     cart_id_method='Incremental',
+    ...     random_cart_id_digits=5,
+    ...     quantity_method='Select',
+    ... )
+    >>> properties = Tool(collective_cart_properties=ccp)
+    >>> from collective.cart.core.interfaces import IPortalCartProperties
+    >>> from collective.cart.core.adapter.portal import PortalCartProperties
+    >>> provideAdapter(PortalCartProperties)
+    >>> pcp = IPortalCartProperties(properties)
+    >>> pcp.context
+    <Tool object at ...>
+    >>> IPropertiesTool.providedBy(pcp.context)
+    True
+    >>> pcp.properties
+    <Tool object at ...>
+    >>> IPropertiesTool.providedBy(pcp.properties)
+    True
+    >>> pcp.context is not pcp.properties
+    True
+    >>> pcp.currency
+    'EUR'
+    >>> pcp.currency_symbol
+    'EUR'
+    >>> pcp.symbol_location
+    'Behind'
+    >>> pcp.cancel_page
+    ''
+    >>> pcp.content_types
+    []
+    >>> pcp. decimal_type
+    '.'
+    >>> pcp.cart_id_method
+    'Incremental'
+    >>> pcp.random_cart_id_digits
+    5
+    >>> pcp.quantity_method
+    'Select'
+    >>> pcp.currency = 'USD'
+    >>> ccp.currency
+    'USD'
+    >>> pcp.currency
+    'USD'
+    >>> pcp.currency_symbol
+    'USD'
+    >>> pcp.currency_symbol = '円'
+    >>> pcp.currency_symbol
+    '\xe5\x86\x86'
+    >>> pcp.content_types = ['Document']
+    >>> ccp.content_types
+    ['Document']
+    >>> pcp.content_types
+    ['Document']
+    >>> pcp.random_cart_id_digits = 10
+    >>> ccp.random_cart_id_digits
+    10
+    >>> pcp.random_cart_id_digits
+    10
+    >>> pcp.select_field('symbol_location', ['Front', 'Behind'])
+    '<select id="symbol_location" name="symbol_location"><option value="Front">Front</option><option value="Behind" selected="selected">Behind</option></select>'
+    >>> from collective.cart.core.interfaces import IPriceWithCurrency
+    >>> from collective.cart.core.utility.price import PriceWithCurrency
+    >>> provideUtility(PriceWithCurrency(), provides=IPriceWithCurrency)
+    >>> from collective.cart.core.interfaces import IDecimalPlaces
+    >>> from collective.cart.core.utility.price import DecimalPlaces
+    >>> provideUtility(DecimalPlaces(), provides=IDecimalPlaces)
+    >>> from collective.cart.core.interfaces import IPrice
+    >>> from collective.cart.core.utility.price import Price
+    >>> provideUtility(Price('float'), provides=IPrice, name="float")
+    >>> provideUtility(Price('decimal'), provides=IPrice, name="decimal")
+    >>> provideUtility(Price('string'), provides=IPrice, name="string")
+    >>> pcp.price_with_currency(5.0)
+    '5.00 \xe5\x86\x86'
