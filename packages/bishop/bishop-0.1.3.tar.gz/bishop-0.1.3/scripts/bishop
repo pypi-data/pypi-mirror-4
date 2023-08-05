@@ -1,0 +1,259 @@
+#!/usr/bin/env python
+import sys, platform, os.path, bishop, shutil, logging, urllib2
+from optparse import OptionParser
+
+def build_command(host, build_path='test-build'):
+    '''perform a dry-run of the configuration for this node, copying the files to install to the provided or current path'''
+    host.mirror()
+    host.build()
+
+    build_parent = os.path.dirname(build_path)
+    if not build_parent:
+        build_parent = '.'
+    if not os.path.isdir(build_parent):
+        os.makedirs(build_parent, 0777)
+    if os.path.isdir(build_path):
+        shutil.rmtree(build_path)
+    shutil.copytree(host.build_path, build_path)
+
+
+def sync_command(host):
+    '''synchronize the current directory with the master repository location'''
+    host.sync_up()
+
+
+def syncdown_command(host, path='.'):
+    '''pull changes from the master repository down to the current location'''
+    host.sync_down()
+
+
+def install_command(host, *args):
+    '''perform the configuration installation'''
+    if len(args) > 0:
+        host.install(list(args))
+    else:
+        host.install()
+
+def uninstall_command(host, *args):
+    '''remove a role from the list to be updated and configured'''
+    if len(args) > 0:
+        host.uninstall(list(args))
+    else:
+        raise ValueError('You must choose at least one role to uninstall')
+
+def installonce_command(host, *args):
+    '''perform the configuration installation, without scheduling further upgrades to the roles'''
+    if len(args) > 0:
+        host.install(list(args), save=False)
+    else:
+        host.install(save=False)
+
+
+def repo_command(host, *args):
+    '''set the repository location'''
+    if not isinstance(host, bishop.host.Local):
+        raise ValueError('repo command only allowed on local hosts')
+    parser = OptionParser(usage='usage: %prog repo [options] repo_path')
+    parser.add_option('-i', '--identity-file', dest='file', help='Full path to the private SSH key to use for remote repositories')
+    parser.add_option('-p', '--password', help='SSH password to use for remote repositories')
+    (opts, args) = parser.parse_args(list(args))
+
+    if len(args) == 0:
+        if not host.repo:
+            print 'No repository has been defined'
+        else:
+            print host.repo
+        return
+
+    repo_path = args[0]
+
+    host.repo = bishop.repo.Repository(repo_path)
+    if opts.file:
+        host.repo.keyfile = opts.file
+    elif opts.password:
+        host.repo.password = opts.password
+    elif ':' in repo_path:
+        host.repo.ask_password()
+
+    host.roles = []
+    host.save()
+
+
+def info_command(host):
+    '''get information about the currently installed host'''
+    if isinstance(host, bishop.host.Role):
+        raise ValueError('info command not allowed on role hosts')
+
+    print 'Repo: %s' % host.repo
+    print 'Installed Roles: %s' % ', '.join(host.roles)
+
+
+def roles_command(host):
+    '''get information about all available roles'''
+    if not isinstance(host, bishop.host.Local):
+        raise ValueError('roles command only allowed on local hosts')
+
+    if host.repo is None:
+        raise ValueError('No repository for this host')
+
+    for role, hosts in host.repo.cluster.iteritems():
+        print '%s: %s' % (role, ', '.join([name for name, info in hosts.iteritems()]))
+
+
+def serve_command(host, port=4200):
+    '''start an RPC server to enable push installation and updates'''
+    print 'Bishop server running on port %s' % port
+    bishop.rpc.Server(host, port).serve()
+
+
+def testlocal_command(host, *args):
+    '''test a configuration change on the local machine without syncing to the repository'''
+    if not isinstance(host, bishop.host.Local):
+        raise ValueError('test-local command only allowed on local hosts')
+
+    #While we're testing local changes, prevent the standard bishop install from running
+    host.install_locked = True
+    old_repo = host.repo
+    host.repo = bishop.repo.Repository(bishop.util.get_repopath())
+    if len(args) > 0:
+        host.install(list(args), local=True)
+    else:
+        host.install(local=True)
+
+    host.repo = old_repo
+    host.save()
+
+
+def packagerole_command(host, package_name, role_name=None):
+    '''introspect on a not-yet-installed OS package and extract all configuration files'''
+    if role_name is None:
+        role_name = package_name
+
+    host.extract_package(package_name, role_name)
+
+
+def deleterole_command(host, role):
+    '''delete a role from the repository'''
+    if host.repo is None:
+        raise ValueError('No repository for this host')
+    
+    host.repo.delete_role(role)
+
+
+def register_command(host, server_url):
+    '''register this host with a bishop-server managed repository'''
+    server_url = server_url.rstrip('/')
+    if not server_url.startswith('http:') and not server_url.startswith('https:'):
+        server_url = 'http://' + server_url
+
+    registration_key = raw_input('Registration Key: ')
+    server_url += '/register/' + host.name + '/' + registration_key
+    res = urllib2.urlopen(server_url)
+    repo_path = res.readline().strip()
+    key_contents = res.read()
+
+    key_path = os.path.join(host.path, '.repo.key')
+    os.chmod(key_path, 0600)
+    f = open(key_path, 'w')
+    f.write(key_contents)
+    f.close()
+    
+    host.repo = bishop.repo.Repository(repo_path)
+    host.repo.keyfile = key_path
+    host.roles = []
+
+    host.save()
+
+
+def disablesync_command(host, msg=None):
+    '''disable the bishop sync and bishop sync-down commands, alerting users to use a different means of syncing configs to the bishop repo (like a DVCS)'''
+    if host.repo is None:
+        raise ValueError('No repository for this host')
+
+    host.repo.disable_sync(msg)
+
+
+def enablesync_command(host):
+    '''re-enable the bishop sync and bishop sync-down commands if they have been disabled'''
+    if host.repo is None:
+        raise ValueError('No repository for this host')
+
+    host.repo.enable_sync()
+
+
+def lock_command(host):
+    '''prevent the bishop install command from running on this host - use for testing'''
+    host.install_locked = True
+    host.save()
+
+
+def unlock_command(host):
+    '''release a previously-held lock and allow bishop install to run once again'''
+    host.install_locked = False
+    host.save()
+
+
+commands = {'build': build_command, 'sync': sync_command, 'sync-down': syncdown_command, 'install': install_command,
+            'install-once': installonce_command, 'repo': repo_command,
+            'info': info_command, 'roles': roles_command, 'serve': serve_command, 'test-local': testlocal_command,
+            'package-role': packagerole_command, 'register': register_command, 'uninstall': uninstall_command,
+            'delete-role': deleterole_command, 'disable-sync': disablesync_command, 'enable-sync': enablesync_command,
+            'lock': lock_command, 'unlock': unlock_command}
+
+def dispatch(command, host, args):
+    if not command in commands:
+        command_help(host, 'Unknown command %s' % command)
+
+    commands[command](host, *args)
+
+def command_help(host=None, msg=''):
+    if msg:
+        msg += '\n'
+
+    cmdhelp = '%sBishop Configuration Management\n\navailable commands:\n\n' % msg
+    for cmd in sorted(commands.keys()):
+        cmd_func = commands[cmd]
+        cmdhelp += '%s%s\n' % (cmd.ljust(25), cmd_func.__doc__)
+    print cmdhelp
+    sys.exit(1)
+
+parser = OptionParser(usage='usage: %prog [options] command command-args', conflict_handler="resolve")
+parser.disable_interspersed_args()
+parser.add_option('-h', '--host', default='localhost', help='The machine to run the command on - defaults to localhost')
+parser.add_option('-v', '--verbose', action='store_true', dest='verbose')
+(opts, args) = parser.parse_args()
+
+log_format = '%(message)s'
+if opts.verbose:
+    log_level = logging.DEBUG
+else:
+    log_level = logging.INFO
+
+if os.isatty(1):
+    logging.basicConfig(level=log_level, format=log_format)
+else:
+    logging.basicConfig(filename='/var/log/bishop.log', level=log_level, format=log_format)
+
+
+if opts.host == 'localhost':
+    host = bishop.host.Local()
+else:
+    host = bishop.host.Local()
+    if host.repo and opts.host in host.repo.all_roles:
+        host = bishop.host.Role(host.repo, opts.host)
+    else:
+        host = bishop.host.Remote(opts.host)
+
+command = None
+if len(args): command = args.pop(0)
+
+if command is None:
+    command_help()
+
+try:
+    dispatch(command, host, args)
+except Exception, e:
+    logging.error('%s %s' % (e.__class__.__name__, str(e)))
+    if opts.verbose:
+        raise
+    sys.exit(1)
