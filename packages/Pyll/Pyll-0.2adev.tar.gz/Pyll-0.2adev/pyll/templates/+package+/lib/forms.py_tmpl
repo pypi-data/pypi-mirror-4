@@ -1,0 +1,65 @@
+import formencode
+from formencode import validators
+import re
+
+from ..model.core import User
+
+
+class SecurePassword(validators.FancyValidator):
+    '''yum install words if needed...'''
+    words_filename = '/usr/share/dict/words'
+
+    min = 5
+    non_letter = 1
+    letter_regex = re.compile(r'[a-zA-Z]')
+
+    messages = {
+        'too_few': 'Your password must be longer than %(min)i '
+                   'characters long',
+        'non_letter': 'You must include at least %(non_letter)i '
+                      'characters in your password',
+        }
+    def _to_python(self, value, state):
+        # _to_python gets run before validate_python.  Here we
+        f = open(self.words_filename)
+        lower = value.strip().lower()
+        for line in f:
+            if line.strip().lower() == lower:
+                raise formencode.Invalid(
+                    'Please do not base your password on a '
+                    'dictionary word.', value, state)
+        return value.strip()
+
+
+    def validate_python(self, value, state):
+        if len(value) < self.min:
+            raise formencode.Invalid(self.message("too_few", state,\
+                min=self.min), value, state)
+        non_letters = self.letter_regex.sub('', value)
+
+        if len(non_letters) < self.non_letter:
+            raise formencode.Invalid(self.message("non_letter", state,\
+                non_letter=self.non_letter), value, state)
+
+
+class UniqueUsername(formencode.FancyValidator):
+    '''Ensure unique username'''
+    def _to_python(self, value, state):
+        u = User.query.filter_by(username=value).first()
+        if u is not None:
+            raise formencode.Invalid(
+                'That username already exists',
+                value, state)
+        return value
+
+
+class UserForm(formencode.Schema):
+    '''Server side validation is always a good idea ;)
+    '''
+    allow_extra_fields = True
+    ignore_key_missing = True
+    first_name = validators.String(not_empty=True)
+    last_name = validators.String(not_empty=True)
+    username = formencode.All(UniqueUsername())
+    password = SecurePassword()
+    email = validators.Email(resolve_domain=False)
