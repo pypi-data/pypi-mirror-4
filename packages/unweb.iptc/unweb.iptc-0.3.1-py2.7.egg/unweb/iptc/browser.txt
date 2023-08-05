@@ -1,0 +1,98 @@
+======================
+ unweb.iptc
+======================
+
+This is a functional test for the unweb.iptc package for Plone. 
+
+We use zope.testbrowser to simulate browser interaction in order to show how
+the unweb.iptc commenting works.
+
+
+Setting up and logging in
+-------------------------
+
+First we have to set up some things and login.
+
+    >>> from plone.testing.z2 import Browser
+    >>> app = layer['app']
+    >>> browser = Browser(app)
+    >>> browser.handleErrors = False
+    >>> browser.addHeader('Authorization', 'Basic admin:secret')
+    >>> portal = layer['portal']    
+    >>> portal_url = 'http://nohost/plone'
+
+By default, only HTTP error codes (e.g. 500 Server Side Error) are shown when an 
+error occurs on the server. To see more details, set handleErrors to False:
+
+    >>> browser.handleErrors = False
+
+We also keep another testbrowser handy for testing how tiles are rendered if
+you're not logged in::
+
+    >>> unprivileged_browser = Browser(app)
+
+Check if we got the correct IPTC data from the sample file
+
+    >>> import os
+    >>> from App import Common
+    >>> from iptcinfo import IPTCInfo
+    >>> pkg_home = Common.package_home({'__name__': 'unweb.iptc'})
+    >>> sample_path = os.path.join(pkg_home, 'sample.jpg')
+    >>> iptc_data = IPTCInfo(sample_path, force=True).data
+    >>> iptc_data
+    {116: 'WORLDWIDE', 101: 'Lefkada', 105: 'Egremnoi beach, Lefkada', 110: 'Valentini Karamanoli / Invision', 80: 'Valentine Karamanoli', 92: 'Egremnoi', 115: 'invision-images.com ', 20: [], 118: [], 55: '20090820', 120: 'Lefkada, Ionian islands. Greece. View of Egremnoi beach.', 25: ['Lefkada', 'island', 'greece', 'greek', 'beach', 'egremnoi', 'summer', 'sand', 'holidays', 'vacations', 'white', 'sea', 'water', 'destination', 'travel', 'boat', 'yacht', 'nature', 'natural', 'landscape'], 90: 'Lefkada', 60: '112738+0200', 221: '0:0:0:-00001', 62: '20090820'}
+
+So let's add an our image.
+
+    >>> browser.open(portal_url)
+    >>> browser.getLink(id='image').click()
+    >>> fp = open(sample_path)
+    >>> browser.getControl(name='image_file').add_file(fp,'image/jpeg','sample.jpg')
+    >>> browser.getControl(name='form.button.save').click()
+
+Check if the IPTC caption has been set as a description
+
+    >>> iptc_data[120] in browser.contents
+    True
+
+Check author name
+
+    >>> iptc_data[80] in browser.contents
+    True
+
+Check if all the keywords are there
+
+    >>> [i in browser.contents for i in iptc_data[25]]
+    [True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True]
+
+Update the image metadata
+
+    >>> browser.getLink('Edit').click()
+    >>> browser.getControl('Title').value = 'New title'
+    >>> browser.getControl('Description').value = 'New description'
+    >>> browser.getControl('Creators').value = 'New creator'
+    >>> browser.getControl('Location').value = 'New location'
+    >>> browser.getControl('Rights').value = 'New copyright notice'
+    >>> browser.getControl(name='subject_keywords:lines').value = "keyword1\nkeyword2\nkeyword3"
+    >>> browser.getControl('Save').click()
+    >>> 'New title' in browser.contents and 'New description' in browser.contents and 'New creator' in browser.contents
+    True
+
+See if the image file's IPTC metadata have been updated
+
+    >>> img_url = '/'.join(browser.url.split('/')[:-1])
+    >>> import tempfile
+    >>> temp_path = tempfile.mktemp('iptc_test')
+    >>> fp = open(temp_path,'w')
+    >>> from Testing.ZopeTestCase.utils import startZServer
+    >>> zs = startZServer()
+    >>> img_url = img_url.replace('nohost','%s:%s'%(zs[0],zs[1]))
+    >>> from urllib2 import urlopen
+    >>> iu = urlopen(img_url)
+    >>> fp.write(iu.read())
+    >>> fp.close()
+    >>> new_iptc_data = IPTCInfo(temp_path, force=True).data
+    >>> new_iptc_data
+    {116: 'New copyright notice', 100: 'New location', 101: 'New location', 105: 'Egremnoi beach, Lefkada', 5: 'New title', 110: 'Valentini Karamanoli / Invision', 60: '112738+0200', 80: 'New creator', 115: 'invision-images.com ', 20: [], 118: [], 55: '20090820', 120: 'New description', 25: ['summer', 'egremnoi', 'sea', 'greece', 'landscape', 'travel', 'destination', 'boat', 'white', 'beach', 'nature', 'Lefkada', 'water', 'vacations', 'keyword3', 'keyword2', 'keyword1', 'holidays', 'natural', 'island', 'yacht', 'greek', 'sand'], 90: 'New location', 92: 'New location', 221: '0:0:0:-00001', 62: '20090820', 95: 'New location'}
+
+It works!
