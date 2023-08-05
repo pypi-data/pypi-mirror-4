@@ -1,0 +1,358 @@
+===============================
+Resume-based load balancer pool
+===============================
+
+The heart of the resume-based load balancer is the pool, which
+implements the load balancing algorithm.  The pool has a collection of
+workers organized according to their resumes.
+
+The load balancer works by connecting to workers, creating local
+workers for each connection, adding local workers to the pool, and
+by accepting wsgi request, getting local workers from the pool and
+passing the wsgi requests to the local workers, which, in term,
+forwward the requests to the remote workers.
+
+We'll test the pool with stand-ins for the local workers.
+
+    >>> import zc.resumelb.lb
+    >>> pool = zc.resumelb.lb.Pool(
+    ...     variance=1.5, backlog_history=2, unskilled_score=.5)
+
+We specified a number of optional parameters that we'll see in action
+later:
+
+variance
+   How many times the pool mean backlog we'll let a worker's backlog
+   rise above the minimum backlog [#almostminimum]_ before we look for
+   another worker.  The default is 1.
+
+backlog_history
+   The (approximate) number of requests to include in the mean backlog
+   for a worker. The default is 9.
+
+   The pool also has a backlog history, which is the product of the
+   worker backlog_history and the number of workers.
+
+unskilled_score
+   The score to assign to unskilled workers. The default is 1.
+
+
+The get method is used to get a worker from the pool.  A request class
+and an optional timeout is passed. (The timeout is mainly useful for
+testing.)
+
+    >>> pool.get('foo', 0.0)
+
+We didn't get a worker (we timed out), because we haven't added one.
+
+    >>> from zc.resumelb.tests import FauxPoolWorker as Worker
+
+    >>> w1 = Worker('w1')
+
+    >>> pool.new_resume(w1, {})
+
+    >>> pool.get('foo', 0.0)
+    w1
+
+This time, we got the one we registered.
+
+If we create another and register it, we'll still get the original:
+
+   >>> w2 = Worker('w2')
+   >>> pool.new_resume(w2, {})
+
+   >>> pool.get('foo')
+   w1
+
+ This is because w1 is known to be good at handling foo requests.
+
+ We'll get w2 if we pick a different request class:
+
+    >>> pool.get('bar')
+    w2
+
+ We're gonna be white box and look at the pool data structures from
+ time to time.
+
+    >>> pool # doctest: +ELLIPSIS
+    Request classes:
+      bar: w2(0.5,1.0)
+      foo: w1(0.5,1.57...)
+    Backlogs:
+      overall backlog: 3 Decayed: 2.08... Avg: 1.04...
+      1: [w2]
+      2: [w1]
+
+Here, we can see that w1 is used for the foo class and w2 for the bar
+class.  In the request classes, the worker's score and it's decayed
+backlog is shown in parentheses.  We see that both workers have a score
+of 1.0.  This is the default score for new workers.  We'll say more
+about this later.
+
+The decayed backlog, for the pool, and for workers, is an "average"
+backlog over a backlog history, which is a configuration parameter.
+
+Let's add another worker:
+
+    >>> w3 = Worker('w3')
+    >>> pool.new_resume(w3, {})
+
+and make another foo request:
+
+    >>> [pool.get('foo') for i in range(2)]
+    [w1, w1]
+
+    >>> pool # doctest: +ELLIPSIS
+    Request classes:
+      bar: w2(0.5,1.0)
+      foo: w1(0.5,2.85...)
+    Backlogs:
+      overall backlog: 5 Decayed: 3.21... Avg: 1.07...
+      0: [w3]
+      1: [w2]
+      4: [w1]
+
+Even though we still had a worker with no backlog, we kept sending
+requests to w1.  This is because w1 hasn't reached the maximum
+backlog, which is:
+
+   variance * max(2, pool_mean_backlog)
+
+So now, w1 has reached it's maximum backlog.  If
+we make another foo request, we'll start using w3:
+
+    >>> [pool.get('foo') for i in range(10)]
+    [w3, w3, w3, w3, w1, w3, w1, w3, w1, w3]
+
+    >>> pool # doctest: +ELLIPSIS
+    Request classes:
+      bar: w2(0.5,1.0)
+      foo: w1(0.5,5.07...), w3(0.5,5.07...)
+    Backlogs:
+      overall backlog: 15 Decayed: 9.61... Avg: 3.20...
+      1: [w2]
+      7: [w1, w3]
+
+Something interesting happened here.  After several requests, the
+pools switched back and forth between w1 and w3.  It never switched to
+w2.  This is because, as the backlogs for w1 and w3 increased, so did
+the mean backlog.  This is useful, because it prevents a single
+request class from taking over the entire pool.  Let's see what
+happens when we add some new workers:
+
+    >>> w4 = Worker('w4')
+    >>> pool.new_resume(w4, {})
+    >>> w5 = Worker('w5')
+    >>> pool.new_resume(w5, {})
+
+    >>> pool # doctest: +ELLIPSIS
+    Request classes:
+      bar: w2(0.5,1.0)
+      foo: w1(0.5,5.07...), w3(0.5,5.07...)
+    Backlogs:
+      overall backlog: 15 Decayed: 9.61... Avg: 1.92...
+      0: [w4, w5]
+      1: [w2]
+      7: [w1, w3]
+
+    >>> [pool.get('foo') for i in range(2)]
+    [w5, w5]
+
+The new workers caused the overall mean to drop and when we got a foo
+request, it went to the newest new worker.  The subsequent request
+went to that worker because it was skilled and had a fairly low backlog.
+
+When a worker is done doing its work, we put it back in the pool:
+
+    >>> for i in range(7):
+    ...     pool.put(w1)
+    >>> for i in range(7):
+    ...     pool.put(w3)
+
+    >>> pool # doctest: +ELLIPSIS
+    Request classes:
+      bar: w2(0.5,1.0)
+      foo: w1(0.5,2.29...), w3(0.5,2.29...), w5(0.5,1.57...)
+    Backlogs:
+      overall backlog: 3 Decayed: 9.41... Avg: 1.88...
+      0: [w1, w3, w4]
+      1: [w2]
+      2: [w5]
+
+Now, when we get a worker, we'll get w1.
+
+    >>> pool.get('foo', 0.0)
+    w1
+
+Now that we've done some work, let's update the resumes.  This will
+normally be done by workers periodically, after collecting performance
+data.
+
+    >>> pool.new_resume(w1, {'foo': 5.9})
+    >>> pool.new_resume(w2, {'bar': 2.0, 'foo': 2.0})
+    >>> pool.new_resume(w3, {'foo': 3.8})
+
+    >>> pool # doctest: +ELLIPSIS
+    Request classes:
+      bar: w2(2.0,1.0)
+      foo: w5(0.5,1.57...), w2(2.0,1.0), w3(3.8,2.29...), w1(5.9,1.96...)
+    Backlogs:
+      overall backlog: 4 Decayed: 9.0... Avg: 1.8...
+      0: [w3, w4]
+      1: [w1, w2]
+      2: [w5]
+
+    >>> pool.get('foo')
+    w1
+    >>> pool.get('foo')
+    w3
+    >>> pool.get('foo')
+    w3
+
+    >>> pool # doctest: +ELLIPSIS
+    Request classes:
+      bar: w2(2.0,1.0)
+      foo: w5(0.5,1.5...), w2(2.0,1.0), w3(3.8,1.97...), w1(5.9,1.9...)
+    Backlogs:
+      overall backlog: 7 Decayed: 8.5... Avg: 1.7...
+      0: [w4]
+      1: [w2]
+      2: [w1, w3, w5]
+
+    >>> pool.get('foo')
+    w1
+    >>> pool.get('foo')
+    w2
+    >>> pool.get('foo')
+    w1
+
+    >>> pool.put(w1)
+    >>> pool.put(w3)
+    >>> pool.put(w3)
+    >>> pool # doctest: +ELLIPSIS
+    Request classes:
+      bar: w2(2.0,1.5...)
+      foo: w5(0.5,1.5...), w2(2.0,1.5...), w3(3.8,1.2...), w1(5.9,2.7...)
+    Backlogs:
+      overall backlog: 7 Decayed: 8.4... Avg: 1.6...
+      0: [w3, w4]
+      2: [w2, w5]
+      3: [w1]
+
+    >>> [pool.get('foo') for i in range(5)]
+    [w3, w3, w1, w3, w1]
+
+Worker disconnect
+=================
+
+When a worker disconnect, it's removed from the pool:
+
+    >>> pool.remove(w1)
+    >>> pool.put(w1)
+    >>> pool.put(w1)
+    >>> pool.put(w1)
+    >>> pool.put(w1)
+    >>> pool.put(w1)
+    >>> pool.remove(w3)
+    >>> pool.put(w3)
+    >>> pool.put(w3)
+    >>> pool.put(w3)
+    >>> pool # doctest: +ELLIPSIS
+    Request classes:
+      bar: w2(2.0,1.57...)
+      foo: w5(0.5,1.57...), w2(2.0,1.57...)
+    Backlogs:
+      overall backlog: 4 Decayed: 8.2... Avg: 2.7...
+      0: [w4]
+      2: [w2, w5]
+
+Updating worker settings
+========================
+
+    >>> pool = zc.resumelb.lb.Pool()
+    >>> pool.new_resume(w1, {'foo': 6.0})
+    >>> pool.new_resume(w2, {'bar': 2.0, 'foo': 2.0})
+    >>> pool.new_resume(w3, {'foo': 3.8})
+    >>> pool.variance, pool.backlog_history, pool.unskilled_score
+    (1.0, 9, 1.0)
+    >>> pool.worker_decay, pool.decay # doctest: +ELLIPSIS
+    (0.944..., 0.981...)
+
+    >>> pool.update_settings(dict(variance=2.0))
+    >>> pool.variance, pool.backlog_history, pool.unskilled_score
+    (2.0, 9, 1.0)
+    >>> pool.worker_decay, pool.decay # doctest: +ELLIPSIS
+    (0.944..., 0.981...)
+
+    >>> pool.update_settings(
+    ... dict(variance=3.0, backlog_history=6, unskilled_score=.25))
+    >>> pool.variance, pool.backlog_history, pool.unskilled_score
+    (3.0, 6, 0.25)
+    >>> pool.worker_decay, pool.decay # doctest: +ELLIPSIS
+    (0.916..., 0.972...)
+
+Note that settings revert to their default values when not specified:
+
+    >>> pool.update_settings({})
+    >>> pool.variance, pool.backlog_history, pool.unskilled_score
+    (1.0, 9, 1.0)
+    >>> pool.worker_decay, pool.decay # doctest: +ELLIPSIS
+    (0.944..., 0.981...)
+
+Settings are automatically coerced to their expected types:
+
+    >>> pool.update_settings(
+    ... dict(variance=3, backlog_history=6.2, unskilled_score=2))
+    >>> pool.variance, pool.backlog_history, pool.unskilled_score
+    (3.0, 6, 2.0)
+
+    >>> pool.update_settings(
+    ... dict(variance='2', backlog_history='7', unskilled_score='1'))
+    >>> pool.variance, pool.backlog_history, pool.unskilled_score
+    (2.0, 7, 1.0)
+
+Using new workers
+=================
+
+Under heavy load, we should be able to add a worker and have it get
+used immediately.
+
+    >>> pool.update_settings(dict(variance=1))
+
+    >>> def zero_workers(*workers):
+    ...     for worker in workers:
+    ...         worker.backlog=worker.nbacklog=worker.dbacklog=worker.mbacklog=0
+    >>> zero_workers(w1, w2, w3)
+
+    >>> pool.new_resume(w1, {'bar': 2.0})
+    >>> pool.new_resume(w2, {'bar': 2.0})
+    >>> pool.new_resume(w3, {'bar': 2.0})
+    >>> _ = [pool.get('bar') for i in range(30)]
+
+    >>> pool # doctest: +ELLIPSIS
+    Request classes:
+      bar: w1(2.0,5.96898355541), w2(2.0,5.96898355541), w3(2.0,5.96898355541)
+      foo: 
+    Backlogs:
+      overall backlog: 30 Decayed: 16.8930595654 Avg: 5.63101985512
+      10: [w1, w2, w3]
+
+Now, we'll add a new worker:
+
+    >>> w6 = Worker('w6')
+    >>> pool.new_resume(w6, {})
+
+And when we make a request, it will go to the new worker:
+
+    >>> pool.get('bar')
+    w6
+
+Note that we used a variance of 1.  Unfortunately, if we use a higher
+variance, new individual workers won't get added.  However, using so
+low a variance will tend to cause work to spread out over multiple
+workers, rather than being limited to a few.
+
+
+.. [#almostminimum] We use the backlog of the least-recently-used
+   worker as an approximation of the minumun backlog.
+

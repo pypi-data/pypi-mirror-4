@@ -1,0 +1,775 @@
+Basic, single-connection tests
+==============================
+
+Workers act as wsgi servers, accepting requests and sending responses
+using serialized wsgi (not web requests).
+
+Now, let's create a worker:
+
+    >>> import zc.resumelb.worker, zc.resumelb.tests
+    >>> worker = zc.resumelb.worker.Worker(
+    ...   zc.resumelb.tests.app(), ('127.0.0.1', 0), history=5)
+
+Here we created a worker using a test application, telling it
+an address to listen on and to compute its resume based on roughly
+five requests.
+
+We could also have specified a max_skill_age parameter, which controls
+how long will keep an unused skill in the resume. It defaults to 10x
+the history:
+
+    >>> worker.max_skill_age
+    50
+
+Note that we passed 0 as the address port. This causes an ephemeral
+port to be used. We can get the actual address using ``worker.addr``.
+
+Now, we'll connect to the worker:
+
+    >>> import gevent.socket
+    >>> worker_socket = gevent.socket.create_connection(worker.addr)
+
+Workers and the lb communicate via sized messages.
+
+Each message consists of binary request numbers, data size and a
+marshalled data string.  Helper functions help us read and write
+messages.  When workers accept a connection, they send their resume
+and then wait for work to do.  Because our worker has no experience
+:), its resume is empty:
+
+    >>> from zc.resumelb.util import read_message, write_message
+    >>> read_message(worker_socket)
+    (0, {})
+
+When the worker sends its resume, it sends 0 as the request number.
+
+Now, let's send a request to the worker.  Requests are based on wsgi
+environments. We have a helper, newenv, that helps us create one.
+
+    >>> env = newenv('', '/hi.html')
+
+The newenv helper:
+
+- Creates a request environ
+- without input or error streams
+- with a passed request class. The request class is needed for the resume.
+
+    >>> write_message(worker_socket, 1, env, '')
+
+write_message takes a socket to write to, a request number and one or
+more data objects.  Here, we passed 2 data objects, the request
+environment and an empty string indicating the end of the (empty)
+request body.
+
+The worker will process the request and send back 3 records:
+
+- response status and headers,
+- response body, and
+- an empty end-of-body message.
+
+We also have a helper that consumes and prints a response:
+
+    >>> print_response(worker_socket, 1)
+    1 200 OK
+    Content-Length: 79
+    Content-Type: text/html; charset=UTF-8; charset=UTF-8
+    <BLANKLINE>
+    <BLANKLINE>
+    <BLANKLINE>
+    http://localhost/hi.html -> 6115 0 da39a3ee5e6b4b0d3255bfef95601890afd80709
+    <BLANKLINE>
+
+We can have multiple outstanding requests:
+
+    >>> write_message(worker_socket, 2, newenv('', '/hi.html', dict(
+    ...     REQUEST_METHOD='POST', CONTENT_LENGTH='1000')))
+    >>> write_message(worker_socket, 3, newenv('1', '/hi.html', dict(
+    ...     REQUEST_METHOD='POST', CONTENT_LENGTH='10000')))
+    >>> write_message(worker_socket, 4, newenv('1', '/hi.html', dict(
+    ...     REQUEST_METHOD='POST', CONTENT_LENGTH='100000')))
+
+At this point, we have 3 outstanding requests.  Let's create 3 bodies:
+
+    >>> b2 = 'x'*1000
+    >>> b3 = 'y'*10000
+    >>> b4 = 'z'*100000
+
+    >>> import hashlib
+    >>> sha1 = lambda s: hashlib.sha1(s).hexdigest()
+
+    >>> sha1(b2)
+    'c3efa690fa3fdd2e2526853eed670538ea127638'
+    >>> sha1(b3)
+    'c1d5e830a1027a7b5de9e0620f3a2497d6b60c3e'
+    >>> sha1(b4)
+    '3235771c66bf77697df635e1bce4173668d2ea32'
+
+and send them:
+
+    >>> write_message(worker_socket, 2, b2)
+    >>> write_message(worker_socket, 3, b3[:5000])
+    >>> write_message(worker_socket, 4, b4[:5000])
+    >>> write_message(worker_socket, 4, b4[5000:10000])
+    >>> write_message(worker_socket, 3, b3[5000:10000])
+    >>> for i in range(1, 10):
+    ...     write_message(worker_socket, 4, b4[i*10000:(i+1)*10000])
+
+    >>> write_message(worker_socket, 4, '')
+    >>> print_response(worker_socket, 4) # doctest: +NORMALIZE_WHITESPACE
+    4 200 OK
+    Content-Length: 84
+    Content-Type: text/html; charset=UTF-8; charset=UTF-8
+    <BLANKLINE>
+    <BLANKLINE>
+    <BLANKLINE>
+    http://localhost/hi.html ->
+    6115 100000 3235771c66bf77697df635e1bce4173668d2ea32
+    <BLANKLINE>
+
+    >>> write_message(worker_socket, 2, '')
+    >>> print_response(worker_socket, 2) # doctest: +NORMALIZE_WHITESPACE
+    2 200 OK
+    Content-Length: 82
+    Content-Type: text/html; charset=UTF-8; charset=UTF-8
+    <BLANKLINE>
+    <BLANKLINE>
+    <BLANKLINE>
+    http://localhost/hi.html ->
+    6115 1000 c3efa690fa3fdd2e2526853eed670538ea127638
+    <BLANKLINE>
+
+    >>> write_message(worker_socket, 3, '')
+    >>> print_response(worker_socket, 3) # doctest: +NORMALIZE_WHITESPACE
+    3 200 OK
+    Content-Length: 83
+    Content-Type: text/html; charset=UTF-8; charset=UTF-8
+    <BLANKLINE>
+    <BLANKLINE>
+    <BLANKLINE>
+    http://localhost/hi.html ->
+    6115 10000 c1d5e830a1027a7b5de9e0620f3a2497d6b60c3e
+    <BLANKLINE>
+
+The handler for hi.html outputs the url, the pid, the request body
+size and the request body hash.  Note that the hashes match the test
+bodies we created.
+
+We told the worker to use a history of 5.  This means that it
+will send a new resume to the lb every 5 requests. Let's test that by
+making a 5th request.
+
+    >>> write_message(worker_socket, 5, newenv('2', '/sleep.html?dur=.11'), '')
+    >>> print_response(worker_socket, 5)
+    5 200 OK
+    Content-Length: 12
+    Content-Type: text/html; charset=UTF-8; charset=UTF-8
+    <BLANKLINE>
+    hello world
+
+The next message we receive will be the new resume:
+
+    >>> zero, resume = read_message(worker_socket)
+    >>> zero, resume.keys(), [x for x in resume.values() if type(x) != float]
+    (0, ['', '1', '2'], [])
+
+    >>> resume[''] > 10, resume['1'] > 10, resume['2'] < 10
+    (True, True, True)
+
+The numbers in the resumes are average requests per second.  For the
+last request, we sleep .11 seconds to assure that it's resume entry
+would be less than 10.
+
+We can reuse request numbers. We normally don't reuse request numbers
+until we get to 4 billion or so., But let's make sure we can reuse
+them:
+
+    >>> write_message(worker_socket, 1, newenv('', '/gen.html?size=100'), '')
+
+In this example, we've also requested a very large output.
+
+    >>> print_response(worker_socket, 1, size_only=True)
+    1 200 OK
+    Content-Length: 1200000
+    Content-Type: text/html; charset=UTF-8
+    <BLANKLINE>
+    1200000
+
+Multiple connections (multiple load balancers)
+==============================================
+
+In a production deployment, there will likely be multiple load
+balancers for redundancy.  In this case, there are multiple
+connections to workers.  Let's excecise that and make sure it works
+properly.
+
+Open a second connection:
+
+    >>> worker_socket2 = gevent.socket.create_connection(worker.addr)
+
+We're immediately sent the worker's resume.
+
+    >>> read_message(worker_socket2)[0]
+    0
+
+And send simultaneous requests to each connection:
+
+    >>> write_message(worker_socket,  2, newenv('1', '/hi.html'))
+    >>> write_message(worker_socket2, 2, newenv('2', '/hi.html'))
+    >>> write_message(worker_socket,  3, newenv('1', '/hi.html'))
+    >>> write_message(worker_socket2, 3, newenv('2', '/hi.html'))
+    >>> write_message(worker_socket,  4, newenv('1', '/hi.html'))
+    >>> write_message(worker_socket2, 4, newenv('2', '/hi.html'))
+
+And pretty much repeat the multi-connection test we did for one worker:
+
+    >>> b22 = 'i'*1000
+    >>> b32 = 'j'*10000
+    >>> b42 = 'k'*100000
+
+    >>> sha1(b22)
+    'bbf78f200f29636bb75c85467c1319e57a0d4149'
+    >>> sha1(b32)
+    '44bd0dbf8208fea52dc6180376d14798b86847bd'
+    >>> sha1(b42)
+    'd10948c2d88f13ea561a09157dd263c38527b2b6'
+
+
+    >>> write_message(worker_socket, 2, b2)
+    >>> write_message(worker_socket2, 2, b22)
+    >>> write_message(worker_socket, 3, b3[:5000])
+    >>> write_message(worker_socket2, 3, b32[:5000])
+    >>> write_message(worker_socket, 4, b4[:5000])
+    >>> write_message(worker_socket2, 4, b42[:5000])
+    >>> write_message(worker_socket, 4, b4[5000:10000])
+    >>> write_message(worker_socket2, 4, b42[5000:10000])
+    >>> write_message(worker_socket, 3, b3[5000:10000])
+    >>> write_message(worker_socket2, 3, b32[5000:10000])
+    >>> for i in range(1, 10):
+    ...     write_message(worker_socket, 4, b4[i*10000:(i+1)*10000])
+    ...     write_message(worker_socket2, 4, b42[i*10000:(i+1)*10000])
+
+    >>> write_message(worker_socket, 4, '')
+    >>> print_response(worker_socket, 4) # doctest: +NORMALIZE_WHITESPACE
+    4 200 OK
+    Content-Length: 84
+    Content-Type: text/html; charset=UTF-8; charset=UTF-8
+    <BLANKLINE>
+    <BLANKLINE>
+    <BLANKLINE>
+    http://localhost/hi.html ->
+    6115 100000 3235771c66bf77697df635e1bce4173668d2ea32
+    <BLANKLINE>
+
+And on with our simultaneous request on multiple worker test.
+
+    >>> write_message(worker_socket2, 4, '')
+    >>> print_response(worker_socket2, 4) # doctest: +NORMALIZE_WHITESPACE
+    4 200 OK
+    Content-Length: 84
+    Content-Type: text/html; charset=UTF-8; charset=UTF-8
+    <BLANKLINE>
+    <BLANKLINE>
+    <BLANKLINE>
+    http://localhost/hi.html ->
+    6115 100000 d10948c2d88f13ea561a09157dd263c38527b2b6
+    <BLANKLINE>
+
+    >>> write_message(worker_socket, 2, '')
+    >>> print_response(worker_socket, 2) # doctest: +NORMALIZE_WHITESPACE
+    2 200 OK
+    Content-Length: 82
+    Content-Type: text/html; charset=UTF-8; charset=UTF-8
+    <BLANKLINE>
+    <BLANKLINE>
+    <BLANKLINE>
+    http://localhost/hi.html ->
+    6115 1000 c3efa690fa3fdd2e2526853eed670538ea127638
+    <BLANKLINE>
+
+    >>> write_message(worker_socket2, 2, '')
+    >>> print_response(worker_socket2, 2) # doctest: +NORMALIZE_WHITESPACE
+    2 200 OK
+    Content-Length: 82
+    Content-Type: text/html; charset=UTF-8; charset=UTF-8
+    <BLANKLINE>
+    <BLANKLINE>
+    <BLANKLINE>
+    http://localhost/hi.html ->
+    6115 1000 bbf78f200f29636bb75c85467c1319e57a0d4149
+    <BLANKLINE>
+
+
+We're due for another resume.  We should get it on both sockets!
+
+    >>> zero, resume = read_message(worker_socket)
+    >>> zero, resume.keys(), [x for x in resume.values() if type(x) != float]
+    (0, ['', '1', '2'], [])
+
+    >>> read_message(worker_socket2) == (zero, resume)
+    True
+
+Monitoring/getting resumes
+==========================
+
+As we saw above, when an lb connects to a worker, the worker sends it
+its resume.  A utility, ``zc.resumelb.worker.get_resume`` leverages
+this to connect to a worker and get it's resume.  This is useful both
+to get the worker's resume, and to make sure the worker is accepting
+lb connections:
+
+    >>> sorted(zc.resumelb.worker.get_resume(worker.addr))
+    ['', '1', '2']
+
+There's also a "main program" version of the API:
+
+    >>> zc.resumelb.worker.get_resume_main(["%s:%s" % worker.addr])
+    ... # doctest: +ELLIPSIS
+    127.0.0.1:47094
+    {'': ...,
+     '1': ...,
+     '2': ...}
+
+Gracefull shutdown
+==================
+
+Workers have a shutdown method that stops accepting and waits for
+outstanding requests to be completed.  We have some outstating
+requests. Let's shutdown:
+
+    >>> shutdown_greenlet = gevent.spawn(worker.shutdown)
+
+We used a greenlet, because we don't want to block.
+
+    >>> shutdown_greenlet.join(.01)
+    >>> shutdown_greenlet.ready()
+    False
+
+We can't connect to the worker anymore:
+
+    >>> gevent.socket.create_connection(worker.addr)
+    ... # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+    ...
+    error: [Errno ...] Connection refused
+
+If we finish the outstanding requests, the worker will finish shutting down:
+
+    >>> write_message(worker_socket, 3, '')
+    >>> print_response(worker_socket, 3) # doctest: +NORMALIZE_WHITESPACE
+    3 200 OK
+    Content-Length: 83
+    Content-Type: text/html; charset=UTF-8; charset=UTF-8
+    <BLANKLINE>
+    <BLANKLINE>
+    <BLANKLINE>
+    http://localhost/hi.html ->
+    6115 10000 c1d5e830a1027a7b5de9e0620f3a2497d6b60c3e
+    <BLANKLINE>
+
+    >>> write_message(worker_socket2, 3, '')
+    >>> print_response(worker_socket2, 3) # doctest: +NORMALIZE_WHITESPACE
+    3 200 OK
+    Content-Length: 83
+    Content-Type: text/html; charset=UTF-8; charset=UTF-8
+    <BLANKLINE>
+    <BLANKLINE>
+    <BLANKLINE>
+    http://localhost/hi.html ->
+    6115 10000 44bd0dbf8208fea52dc6180376d14798b86847bd
+    <BLANKLINE>
+
+    >>> shutdown_greenlet.join(.1)
+    >>> shutdown_greenlet.ready()
+    True
+
+Saving and loading resumes
+--------------------------
+
+Workers can store their resumes.  This is useful if a worker has
+state, such as cache data that can be retained across restarts.  A
+worker will load data from and save data to a file if the
+``resume_file`` option is used to specify a resume file name:
+
+    >>> import marshal
+    >>> with open('resume.mar', 'w') as f:
+    ...     marshal.dump(dict(a=1.0, b=2.0), f)
+
+    >>> worker = zc.resumelb.worker.Worker(
+    ...   zc.resumelb.tests.app(), ('127.0.0.1', 0),
+    ...   history=2, max_skill_age=3,
+    ...   resume_file='resume.mar')
+
+Note that we specified a max_skill_age of 4, rather than the default
+10x the history.
+
+    >>> env = newenv('test', '/hi.html')
+    >>> worker_socket = gevent.socket.create_connection(worker.addr)
+    >>> from pprint import pprint
+    >>> pprint(read_message(worker_socket))
+    (0, {'a': 1.0, 'b': 2.0})
+
+    >>> write_message(worker_socket, 1, env, '')
+    >>> print_response(worker_socket, 1) # doctest: +ELLIPSIS
+    1 200 OK...
+    >>> write_message(worker_socket, 2, env, '')
+    >>> print_response(worker_socket, 2) # doctest: +ELLIPSIS
+    2 200 OK...
+
+At this point, the worker should have output a new resume.
+
+    >>> rno, resume = read_message(worker_socket)
+    >>> rno, sorted(resume)
+    (0, ['a', 'b', 'test'])
+
+    >>> with open('resume.mar') as f:
+    ...     sorted(marshal.load(f))
+    ['a', 'b', 'test']
+
+If we do 2 more requests:
+
+    >>> write_message(worker_socket, 3, env, '')
+    >>> print_response(worker_socket, 3) # doctest: +ELLIPSIS
+    3 200 OK...
+    >>> write_message(worker_socket, 4, env, '')
+    >>> print_response(worker_socket, 4) # doctest: +ELLIPSIS
+    4 200 OK...
+
+We'll get a new resume that has dropped the 'a' and 'b' skills:
+
+    >>> rno, resume = read_message(worker_socket)
+    >>> rno, sorted(resume)
+    (0, ['test'])
+
+Ignore empty strings in application iterables
+---------------------------------------------
+
+The lb/worker protocol uses empty strings to indicate end-of-message
+markers. If an application returns empty strings in its returned
+iterable, the worker must ignore them.
+
+    >>> env = newenv('test', '/sneaky.html')
+    >>> write_message(worker_socket, 3, env, '')
+    >>> print_response(worker_socket, 3) # doctest: +ELLIPSIS
+    3 200 OK
+    Content-Length: 12
+    Content-Type: text/html; charset=UTF-8
+    <BLANKLINE>
+    hello world
+
+
+Cancellation
+------------
+
+The load balancer can cancel a request at various stages.
+
+If we send a cancellation after a request has been finalized, the
+cancellation is ignored:
+
+    >>> write_message(worker_socket, 3, None)
+    >>> gevent.sleep(.01)
+
+We can cancel a request before sending input data:
+
+    >>> env = newenv('test', '/hi.html', method='POST', body='xxx')
+    >>> write_message(worker_socket, 4, env)
+    >>> gevent.sleep(.01)
+    >>> write_message(worker_socket, 4, None)
+
+Or after sending some data:
+
+    >>> write_message(worker_socket, 5, env, 'x')
+    >>> gevent.sleep(.01)
+    >>> write_message(worker_socket, 5, None)
+
+Or after sending a complete request, but so that the worker will see
+cancellation before rending a response, because the app takes some time:
+
+    >>> env = newenv('test', '/gsleep.html?dur=.1')
+    >>> write_message(worker_socket, 6, env, '', None)
+
+Or requesting tons of data, but before receiving all of it:
+
+    >>> env = newenv('test', '/gen.html?size=10000')
+    >>> write_message(worker_socket, 7, env, '')
+    >>> gevent.sleep(.01)
+    >>> write_message(worker_socket, 7, env, None)
+
+OK, so we sent 3 requests and cancelled all of them.  We shouldn't see any
+output for 4 and 5, as they were cancelled before they were completed.  Request
+6 will be performed. Some output will be probably be written to the socket
+before the cancellation is seen, but not all of it.
+
+We'll send another request to act as a marker in the output we get
+back:
+
+    >>> env = newenv('test', '/hi.html')
+    >>> write_message(worker_socket, 8, env, '')
+
+Now, we'll read data until we get a response record for request 8:
+
+    >>> rno = 0
+    >>> while rno != 8:
+    ...     rno, data = read_message(worker_socket)
+    ...     print rno, repr(data)[:60]
+    ...     # doctest: +ELLIPSIS
+    7 ('200 OK', [('Content-Type', 'text/html; charset=UTF-8'), ('
+    ...
+    7 'hello world\nhello world\nhello world\nhello world\nhello w
+    8 ('200 OK', [('Content-Type', 'text/html; charset=UTF-8; char
+
+Note that we didn't get output for requests 4, 5 or 6, because they
+were cancelled before they were started or before they started sending
+a response. We got some, but not all of the data for request 7.  We
+know we didn't get it all because we didn't get the end of-of-request
+marker.
+
+cleanup
+
+    >>> worker.stop()
+
+Tracelog and thread-pool support
+--------------------------------
+
+Workers support tracelogs and thread pools.
+
+We're gonna be tricky and fake time, taking advantage of the knowledge
+that the worker constructor caches datetime.now when writing to trace logs:
+
+    >>> import datetime, mock
+    >>> now = datetime.datetime(2012, 2, 5, 1, 2, 3, 456)
+    >>> with mock.patch('datetime.datetime') as dtmock:
+    ...     dtmock.now.side_effect = lambda : now
+    ...     worker = zc.resumelb.worker.Worker(
+    ...       zc.resumelb.tests.app(), ('127.0.0.1', 0), history=2,
+    ...       tracelog='tracelog', threads=1)
+
+    >>> import zope.testing.loggingsupport
+    >>> util_handler = zope.testing.loggingsupport.InstalledHandler(
+    ...     'zc.resumelb.util')
+
+    >>> worker_socket = gevent.socket.create_connection(worker.addr)
+    >>> pprint(read_message(worker_socket))
+    (0, {})
+
+By passing a threads option, we said we want a thread pool of size
+one. This will serialize request processing.
+
+If a tracelog argument is passed a logger name, then trace logs will
+be generated to the logger name.
+
+    >>> import logging, sys
+    >>> logger = logging.getLogger('tracelog')
+    >>> handler = logging.StreamHandler(sys.stdout)
+    >>> logger.addHandler(handler)
+    >>> logger.setLevel(logging.INFO)
+
+Now, we'll make some requests:
+
+    >>> write_message(worker_socket, 11, newenv('', '/sleep.html?dur=.1'))
+    >>> gevent.sleep(.01)
+    B 0.11 2012-02-05 01:02:03.000456 GET /sleep.html?dur=.1
+    >>> now += datetime.timedelta(microseconds=10000)
+    >>> write_message(worker_socket, 22,
+    ...               newenv('', '/sleep.html?dur=.1&size=111'))
+    >>> gevent.sleep(.01)
+    B 0.22 2012-02-05 01:02:03.010456 GET /sleep.html?dur=.1&size=111
+    >>> now += datetime.timedelta(microseconds=10000)
+    >>> write_message(worker_socket, 22, '')
+    >>> gevent.sleep(.01)
+    I 0.22 2012-02-05 01:02:03.020456 0
+    C 0.22 2012-02-05 01:02:03.020456
+    >>> now += datetime.timedelta(microseconds=10000)
+    >>> write_message(worker_socket, 11, '')
+    >>> read_message(worker_socket) # doctest: +ELLIPSIS
+    I 0.11 2012-02-05 01:02:03.030456 0
+    T 0.22 2012-02-05 01:02:03.030456 test
+    - 0.22 2012-02-05 01:02:03.030456 test2
+    A 0.22 2012-02-05 01:02:03.030456 200 OK 1332
+    ...
+    (22, ('200 OK', [('Content-Length', ...
+
+    >>> while 1:
+    ...     rno, data = read_message(worker_socket)
+    ...     if rno != 22:
+    ...         print 'oops', rno
+    ...         break
+    ...     if not data: break
+
+    >>> read_message(worker_socket) # doctest: +ELLIPSIS
+    T 0.11 2012-02-05 01:02:03.030456 test
+    - 0.11 2012-02-05 01:02:03.030456 test2
+    A 0.11 2012-02-05 01:02:03.030456 200 OK 12
+    E 0.11 2012-02-05 01:02:03.030456
+    (11, ('200 OK', [...('Content-Length', '12')]))
+
+Note that the tracelog request ids are distinct from the request
+numbers passed in the network protocol.  This is because network
+request numbers are assigned by load balancers and wouldn't be unique
+if there were multiple lbs.  Let's make a new connection, as we'll see
+this some more.
+
+    >>> now += datetime.timedelta(microseconds=10000)
+    >>> worker_socket2 = gevent.socket.create_connection(worker.addr)
+    >>> _ = read_message(worker_socket2)
+    >>> write_message(worker_socket2, 22,
+    ...               newenv('', '/hi.html', method='POST', body='z'*42), '')
+    >>> read_message(worker_socket2) # doctest: +ELLIPSIS
+    B 1.22 2012-02-05 01:02:03.040456 POST /hi.html
+    I 1.22 2012-02-05 01:02:03.040456 42
+    C 1.22 2012-02-05 01:02:03.040456
+    A 1.22 2012-02-05 01:02:03.040456 200 OK 79
+    E 1.22 2012-02-05 01:02:03.040456
+    (22, ('200 OK', [('Content-Type', ...
+
+
+Also, note that the worker score is based on the time spent in app. It
+doesn't include time waiting.  We can see this when the worker sends
+us its resume:
+
+    >>> _ = read_message(worker_socket), read_message(worker_socket)
+    >>> _, resume = read_message(worker_socket)
+    >>> [(_, score)] = resume.items()
+    >>> score > 7.0
+    True
+
+(If we started computing elapsed time when we started waiting for a
+thread, the score would be less than 2/(.1+.2).)
+
+Cleanup:
+
+    >>> logger.removeHandler(handler)
+    >>> logger.setLevel(logging.NOTSET)
+    >>> worker_socket.close()
+    >>> gevent.sleep(.01)
+    >>> worker_socket2.close()
+    >>> worker.stop()
+
+Connections and disconnections are logged and reflect the lb ids that
+show up in the trace logs. This allows us to match lb ids and lb
+addresses.
+
+    >>> print util_handler # doctest: +ELLIPSIS
+    zc.resumelb.util INFO
+      worker connected ('127.0.0.1', 50928)(0)...
+    zc.resumelb.util INFO
+      worker connected ('127.0.0.1', 50929)(1)...
+    zc.resumelb.util INFO
+      worker disconnected ('127.0.0.1', 50928)(0)...
+    zc.resumelb.util INFO
+      worker disconnected ('127.0.0.1', 50929)(1)...
+
+
+    >>> util_handler.uninstall()
+
+Updating worker settings
+------------------------
+
+Workers have an update_settings method that can be used to update
+settings at run time. It takes a settings dictionary.
+
+    >>> worker = zc.resumelb.worker.Worker(
+    ...   zc.resumelb.tests.app(), ('127.0.0.1', 0),
+    ...   history=2)
+
+    >>> worker.history, worker.max_skill_age
+    (2, 20)
+
+    >>> worker.update_settings(dict(history=5))
+    >>> worker.history, worker.max_skill_age
+    (5, 50)
+
+    >>> worker.update_settings(dict(history=5, max_skill_age=9))
+    >>> worker.history, worker.max_skill_age
+    (5, 9)
+
+    >>> worker.update_settings(dict(max_skill_age=99))
+    >>> worker.history, worker.max_skill_age
+    (9999, 99)
+
+Note that in the last example, the history setting reverted to it's
+default value, because it wasn't set in the settings.
+
+Settings are automaticaly coerced you they expected types:
+
+    >>> worker.update_settings(dict(history='5', max_skill_age='99'))
+    >>> worker.history, worker.max_skill_age
+    (5, 99)
+
+Resume computation and decay
+----------------------------
+
+Workers keep running totals of how well they do with request classes.
+These totals are decayed using a decay computed from the history.
+
+    >>> .79999 < worker.decay < .8001
+    True
+    >>> worker.update_settings(dict(history=2))
+    >>> worker.decay
+    0.5
+    >>> worker.update_settings(dict(history=1))
+    >>> worker.decay
+    0.0
+
+    >>> worker_socket = gevent.socket.create_connection(worker.addr)
+    >>> read_message(worker_socket)
+    (0, {})
+
+    >>> rno = 0
+    >>> env = newenv('test', '/hi.html')
+    >>> def assert_(cond, mess=None):
+    ...     if not cond:
+    ...         print 'assertion failed', mess
+    >>> def make_request():
+    ...     global rno
+    ...     rno += 1
+    ...     write_message(worker_socket, rno, env, '')
+    ...     assert_(read_message(worker_socket)[0] == rno)
+    ...     assert_(read_message(worker_socket)[0] == rno)
+    ...     assert_(read_message(worker_socket) == (rno, ''))
+
+With a decay of 0, the resume is based on the speed of the previous
+request:
+
+    >>> now = rtime = 1.0
+    >>> def faux_time():
+    ...     global now
+    ...     now += rtime
+    ...     return now
+
+    >>> with mock.patch('time.time') as time:
+    ...     time.side_effect = faux_time
+    ...     make_request()
+
+    >>> read_message(worker_socket)
+    (0, {'test': 1.0})
+
+    >>> rtime = 2.0
+
+    >>> with mock.patch('time.time') as time:
+    ...     time.side_effect = faux_time
+    ...     make_request()
+
+    >>> read_message(worker_socket)
+    (0, {'test': 0.5})
+
+With a decay of .5:
+
+    >>> worker.update_settings(dict(history=2))
+    >>> with mock.patch('time.time') as time:
+    ...     time.side_effect = faux_time
+    ...     rtime = 2.0
+    ...     make_request()
+    ...     rtime = 0.5
+    ...     make_request()
+
+    >>> read_message(worker_socket)
+    (0, {'test': 0.875})
+
+Cleanup:
+
+    >>> worker.stop()
+
+File results
+============
+
+Workers support 
