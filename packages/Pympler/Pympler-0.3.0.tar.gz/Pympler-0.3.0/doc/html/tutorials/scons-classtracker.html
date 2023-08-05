@@ -1,0 +1,261 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Tutorial - Tracking Class Instances in SCons &mdash; Pympler 0.2.2 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '0.2.2',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <link rel="copyright" title="Copyright" href="../copyright.html" />
+    <link rel="top" title="Pympler 0.2.2 documentation" href="../index.html" />
+    <link rel="up" title="Pympler Tutorials" href="tutorials.html" />
+    <link rel="next" title="Related Work" href="../related.html" />
+    <link rel="prev" title="Tutorial - Track Down Memory Leaks" href="muppy_tutorial.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="../related.html" title="Related Work"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="muppy_tutorial.html" title="Tutorial - Track Down Memory Leaks"
+             accesskey="P">previous</a> |</li>
+        <li><a href="../index.html">Pympler 0.2.2 documentation</a> &raquo;</li>
+          <li><a href="../detailed_toc.html" >Sitemap</a> &raquo;</li>
+          <li><a href="tutorials.html" accesskey="U">Pympler Tutorials</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="tutorial-tracking-class-instances-in-scons">
+<span id="classtracker-tutorial"></span><h1>Tutorial - Tracking Class Instances in SCons<a class="headerlink" href="#tutorial-tracking-class-instances-in-scons" title="Permalink to this headline">¶</a></h1>
+<p>This tutorial demonstrates the class tracking facility to profile and optimize a
+non-trivial program. <a class="reference external" href="http://www.scons.org">SCons</a> is a next-generation build system with a quite
+elaborate architecture and thus an interesting candidate for profiling attempts.</p>
+<p>Before we begin, it should be identified what shall be tracked, i.e. what
+classes we want to connect to and whose instances are to be sized and profiled.
+In this tutorial, the effect of a <a class="reference external" href="http://scons.tigris.org/issues/show_bug.cgi?id=2198">patch</a> is analyzed that tries to size-optimize the very
+heart of SCons - the <tt class="docutils literal"><span class="pre">Node</span></tt> class. Naturally, we will connect to the <tt class="docutils literal"><span class="pre">Node</span></tt> base
+class and its sub-classes. It makes sense to put the profiling data
+in context and track additional classes that are believed to contribute
+significantly to the total memory consumption.</p>
+<div class="section" id="installing-hooks-into-scons">
+<h2>Installing hooks into SCons<a class="headerlink" href="#installing-hooks-into-scons" title="Permalink to this headline">¶</a></h2>
+<p>The first step is to find the proper spots for connecting to the classes that
+shall be tracked, taking snapshots, and printing the gathered profile data.
+SCons has a simple memory profiling tool that we will override. The SCons
+MemStats class provides all we need:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="kn">from</span> <span class="nn">pympler.classtracker</span> <span class="kn">import</span> <span class="n">ClassTracker</span>
+
+<span class="k">class</span> <span class="nc">MemStats</span><span class="p">(</span><span class="n">Stats</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">Stats</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="n">classes</span> <span class="o">=</span> <span class="p">[</span><span class="n">SCons</span><span class="o">.</span><span class="n">Node</span><span class="o">.</span><span class="n">Node</span><span class="p">,</span> <span class="n">SCons</span><span class="o">.</span><span class="n">Node</span><span class="o">.</span><span class="n">FS</span><span class="o">.</span><span class="n">Base</span><span class="p">,</span> <span class="n">SCons</span><span class="o">.</span><span class="n">Node</span><span class="o">.</span><span class="n">FS</span><span class="o">.</span><span class="n">File</span><span class="p">,</span>
+                   <span class="n">SCons</span><span class="o">.</span><span class="n">Node</span><span class="o">.</span><span class="n">FS</span><span class="o">.</span><span class="n">Dir</span><span class="p">,</span> <span class="n">SCons</span><span class="o">.</span><span class="n">Executor</span><span class="o">.</span><span class="n">Executor</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">tracker</span> <span class="o">=</span> <span class="n">ClassTracker</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">classes</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">tracker</span><span class="o">.</span><span class="n">track_class</span><span class="p">(</span><span class="n">c</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">do_append</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">label</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">tracker</span><span class="o">.</span><span class="n">create_snapshot</span><span class="p">(</span><span class="n">label</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">do_print</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">stats</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">tracker</span><span class="o">.</span><span class="n">stats</span>
+        <span class="n">stats</span><span class="o">.</span><span class="n">print_summary</span><span class="p">()</span>
+        <span class="n">stats</span><span class="o">.</span><span class="n">dump_stats</span><span class="p">(</span><span class="s">&#39;pympler.stats&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>When SCons starts, <tt class="docutils literal"><span class="pre">MemStats</span></tt> is instantiated and the <cite>ClassTracker</cite> is
+connected to a number of classes. SCons has predefined spots where it invokes
+its statistics facilities with <tt class="docutils literal"><span class="pre">do_append</span></tt> being called. This is where
+snapshosts will be taken of all objects tracked so far.</p>
+<p>Because of the large number of instances, only a summary is printed to the
+console via <tt class="docutils literal"><span class="pre">stats.print_summary()</span></tt> and the profile data is dumped to a file
+in case per-instance profile information is needed later.</p>
+</div>
+<div class="section" id="test-run">
+<h2>Test run<a class="headerlink" href="#test-run" title="Permalink to this headline">¶</a></h2>
+<p>Time for a test. In the following examples, SCons builds a non-trivial program
+with a fair number of nodes. Running SCons via <tt class="docutils literal"><span class="pre">scons</span> <span class="pre">--debug=memory</span></tt> will
+print the gathered data to the console:</p>
+<div class="highlight-python"><pre>scons: Reading SConscript files ...
+scons: done reading SConscript files.
+scons: Building targets ...
+scons: `.' is up to date.
+scons: done building targets.
+---- SUMMARY ------------------------------------------------------------------
+before reading SConscript files:         active      4.17 MB      average   pct
+  SCons.Executor.Executor                     7      7.53 KB      1.08 KB    0%
+  SCons.Node.FS.Base                          1      9.30 KB      9.30 KB    0%
+  SCons.Node.FS.Dir                           6     17.77 KB      2.96 KB    0%
+  SCons.Node.FS.File                          1      2.91 KB      2.91 KB    0%
+  SCons.Node.Node                             0      0     B      0     B    0%
+after reading SConscript files:          active     13.06 MB      average   pct
+  [...]
+before building targets:                 active     13.41 MB      average   pct
+  [...]
+after building targets:                  active     34.77 MB      average   pct
+  SCons.Executor.Executor                  1311      3.57 MB      2.79 KB   10%
+  SCons.Node.FS.Base                       1102      4.84 MB      4.50 KB   13%
+  SCons.Node.FS.Dir                         108      5.67 MB     53.72 KB   16%
+  SCons.Node.FS.File                       2302     10.45 MB      4.65 KB   30%
+  SCons.Node.Node                             1     84.93 KB     84.93 KB    0%
+-------------------------------------------------------------------------------</pre>
+</div>
+</div>
+<div class="section" id="making-sense-of-the-data">
+<h2>Making sense of the data<a class="headerlink" href="#making-sense-of-the-data" title="Permalink to this headline">¶</a></h2>
+<p>The console output may give a brief overview how much memory is allocated by
+instances of the individual tracked classes. A more appealing and well arranged
+representation of the data can be generated with the <tt class="docutils literal"><span class="pre">HtmlStats</span></tt> class. The
+dump generated previously can be loaded and a set of HTML pages can be emitted:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="kn">from</span> <span class="nn">pympler.classtracker_stats</span> <span class="kn">import</span> <span class="n">HtmlStats</span>
+
+<span class="n">stats</span> <span class="o">=</span> <span class="n">HtmlStats</span><span class="p">()</span>
+<span class="n">stats</span><span class="o">.</span><span class="n">load_stats</span><span class="p">(</span><span class="s">&#39;pympler.stats&#39;</span><span class="p">)</span>
+<span class="n">stats</span><span class="o">.</span><span class="n">create_html</span><span class="p">(</span><span class="s">&#39;pympler.html&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>If <tt class="docutils literal"><span class="pre">matplotlib</span></tt> is installed, charts will be embedded in the HTML output:</p>
+<img alt="../_images/classtracker_timespace.png" src="../_images/classtracker_timespace.png" />
+<p>At first sight it might seem suspicious that the tracked classes appear to be
+the sole contributors to the total memory footprint of the application. Because
+the tracked objects are sized recursively, referenced objects which are not
+tracked themselves are added to the referrers account. Thus, a root object&#8217;s
+size will include the size of every leaf unless the leaf is also tracked by the
+<cite>ClassTracker</cite>.</p>
+</div>
+<div class="section" id="optimization-attempt">
+<h2>Optimization attempt<a class="headerlink" href="#optimization-attempt" title="Permalink to this headline">¶</a></h2>
+<p>After applying the <a class="reference external" href="http://scons.tigris.org/issues/show_bug.cgi?id=2198">patch</a> by Jean Brouwers, SCons is rerun under the supervision
+of the <cite>ClassTracker</cite>. The differences in the last snapshot show that the
+changes indeed reduce the memory footprint of <tt class="docutils literal"><span class="pre">Node</span></tt> instances:</p>
+<div class="highlight-python"><pre>$ scons --debug=memory
+scons: Reading SConscript files ...
+scons: done reading SConscript files.
+scons: Building targets ...
+scons: `.' is up to date.
+scons: done building targets.
+---- SUMMARY ------------------------------------------------------------------
+[...]
+after building targets:                  active     32.41 MB      average   pct
+  SCons.Executor.Executor                  1311      3.50 MB      2.73 KB   10%
+  SCons.Node.FS.Base                       1102      4.29 MB      3.98 KB   13%
+  SCons.Node.FS.Dir                         108      5.52 MB     52.30 KB   17%
+  SCons.Node.FS.File                       2302      8.82 MB      3.92 KB   27%
+  SCons.Node.Node                             1     84.32 KB     84.32 KB    0%
+-------------------------------------------------------------------------------</pre>
+</div>
+<p>The total measured memory footprint dropped from 34.8MB to 32.4MB, <tt class="docutils literal"><span class="pre">File</span></tt>
+nodes&#8217; average size from 4.6KB to 3.9KB.</p>
+</div>
+<div class="section" id="summary">
+<h2>Summary<a class="headerlink" href="#summary" title="Permalink to this headline">¶</a></h2>
+<p>This tutorial illustrated how applications can be profiled with the
+<cite>ClassTracker</cite> facility. It has been shown how the memory impact of changes
+can be quantified.</p>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="../index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Tutorial - Tracking Class Instances in SCons</a><ul>
+<li><a class="reference internal" href="#installing-hooks-into-scons">Installing hooks into SCons</a></li>
+<li><a class="reference internal" href="#test-run">Test run</a></li>
+<li><a class="reference internal" href="#making-sense-of-the-data">Making sense of the data</a></li>
+<li><a class="reference internal" href="#optimization-attempt">Optimization attempt</a></li>
+<li><a class="reference internal" href="#summary">Summary</a></li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="muppy_tutorial.html"
+                        title="previous chapter">Tutorial - Track Down Memory Leaks</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="../related.html"
+                        title="next chapter">Related Work</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="../_sources/tutorials/scons-classtracker.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="../related.html" title="Related Work"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="muppy_tutorial.html" title="Tutorial - Track Down Memory Leaks"
+             >previous</a> |</li>
+        <li><a href="../index.html">Pympler 0.2.2 documentation</a> &raquo;</li>
+          <li><a href="../detailed_toc.html" >Sitemap</a> &raquo;</li>
+          <li><a href="tutorials.html" >Pympler Tutorials</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; <a href="../copyright.html">Copyright</a> 2008-2012, Jean Brouwers, Ludwig Haehne, Robert Schuppenies.
+      Last updated on Dec 01, 2012.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>
