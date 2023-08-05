@@ -1,0 +1,117 @@
+timeline_django
+===============
+
+timeline_django inserts actions in to a `Timeline`
+(http://pypi.python.org/pypi/timeline/) for Django db queries, and other events
+in Django. This is very useful for obtaining a holistic view of the blocking
+work and callouts involved in an individual Django request.
+
+The usual pattern is to use this with `python-oops` - this README assumes you
+already have WSGI based OOPS reporting configured for your Django application.
+
+WSGI
+----
+
+Running under wsgi is assumed (as mod_python is deprecated, and the dev and
+test servers in 1.4 and above are wsgi based. Some assembly may be required to
+run in a non-WSGI environment.
+
+There are three necessary steps to configure timeline-django.
+
+WSGI middleware
++++++++++++++++
+
+Put this in your WSGI application somewhere after your Django app definition
+but before the oops_wsgi wrapper is applied.
+
+    from timeline_django.wsgi import make_app as timeline_django_make_app
+    from timeline.wsgi import make_app as timeline_make_app
+    application = timeline_django_make_app(application)
+    application = timeline_make_app(application)
+
+The first wrapper exposes the WSGI environ to Django code that runs without a
+request context - such as Django hooks which is where we catch ORM events.
+
+The second wrapper injects a Timeline object into the WSGI environment.
+
+Hook into Django events
++++++++++++++++++++++++
+
+Put this anywhere where it will run exactly once (e.g. in your WSGI application
+definition)::
+
+    from timeline_django import setup
+    setup.setup_for_requests()
+
+Redaction
++++++++++
+
+Finally, you need to ensure that the content of queries that can leak security
+or personal information are redacted: this prevents session hijacking and 
+privilege escalation attacks, making it safer for non-admin staff such as
+developers to see your timeline data::
+
+  import oops_timeline
+  import timeline_django.filters
+  oops_timeline.install_hooks(oops_config)
+  timeline_django.filters.install_hooks(oops_config)
+
+The oops_timeline hook copies the timeline from the WSGI environ to the OOPS
+report, and the second one installs Django specific redaction filters that
+operate on the copied timeline - the ordering is important. The current
+filters provided by timeline_django are::
+
+  * ``session`` table to prevent session hijacking
+  * ``user`` table to prevent password disclosure
+
+If your Django site uses other sensitive tables (e.g. alternative
+authentication modules) you should arrange to filter them as well. See
+``timeline_django.filters`` for example code.
+
+If you are not using timeline with `python-oops` you will need to arrange
+redaction for whatever timeline capture/view system you are using.
+
+Non-WSGI environments
+---------------------
+
+If you are running in other environments you need to do some of these steps
+yourself. First you need to pick a point to create a new `Timeline` object.
+This needs to correspond to the start of an timeline that you want to
+capture. That may be at the start of a script, or it may be in response to
+some other event.
+
+Once you have created the `Timeline` you need to store it somewhere it can
+be accessed when needed. That may be in a variable, or it may be in
+thread-local storage if you will have multiple threads handling separate
+timelines. Once you have the `Timline` stored you need a function that
+will return it. That function will be your `timeline_factory`. It should take
+no arguments and return a `Timeline` object, or `None` if there is no
+applicable `Timeline` when it is called.
+
+Once you have that method then you can call `timeline_django`'s setup_for_requests
+method::
+
+    from timeline_django.setup import setup_for_requests
+
+    setup_for_requests(timeline_factory=timeline_factory)
+
+where `timeline_factory` is the function you created above. That will set up the
+hooks necessary to have an action recorded in your timeline when there is
+a DB query, or one of the other Django events that `timeline_django` supports.
+
+..
+
+        Copyright (c) 2012, Canonical Ltd
+
+        This program is free software: you can redistribute it and/or modify
+        it under the terms of the GNU Lesser General Public License as published by
+        the Free Software Foundation, version 3 only.
+
+        This program is distributed in the hope that it will be useful,
+        but WITHOUT ANY WARRANTY; without even the implied warranty of
+        MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+        GNU Lesser General Public License for more details.
+
+        You should have received a copy of the GNU Lesser General Public License
+        along with this program.  If not, see <http://www.gnu.org/licenses/>.
+        GNU Lesser General Public License version 3 (see the file LICENSE).
