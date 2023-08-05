@@ -1,0 +1,227 @@
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xml:lang="en"
+      lang="en"
+      xmlns:tal="http://xml.zope.org/namespaces/tal"
+      xmlns:metal="http://xml.zope.org/namespaces/metal"
+      xmlns:i18n="http://xml.zope.org/namespaces/i18n"
+      i18n:domain="plone">
+  <head><title></title></head>
+  <body>
+
+    <div metal:define-macro="header">
+      <metal:block define-slot="title">
+
+<dl class="portalMessage info"
+    tal:condition="here/@@plone/isDefaultPageInFolder">
+    <dt i18n:translate="">
+        Info
+    </dt>
+    <dd i18n:translate="label_edit_default_view_container">
+        You are editing the default view of a container. If you wanted to edit the container itself,
+       <a href=""
+          i18n:name="go_here"
+          i18n:translate="label_edit_default_view_container_go_here"
+          tal:attributes="href string:${context/aq_inner/aq_parent/absolute_url}/edit">go here</a>.
+    </dd>
+</dl>
+
+       </metal:block>
+
+      <metal:block define-slot="extra_info" />
+
+    </div>
+
+    <div metal:define-macro="typedescription">
+        <tal:description tal:define="fti python:here.portal_types.getTypeInfo(here);
+                                     desc fti/Description;"
+                         tal:condition="desc">
+            <p class="discreet" i18n:translate="" tal:content="desc">
+                type description
+            </p>
+        </tal:description>
+    </div>
+
+    <div metal:define-macro="body"
+         tal:condition="not:isLocked | nothing"
+         tal:define="portal_type portal_type|string:unknowntype; templateObject context/isMegamanicEditableTemplateObject;
+		     xyz python:request.set('megamanic_add_clear', []);
+		     isLocked isLocked | nothing">
+      <!-- OK... so this thing is complicated.  But I also think it is quite good.  :) -->
+      <form name="edit_form"
+            method="post"
+            enctype="multipart/form-data"
+            class="enableUnloadProtection enableAutoFocus atBaseEditForm"
+            action=""
+            id=""
+            tal:attributes="action python:here.absolute_url()+'/'+((template.id == 'megamanic_edit_self_and_children' and 'megamanic_edit_self_and_children') or 'megamanic_add');
+                            class python:'enableUnloadProtection enableAutoFocus enableUnlockProtection';">
+  	  <input type="hidden" name="templateObject:int" tal:attributes="value python:(templateObject and 1) or 0" />
+	  <input type="hidden" name="adding" tal:attributes="value python:(template.id == 'megamanic_add' and 1) or 0" />
+          <metal:block define-slot="extra_top" />
+          <metal:block tal:repeat="object python:context.get_megamanic_editable_objects(context)" tal:define="addSkipFields python:(template.id in ('megamanic_add', 'megamanic_edit_self_and_children') and context.getAddSkipFields()) or ()">
+	    <input type="hidden" name="edited_objects:list" tal:attributes="value object/getId" />
+    	    <metal:block tal:define="path python:'/'.join(object.getPhysicalPath()); x python:context.megamanicHackRequest(object)">
+	    <h2 tal:content="object/Title"></h2>
+	    <p tal:condition="python:(template.id != 'megamanic_add') and context.getParentNode().isMegamanicEditable()"><a tal:attributes="href string:../megamanic_edit_self_and_children#${object/id}">Edit parent</a></p>
+	    <a tal:attributes="name string:${object/getId}"></a>
+	      <metal:block tal:repeat="fieldNameNormal object/getMegamanicEditableFields">
+
+              <metal:block tal:condition="python:not (repeat['object'].start and (fieldNameNormal in ('createContentType', 'thanksTitle', 'thanksBody')))">
+
+	      <metal:block tal:define="field python:object.getField(fieldNameNormal); fieldName python:object.getId() + '_' + fieldNameNormal;
+				       errors python:Errors.get(object.getId(), {})"
+			   tal:condition="python:(not (template.id == 'megamanic_add' and (fieldName in addSkipFields)))">
+		<span tal:content="structure python:context.replace_name_and_title(context.megamanic_trick_macro(object=object,
+				   fieldNameNormal=fieldNameNormal, field=field, mode='edit', errors=errors, request=request), fieldNameNormal, fieldName)" />
+		<metal:block tal:condition="python:templateObject and template.id == 'megamanic_edit_self_and_children'"
+			tal:define="requiredFields python:(template.id in ('megamanic_add', 'megamanic_edit_self_and_children') and context.getRequiredFields()) or ();
+				    tableListingFields python:(template.id in ('megamanic_add', 'megamanic_edit_self_and_children') and context.getTableListingFields()) or ();
+				    xyz python:request['megamanic_add_clear'].append(fieldName)">
+		<input type="checkbox" name="required:list"
+		       tal:attributes="value fieldName; checked python:fieldName in requiredFields"
+		       /> <span i18n:translate="label_required">Required</span><br /><br />
+		<input type="checkbox" name="tableListingField:list"
+		       tal:attributes="value fieldName; checked python:fieldName in tableListingFields"
+		       /> <span i18n:translate="label_use_in_listing">Use in table listing</span><br /><br />
+		<input type="checkbox" name="addSkipField:list"
+		       tal:attributes="value fieldName; checked python:fieldName in addSkipFields"
+		       /> <span i18n:translate="label_skip">(Skip from add form)</span><br /><br />
+		</metal:block>
+	      </metal:block>
+	      </metal:block>
+	      </metal:block>
+	    </metal:block><br />
+	    <span tal:define="x context/megamanicHackRequestClear" />
+          </metal:block>
+
+          <metal:block define-slot="extra_bottom" />
+
+          <div class="formControls">
+
+            <input type="hidden"
+                   name="form.submitted"
+                   value="1"
+                   />
+            <input type="hidden"
+                   name="add_reference.field:record"
+                   value=""
+                   />
+            <input type="hidden"
+                   name="add_reference.type:record"
+                   value=""
+                   />
+            <input type="hidden"
+                   name="add_reference.destination:record"
+                   value=""
+                   />
+
+<!--
+            <tal:env define="env request/controller_state/kwargs">
+              <tal:loop repeat="varname python:('reference_source_url', 'reference_source_field', 'reference_source_fieldset')">
+                <tal:reference define="items python:env.get(varname, request.get(varname))"
+                               condition="items">
+                  <input tal:repeat="item items"
+                         type="hidden"
+                         name="form_env.reference_source_url:list:record"
+                         value="value"
+                         tal:attributes="value item;
+                                         name string:form_env.${varname}:list:record"
+                         />
+                </tal:reference>
+              </tal:loop>
+            </tal:env>
+-->
+
+            <tal:comment replace="nothing">
+              Turn 'persistent_' variables from controller_state persistent
+            </tal:comment>
+<!--
+            <tal:env repeat="env request/controller_state/kwargs/items">
+              <input type="hidden"
+                     name="key"
+                     value="value"
+                     tal:define="key python:env[0];
+                                 value python:env[1]"
+                     tal:condition="python:key.startswith('persistent_')"
+                     tal:attributes="name string:form_env.${key}:record;
+                                     value value"
+                     />
+            </tal:env>
+-->
+
+            <tal:comment replace="nothing">
+              Turn 'persistent_' variables from forms (GET/POST) persistent
+            </tal:comment>
+            <tal:env repeat="env request/form">
+              <input type="hidden"
+                     name="key"
+                     value="value"
+                     tal:define="key env;
+                                 value request/?env"
+                     tal:condition="python:key.startswith('persistent_')"
+                     tal:attributes="name string:form_env.${key}:record;
+                                     value value"
+                     />
+            </tal:env>
+
+            <tal:comment replace="nothing">
+              Store referrer to remember where to go back
+            </tal:comment>
+            <input type="hidden"
+                   name="last_referer"
+                   tal:define="last_referer python:here.session_restore_value('HTTP_REFERER', request.form.get('last_referer', request.get('HTTP_REFERER')))"
+                   tal:attributes="value python:(last_referer and '%s/%s' % (here.absolute_url(), template.id) not in last_referer) and last_referer or (here.getParentNode() and here.getParentNode().absolute_url())"
+                   />
+
+            <metal:block define-slot="buttons">
+
+                <input class="context"
+                       type="submit"
+                       name="form.button.save"
+                       value="Save"
+                       i18n:attributes="value label_save;"
+                       tal:attributes="disabled python:test(isLocked, 'disabled', None);"
+		       tal:condition="python:template.id == 'megamanic_edit_self_and_children'"
+                       />
+                <input class="context"
+                       type="submit"
+                       name="form.button.add"
+                       value="Add"
+                       i18n:attributes="value label_add;"
+		       tal:condition="python:template.id != 'megamanic_edit_self_and_children'"
+                       />
+                <input class="standalone"
+                       type="submit"
+                       name="form.button.cancel"
+                       value="Cancel"
+                       i18n:attributes="value label_cancel;"
+                       />
+            </metal:block>
+
+            <metal:block define-slot="extra_buttons" />
+
+          </div>
+
+      </form>
+
+      <script type="text/javascript" tal:condition="python:(template.id == 'megamanic_add') and (not request.get('form.button.add', None))">
+	var cleared = new Array();
+	function clear_if_default (name) {
+		for (var i = 0; i < cleared.length; i++) {
+		    if (cleared[i]==name) {
+		       return;
+		    }
+		}
+		document.forms['edit_form'][name].value = '';
+		cleared.push(name);
+	}
+      </script>
+
+    </div>
+
+    <metal:footer_macro define-macro="footer">
+    </metal:footer_macro>
+        
+  </body>
+
+</html>
