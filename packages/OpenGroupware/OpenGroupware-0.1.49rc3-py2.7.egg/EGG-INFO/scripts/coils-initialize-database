@@ -1,0 +1,119 @@
+#!/usr/bin/python
+# Copyright (c) 2010, 2012 
+#  Adam Tauno Williams <awilliam@whitemice.org>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+#
+
+import getopt, sys, os, pwd, grp, uuid
+from pkg_resources import Requirement, resource_filename
+from coils.core import initialize_COILS, Backend, AdministrativeContext
+
+def usage():
+    print """
+    --help      Display this message.
+    --initdb    Initialize the database
+    --log=      Set the log filename; defaults to "/var/log/coils.log"
+    --password= Set the administator password
+
+    Default storage root is '/var/lib/opengroupware/org'
+    """
+    return
+
+def main( argv ):
+
+    # Process command line arguements
+    init_db    = False
+    logfile    = "/var/log/coils.log"
+    password   = None
+
+    try:
+        opts, args = getopt.getopt( argv,
+                                    "hi:l:p:",
+                                   [ "help", "initdb", "log=", "password=" ] )
+    except getopt.GetoptError, e:
+        print e
+        usage( )
+        sys.exit( 2 )
+    for opt, arg in opts:
+        if opt in ( "-h", "--help" ):
+            usage( )
+            sys.exit( 0 )
+        elif opt in ( '-i', '--initdb' ):
+            init_db = True
+        elif opt in ( '-l', '--log' ):
+            logfile = arg
+        elif opt in ( '-p', '--password' ):
+            password = arg
+
+    if not password:
+        print( 'ERROR: You must provide the initial administrative password when initializing the database!' )
+        sys.exit( 1 )
+
+    initialize_COILS( { 'log_file': logfile } )
+
+    if init_db:
+        print( 'Initializing database' )
+        
+        try:
+            # Assume we are operating in an EGG [ production] install
+            ddl_file = resource_filename( Requirement.parse( "OpenGroupware" ), "coils/foundation/alchemy/postgresql.ddl" )
+        except:
+            # Try to open the DDL file directly, for development installs
+            try:
+                handle = open( './coils/foundation/alchemy/postgresql.ddl', 'rb' )
+            except:
+                handle = open( './src/coils/foundation/alchemy/postgresql.ddl', 'rb' )
+        else:
+            handle = open( ddl_file, 'rb' )
+            
+        ddl_sql = handle.read( )
+        handle.close( )
+
+        db = Backend.db_session( )
+        db.execute( ddl_sql )
+        db.commit( )
+        db.close( )
+
+    ctx = AdministrativeContext( )
+        
+    # Set administrator's password
+    ctx.run_command( 'account::set-password', login='ogo', password=password )
+    print( 'Administrator\'s password set' )
+        
+        
+    # Initialize the server's cluserGUID
+    prop = ctx.property_manager.get_server_property( 'http://www.opengroupware.us/global', 'clusterGUID' )
+    if not prop:
+        cluster_guid = '{{{0}}}'.format( str( uuid.uuid4( ) ) )
+        ctx.property_manager.set_server_property( 'http://www.opengroupware.us/global', 'clusterGUID', cluster_guid )
+        print( 'Setting cluster GUID to "{0}"'.format( cluster_guid ) )
+    else:
+        print( 'Server GUID already set to "{0}"'.format( prop.get_value( ) ) )
+
+    ctx.commit( )
+    print( 'COMMIT' )
+
+
+    sys.exit( 0 )
+
+
+if __name__ == "__main__":
+    
+    main(sys.argv[1:])

@@ -1,0 +1,121 @@
+#!/usr/bin/python
+# Copyright (c) 2009, 2010, 2012 Adam Tauno Williams <awilliam@whitemice.org>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+#
+import pprint, getopt, sys, os
+from xml.sax                           import make_parser
+from xml.sax.handler                   import ContentHandler
+
+from coils.core               import *
+from coils.logic.workflow     import BPMLSAXHandler
+
+# TODO: Implement update mode, updates an existing route
+
+def usage():
+    print """
+        Compile a BPML file and install it into the engine
+        --help            Display this message.
+        --filename=       BPML file to parse (required)
+        --update          Update an existing route of the same name
+    """
+    return
+
+def compile_bpml(_file, log=None):
+    cpm = None
+    try:
+        _file.seek(0)
+        parser = make_parser()
+        handler = BPMLSAXHandler()
+        parser.setContentHandler(handler)
+        parser.parse(_file)
+        cpm = handler.get_processes()
+        if log: log.debug('Successfully processed BPML document')
+        if '__namespace__' in cpm:
+            description = { 'name': cpm['__namespace__'] }
+            if log: log.debug('Determined namespace of BPML document')
+        else:
+            if log: log.warn('No namespace defined in BPML document')
+            description = 'Unnamed route'
+    except Exception, e:
+        if log:
+            log.warn('Processing of BPML document at {0} failed.'.format(_filename))
+            log.exception(e)
+        raise CoilsException('Processing BPML document failed.')
+    else:
+        return description, cpm
+
+
+def main(argv):
+    input_filename = None
+    do_update = False
+    try:
+        opts, args = getopt.getopt(argv, "hf:u:o:", [ "help", "filename=", "udpate" ])
+    except getopt.GetoptError, e:
+        print e
+        usage()
+        sys.exit(2)
+    for opt, arg in opts:
+        if opt in ("-h", "--help"):
+            usage()
+            sys.exit(0)
+        elif opt in ("-f", "--filename"):
+            input_filename = arg
+        elif opt in ("-u", "--update"):
+			do_update = True
+
+    if not input_filename:
+        usage()
+        sys.exit(2)
+
+    # Initialize COILs
+    initialize_COILS({'log_file': '{0}/coils.log'.format(os.getenv('HOME'))})
+
+    if os.path.exists(input_filename):
+		
+        handle = open(input_filename, 'rb')
+        description = code = None
+        
+        try:
+            description, cpm = compile_bpml(handle)
+        except Exception, e:
+            print('Compilation of markup failed.')
+            print(e)
+            sys.exit(4)
+            
+        ctx = AdministrativeContext()
+        route_name = description['name']
+        route = ctx.run_command('route::get', name=route_name)
+        if route:
+            print('Route with the name of "{0}" already exists.'.format(route_name))
+            sys.exit(1)
+        else:
+            print('Creating route named "{0}".'.format(route_name))
+            route = ctx.run_command('route::new', values=description, handle=handle)
+            ctx.commit()
+            print('New object OGo#{0} [Route] created'.format(route.object_id))
+			
+        sys.exit(0)
+        
+    else:
+        print('File {0} does not exist.'.format(filename))
+        sys.exit(3)
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

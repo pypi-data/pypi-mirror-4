@@ -1,0 +1,108 @@
+#!/usr/bin/python
+# Copyright (c) 2010, 2012
+#  Adam Tauno Williams <awilliam@whitemice.org>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+#
+
+# TODO: Implement
+
+from coils.core  import *
+import getopt, sys, os, pprint
+from coils.core.icalendar import Parser as VEvent_Parser
+
+def usage():
+    print """
+    Parse the specified file containing an iCalendar VTODO task.
+    
+    --file      Filename of the VTODO data
+    --update    Update the correspding task in the OGo database
+    --create    Create a new task in the OGo database
+    """
+    return
+
+def main(argv):
+
+    # Process command line arguements
+    if (len(argv) == 0):
+        usage()
+        sys.exit(2)
+    try:
+        opts, args = getopt.getopt(argv,
+                                   "hfcu",
+                                  ["help", 'update', 'create', 'file='])
+    except getopt.GetoptError, e:
+        print e
+        usage()
+        sys.exit(2)
+    update = False
+    create = False
+    for opt, arg in opts:
+        if opt in ("-h", "--help"):
+            usage()
+            sys.exit(0)
+        elif (opt in ('-f', '--file')):
+            filename = arg
+        elif (opt in ('-u', '--update')):
+            update = True
+        elif (opt in ('-c', '--create')):
+            create = True
+
+    # Initialize COILs
+    initialize_COILS({'log_file': '{0}/coils.log'.format(os.getenv('HOME'))})
+    context = AdministrativeContext()
+    try:
+        handle = open(filename, 'rb')
+        payload = handle.read()
+        handle.close()
+    except Exception, e:
+        print 'Unable to read the specified file.'
+        print e
+        sys.exit(1)
+    values = None
+
+    try:
+        values = VEvent_Parser.Parse(payload, context)
+    except Exception, e:
+        print 'Unable to parse vCard.'
+        print e
+        
+    if isinstance( values, list ):
+        values = values[ 0 ]
+        
+    if (update):
+        if ('objectId' in values):
+            appointment = context.run_command('task::get', id=values['objectId'])
+            context.run_command('task::set', object=appointment, values=values)
+            context.commit()
+            card = context.run_command("task::get-as-vtodo", id=appointment.object_id)
+            print card
+            sys.exit(0)
+        else:
+            print 'Not objectId present in input data, cannot perform update'
+            sys.exit(1)
+    elif (create):
+        appointment = context.run_command('task::new', values=values)
+        pprint.pprint(appointment)
+        context.commit()
+    else:
+        pprint.pprint(values)
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
