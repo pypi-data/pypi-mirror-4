@@ -1,0 +1,11 @@
+Introduction
+============
+
+This is a standalone connector to the eXist database (http://exist-db.org/) using its XMLRPC interface.
+
+To add it in your buildout configuration ::
+
+    eggs = enslyon.existda 
+
+
+The product installation throught the PMI does not work, you have to use the ZMI.
