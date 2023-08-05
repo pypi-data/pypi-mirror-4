@@ -1,0 +1,177 @@
+#!/usr/bin/env python
+#
+
+"""
+gls: graphterm-aware ls
+"""
+
+import mimetypes
+import os
+import sys
+import xml.dom.minidom
+from optparse import OptionParser
+
+import gtermapi
+
+SPECIAL_FILES = set(["..", ".", "~"])
+
+gbrowsecmd = os.getenv("GRAPHTERM_BROWSE_CMD", "") or "gbrowse"
+gimagecmd = os.getenv("GRAPHTERM_IMAGE_CMD", "") or "gimage"
+glscmd = os.getenv("GRAPHTERM_LS_CMD", "") or "gls"
+gopencmd = os.getenv("GRAPHTERM_OPEN_CMD", "") or "gopen"
+gvicmd = os.getenv("GRAPHTERM_VI_CMD", "") or "gvi"
+
+FILE_TYPES = {"directory": ("/static/images/tango-folder.png", "cd %(path); "+glscmd+" -f"),
+              "executable": ("/static/images/tango-application-x-executable.png", ""),
+              "audiofile": ("/static/images/tango-audio-x-generic.png", gbrowsecmd),
+              "htmlfile": ("/static/images/tango-text-html.png", gvicmd),
+              "imagefile": ("/static/images/tango-image-x-generic.png", gimagecmd),
+              "pdffile": ("/static/images/tango-text-x-generic-template.png", gbrowsecmd),
+              "plainfile": ("/static/images/tango-text-x-generic-template.png", gopencmd),
+              "textfile": ("/static/images/tango-text-x-generic.png", gvicmd),
+              "videofile": ("/static/images/tango-video-x-generic.png", gopencmd),  # Need to implement streaming...
+}
+
+IMGFORMAT = '<td><a class="gterm-link gterm-imglink %(classes)s" href="%(fileurl)s" data-gtermmime="x-graphterm/%(filetype)s" data-gtermcmd="%(filecmd)s"><img class="gterm-img" src="%(fileicon)s"></img></a>'
+
+TXTFORMAT = '<td><a class="gterm-link %(classes)s" href="%(fileurl)s" data-gtermmime="x-graphterm/%(filetype)s" data-gtermcmd="%(filecmd)s">%(filename)s</a>'
+
+def file2html(filepath, filename, filemode=0):
+    mimetype = None
+    if filename in SPECIAL_FILES:
+        filetype = "directory"
+    elif os.path.lexists(filepath):
+        mimetype, encoding = mimetypes.guess_type(filename)
+        filetype = "plainfile"
+        if os.path.isdir(filepath):
+            filetype = "directory"
+        elif os.access(filepath, os.X_OK):
+            filetype = "executable"
+        elif mimetype:
+            if mimetype.startswith("audio/"):
+                filetype = "audiofile"
+            elif mimetype == "text/html":
+                filetype = "htmlfile"
+            elif mimetype.startswith("image/"):
+                filetype = "imagefile"
+            elif mimetype == "application/pdf":
+                filetype = "pdffile"
+            elif mimetype.startswith("text/") or mimetype == "application/javascript":
+                filetype = "textfile"
+            elif mimetype.startswith("video/"):
+                filetype = "videofile"
+    else:
+        return "", ""
+
+    classes = "droppable" if filetype in ("directory", "executable") else ""
+    fileicon, filecmd = FILE_TYPES[filetype]
+
+    fileurl = gtermapi.get_file_url(filepath, relative=True)
+    if options.images and mimetype and mimetype.startswith("image/"):
+        fileicon = fileurl
+
+    params = {"classes": classes, "fileurl": fileurl, "filename": filename, "filetype": filetype,
+              "fileicon": fileicon, "filecmd": filecmd}
+    
+    return IMGFORMAT % params, TXTFORMAT % params
+
+def files2html(file_list, ncols=4):
+    rows = []
+    rowimg = []
+    rowtxt = []
+
+    for j, fileinfo in enumerate(file_list):
+        if len(fileinfo) == 2:
+            fpath, fname, fsize, ftime, fmode, fuid, fgid = fileinfo[0], fileinfo[1], 0, 0, 0, 0, 0
+        else:
+            fpath, fname, fsize, ftime, fmode, fuid, fgid = fileinfo
+        cellimg, celltxt = file2html(fpath, fname, fmode)
+        rowimg.append(cellimg)
+        rowtxt.append(celltxt)
+        if rowtxt and (not ((j+1) % ncols) or (j+1 == len(file_list))):
+            rows.append( '<tr class="gterm-rowimg">' + "".join(rowimg) )
+            rows.append( '<tr class="gterm-rowtxt">' + "".join(rowtxt) )
+            rowimg = []
+            rowtxt = []
+
+    return "\n".join(rows)
+
+def get_file_info(filename):
+    filename = os.path.expanduser(filename)
+    filepath = os.path.normcase(os.path.abspath(filename))
+    if filename.startswith(".."):
+        filename = filepath
+    if os.path.exists(filepath):
+        fstat = os.stat(filepath)
+    elif os.path.lexists(filepath):
+        fstat = os.lstat(filepath)
+    else:
+        return (filepath, filename, 0, 0, 0, 0, 0)
+    return (filepath, filename, fstat.st_size, fstat.st_mtime, fstat.st_mode, fstat.st_uid, fstat.st_gid)
+
+
+usage = "usage: %prog [-f] <location>"
+parser = OptionParser(usage=usage)
+parser.add_option("-f", "--fullpage",
+                  action="store_true", dest="fullpage", default=False,
+                  help="Fullpage display")
+parser.add_option("-a", "--all",
+                  action="store_true", dest="all", default=False,
+                  help="Display all files, including hidden")
+parser.add_option("-i", "--images",
+                  action="store_true", dest="images", default=False,
+                  help="Display image files as thumbnails")
+parser.add_option("-s", "--size",
+                  action="store_true", dest="size", default=False,
+                  help="Sort by file size")
+parser.add_option("-t", "--time",
+                  action="store_true", dest="time", default=False,
+                  help="Sort by time modified")
+
+(options, args) = parser.parse_args()
+
+home_dir = os.path.expanduser("~")
+work_dir = os.getcwd()
+parent_dir, dir_name = os.path.split(work_dir)
+
+special_dirs = [(parent_dir, ".."),
+                (work_dir, "."),
+                (home_dir, "~")]
+
+if not args:
+    args = os.listdir(work_dir)
+    if not options.all:
+        args = [x for x in args if not x.startswith(".")]
+
+File_list = [get_file_info(filename) for filename in args]
+
+if options.size:
+    File_list.sort(key=lambda x:x[2])
+elif options.time:
+    File_list.sort(key=lambda x:x[3])
+else:
+    File_list.sort(key=lambda x:x[1])
+
+try:
+    lines = int(os.getenv("LINES"))
+    columns = int(os.getenv("COLUMNS"))
+except Exception:
+    lines = 24
+    columns = 80
+
+max_width = max([7]+[len(fileinfo[1]) for fileinfo in File_list])
+ncols = max(1, columns // (max_width+1))
+
+Table_list = ['<table frame=none border=0>',
+              '<colgroup colspan=%d width=1*>' % (ncols,),
+              ]
+
+Table_list.append(files2html(special_dirs, ncols))
+Table_list.append(files2html(File_list, ncols))
+
+Table_list.append('</table>')
+
+html = "\n".join(Table_list) + "\n"
+
+gtermapi.write_html(html, display=("fullpage" if options.fullpage else "block"), dir=work_dir)
+
