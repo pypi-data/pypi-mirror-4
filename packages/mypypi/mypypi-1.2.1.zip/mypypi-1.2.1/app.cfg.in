@@ -1,0 +1,118 @@
+[app]
+recipe = z3c.recipe.paster:serve
+eggs = mypypi
+ini =
+  [loggers]
+  keys = root, wsgi
+
+  [handlers]
+  keys = console, accesslog
+
+  [formatters]
+  keys = generic, accesslog
+
+  [logger_root]
+  level = INFO
+  handlers = console
+
+  [logger_wsgi]
+  level = INFO
+  handlers = accesslog
+  qualname = wsgi
+  propagate = 0
+
+  [handler_console]
+  class = StreamHandler
+  args = (sys.stderr,)
+  level = NOTSET
+  formatter = generic
+
+  [handler_accesslog]
+  class = FileHandler
+  args = (os.path.join(r'${BUILDOUT_DIRECTORY}', 'parts', 'logs', 'access.log'), 'a')
+  level = INFO
+  formatter = accesslog
+
+  [formatter_generic]
+  format = %(asctime)s %(levelname)s [%(name)s] %(message)s
+
+  [formatter_accesslog]
+  format = %(message)s
+
+  [filter:translogger]
+  use = egg:Paste#translogger
+  setup_console_handler = False
+  logger_name = wsgi
+
+  [app:mypypi]
+  use = egg:mypypi
+
+  [pipeline:main]
+  pipeline = translogger mypypi
+
+  [server:main]
+  use = egg:Paste#http
+  host = ${HOST_NAME}
+  port = ${HOST_PORT}
+  use_threadpool = yes
+  threadpool_workers = 3
+  threadpool_spawn_if_under = 0
+
+
+zope.conf =
+
+  <product-config p01.tmp>
+    storage ${BUILDOUT_DIRECTORY}/parts/tmpstorage
+  </product-config>
+
+  <product-config p01.fsfile>
+    storage ${BUILDOUT_DIRECTORY}/parts/fsstorage
+  </product-config>
+
+  <zodb>
+    cache-size 5000
+    pool-size 3
+    <filestorage>
+      path ${VAR_PATH}
+    </filestorage>
+  </zodb>
+
+  <eventlog>
+    <logfile>
+      formatter zope.exceptions.log.Formatter
+      path ${BUILDOUT_DIRECTORY}/parts/logs/error.log
+    </logfile>
+  </eventlog>
+
+site.zcml =
+  <configure
+      xmlns="http://namespaces.zope.org/zope"
+      xmlns:meta="http://namespaces.zope.org/meta"
+      i18n_domain="zope">
+
+  ${DEVMODE}
+
+  <include package="mypypi.setup" file="app.zcml" />
+
+  <!-- Define application manager and grant all permission via role -->
+  <role
+      id="mypypi.Manager"
+      title="MYPYPI Manager"
+      />
+  <grantAll
+      role="mypypi.Manager"
+      />
+
+  <principal
+      id="mypypi.manager"
+      title="Manager"
+      login="${LOGIN}"
+      password="${PASSWORD}"
+      password_manager="${PASSWORD_MANAGER}"
+      />
+  <grant
+      role="mypypi.Manager"
+      principal="mypypi.manager"
+      />
+
+  </configure>

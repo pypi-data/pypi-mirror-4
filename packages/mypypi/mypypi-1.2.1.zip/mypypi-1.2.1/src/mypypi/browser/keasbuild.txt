@@ -1,0 +1,116 @@
+==========
+keas.build
+==========
+
+We need two users to check:
+
+A user who should see everything.
+
+  >>> from zope.testbrowser.testing import Browser
+  >>> manager = Browser()
+  >>> manager.addHeader('Authorization', 'Basic mgr:mgrpw')
+  >>> manager.handleErrors = False
+
+  >>> manager.open('http://localhost')
+
+
+A user that is not logged on -- can just see public stuff.
+
+  >>> anyone = Browser()
+  >>> anyone.handleErrors = False
+
+  >>> anyone.open('http://localhost/simple')
+
+  >>> from zope.app.testing import functional
+
+We need to create the project first:
+
+  >>> manager.getLink('Projects').click()
+  >>> manager.getLink('Project').click()
+
+  >>> manager.getControl(name='form.widgets.__name__').value = 'mypypi'
+  >>> manager.getControl(name='form.widgets.title').value = 'mypypi'
+  >>> manager.getControl('Add').click()
+
+  >>> print manager.contents
+  <!DOCTYPE html...
+  ...Project Management...
+  ...X<...Name...Title...
+  ...<a href="http://localhost/++projects++/mypypi/files.html">mypypi</a>...
+  ...<a href="http://localhost/++projects++/mypypi/files.html">mypypi</a>...
+
+  >>> manager.getLink('mypypi').click()
+
+  >>> print manager.contents
+  <html><head><title>PYPISite</title></head><body>
+  <h1>mypypi</h1></body></html>
+
+  >>> ".cfg" in manager.contents
+  False
+
+
+Upload
+======
+
+This is the upload payload:
+
+  >>> UPLOAD_data = """----------------GHSKFJDLGDS7543FJKLFHRE75642756743254
+  ... Content-Disposition: form-data; name="content";filename="mypypi-0.1.0.cfg"
+  ...
+  ... [buildout]
+  ... parts = one two three
+  ... ----------------GHSKFJDLGDS7543FJKLFHRE75642756743254--
+  ... """
+
+This is the header:
+
+  >>> upload = """POST /++projects++/mypypi/upload HTTP/1.1
+  ... Content-Length: 3082
+  ... Authorization: Basic mgr:mgrpw
+  ... Content-Type: multipart/form-data; boundary=--------------GHSKFJDLGDS7543FJKLFHRE75642756743254; charset=utf-8
+  ... Host: localhost
+  ... User-agent: Python-urllib/2.4
+  ...
+  ... """
+
+Call the server:
+
+  >>> response = functional.HTTPCaller()(upload+UPLOAD_data)
+  >>> response.getStatus()
+  200
+  >>> print str(response)
+  HTTP/1.1 200 Ok
+  Content-Length: 2
+  Content-Type: text/plain
+  <BLANKLINE>
+  OK
+
+
+Check the uploaded file:
+
+  >>> manager.reload()
+
+  >>> print manager.contents
+  <html><head><title>PYPISite</title></head><body>
+  <h1>mypypi</h1>
+  <a href="http://localhost/++projects++/mypypi/mypypi-0.1.0.cfg">mypypi-0.1.0.cfg</a>
+  <br /></body></html>
+
+  >>> manager.getLink('mypypi-0.1.0.cfg').click()
+
+  >>> print manager.contents
+  [buildout]
+  parts = one two three
+
+
+Re-upload to see that we cannot replace a file:
+
+  >>> response = functional.HTTPCaller()(upload+UPLOAD_data)
+  >>> response.getStatus()
+  400
+  >>> print str(response)
+  HTTP/1.1 400 KeyError(u'mypypi-0.1.0.cfg',)
+  Content-Length: 30
+  Content-Type: text/plain
+  <BLANKLINE>
+  KeyError(u'mypypi-0.1.0.cfg',)

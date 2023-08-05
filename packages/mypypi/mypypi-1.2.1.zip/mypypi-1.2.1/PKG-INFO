@@ -1,0 +1,789 @@
+Metadata-Version: 1.0
+Name: mypypi
+Version: 1.2.1
+Summary: My Python Package Index (Standalone Server)
+Home-page: http://pypi.python.org/pypi/mypypi
+Author: Projekt01 GmbH, 6330 Cham, Switzerland
+Author-email: dev@projekt01.ch
+License: ZPL 2.1
+Description: ======
+        README
+        ======
+        
+        This package provides a private python package index server based on Zope 3.
+        
+        The MyPyPi server provides everything you need for setup a private or public
+        pypi mirror. It also allows to release closed source packages. Together with
+        lovely.buildouthttp you can setup a secure pypi mirror which you can use
+        for your deploy management of public and private packages. Private packages can
+        get protected by security based on groups, roles and users. The mypypi server
+        supports a secure way to mix private and public packages at the same time.
+        
+        We recommend to install the mypypi server behind an apache proxy for SSL
+        offload like any other SSL secured zope application. But if you like to use a
+        very simple setup without SSL, the mypypi server should work on port 80 as a
+        standalone application server as well.
+        
+        
+        Install
+        -------
+        
+        The installation process is very simple and described in the INSTALL.txt file.
+        
+        
+        Usage
+        -----
+        
+        Since version 1.1.0, there is a simpler concept for use the mypypi server as
+        an index or for register/upload packages. In previous versions we had to use
+        some undocumented apache rewrite rules. Let's first give an overview what 
+        a pypi server is use for:
+        
+        distutils -- can register and upload new packages
+        
+        setuptools -- can register and upload new packages
+        
+        easy_install -- downloads packages starting at a given index
+        
+        zc.buildout -- downloads packages starting at a given index
+        
+        mypypi -- can mirror packages from another mypypi server using XML-RPC
+        
+        xmlrpclib -- can access a defined API, http://wiki.python.org/moin/CheeseShopDev 
+        
+        urllib --  can GET or POST data
+        
+        
+        In general we use a pypi server for 3 different tasks.
+        
+        1. as index server for package download (index)
+        
+        3. register and upload new packages (manage)
+        
+        3. introspect for additional package information (introspect)
+        
+        The mypypi server provides the following pages and methods at the root, e.g.
+        http://host:port
+        
+        / -- the distutils and setuptools API methods using GET and POST requests
+        
+        / -- the XML-RPC API methods used for get detailed package and release
+          information, see http://wiki.python.org/moin/CheeseShopDev
+        
+        /simple -- used as PUBLIC python package index page. Note, only public
+          accessiible packages get listed in this index without authentication
+          
+        /private -- used as THE python package index for projects with protected
+          packages. Using this index requires authentication (recommended)
+        
+        /eggs -- a simpler python package index page listing all release files without
+          a page for each project (not recommended for large indexes)
+        
+        
+        Other important pages are available at:
+        
+        / -- mypypi application root offering the mypypi management. This mypypi root
+          also offers the distutils, setuptools and xmlrpc APi methods as described
+          above 
+        
+        /pypi -- list the 50 newest packages, inncluding batching
+        
+        /++projects++ -- supports a (WebDAV) buildout container like used in
+          keas.build, see http://pypi.python.org/pypi/keas.build form ore information
+        
+        
+        Authentication
+        --------------
+        
+        The authentication is done implicit in each tool. This means you don't have to
+        include the authentication (e.g. username:password#host:port/page) in any url.
+        This means all tools like distutil, setuptools will use the ``.pypirc`` file
+        for authentication. The mypypi server uses for it's XML-RPC client this
+        ``.pypirc`` too. You only need this file for mypypi if you like to mirror 
+        a private pypi index server whihc requires authentication.
+        
+        
+        HTTPS
+        -----
+        
+        Distutils and setuptools do not offer SSL support for any method they use.
+        I do not know how someone can implement an API using SSL and non SSL. But this
+        is how it is. It is possible run a working mypypi server only on an HTTPS port.
+        The important methods register, upload will use a https url but the 
+        list-classifiers and verify options do not support using https.
+        
+        
+        Release
+        -------
+        
+        After you have a working MyPyPi server setup, you have to configure your
+        projects if you like to have real protection. We use an enhanced setup.py
+        file in our packages which will prevent a release to pypi.python.org. Such
+        a setup.py change will also make the release process easier. There are two
+        option described below for bind a release process to a given repository.
+        
+        
+        setup.py (version 1)
+        ~~~~~~~~~~~~~~~~~~~~
+        
+        Since we can use more then one server setup data in the ``.pypirc`` file, we
+        use this file as our base for bind release process to a given repository.
+        
+        Note, this allows to bind the release to a server by it's name and requires
+        that every developer which can release such a package has to use the same
+        server - repository mapping in it's .pypirc file!
+        
+        The changed setup.py in your private egg should look like::
+        
+          ###############################################################################
+          #
+          # Copyright 2009 by Projekt01 GmbH , CH-6330 Cham
+          #
+          ###############################################################################
+          """Setup for smart package
+        
+          $Id: setup.py 4820 2009-05-12 07:31:00Z adam.groszer $
+          """
+          #---[ START Server locking]--------------------------------------------------
+        
+          LOCK_PYPI_SERVER = "http://pypi.your-domain.tld/eggs"
+        
+          import os
+          import sys
+          from setuptools import setup, find_packages
+        
+          def read(*rnames):
+              return open(os.path.join(os.path.dirname(__file__), *rnames)).read()
+        
+          #---[ repository locking ]-----------------------------------------------------
+          
+          REPOSITORY = "myserver"
+          
+          def checkRepository(name):
+              server = None
+              # find repository in .pypirc file
+              rc = os.path.join(os.path.expanduser('~'), '.pypirc')
+              if os.path.exists(rc):
+                  config = ConfigParser()
+                  config.read(rc)
+                  if 'distutils' in config.sections():
+                      # let's get the list of servers
+                      index_servers = config.get('distutils', 'index-servers')
+                      _servers = [s.strip() for s in index_servers.split('\n')
+                                  if s.strip() != '']
+                      for srv in _servers:
+                          if srv == name:
+                              repos = config.get(srv, 'repository')
+                              print "Found repository %s for %s in '%s'" % (
+                                  repos, name, rc)
+                              server = repos
+                              break
+          
+              if not server:
+                  print "No repository for %s found in '%s'" % (name, rc)
+                  sys.exit(1)
+          
+              COMMANDS_WATCHED = ('register', 'upload')
+              changed = False
+          
+              for command in COMMANDS_WATCHED:
+                  if command in sys.argv:
+                      #found one command, check for -r or --repository
+                      commandpos = sys.argv.index(command)
+                      i = commandpos+1
+                      repo = None
+                      while i<len(sys.argv) and sys.argv[i].startswith('-'):
+                          #check all following options (not commands)
+                          if (sys.argv[i] == '-r') or (sys.argv[i] == '--repository'):
+                              #next one is the repository itself
+                              try:
+                                  repo = sys.argv[i+1]
+                                  if repo.lower() != server.lower():
+                                      print "You tried to %s to %s, while this package "\
+                                             "is locked to %s" % (command, repo, server)
+                                      sys.exit(1)
+                                  else:
+                                      #repo OK
+                                      pass
+                              except IndexError:
+                                  #end of args
+                                  pass
+                          i=i+1
+          
+                      if repo is None:
+                          #no repo found for the command
+                          print "Adding repository %s to the command %s" % (
+                              server, command )
+                          sys.argv[commandpos+1:commandpos+1] = ['-r', server]
+                          changed = True
+          
+              if changed:
+                  print "Final command: %s" % (' '.join(sys.argv))
+          
+          checkRepository(REPOSITORY)
+          
+          #---[ repository locking ]-----------------------------------------------------
+        
+          setup(
+              name='smart',
+              version = '1.0.0',
+              url='http://pypi.your-domain.tld',
+              license='commercial',
+              description='Be smart',
+              author='Adam Groszer, Roger Ineichen',
+              author_email='dev@your-domain.tld',
+              long_description='\n\n'.join([
+                  open('README.txt').read(),
+                  open('CHANGES.txt').read(),
+                  ]),
+              packages=find_packages('src'),
+              package_dir = {'': 'src'},
+              namespace_packages=[],
+              extras_require = dict(
+                test = [
+                    'z3c.coverage',
+                    'z3c.jsonrpc',
+                    'z3c.testing',
+                    'zope.testing',
+                    ],
+                ),
+              install_requires=[
+                'setuptools',
+                'zope.interface',
+               ],
+              include_package_data = True,
+              zip_safe = False,
+          )
+        
+        As you can see we lock the server to a given server name within the line::
+        
+          REPOSITORY = "myserver"
+        
+        The real repository url for the given server name must be available in your
+        .pypirc file located in your HOME directory and looks like:
+        
+          [distutils]
+          index-servers = pypi
+                          localhost
+                          myrepos
+          
+          [pypi]
+          repository: http://pypi.python.org/pypi
+          username:your-username
+          password:your-password
+          
+          [localhost]
+          repository: http://localhost:8080
+          username:your-username
+          password:your-password
+          
+          [myrepos]
+          repository: http://localhost:8080
+          username:your-username
+          password:your-password
+        
+        After doing the above changes to your setup.py file, you can issue::
+        
+          python setup.py register sdist upload
+        
+        or just::
+        
+          python setup.py sdist upload
+        
+        The lock method will ensure that the repository only get released to the right
+        repository and prevents that the egg get published by accident to the official
+        pypi.python.org server at any time.
+        
+        
+        setup.py (version 2)
+        ~~~~~~~~~~~~~~~~~~~~
+        
+        The following concept uses a full url pointing to a pypi server. If you don't
+        like to nail down the full repository url because of legacy data problems,
+        use the concept described above. The changed setup.py in your private egg
+        should look like::
+        
+          ###############################################################################
+          #
+          # Copyright 2009 by Projekt01 GmbH , CH-6330 Cham
+          #
+          ###############################################################################
+          """Setup for smart package
+        
+          $Id: setup.py 4820 2009-05-12 07:31:00Z adam.groszer $
+          """
+          #---[ START Server locking]--------------------------------------------------
+        
+          LOCK_PYPI_SERVER = "http://pypi.your-domain.tld/eggs"
+        
+          import os
+          import sys
+          from setuptools import setup, find_packages
+        
+          def read(*rnames):
+              return open(os.path.join(os.path.dirname(__file__), *rnames)).read()
+        
+          def check_server(server):
+              if not server:
+                  return
+        
+              COMMANDS_WATCHED = ('register', 'upload')
+        
+              changed = False
+        
+              for command in COMMANDS_WATCHED:
+                  if command in sys.argv:
+                      #found one command, check for -r or --repository
+                      commandpos = sys.argv.index(command)
+                      i = commandpos+1
+                      repo = None
+                      while i<len(sys.argv) and sys.argv[i].startswith('-'):
+                          #check all following options (not commands)
+                          if (sys.argv[i] == '-r') or (sys.argv[i] == '--repository'):
+                              #next one is the repository itself
+                              try:
+                                  repo = sys.argv[i+1]
+                                  if repo.lower() != server.lower():
+                                      print "You tried to %s to %s, while this package "\
+                                             "is locked to %s" % (command, repo, server)
+                                      sys.exit(1)
+                                  else:
+                                      #repo OK
+                                      pass
+                              except IndexError:
+                                  #end of args
+                                  pass
+                          i=i+1
+        
+                      if repo is None:
+                          #no repo found for the command
+                          print "Adding repository %s to the command %s" % (
+                              server, command )
+                          sys.argv[commandpos+1:commandpos+1] = ['-r', server]
+                          changed = True
+        
+              if changed:
+                  print "Final command: %s" % (' '.join(sys.argv))
+        
+          check_server(LOCK_PYPI_SERVER)
+        
+          #---[ END Server locking]----------------------------------------------------
+        
+          setup(
+              name='smart',
+              version = '1.0.0',
+              url='http://pypi.your-domain.tld',
+              license='commercial',
+              description='Be smart',
+              author='Adam Groszer, Roger Ineichen',
+              author_email='dev@your-domain.tld',
+              long_description='\n\n'.join([
+                  open('README.txt').read(),
+                  open('CHANGES.txt').read(),
+                  ]),
+              packages=find_packages('src'),
+              package_dir = {'': 'src'},
+              namespace_packages=[],
+              extras_require = dict(
+                test = [
+                    'z3c.coverage',
+                    'z3c.jsonrpc',
+                    'z3c.testing',
+                    'zope.testing',
+                    ],
+                ),
+              install_requires=[
+                'setuptools',
+                'zope.interface',
+               ],
+              include_package_data = True,
+              zip_safe = False,
+          )
+        
+        As you can see we lock the server to a given URL within the line::
+        
+          LOCK_PYPI_SERVER = "http://pypi.your-domain.tld/eggs"
+        
+        After doing the above changes to your setup.py file, you can issue::
+        
+          python setup.py register sdist upload
+        
+        or just::
+        
+          python setup.py sdist upload
+        
+        The lock method will ensure that the repository only get released to the right
+        repository and prevents that the egg get published by accident to the official
+        pypi.python.org server at any time.
+        
+        
+        buildout.cfg
+        ~~~~~~~~~~~~
+        
+        Since we use a HTTPS connection, we have to improve our buildout.cfg file and
+        use the lovely buildouthttp recipe which enables SSL support. See
+        lovely.buildouthttp for more information about this recipe. Also make sure
+        you setup the required information like described in the lovely recipe if you
+        use the recipe the first time.
+        
+        You private egg buildout.cfg should look like::
+        
+          [buildout]
+          index = https://pypi.your-domain.tld/private
+          extensions = lovely.buildouthttp
+          extends = http://download.zope.org/zope3.4/3.4.0/versions.cfg
+          prefer-final = true
+          versions = versions
+          develop = .
+          parts = test
+        
+          [test]
+          recipe = zc.recipe.testrunner
+          eggs = smart [test]
+        
+        As you can see, our mypypi server is used as the index. We use the private
+        page at https://pypi.your-domain.tld/private because this page forces the
+        urllib handler to use the basic auth realm authentication. Again; note this
+        requires a working lovely.buildouthttp setup using a .httpauth file in your
+        HOME folder. Such a .httpauth file looks like::
+        
+          pypi,https://pypi.your-domain.tld,your-login,your-password
+        
+        Note the realm is always pypi. This is defined at the serverside and could
+        not get changed. Of course could we change the realm in our mypypi server, but
+        since ``setuptools`` uses this hardcoded realm (eeek), buildout upload would
+        not work anymore if we would change the realm to something else. Let us know
+        if this will become a real problem for you.
+        
+        
+        Contact
+        -------
+        
+        Sorry about this minimal documentation. But if you have any questions or
+        if you like to help improve the documentation, feel free to contact us at
+        <dev at projekt01 - ch>
+        
+        
+        =======
+        INSTALL
+        =======
+        
+        configuration
+        -------------
+        
+        This package contains a configuration script which is not usual in a 
+        distribution package like this. The configure script can be used for initialize
+        or change the server configuration before or after you installed this package.
+        
+        the recommented steps are::
+        
+          - python configure.py
+        
+          - python bootstrap.py
+        
+          - bin/buildout (on *nix) or bin\buildout.exe (on windows)
+        
+        The configure.py is required by buildout.cfg. The configure.py script allows
+        you to choose devmode, localhost, port and management user login settings. All
+        the collected values get written to the app.cfg file which is included in
+        buildout.cfg.
+        
+        If you don't like to use the configure.py script at any time, we recommend to
+        write your own app.cfg e.g. myapp.cfg and include them in buildout.cfg
+        ``extends`` and exclude the existing app.cfg. This will prevent you from
+        override the app.cfg by using the configure.py script.
+        
+        
+        step by step
+        ------------
+        
+        First checkout the mypypi package from pypi.python.org and store it on your
+        mypypi server.
+        
+        As next, before we call ``python bootstrap.py``, run the configure.py script
+        with the following command::
+        
+          python configure.py
+        
+        This will ask you for some input like::
+        
+          Would you like to setup with devmode (y/n): y
+          Choose your server hostname: localhost
+          Choose your server port: 8080
+          Note:
+          Distutils does not work with a port other then 80.
+          Use a proxy server running at port 80 for access the
+          MyPyPi server at port 8080
+        
+          Choose a managment user login: Manager
+          Choose a management user password: password
+          Choose a password encryption (plain/md5/sha1): plain
+          Generated configuration file 'app.cfg'
+        
+          ---------------------------------------------------------------
+          New buildout configuration files successfully created
+          You have to run bootstrap and buildout now
+        
+          After running buildout there is a configure script installed
+          You can run this counfiguration script again with bin/configure
+          ---------------------------------------------------------------
+        
+        After setup the app.cfg file within the configure.py script, you can run
+        bootstrap.py as usual with the following command::
+        
+          python bootstrap.py
+        
+        After bootstrap you can run buildout as usual with the following command::
+        
+          bin/buildout
+        
+        After setup your mypypi server with buildout, you can test your installation
+        with the following command::
+        
+          bin/test -py1
+        
+        There is also a coverage recipe installed which you can use as usual with the
+        following commands::
+        
+          bin/coverage-test
+          bin/coverage-report
+        
+        After running the converage scripts, you can see the generated coverage report 
+        in the new generated ``coverage/report`` folder. There should be an all.html
+        file which you can start with.
+        
+        Congratulations, you just configured and installed your mypypi server. If you 
+        like to use another ip/port, devmode or manager user login, you can just
+        reconfigure your setup with calling configure again with the following command::
+        
+          python configure.py
+        
+        This will again ask you for some input like::
+        
+          Would you like to setup with devmode (y/n): y
+          Choose your server hostname: localhost
+          Choose your server port: 8080
+          Note:
+          Distutils does not work with a port other then 80.
+          Use a proxy server running at port 80 for access the
+          MyPyPi server at port 8080
+        
+          Choose a managment user login: Manager
+          Choose a management user password: password
+          Choose a password encryption (plain/md5/sha1): plain
+          Generated configuration file 'app.cfg'
+        
+          ---------------------------------------------------------------
+          New buildout configuration files successfully created
+          You have to restart your server now
+          ---------------------------------------------------------------
+        
+        Recognize the note in the generated output. Your new app.cfg configuration file
+        will only get used after you restart the mypypi server.
+        
+        After you reconfigured your server, the old configuration file called
+        ``app.cfg`` get renamed to ``app.cfg-<year><month><day>-<hour>-<minute>``
+        This means you can simply revert your changes if you rename an old app.cfg*
+        file to app.cfg and restart your server.
+        
+        
+        start
+        -----
+        
+        Now you can start your new mypypi server with the following command::
+        
+          bin/app
+        
+        
+        nix
+        ---
+        
+        We recommend to use spervisord as a autostart option for mypypi. But any other
+        concept like using a init.d script should work for mypypi. A simple supervisord
+        programm like this should work:
+        
+          [program:mypypi]
+          directory = <mypypi root path>
+          command = <mypypi root path>/bin/app
+          priority = 10
+          autostart = true
+          autorestart = true
+        
+        
+        windows
+        -------
+        
+        There is also a windows service installation script. You can simply run the
+        windows service installation with the following command::
+        
+          python bin\winservice.py install
+        
+        You can also remove the service with the following command::
+        
+          python bin\winservice.py remove
+        
+        run the follwoing command windows service management for more options::
+        
+          python bin\winservice.py help
+        
+        After install your service, go to the serivce controll panel and check the 
+        service configuration. The service get installed as ``MYPYPI Windows Service``.
+        If you like to rename the service make sure you removed a previous service
+        installation, change winservice configuration section in buildout.cfg and
+        run buildout again. After that install your service again like described above.
+        Changing your winservice configuration in buildout.cfg should be compatible
+        with the configure.py script concept like any other option in buildout.cfg.
+        
+        
+        =======
+        CHANGES
+        =======
+        
+        1.2.1 (2012-1-18)
+        -----------------
+        
+        - implemented public file management table including public file delete
+        
+        - bugfix: include missing public.zcml (adjust MANIFEST.in)
+        
+        
+        1.2.0 (2012-07-02)
+        ------------------
+        
+        - added MANIFEST.in file
+        
+        - enhance batch size for simpler navigation
+        
+        - added an additional ++public++ namspace for public file managment. This is
+          usefull for upload KGS files which can't get downloaded within authentication
+          if you need to use them as buildout extends.
+          Note, since zc.buildout processes extends before extensions, there is no
+          way to patch the buildout Downloader class and inject authentication. This
+          also means lovely.builouthttp doesn't work for extends.
+        
+        - bugfix: missing docutils if not installed in system python. Also newer
+          docutils version do not provide python.modulparser.py anymore. Implement the
+          missing trim_docstring method in mypypi/api.py
+        
+        
+        1.1.0 (2011-01-05)
+        ------------------
+        
+        - bugfix: fix sync error if we try to sync LocalPackage. Note, only
+          MirrorPackage can get synced
+        
+        - skip old zope.app.* packages and added zopeupdate script. Run the following
+          script:
+          
+          bin\zodbupdate.exe -f ......\Data.fs -v --pack > out.txt 2>&1
+        
+        - moved storage configuration from WSGI config to zope product config since
+          someone broke the WSGI local_conf to zope product configuration chain.
+          And we also changed the fsStorage argument to storage since camel case also
+          seems to be broken.
+          
+          NOTE: You need to run configure.py and buildout before you start the
+                server!
+                
+          Otherwise the server wdoesn't start because of the misssing storage
+          configuration. (nothing dangerous happens)
+        
+        - added a second concept for look a release to a single pypi server using the
+          .pypirc configuration file. See README.txt for more information
+        
+        - use newer zope.* packages
+        
+        - implemented XML-RPC API like pypi.python.org offers. We currently do only
+          support the important methods like:
+          
+          - list_packages
+        
+          - package_releases
+                   
+          - package_urls # deprecated
+        
+          - release_urls
+        
+          - package_data # deprecated
+        
+          - release_data
+        
+          we do not support the methods (search, updated_releases, changelog) right now
+          Note: you need to use a domain like http://host:port/ as XML-RPC ServerProxy
+          url. If you don't use the slash a the end the ServerProxy uses /RPC2 as
+          default handler which isn't supported by mypypi.
+        
+        - removed temporary MultiWidget and TextLinesWidget because I move them
+          to the z3c.form 2.0 release which is now used
+        
+        - moved management pages from browser to admin package
+        
+        - imporved configuration script, use getpass for password input and adjust text
+          message
+        
+        - bugfix, added explicit find-link for lovely.buildouthttp, couldn't find the
+          package during a fresh installation.
+        
+        - bugfix, added missing buildout.cfg file, same issue as in version 1.0.1.
+          This issue was reported 5 month ago but still not fixed see:
+          http://bugs.python.org/issue6884
+        
+        
+        1.0.3 (2010-11-02)
+        ------------------
+        
+        - bugfix, version conflict. Use ZTK 1.0 and zopeapp-versions 1.0 as base versions
+        
+        - bugifx, dash vs underscore madness. The package wsgi_intercept at python
+          offers a download link to google which defines wsgi-intercept (_ vs -) e.g.
+          http://pypi.python.org/simple/wsgi_intercept/
+          http://code.google.com/p/wsgi-intercept/
+        
+        - fix typo (sh1 -> sha1) in configure.py script
+        
+        
+        1.0.2 (2010-06-21)
+        ------------------
+        
+        - cleanup buildou.cfg and base.cfg files
+        
+        
+        1.0.1 (2010-06-17)
+        ------------------
+        
+        - bugfix, buildout.cfg was missing during a setuptools issue. See: 
+          http://bugs.python.org/issue6884
+        
+        - Fix typos
+        
+        
+        1.0.0 (2010-06-16)
+        ------------------
+        
+        - Initial pypi release
+        
+        - Simplify configuration and setup
+        
+        
+        0.6.0 (2009-10-19)
+        ------------------
+        
+        - New feature: Project and buildout file support for keas.build
+        
+        
+        0.5.0 (2009-05-19)
+        ------------------
+        
+        - Initial Release
+        
+Keywords: python buildout package index server egg pypi mirror private
+Platform: UNKNOWN
+Classifier: Development Status :: 4 - Beta
+Classifier: Environment :: Web Environment
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: Zope Public License
+Classifier: Programming Language :: Python
+Classifier: Natural Language :: English
+Classifier: Operating System :: OS Independent
+Classifier: Topic :: Internet :: WWW/HTTP
+Classifier: Framework :: Zope3
