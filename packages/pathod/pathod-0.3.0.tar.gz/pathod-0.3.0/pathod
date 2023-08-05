@@ -1,0 +1,200 @@
+#!/usr/bin/env python
+import argparse, sys, logging, logging.handlers
+import os
+from libpathod import pathod, utils, version, language
+
+
+def daemonize (stdin='/dev/null', stdout='/dev/null', stderr='/dev/null'):
+    try:
+        pid = os.fork()
+        if pid > 0:
+            sys.exit(0)
+    except OSError, e:
+        sys.stderr.write ("fork #1 failed: (%d) %s\n" % (e.errno, e.strerror) )
+        sys.exit(1)
+    os.chdir("/")
+    os.umask(0)
+    os.setsid()
+    try:
+        pid = os.fork()
+        if pid > 0:
+            sys.exit(0)
+    except OSError, e:
+        sys.stderr.write ("fork #2 failed: (%d) %s\n" % (e.errno, e.strerror) )
+        sys.exit(1)
+    si = open(stdin, 'r')
+    so = open(stdout, 'a+')
+    se = open(stderr, 'a+', 0)
+    os.dup2(si.fileno(), sys.stdin.fileno())
+    os.dup2(so.fileno(), sys.stdout.fileno())
+    os.dup2(se.fileno(), sys.stderr.fileno())
+
+
+def main(parser, args):
+    sl = [args.ssl_keyfile, args.ssl_certfile]
+    if any(sl) and not all(sl):
+        parser.error("Both --certfile and --keyfile must be specified.")
+
+    if args.ssl:
+        ssl = dict(
+             keyfile = args.ssl_keyfile or utils.data.path("resources/server.key"),
+             certfile = args.ssl_certfile or utils.data.path("resources/server.crt"),
+        )
+    else:
+        ssl = None
+
+    alst = []
+    for i in args.anchors:
+        parts = utils.parse_anchor_spec(i)
+        if not parts:
+            parser.error("Invalid anchor specification: %s"%i)
+        alst.append(parts)
+
+    root = logging.getLogger()
+    if root.handlers:
+        for handler in root.handlers:
+            root.removeHandler(handler)
+
+    log = logging.getLogger('pathod')
+    log.setLevel(logging.DEBUG)
+    fmt = logging.Formatter(
+        '%(asctime)s: %(message)s',
+        datefmt='%d-%m-%y %H:%M:%S',
+    )
+    if args.logfile:
+        fh = logging.handlers.WatchedFileHandler(args.logfile)
+        fh.setFormatter(fmt)
+        log.addHandler(fh)
+    if not args.daemonize:
+        sh = logging.StreamHandler()
+        sh.setFormatter(fmt)
+        log.addHandler(sh)
+
+    sizelimit = None
+    if args.sizelimit:
+        try:
+            sizelimit = utils.parse_size(args.sizelimit)
+        except ValueError, v:
+            parser.error(v)
+
+    try:
+        pd = pathod.Pathod(
+            (args.address, args.port),
+            craftanchor = args.craftanchor,
+            ssloptions = ssl,
+            staticdir = args.staticdir,
+            anchors = alst,
+            sizelimit = sizelimit,
+            noweb = args.noweb,
+            nocraft = args.nocraft,
+            noapi = args.noapi,
+            nohang = args.nohang,
+            timeout = args.timeout,
+            logreq = args.logreq,
+            logresp = args.logresp,
+            hexdump = args.hexdump,
+            explain = args.explain
+        )
+    except pathod.PathodError, v:
+        parser.error(str(v))
+    except language.FileAccessDenied, v:
+        parser.error("%s You probably want to a -d argument."%str(v))
+
+    try:
+        print "%s listening on %s:%s"%(version.NAMEVERSION, args.address, pd.port)
+        pd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='A pathological HTTP/S daemon.')
+    parser.add_argument("-p", dest='port', default=9999, type=int, help='Port. Specify 0 to pick an arbitrary empty port.')
+    parser.add_argument("-l", dest='address', default="127.0.0.1", type=str, help='Listening address.')
+    parser.add_argument(
+        "-a", dest='anchors', default=[], type=str, action="append", metavar="ANCHOR",
+        help='Add an anchor. Specified as a string with the form pattern=pagespec'
+    )
+    parser.add_argument(
+        "-c", dest='craftanchor', default="/p/", type=str,
+        help='Anchorpoint for URL crafting commands.'
+    )
+    parser.add_argument(
+        "-d", dest='staticdir', default=None, type=str,
+        help='Directory for static files.'
+    )
+    parser.add_argument(
+        "-D", dest='daemonize', default=False, action="store_true",
+        help='Daemonize.'
+    )
+    parser.add_argument(
+        "-s", dest='ssl', default=False, action="store_true",
+        help='Serve with SSL.'
+    )
+    parser.add_argument(
+        "-t", dest="timeout", type=int, default=None,
+        help="Connection timeout"
+    )
+    parser.add_argument(
+        "--limit-size", dest='sizelimit', default=None, type=str,
+        help='Size limit of served responses. Understands size suffixes, i.e. 100k.'
+    )
+    parser.add_argument(
+        "--noapi", dest='noapi', default=False, action="store_true",
+        help='Disable API.'
+    )
+    parser.add_argument(
+        "--nohang", dest='nohang', default=False, action="store_true",
+        help='Disable pauses during crafted response generation.'
+    )
+    parser.add_argument(
+        "--noweb", dest='noweb', default=False, action="store_true",
+        help='Disable both web interface and API.'
+    )
+    parser.add_argument(
+        "--nocraft", dest='nocraft', default=False, action="store_true",
+        help='Disable response crafting. If anchors are specified, they still work.'
+    )
+    parser.add_argument(
+        "--keyfile", dest='ssl_keyfile', default=None, type=str,
+        help='SSL key file. If not specified, a default key is used.'
+    )
+    parser.add_argument(
+        "--certfile", dest='ssl_certfile', default=None, type=str,
+        help='SSL cert file. If not specified, a default cert is used.'
+    )
+
+
+    group = parser.add_argument_group(
+        'Controlling Logging', 
+        """
+            Some of these options expand generated values for logging - if
+            you're generating large data, use them with caution.
+        """
+    )
+    group.add_argument(
+        "-e", dest="explain", action="store_true", default=False,
+        help="Explain responses"
+    )
+    group.add_argument(
+        "-f", dest='logfile', default=None, type=str,
+        help='Log to file.'
+    )
+    group.add_argument(
+        "-q", dest="logreq", action="store_true", default=False,
+        help="Log full request"
+    )
+    group.add_argument(
+        "-r", dest="logresp", action="store_true", default=False,
+        help="Log full response"
+    )
+    group.add_argument(
+        "-x", dest="hexdump", action="store_true", default=False,
+        help="Log request/response in hexdump format"
+    )
+
+    args = parser.parse_args()
+    if args.daemonize:
+        daemonize()
+    main(parser, args)
+
