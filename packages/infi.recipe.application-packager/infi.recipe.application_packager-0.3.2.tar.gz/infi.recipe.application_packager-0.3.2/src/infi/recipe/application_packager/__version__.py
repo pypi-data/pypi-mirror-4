@@ -1,0 +1,10 @@
+__version__ = "0.3.2"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '2e8158cbf8cf9cf1dfaa9862483bd9a5c826c8be'
+__git_head_subject__ = 'Finished release v0.3.2.'
+__git_head_message__ = '* release/v0.3.2:\n  TRIVIAL skeleton update\n  HOSTDEV-500 gui_scripts support for packages\n  TRIVIAL installer will not install dependent-scripts by default\n  empty commit after version v0.3.1'
+__git_dirty_diff__ = ''
