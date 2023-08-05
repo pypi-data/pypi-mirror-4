@@ -1,0 +1,10 @@
+__version__ = "0.1.45"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '5537897e6b07373eece3eeb893c48ccd47064b47'
+__git_head_subject__ = 'Finished release v0.1.45.'
+__git_head_message__ = '# By Arnon Yaari (5) and Guy Rozendorn (3)\n* release/v0.1.45:\n  Freezing dependencies\n  STORAGEMODEL-195 amend\n  HIP-506 see previous commit\n  TRIVIAL rescan_scsi_bus: removing calls to sync, udevadm and partprobe\n  STORAGEMODEL-196 support binary string parameter to InfinidatNAA\n  STORAGEMODEL-195 change get_volume_serial to get_volume_id in InfinidatNAA\n  Unfreezing dependencies\n  empty commit after version v0.1.44'
+__git_dirty_diff__ = ''
