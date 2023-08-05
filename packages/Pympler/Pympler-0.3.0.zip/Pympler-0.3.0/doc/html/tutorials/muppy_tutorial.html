@@ -1,0 +1,359 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Tutorial - Track Down Memory Leaks &mdash; Pympler 0.2.2 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '0.2.2',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <link rel="copyright" title="Copyright" href="../copyright.html" />
+    <link rel="top" title="Pympler 0.2.2 documentation" href="../index.html" />
+    <link rel="up" title="Pympler Tutorials" href="tutorials.html" />
+    <link rel="next" title="Tutorial - Tracking Class Instances in SCons" href="scons-classtracker.html" />
+    <link rel="prev" title="Pympler Tutorials" href="tutorials.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="scons-classtracker.html" title="Tutorial - Tracking Class Instances in SCons"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="tutorials.html" title="Pympler Tutorials"
+             accesskey="P">previous</a> |</li>
+        <li><a href="../index.html">Pympler 0.2.2 documentation</a> &raquo;</li>
+          <li><a href="../detailed_toc.html" >Sitemap</a> &raquo;</li>
+          <li><a href="tutorials.html" accesskey="U">Pympler Tutorials</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="tutorial-track-down-memory-leaks">
+<span id="muppy-tutorial"></span><h1>Tutorial - Track Down Memory Leaks<a class="headerlink" href="#tutorial-track-down-memory-leaks" title="Permalink to this headline">¶</a></h1>
+<p>This tutorial shows you ways in which <a class="reference internal" href="../glossary.html#term-muppy"><em class="xref std std-term">muppy</em></a> can be used to track down
+memory leaks. From my experience, this can be done in 3 steps, each answering
+a different question.</p>
+<ol class="arabic simple">
+<li>Is there a leak?</li>
+<li>What objects leak?</li>
+<li>Where does it leak?</li>
+</ol>
+<div class="section" id="idle">
+<h2>IDLE<a class="headerlink" href="#idle" title="Permalink to this headline">¶</a></h2>
+<p>My first real-life test for <a class="reference internal" href="../glossary.html#term-muppy"><em class="xref std std-term">muppy</em></a> was <a class="reference external" href="http://docs.python.org/lib/idle.html">IDLE</a>, which is &#8220;the Python
+IDE built with the Tkinter GUI toolkit.&#8221; It offers the following features:</p>
+<ul class="simple">
+<li>coded in 100% pure Python, using the Tkinter GUI toolkit</li>
+<li>cross-platform: works on Windows and Unix (on Mac OS, there are currently
+problems with Tcl/Tk)</li>
+<li>multi-window text editor with multiple undo, Python colorizing and many other
+features, e.g. smart indent and call tips</li>
+<li>Python shell window (a.k.a. interactive interpreter)</li>
+<li>debugger (not complete, but you can set breakpoints, view and step)</li>
+</ul>
+<p>Because it is integrated in every Python distribution, runs locally and provides
+easy interactive feedback, it was a nice first candidate to test the tools of muppy.</p>
+<p>The task was to check if IDLE leaks memory, if so, what objects are leaking, and
+finally, why are they leaking.</p>
+<div class="section" id="preparations">
+<h3>Preparations<a class="headerlink" href="#preparations" title="Permalink to this headline">¶</a></h3>
+<p>IDLE is part of every Python distribution and can be found at
+<tt class="file docutils literal"><span class="pre">Lib/idlelib</span></tt>. The modified version which makes use of muppy can be found
+at <a class="reference external" href="http://code.google.com/p/muppy/source/browse/trunk#trunk/playground/idlelib">http://code.google.com/p/muppy/source/browse/trunk#trunk/playground/idlelib</a>.</p>
+<p>With IDLE having a GUI, I also wanted to be able to interact with muppy through
+the GUI. This can be done in <tt class="file docutils literal"><span class="pre">Lib/idlelib/Bindings.py</span></tt> and
+<tt class="file docutils literal"><span class="pre">Lib/idlelib/PyShell.py</span></tt>. For details, please refer to the modified
+version mentioned above.</p>
+</div>
+<div class="section" id="task-1-is-there-a-leak">
+<h3>Task 1: Is there a leak?<a class="headerlink" href="#task-1-is-there-a-leak" title="Permalink to this headline">¶</a></h3>
+<p>At first, we need to find out if there are any objects leaking at all. We will
+have a look at the objects, invoke an action, and look at the objects again.</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="kn">from</span> <span class="nn">pympler</span> <span class="kn">import</span> <span class="n">tracker</span>
+
+<span class="bp">self</span><span class="o">.</span><span class="n">memory_tracker</span> <span class="o">=</span> <span class="n">tracker</span><span class="o">.</span><span class="n">SummaryTracker</span><span class="p">()</span>
+<span class="bp">self</span><span class="o">.</span><span class="n">memory_tracker</span><span class="o">.</span><span class="n">print_diff</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>The last step is repeated after each invocation. Let&#8217;s start with something
+simple which should not leak. We will check the Windows resize. You can invoke
+it in the menu at <cite>Windows-&gt;Zoom Height</cite>.</p>
+<p>At first call <cite>print_diff</cite> till it has calibrated. That is, the first one or two
+times, you will get some output because there is still something going on in the
+background. But then you should get this:</p>
+<div class="highlight-python"><pre>types |   # objects |   total size
+====== | =========== | ============</pre>
+</div>
+<p>Which means nothing has changed since the last invocation of <cite>print_diff</cite>. Now
+let&#8217;s call <cite>Windows-&gt;Zoom Height</cite> and invoke <cite>print_diff</cite> again.:</p>
+<div class="highlight-python"><pre>             types |   # objects |   total size
+================== | =========== | ============
+              dict |           1 |     280    B
+              list |           1 |     176    B
+  _sre.SRE_Pattern |           1 |      88    B
+             tuple |           1 |      80    B
+               str |           0 |       7    B</pre>
+</div>
+<p>Seems as this requires some of the above mentioned objects. Let&#8217;s repeat it.:</p>
+<div class="highlight-python"><pre> types |   # objects |   total size
+====== | =========== | ============</pre>
+</div>
+<p>Okay, nothing changed, so nothing is leaking. But we see that often, the first
+call to a function creates some objects, which then exist on a second
+invocation.</p>
+<p>Next, we try something different. We will open a new window. Let&#8217;s have a look
+at the Path Browser at <cite>File-&gt;Path Browser</cite>.:</p>
+<div class="highlight-python"><pre>                                                types |   # objects |   total size
+===================================================== | =========== | ============
+                                                 dict |          18 |     14.26 KB
+                                                tuple |         146 |     13.17 KB
+                                                 list |           2 |     11.67 KB
+                                                  str |          97 |      7.85 KB
+                                                 code |          46 |      5.52 KB
+                                             function |          45 |      5.40 KB
+                                             classobj |           9 |    864     B
+                   instancemethod (&lt;function wakeup&gt;) |           3 |    240     B
+                 instancemethod (&lt;function __call__&gt;) |           3 |    240     B
+                instance(&lt;class Tkinter.CallWrapper&gt;) |           3 |    216     B
+                                               module |           3 |    168     B
+  instance(&lt;class idlelib.WindowList.ListedToplevel&gt;) |           1 |     72     B</pre>
+</div>
+<p>Let&#8217;s repeat it.:</p>
+<div class="highlight-python"><pre>                                                types |   # objects |   total size
+===================================================== | =========== | ============
+                                                 dict |           5 |      2.17 KB
+                                                 list |           0 |    384     B
+                                                  str |           5 |    259     B
+                   instancemethod (&lt;function wakeup&gt;) |           3 |    240     B
+                 instancemethod (&lt;function __call__&gt;) |           3 |    240     B
+                instance(&lt;class Tkinter.CallWrapper&gt;) |           3 |    216     B
+  instance(&lt;class idlelib.WindowList.ListedToplevel&gt;) |           1 |     72     B</pre>
+</div>
+<p>Mh, still some new objects. Repeating this procedure several times will reveal
+that here indeed we have a leak.</p>
+</div>
+<div class="section" id="task-2-what-objects-leak">
+<h3>Task 2: What objects leak?<a class="headerlink" href="#task-2-what-objects-leak" title="Permalink to this headline">¶</a></h3>
+<p>So let&#8217;s have a closer look at the diff. We see 5 new <cite>dicts</cite> and <cite>strings</cite>, a
+bit more memory usage by <cite>lists</cite>, 3 <cite>wakeup</cite> and <cite>__call__</cite> instance methods, 3
+<cite>CallWrapper</cite> and 1 <cite>ListedToplevel</cite>. We know the standard types, but the last
+couple of objects seem to be from IDLE.</p>
+<p>We ignore the standard type objects for now. It is more likely that these are
+only children of some other instances which are causing the leak.</p>
+<p>We start with the <cite>ListedTopLevel</cite> object. One invocation of <cite>File-&gt;Path
+Browser</cite> and one more of this type looks like this object is not garbage
+collected, although it should have been. Searching for <cite>ListedTopLevel</cite> in
+<cite>idlelib/</cite> reveals that is the base class to all window objects of IDLE. We can
+assume that opening the Path Browser, a new window object is created, but
+closing the window does not remove the reference.</p>
+<p>Next, we take a look at the <cite>wakeup</cite> instance method of which we have three more
+on each invocation. Searching the code, we find it to be defined in
+<cite>idlelib/WindowList.py</cite>. This piece of code is used to give users of IDLE a list
+of currently open windows. Every time a new window is created, it will be added
+to the <cite>Windows</cite> menu, from where the user can select any open window. <cite>wakeup</cite>
+is the method which will bring the selected window up front. Adding a window
+calls menu.add_command, linking menu and the wakeup command together.</p>
+<div class="highlight-python" id="menu-add-command"><div class="highlight"><pre><span class="n">menu</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="n">label</span><span class="o">=</span><span class="n">title</span><span class="p">,</span> <span class="n">command</span><span class="o">=</span><span class="n">window</span><span class="o">.</span><span class="n">wakeup</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>So we are getting closer. Only <cite>__call__</cite> and <cite>Tkinter.CallWrapper</cite> are left. As
+the name indicates, the latter is located in the Tkinter module, which is part
+of the standard library of Python. So let&#8217;s dive into it. The CallWrapper
+docstring states:</p>
+<div class="highlight-python"><pre>Internal class. Stores function to call when some user defined Tcl function is
+called e.g. after an event occurred.</pre>
+</div>
+<p>Also, CallWrapper contains a method called <cite>__call__</cite>, which is used to invoke
+the stored function call. A CallWrapper is created by the method <cite>_register</cite>
+which then creates a command (Tk speak) and adds it&#8217;s name to a list called
+<cite>self._tclCommands</cite>.</p>
+<p>So what do we know so far? Every time a Path Browser is opened, a window is
+created, but not deleted when closed again. It has something to do with the
+<cite>wakeup</cite> method of the window. This method is wrapped as a Tcl command and then
+linked to the window list menu. Also, we have traced this wrapping back to
+Tkinter library, where names of the function wrappers are stored in a attribute
+called <cite>_tclCommands</cite>.</p>
+<p>This brings us to the third question.</p>
+</div>
+<div class="section" id="task-3-where-is-the-leak">
+<h3>Task 3: Where is the leak?<a class="headerlink" href="#task-3-where-is-the-leak" title="Permalink to this headline">¶</a></h3>
+<p><cite>_tclCommands</cite> stores the names of all commands linked to a widget. The base
+class for interior widgets (of which the menu is one), has a method called
+<cite>destroy</cite> which:</p>
+<div class="highlight-python"><pre>Delete all Tcl commands created for this widget in the Tcl
+interpreter.</pre>
+</div>
+<p>as well as a method <cite>deletecommand</cite> which deletes a single Tcl command. Both
+remove commands as by there name. Among them, we find our CallWrappers&#8217;
+<cite>__call__</cite> used to wrap the wakeup of the Path Browser window.</p>
+<p>So we should expect at least either one to be invoked when a window is closed
+(best would be the invocation of only deletecommand). This would also go in line
+with <cite>menu.add_command</cite> we identified <a class="reference internal" href="#menu-add-command"><em>above</em></a>. And
+indeed, in <cite>idlelib/EditorWindow.py</cite>, <cite>menu.delete</cite> is called. So where is the
+problem?</p>
+<p>We return to <cite>Tkinter.py</cite> and have a closer look at <cite>delete</cite> method:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="k">def</span> <span class="nf">delete</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">index1</span><span class="p">,</span> <span class="n">index2</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Delete menu items between INDEX1 and INDEX2 (not included).&quot;&quot;&quot;</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">tk</span><span class="o">.</span><span class="n">call</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_w</span><span class="p">,</span> <span class="s">&#39;delete&#39;</span><span class="p">,</span> <span class="n">index1</span><span class="p">,</span> <span class="n">index2</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Mh, it looks like the menu item is deleted, but what about the attached
+command? Let&#8217;s ask the Web for &#8220;tkinter deletecommand&#8221;. Turns out that somebody
+some years ago filed a bug (see <a class="reference external" href="http://bugs.python.org/issue1342811">bugreport</a>) which states:</p>
+<div class="highlight-python"><pre>Tkinter.Menu.delete does not delete the commands
+defined for the entries it deletes. Those objects
+will be retained until the menu itself is deleted.
+[..]
+the command function will still be referenced and
+kept in memory - until the menu object itself is
+destroyed.</pre>
+</div>
+<p>Well, this seems to be the root of our memory leak. Let&#8217;s adapt the <cite>delete</cite>
+method a bit, so that the associated commands are deleted as well:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="k">def</span> <span class="nf">delete</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">index1</span><span class="p">,</span> <span class="n">index2</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Delete menu items between INDEX1 and INDEX2 (not included).&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">index2</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">index2</span> <span class="o">=</span> <span class="n">index1</span>
+    <span class="n">cmds</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="p">(</span><span class="n">num_index1</span><span class="p">,</span> <span class="n">num_index2</span><span class="p">)</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">index1</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">index2</span><span class="p">))</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">num_index1</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span><span class="n">num_index2</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_index1</span><span class="p">,</span> <span class="n">num_index2</span> <span class="o">+</span> <span class="mi">1</span><span class="p">):</span>
+            <span class="k">if</span> <span class="s">&#39;command&#39;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">entryconfig</span><span class="p">(</span><span class="n">i</span><span class="p">):</span>
+                <span class="n">c</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">entrycget</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="s">&#39;command&#39;</span><span class="p">))</span>
+                <span class="k">if</span> <span class="n">c</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tclCommands</span><span class="p">:</span>
+                    <span class="n">cmds</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">c</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">tk</span><span class="o">.</span><span class="n">call</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_w</span><span class="p">,</span> <span class="s">&#39;delete&#39;</span><span class="p">,</span> <span class="n">index1</span><span class="p">,</span> <span class="n">index2</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">cmds</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">deletecommand</span><span class="p">(</span><span class="n">c</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Now we restart IDLE, calibrate our tracker and do another round of <cite>print_diff</cite>.
+After the first time the Path Browser is opened we get this:</p>
+<div class="highlight-python"><pre>     types |   # objects |   total size
+========== | =========== | ============
+     tuple |         146 |     13.17 KB
+      dict |          13 |     12.01 KB
+      list |           2 |     11.26 KB
+       str |          92 |      7.59 KB
+      code |          46 |      5.52 KB
+  function |          45 |      5.40 KB
+  classobj |           9 |    864     B
+    module |           3 |    168     B</pre>
+</div>
+<p>Okay, still some objects created, but no more instances and instance
+methods. Let&#8217;s do it again.:</p>
+<div class="highlight-python"><pre>  types |   # objects |   total size
+======= | =========== | ============</pre>
+</div>
+<p>Yes, this looks definitely better. The memory leak is gone.</p>
+<p>The problem is fixed for Python versions 2.5 and higher so updated
+installations will not face this leak.</p>
+</div>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="../index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Tutorial - Track Down Memory Leaks</a><ul>
+<li><a class="reference internal" href="#idle">IDLE</a><ul>
+<li><a class="reference internal" href="#preparations">Preparations</a></li>
+<li><a class="reference internal" href="#task-1-is-there-a-leak">Task 1: Is there a leak?</a></li>
+<li><a class="reference internal" href="#task-2-what-objects-leak">Task 2: What objects leak?</a></li>
+<li><a class="reference internal" href="#task-3-where-is-the-leak">Task 3: Where is the leak?</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="tutorials.html"
+                        title="previous chapter">Pympler Tutorials</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="scons-classtracker.html"
+                        title="next chapter">Tutorial - Tracking Class Instances in SCons</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="../_sources/tutorials/muppy_tutorial.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="scons-classtracker.html" title="Tutorial - Tracking Class Instances in SCons"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="tutorials.html" title="Pympler Tutorials"
+             >previous</a> |</li>
+        <li><a href="../index.html">Pympler 0.2.2 documentation</a> &raquo;</li>
+          <li><a href="../detailed_toc.html" >Sitemap</a> &raquo;</li>
+          <li><a href="tutorials.html" >Pympler Tutorials</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; <a href="../copyright.html">Copyright</a> 2008-2012, Jean Brouwers, Ludwig Haehne, Robert Schuppenies.
+      Last updated on Dec 01, 2012.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

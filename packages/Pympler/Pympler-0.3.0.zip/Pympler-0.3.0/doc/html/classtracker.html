@@ -1,0 +1,434 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Tracking class instances &mdash; Pympler 0.2.2 documentation</title>
+    
+    <link rel="stylesheet" href="_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     '0.2.2',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="copyright" title="Copyright" href="copyright.html" />
+    <link rel="top" title="Pympler 0.2.2 documentation" href="index.html" />
+    <link rel="up" title="Sitemap" href="detailed_toc.html" />
+    <link rel="next" title="Identifying memory leaks" href="muppy.html" />
+    <link rel="prev" title="Sizing individual objects" href="asizeof.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="muppy.html" title="Identifying memory leaks"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="asizeof.html" title="Sizing individual objects"
+             accesskey="P">previous</a> |</li>
+        <li><a href="index.html">Pympler 0.2.2 documentation</a> &raquo;</li>
+          <li><a href="detailed_toc.html" accesskey="U">Sitemap</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="tracking-class-instances">
+<span id="classtracker"></span><h1>Tracking class instances<a class="headerlink" href="#tracking-class-instances" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="module-pympler.classtracker">
+<span id="introduction"></span><h2>Introduction<a class="headerlink" href="#module-pympler.classtracker" title="Permalink to this headline">¶</a></h2>
+<p>The <cite>ClassTracker</cite> is a facility delivering insight into the memory
+distribution of a Python program. It can introspect memory consumption of
+certain classes and objects. Facilities are provided to track and size
+individual objects or all instances of certain classes. Tracked objects are
+sized recursively to provide an overview of memory distribution between the
+different tracked objects.</p>
+</div>
+<div class="section" id="usage">
+<h2>Usage<a class="headerlink" href="#usage" title="Permalink to this headline">¶</a></h2>
+<p>Let&#8217;s start with a simple example. Suppose you have this module:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="k">class</span> <span class="nc">Employee</span><span class="p">:</span>
+<span class="gp">... </span>   <span class="k">pass</span>
+<span class="gp">...</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="k">class</span> <span class="nc">Factory</span><span class="p">:</span>
+<span class="gp">... </span>   <span class="k">pass</span>
+<span class="gp">...</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="k">def</span> <span class="nf">create_factory</span><span class="p">():</span>
+<span class="gp">... </span>   <span class="n">factory</span> <span class="o">=</span> <span class="n">Factory</span><span class="p">()</span>
+<span class="gp">... </span>   <span class="n">factory</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="s">&quot;Assembly Line Unlimited&quot;</span>
+<span class="gp">... </span>   <span class="n">factory</span><span class="o">.</span><span class="n">employees</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="gp">... </span>   <span class="k">return</span> <span class="n">factory</span>
+<span class="gp">...</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="k">def</span> <span class="nf">populate_factory</span><span class="p">(</span><span class="n">factory</span><span class="p">):</span>
+<span class="gp">... </span>   <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="nb">xrange</span><span class="p">(</span><span class="mi">1000</span><span class="p">):</span>
+<span class="gp">... </span>       <span class="n">worker</span> <span class="o">=</span> <span class="n">Employee</span><span class="p">()</span>
+<span class="gp">... </span>       <span class="n">worker</span><span class="o">.</span><span class="n">assigned</span> <span class="o">=</span> <span class="n">factory</span><span class="o">.</span><span class="n">name</span>
+<span class="gp">... </span>       <span class="n">factory</span><span class="o">.</span><span class="n">employees</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">worker</span><span class="p">)</span>
+<span class="gp">...</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">factory</span> <span class="o">=</span> <span class="n">create_factory</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">populate_factory</span><span class="p">(</span><span class="n">factory</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The basic tools of the <cite>ClassTracker</cite> are tracking objects or classes, taking
+snapshots, and printing or dumping statistics. The first step is to decide what
+to track. Then spots of interest for snapshot creation have to be identified.
+Finally, the gathered data can be printed or saved:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">factory</span> <span class="o">=</span> <span class="n">create_factory</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span> <span class="nn">pympler.classtracker</span> <span class="kn">import</span> <span class="n">ClassTracker</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">tracker</span> <span class="o">=</span> <span class="n">ClassTracker</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">tracker</span><span class="o">.</span><span class="n">track_object</span><span class="p">(</span><span class="n">factory</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">tracker</span><span class="o">.</span><span class="n">track_class</span><span class="p">(</span><span class="n">Employee</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">tracker</span><span class="o">.</span><span class="n">create_snapshot</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">populate_factory</span><span class="p">(</span><span class="n">factory</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">tracker</span><span class="o">.</span><span class="n">create_snapshot</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">tracker</span><span class="o">.</span><span class="n">stats</span><span class="o">.</span><span class="n">print_summary</span><span class="p">()</span>
+<span class="go">---- SUMMARY ------------------------------------------------------------------</span>
+<span class="go">                                         active      1.22 MB      average   pct</span>
+<span class="go">  Factory                                     1    344     B    344     B    0%</span>
+<span class="go">  __main__.Employee                           0      0     B      0     B    0%</span>
+<span class="go">                                         active      1.42 MB      average   pct</span>
+<span class="go">  Factory                                     1      4.75 KB      4.75 KB    0%</span>
+<span class="go">  __main__.Employee                        1000    195.38 KB    200     B   13%</span>
+<span class="go">-------------------------------------------------------------------------------</span>
+</pre></div>
+</div>
+</div>
+<div class="section" id="basic-functionality">
+<h2>Basic Functionality<a class="headerlink" href="#basic-functionality" title="Permalink to this headline">¶</a></h2>
+<div class="section" id="instance-tracking">
+<h3>Instance Tracking<a class="headerlink" href="#instance-tracking" title="Permalink to this headline">¶</a></h3>
+<p>The purpose of instance tracking is to observe the size and lifetime of an
+object of interest. Creation and destruction timestamps are recorded and the
+size of the object is sampled when taking a snapshot.</p>
+<p>To track the size of an individual object:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="kn">from</span> <span class="nn">pympler.classtracker</span> <span class="kn">import</span> <span class="n">ClassTracker</span>
+<span class="n">tracker</span> <span class="o">=</span> <span class="n">ClassTracker</span><span class="p">()</span>
+<span class="n">obj</span> <span class="o">=</span> <span class="n">MyClass</span><span class="p">()</span>
+<span class="n">tracker</span><span class="o">.</span><span class="n">track_object</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="section" id="class-tracking">
+<h3>Class Tracking<a class="headerlink" href="#class-tracking" title="Permalink to this headline">¶</a></h3>
+<p>Most of the time it&#8217;s cumbersome to track individual instances
+manually. Instead, all instances of a class can automatically be tracked with
+<em>track_class</em>:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="n">tracker</span><span class="o">.</span><span class="n">track_class</span><span class="p">(</span><span class="n">MyClass</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>All instances of <cite>MyClass</cite> (or a class that inherits from <cite>MyClass</cite>) created
+hereafter are tracked.</p>
+</div>
+<div class="section" id="tracked-object-snapshot">
+<h3>Tracked Object Snapshot<a class="headerlink" href="#tracked-object-snapshot" title="Permalink to this headline">¶</a></h3>
+<p>Tracking alone will not reveal the size of an object. The idea of the
+<cite>ClassTracker</cite> is to sample the sizes of all tracked objects at configurable
+instants in time. The <cite>create_snapshot</cite> function computes the size of all
+tracked objects:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="n">tracker</span><span class="o">.</span><span class="n">create_snapshot</span><span class="p">(</span><span class="s">&#39;Before juggling with tracked objects&#39;</span><span class="p">)</span>
+<span class="o">...</span>
+<span class="n">tracker</span><span class="o">.</span><span class="n">create_snapshot</span><span class="p">(</span><span class="s">&#39;Juggling aftermath&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>With this information, the distribution of the allocated memory can be
+apportioned to tracked classes and instances.</p>
+</div>
+<div class="section" id="print-statistics">
+<h3>Print Statistics<a class="headerlink" href="#print-statistics" title="Permalink to this headline">¶</a></h3>
+<p>The gathered data can be investigated with <cite>print_stats</cite>. This prints all
+available data. To filter and limit the output the more powerful &#8220;Off-line
+analysis&#8221; API can be used instead.</p>
+</div>
+</div>
+<div class="section" id="advanced-functionality">
+<h2>Advanced Functionality<a class="headerlink" href="#advanced-functionality" title="Permalink to this headline">¶</a></h2>
+<div class="section" id="per-referent-sizing">
+<h3>Per-referent Sizing<a class="headerlink" href="#per-referent-sizing" title="Permalink to this headline">¶</a></h3>
+<p>It may not be enough to know the total memory consumption of an object.
+Detailed per-referent statistics can be gathered recursively up to a given
+resolution level. Resolution level 1 means that all direct referents of an
+object will be sized. Level 2 also include the referents of the direct
+referents, and so forth. Note that the member variables of an instance are
+typically stored in a dictionary and are therefore second order referents.</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="n">tracker</span><span class="o">.</span><span class="n">track_object</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">resolution_level</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The resolution level can be changed if the object is already tracked:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="n">tracker</span><span class="o">.</span><span class="n">track_change</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">resolution_level</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The new setting will become effective for the next snapshot. This can help to
+raise the level of detail for a specific instance of a tracked class without
+logging all the class&#8217; instances with a high verbosity level. Nevertheless, the
+resolution level can also be set for all instances of a class:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="n">tracker</span><span class="o">.</span><span class="n">track_class</span><span class="p">(</span><span class="n">MyClass</span><span class="p">,</span> <span class="n">resolution_level</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="admonition warning">
+<p class="first admonition-title">Warning</p>
+<p class="last">Please note the per-referent sizing is very memory and computationally
+intensive. The recorded meta-data must be stored for each referent of a tracked
+object which might easily quadruplicate the memory footprint of the build.
+Handle with care and don&#8217;t use too high resolution levels, especially if set
+via <cite>track_class</cite>.</p>
+</div>
+</div>
+<div class="section" id="instantiation-traces">
+<h3>Instantiation traces<a class="headerlink" href="#instantiation-traces" title="Permalink to this headline">¶</a></h3>
+<p>Sometimes it is not trivial to observe where an object was instantiated. The
+<cite>ClassTracker</cite> can record the instantiation stack trace for later evaluation.</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="n">tracker</span><span class="o">.</span><span class="n">track_class</span><span class="p">(</span><span class="n">MyClass</span><span class="p">,</span> <span class="n">trace</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>This only works with tracked classes, and <strong>not</strong> with individual objects.</p>
+</div>
+<div class="section" id="background-monitoring">
+<h3>Background Monitoring<a class="headerlink" href="#background-monitoring" title="Permalink to this headline">¶</a></h3>
+<p>The <cite>ClassTracker</cite> can be configured to take periodic snapshots automatically. The
+following example will take 10 snapshots a second (approximately) until the
+program has exited or the periodic snapshots are stopped with
+<cite>stop_periodic_snapshots</cite>. Background monitoring also works if no object is
+tracked. In this mode, the <cite>ClassTracker</cite> will only record the total virtual
+memory associated with the program. This can be useful in combination with
+background monitoring to detect memory usage which is transient or not
+associated with any tracked object.</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="n">tracker</span><span class="o">.</span><span class="n">start_periodic_snapshots</span><span class="p">(</span><span class="n">interval</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="admonition warning">
+<p class="first admonition-title">Warning</p>
+<p class="last">Take care if you use automatic snapshots with tracked objects. The sizing
+of individual objects might be inconsistent when memory is allocated or freed
+while the snapshot is being taken.</p>
+</div>
+</div>
+<div class="section" id="off-line-analysis">
+<h3>Off-line Analysis<a class="headerlink" href="#off-line-analysis" title="Permalink to this headline">¶</a></h3>
+<p>The more data is gathered by the <cite>ClassTracker</cite> the more noise is produced on the
+console. The acquired <cite>ClassTracker</cite> log data can also be saved to a file for
+off-line analysis:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="n">tracker</span><span class="o">.</span><span class="n">stats</span><span class="o">.</span><span class="n">dump_stats</span><span class="p">(</span><span class="s">&#39;profile.dat&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The <cite>Stats</cite> class of the <cite>ClassTracker</cite> provides means to evaluate the collected
+data. The API is inspired by the <a class="reference external" href="http://docs.python.org/lib/profile-stats.html">Stats class</a> of the Python profiler. It is
+possible to sort the data based on user preferences, filter by class and limit
+the output noise to a manageable magnitude.</p>
+<p>The following example reads the dumped data and prints the ten largest Node
+objects to the standard output:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="kn">from</span> <span class="nn">pympler.classtracker_stats</span> <span class="kn">import</span> <span class="n">ConsoleStats</span>
+
+<span class="n">stats</span> <span class="o">=</span> <span class="n">ConsoleStats</span><span class="p">()</span>
+<span class="n">stats</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s">&#39;profile.dat&#39;</span><span class="p">)</span>
+<span class="n">stats</span><span class="o">.</span><span class="n">sort_stats</span><span class="p">(</span><span class="s">&#39;size&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">print_stats</span><span class="p">(</span><span class="n">limit</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">clsname</span><span class="o">=</span><span class="s">&#39;Node&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="section" id="html-statistics">
+<h3>HTML Statistics<a class="headerlink" href="#html-statistics" title="Permalink to this headline">¶</a></h3>
+<p>The <cite>ClassTracker</cite> data can also be emitted in HTML format together with a
+number of charts (needs python-matplotlib). HTML statistics can be emitted
+using the <em>HtmlStats</em> class:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="kn">from</span> <span class="nn">pympler.classtracker_stats</span> <span class="kn">import</span> <span class="n">HtmlStats</span>
+<span class="n">HtmlStats</span><span class="p">(</span><span class="n">tracker</span><span class="o">=</span><span class="n">tracker</span><span class="p">)</span><span class="o">.</span><span class="n">create_html</span><span class="p">(</span><span class="s">&#39;profile.html&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>However, you can also reprocess a previously generated dump:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="kn">from</span> <span class="nn">pympler.classtracker_stats</span> <span class="kn">import</span> <span class="n">HtmlStats</span>
+
+<span class="n">stats</span> <span class="o">=</span> <span class="n">HtmlStats</span><span class="p">(</span><span class="n">filename</span><span class="o">=</span><span class="s">&#39;profile.dat&#39;</span><span class="p">)</span>
+<span class="n">stats</span><span class="o">.</span><span class="n">create_html</span><span class="p">(</span><span class="s">&#39;profile.html&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="section" id="limitations-and-corner-cases">
+<h2>Limitations and Corner Cases<a class="headerlink" href="#limitations-and-corner-cases" title="Permalink to this headline">¶</a></h2>
+<div class="section" id="inheritance">
+<h3>Inheritance<a class="headerlink" href="#inheritance" title="Permalink to this headline">¶</a></h3>
+<p>Class tracking allows to observe multiple classes that might have an
+inheritance relationship. An object is only tracked once. The tracking
+parameters of the most specialized tracked class control the actual tracking of
+an instance.</p>
+</div>
+<div class="section" id="shared-data">
+<h3>Shared Data<a class="headerlink" href="#shared-data" title="Permalink to this headline">¶</a></h3>
+<p>Data shared between multiple tracked objects won&#8217;t lead to overestimations.
+Shared data will be assigned to the first (evaluated) tracked object it is
+referenced from, but is only counted once. Tracked objects are evaluated in the
+order they were announced to the <cite>ClassTracker</cite>. This should make the assignment
+deterministic from one run to the next, but has two known problems. If the
+<cite>ClassTracker</cite> is used concurrently from multiple threads, the announcement order
+will likely change and may lead to random assignment of shared data to
+different objects. Shared data might also be assigned to different objects
+during its lifetime, see the following example:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="k">class</span> <span class="nc">A</span><span class="p">():</span>
+  <span class="k">pass</span>
+
+<span class="kn">from</span> <span class="nn">pympler.classtracker</span> <span class="kn">import</span> <span class="n">ClassTracker</span>
+<span class="n">tracker</span> <span class="o">=</span> <span class="n">ClassTracker</span><span class="p">()</span>
+
+<span class="n">a</span> <span class="o">=</span> <span class="n">A</span><span class="p">()</span>
+<span class="n">tracker</span><span class="o">.</span><span class="n">track_object</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
+<span class="n">b</span> <span class="o">=</span> <span class="n">A</span><span class="p">()</span>
+<span class="n">tracker</span><span class="o">.</span><span class="n">track_object</span><span class="p">(</span><span class="n">b</span><span class="p">)</span>
+<span class="n">b</span><span class="o">.</span><span class="n">content</span> <span class="o">=</span> <span class="nb">range</span><span class="p">(</span><span class="mi">100000</span><span class="p">)</span>
+<span class="n">tracker</span><span class="o">.</span><span class="n">create_snapshot</span><span class="p">(</span><span class="s">&#39;#1&#39;</span><span class="p">)</span>
+<span class="n">a</span><span class="o">.</span><span class="n">notmine</span> <span class="o">=</span> <span class="n">b</span><span class="o">.</span><span class="n">content</span>
+<span class="n">tracker</span><span class="o">.</span><span class="n">create_snapshot</span><span class="p">(</span><span class="s">&#39;#2&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>In the snapshot #1, <em>b</em>&#8216;s size will include the size of the large list. Then
+the list is shared with <em>a</em>. The snapshot <em>#2</em> will assign the list&#8217;s footprint
+to <em>a</em> because it was registered before <em>b</em>.</p>
+<p>If a tracked object <em>A</em> is referenced from another tracked object <em>B</em>,
+<em>A</em>&#8216;s size is not added to <em>B</em>&#8216;s size, regardless of the order in which they
+are sized.</p>
+</div>
+<div class="section" id="accuracy">
+<h3>Accuracy<a class="headerlink" href="#accuracy" title="Permalink to this headline">¶</a></h3>
+<p><cite>ClassTracker</cite> uses the <cite>sizer</cite> module to gather size informations. Asizeof makes
+assumptions about the memory footprint of the various data types. As it is
+implemented in pure Python, there is no way to know how the actual Python
+implementation allocates data and lays it out in memory. Thus, the size numbers
+are not really accurate and there will always be a divergence between the
+virtual size of the Python process as reported by the OS and the sizes asizeof
+estimates.</p>
+<p>Most recent C/Python versions contain a <a class="reference external" href="http://bugs.python.org/issue2898">facility to report accurate size
+informations</a> of Python objects. If available,
+asizeof uses it to improve the accuracy.</p>
+</div>
+<div class="section" id="morphing-objects">
+<h3>Morphing objects<a class="headerlink" href="#morphing-objects" title="Permalink to this headline">¶</a></h3>
+<p>Some programs instate the (anti-)pattern of changing an instance&#8217; class at runtime, for
+example to morph abstract objects into specific derivations during runtime. The
+pattern looks like the following in the code:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="n">obj</span><span class="o">.</span><span class="n">__class__</span> <span class="o">=</span> <span class="n">OtherClass</span>
+</pre></div>
+</div>
+<p>If the instance which is morphed is already tracked, the instance will continue
+to be tracked by the <cite>ClassTracker</cite>. If the target class is tracked but the
+instance is not, the instance will only be tracked if the constructor of the
+target class is called as part of the morphing process. The object will not be
+re-registered to the new class in the tracked object index. However, the new
+class is stored in the representation of the object as soon as the object is
+sized.</p>
+</div>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Tracking class instances</a><ul>
+<li><a class="reference internal" href="#module-pympler.classtracker">Introduction</a></li>
+<li><a class="reference internal" href="#usage">Usage</a></li>
+<li><a class="reference internal" href="#basic-functionality">Basic Functionality</a><ul>
+<li><a class="reference internal" href="#instance-tracking">Instance Tracking</a></li>
+<li><a class="reference internal" href="#class-tracking">Class Tracking</a></li>
+<li><a class="reference internal" href="#tracked-object-snapshot">Tracked Object Snapshot</a></li>
+<li><a class="reference internal" href="#print-statistics">Print Statistics</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#advanced-functionality">Advanced Functionality</a><ul>
+<li><a class="reference internal" href="#per-referent-sizing">Per-referent Sizing</a></li>
+<li><a class="reference internal" href="#instantiation-traces">Instantiation traces</a></li>
+<li><a class="reference internal" href="#background-monitoring">Background Monitoring</a></li>
+<li><a class="reference internal" href="#off-line-analysis">Off-line Analysis</a></li>
+<li><a class="reference internal" href="#html-statistics">HTML Statistics</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#limitations-and-corner-cases">Limitations and Corner Cases</a><ul>
+<li><a class="reference internal" href="#inheritance">Inheritance</a></li>
+<li><a class="reference internal" href="#shared-data">Shared Data</a></li>
+<li><a class="reference internal" href="#accuracy">Accuracy</a></li>
+<li><a class="reference internal" href="#morphing-objects">Morphing objects</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="asizeof.html"
+                        title="previous chapter">Sizing individual objects</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="muppy.html"
+                        title="next chapter">Identifying memory leaks</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/classtracker.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="muppy.html" title="Identifying memory leaks"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="asizeof.html" title="Sizing individual objects"
+             >previous</a> |</li>
+        <li><a href="index.html">Pympler 0.2.2 documentation</a> &raquo;</li>
+          <li><a href="detailed_toc.html" >Sitemap</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; <a href="copyright.html">Copyright</a> 2008-2012, Jean Brouwers, Ludwig Haehne, Robert Schuppenies.
+      Last updated on Dec 01, 2012.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>
