@@ -1,0 +1,126 @@
+MediaApp => open database
+ -> check for media conversion utility
+     NOK => return
+ -> get converter process address
+ -> try to create converting process messages handler
+     NOK => port already in use
+
+MediaApp => upload media file
+ -> store media
+ -> check for video or audio
+     NOK => return
+ -> check for media conversion utility
+     NOK => return
+ -> get ZEO connection name
+     OK => get ZEO connection
+        => get ZEO connection settings as JSON
+ -> get converter process address
+ -> build JSON message:
+     [ 'convert',
+       'zeo': { 'server_name': 'localhost',
+                'server_port': '8100',
+                ... },
+       'media': '/medias/...',
+       'format': 'flv' ]
+ -> send message to converter
+
+
+Conversion process => receive conversion message
+ -> open ZEO connection
+ -> find media through given path
+ -> convert media to given format
+ -> store converted media data in original media annotations
+
+
+@startuml
+
+group Application start
+
+	[-> ServerProcess: << database opened >>
+	ServerProcess -> ZMQProcess: start()
+	activate ZMQProcess
+	ServerProcess <-- ZMQProcess: << OK >>
+
+	actor Request
+	ServerProcess -> Application: startup()
+	activate Application
+
+end
+
+
+group Media creation
+
+	Request -> Application: addMedia()
+	Application -> transaction: begin()
+	activate transaction
+	Application <-- Application: IObjectAddedEvent(media.data)
+
+	Application -> transaction: addAfterCommitHook(convert)
+	transaction -> transaction: commit()
+	Application <-- transaction: << OK >>
+	Request <-- Application: << OK >>
+	Application <-- transaction: << after commit >>
+	deactivate transaction
+
+	Application -> ZMQProcess: send_message('convert', 'zeo', 'media')
+end
+
+
+group Conversion message
+
+	activate ConversionMessageHandler
+
+	ZMQProcess -> ConversionMessageHandler: convert('zeo','media')
+	ConversionMessageHandler -> ConversionHandler: convert()
+	ConversionHandler -> ConversionThread: start()
+	activate ConversionThread
+	ConversionThread ->	ConversionProcess: start()
+	activate ConversionProcess
+	ConversionThread <-- ConversionProcess: << OK >>
+	ConversionHandler <-- ConversionThread: << OK >>
+	ConversionMessageHandler <-- ConversionHandler: << OK >>
+	ZMQProcess <-- ConversionMessageHandler: << OK >>
+
+	deactivate ConversionMessageHandler
+	deactivate ZMQProcess
+
+end
+
+
+group Media conversion: ConversionThread.run()
+
+	ConversionThread ->	ConversionProcess: join()
+	ConversionProcess -> transaction2: begin()
+	ConversionProcess <-- transaction2: << OK >>
+
+	ConversionProcess -> ZODB: connect()
+	ConversionProcess <-- ZODB: << OK >>
+	ConversionProcess -> ZODB: traverse(media_path)
+	ConversionProcess <-- ZODB: << media >>
+	activate media
+
+	ConversionProcess -> ZCA: queryAdapter(media, IMediaConverter, metatype)
+	ZCA -> MediaConverter: 
+	activate MediaConverter
+	ConversionProcess <-- ZCA: << IMediaConverter >>
+	ConversionProcess -> MediaConverter: convert()
+	ConversionProcess <-- MediaConverter: << converted media >>
+	ConversionProcess -> media: addConversion()
+	ConversionProcess <-- media: << OK >>
+	deactivate MediaConverter
+
+	ConversionProcess -> transaction2: commit()
+	ConversionProcess <-- transaction2: << OK >>
+
+	deactivate media
+	deactivate ZODB
+	deactivate ConversionProcess
+	destroy ConversionProcess
+
+	ConversionThread <-- ConversionProcess: << OK >>
+	deactivate ConversionThread
+	destroy ConversionThread
+
+end
+
+@enduml
