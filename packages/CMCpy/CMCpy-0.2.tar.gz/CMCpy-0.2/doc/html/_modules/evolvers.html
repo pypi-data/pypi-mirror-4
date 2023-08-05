@@ -1,0 +1,870 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>evolvers &mdash; CMCpy 0.1 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <link rel="top" title="CMCpy 0.1 documentation" href="../index.html" />
+    <link rel="up" title="Module code" href="index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../index.html">CMCpy 0.1 documentation</a> &raquo;</li>
+          <li><a href="index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for evolvers</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">##################</span>
+<span class="sd">evolvers -- cmcpy module for abstract base class of Ardell Sella Evolvers</span>
+<span class="sd">########</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">numpy</span>
+<span class="kn">import</span> <span class="nn">math</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">import</span> <span class="nn">abc</span> <span class="c"># requires python 2.6</span>
+<span class="kn">import</span> <span class="nn">copy</span>
+<span class="kn">import</span> <span class="nn">multiprocessing</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="k">try</span><span class="p">:</span>                                                                                                 
+        <span class="kn">import</span> <span class="nn">pycuda.driver</span> <span class="kn">as</span> <span class="nn">cuda</span>                                       
+        <span class="kn">import</span> <span class="nn">pycuda.autoinit</span>                                                   
+        <span class="kn">from</span> <span class="nn">pycuda.compiler</span> <span class="kn">import</span> <span class="n">SourceModule</span>            
+<span class="k">except</span><span class="p">:</span>
+        <span class="k">pass</span> 
+
+<div class="viewcode-block" id="ArdellSellaEvolverAbstractBase"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverAbstractBase">[docs]</a><span class="k">class</span> <span class="nc">ArdellSellaEvolverAbstractBase</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	Abstract Base Class for ArdellSellaEvolvers for Code-Message Coevolution corresponding to models published in Ardell and Sella (2001, 2002) and Sella and Ardell (2002, 2006).</span>
+<span class="sd">	Concrete Implementations subclass from this for different implementations of Eigenvalue solutions.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="n">__metaclass__</span> <span class="o">=</span> <span class="n">abc</span><span class="o">.</span><span class="n">ABCMeta</span>
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">initial_code</span><span class="p">,</span> <span class="n">site_types</span><span class="p">,</span> <span class="n">delta</span><span class="p">,</span> <span class="n">epsilon</span><span class="p">,</span> <span class="n">observables</span><span class="p">):</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">code</span> <span class="o">=</span> <span class="n">initial_code</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">codons</span> <span class="o">=</span> <span class="n">initial_code</span><span class="o">.</span><span class="n">codons</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">site_types</span> <span class="o">=</span> <span class="n">site_types</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">aas</span> <span class="o">=</span> <span class="n">site_types</span><span class="o">.</span><span class="n">aas</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">num_codons</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">codons</span><span class="o">.</span><span class="n">num_codons</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">num_aas</span> <span class="o">=</span> <span class="n">site_types</span><span class="o">.</span><span class="n">num_aas</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span> <span class="o">=</span> <span class="n">site_types</span><span class="o">.</span><span class="n">num_site_types</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">mutation_matrix</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">codons</span><span class="o">.</span><span class="n">get_mutation_matrix</span><span class="p">()</span>   <span class="c">## THIS COMMITS THIS EVOLVER TO STATIC MUTATION</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">fitness_matrix</span> <span class="o">=</span> <span class="n">site_types</span><span class="o">.</span><span class="n">get_fitness_matrix</span><span class="p">()</span> <span class="c">## THIS COMMITS THIS EVOLVER TO STATIC FITNESS</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">delta</span> <span class="o">=</span> <span class="n">delta</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">epsilon</span> <span class="o">=</span> <span class="n">epsilon</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">eigenmatrix</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ones</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">num_codons</span><span class="p">))</span> <span class="c">#.astype(numpy.float32)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">eigenvalues</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">observables</span> <span class="o">=</span> <span class="n">observables</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">num_fitter_code_mutants</span> <span class="o">=</span> <span class="mi">0</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">max_mutant_fitness</span> <span class="o">=</span> <span class="mi">0</span>		
+		<span class="bp">self</span><span class="o">.</span><span class="n">frozen</span> <span class="o">=</span> <span class="bp">False</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">initial_equilibrate_messages</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">equilibrated</span> <span class="o">=</span> <span class="bp">True</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">_growth_rate_computed</span> <span class="o">=</span> <span class="bp">False</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">print_initial_observables</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">print_observables_header</span><span class="p">()</span>
+
+        
+<div class="viewcode-block" id="ArdellSellaEvolverAbstractBase.get_mutation_selection_matrix"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverAbstractBase.get_mutation_selection_matrix">[docs]</a>	<span class="k">def</span> <span class="nf">get_mutation_selection_matrix</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">alpha</span><span class="p">):</span>
+		<span class="n">mutation</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">mutation_matrix</span>
+		<span class="n">code</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">code</span><span class="o">.</span><span class="n">get_effective_code_matrix</span><span class="p">()</span>
+		<span class="n">fitness</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fitness_matrix</span>
+		<span class="k">return</span> <span class="n">numpy</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">mutation</span><span class="p">,</span> <span class="n">numpy</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">code</span><span class="p">,</span><span class="n">fitness</span><span class="p">[</span><span class="n">alpha</span><span class="p">])))</span>
+</div>
+<div class="viewcode-block" id="ArdellSellaEvolverAbstractBase.get_selection_matrix"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverAbstractBase.get_selection_matrix">[docs]</a>	<span class="k">def</span> <span class="nf">get_selection_matrix</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">alpha</span><span class="p">):</span>
+		<span class="n">mutation</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">mutation_matrix</span>
+		<span class="n">code</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">code</span><span class="o">.</span><span class="n">get_effective_code_matrix</span><span class="p">()</span>
+		<span class="n">fitness</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fitness_matrix</span>
+		<span class="k">return</span> <span class="n">numpy</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">code</span><span class="p">,</span><span class="n">fitness</span><span class="p">[</span><span class="n">alpha</span><span class="p">]))</span>
+	</div>
+<div class="viewcode-block" id="ArdellSellaEvolverAbstractBase.get_eigenvalue"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverAbstractBase.get_eigenvalue">[docs]</a>	<span class="k">def</span> <span class="nf">get_eigenvalue</span><span class="p">(</span> <span class="bp">self</span><span class="p">,</span> <span class="n">msm</span><span class="p">,</span> <span class="n">eigenvec</span><span class="p">):</span>
+		<span class="n">top</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">msm</span><span class="p">,</span><span class="n">eigenvec</span><span class="p">)</span> <span class="o">*</span> <span class="n">eigenvec</span>
+		<span class="n">bot</span> <span class="o">=</span> <span class="n">eigenvec</span> <span class="o">*</span> <span class="n">eigenvec</span>
+		<span class="n">lamda</span> <span class="o">=</span> <span class="n">top</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span> <span class="o">/</span> <span class="n">bot</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>
+		<span class="k">return</span> <span class="n">lamda</span>
+
+</div>
+	<span class="nd">@abc.abstractmethod</span>
+<div class="viewcode-block" id="ArdellSellaEvolverAbstractBase.equilibrate_messages"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverAbstractBase.equilibrate_messages">[docs]</a>	<span class="k">def</span> <span class="nf">equilibrate_messages</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&#39;&#39;&#39;Compute eigensystems in site-types for an established genetic code.</span>
+<span class="sd">			</span>
+<span class="sd">		This finds eigensystems (codon frequencies and growth rates)</span>
+<span class="sd">		for different site-types given the genetic code. </span>
+<span class="sd">			</span>
+<span class="sd">		Abstract method: subclasses must:</span>
+
+<span class="sd">		1) store their results by setting self.eigenvalues and</span>
+<span class="sd">		self.eigenmatrix</span>
+
+<span class="sd">		2) set self.equilibrated to True</span>
+
+<span class="sd">		3) call super(&lt;&lt;SubClass&gt;&gt;, self).equilibrate_messages()</span>
+<span class="sd">		to print observables at end of subclass method where</span>
+<span class="sd">		&lt;&lt;SubClass&gt;&gt; is the subclass name to print observables.</span>
+<span class="sd">		&#39;&#39;&#39;</span>
+		
+		<span class="k">pass</span>
+	</div>
+<div class="viewcode-block" id="ArdellSellaEvolverAbstractBase.initial_equilibrate_messages"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverAbstractBase.initial_equilibrate_messages">[docs]</a>	<span class="k">def</span> <span class="nf">initial_equilibrate_messages</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&#39;&#39;&#39;Compute eigensystems in site-types for an established genetic code.</span>
+<span class="sd">		</span>
+<span class="sd">		This finds eigensystems (codon frequencies and growth rates)</span>
+<span class="sd">		for different site-types given the genetic code. </span>
+<span class="sd">		&#39;&#39;&#39;</span>
+
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">code</span><span class="o">.</span><span class="n">is_ambiguous</span><span class="p">():</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">eigenmatrix</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ones</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">num_codons</span><span class="p">))</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_codons</span>
+			<span class="n">msm</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_mutation_selection_matrix</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+			<span class="n">lamda</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_eigenvalue</span><span class="p">(</span><span class="n">msm</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">eigenmatrix</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">eigenvalues</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ones</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span><span class="p">,</span><span class="mi">1</span><span class="p">))</span> <span class="o">*</span> <span class="n">lamda</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">equilibrated</span> <span class="o">=</span> <span class="bp">True</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">equilibrate_messages</span><span class="p">()</span>
+        </div>
+<div class="viewcode-block" id="ArdellSellaEvolverAbstractBase.growth_rate_from_lambda"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverAbstractBase.growth_rate_from_lambda">[docs]</a>	<span class="k">def</span> <span class="nf">growth_rate_from_lambda</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">if</span> <span class="p">(</span><span class="ow">not</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">equilibrated</span><span class="p">))</span> <span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">equilibrate_messages</span><span class="p">()</span>
+		<span class="n">gr</span> <span class="o">=</span> <span class="mf">1.0</span>
+		<span class="n">site_weight</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">site_types</span><span class="o">.</span><span class="n">get_site_type_weights</span><span class="p">()</span>
+		<span class="k">for</span> <span class="n">alpha</span> <span class="ow">in</span> <span class="nb">xrange</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span><span class="p">):</span>
+			<span class="n">gr</span> <span class="o">*=</span> <span class="bp">self</span><span class="o">.</span><span class="n">eigenvalues</span><span class="p">[</span><span class="n">alpha</span><span class="p">]</span> <span class="o">**</span> <span class="n">site_weight</span><span class="p">[</span><span class="n">alpha</span><span class="p">]</span>
+		<span class="k">return</span> <span class="n">gr</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+</div>
+<div class="viewcode-block" id="ArdellSellaEvolverAbstractBase.growth_rate"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverAbstractBase.growth_rate">[docs]</a>	<span class="k">def</span> <span class="nf">growth_rate</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        </span>
+<span class="sd">		&#39;&#39;&#39;</span>
+		<span class="k">if</span> <span class="p">(</span><span class="ow">not</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">equilibrated</span><span class="p">)):</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">equilibrate_messages</span><span class="p">()</span>
+		<span class="k">if</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_growth_rate_computed</span><span class="p">):</span>
+			<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_growth_rate</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">_growth_rate</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">compute_code_fitness_given_messages</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">messages</span><span class="p">(),</span> <span class="bp">self</span><span class="o">.</span><span class="n">code</span><span class="o">.</span><span class="n">get_effective_code_matrix</span><span class="p">())</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">_growth_rate_computed</span> <span class="o">=</span> <span class="bp">True</span>
+			<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_growth_rate</span>
+</div>
+<div class="viewcode-block" id="ArdellSellaEvolverAbstractBase.messages"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverAbstractBase.messages">[docs]</a>	<span class="k">def</span> <span class="nf">messages</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        </span>
+<span class="sd">		&#39;&#39;&#39;</span>
+		<span class="k">if</span> <span class="p">(</span><span class="ow">not</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">equilibrated</span><span class="p">)):</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">equilibrate_messages</span><span class="p">()</span>
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">eigenmatrix</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+		</div>
+<div class="viewcode-block" id="ArdellSellaEvolverAbstractBase.compute_code_fitness_given_messages"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverAbstractBase.compute_code_fitness_given_messages">[docs]</a>	<span class="k">def</span> <span class="nf">compute_code_fitness_given_messages</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">equilibrated_messages</span><span class="p">,</span> <span class="n">effective_code_matrix</span><span class="p">):</span>
+		<span class="sd">&#39;&#39;&#39;</span>
+
+<span class="sd">		Implement eg eqns. 2-7 from Sella and Ardell(2006)</span>
+<span class="sd">		&#39;&#39;&#39;</span>
+		<span class="n">nc</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_codons</span>
+		<span class="n">na</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_aas</span>
+		<span class="n">ns</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span>
+
+		<span class="n">site_weight</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">site_types</span><span class="o">.</span><span class="n">get_site_type_weights</span><span class="p">()</span>
+		<span class="n">u</span> <span class="o">=</span> <span class="n">usage</span>  <span class="o">=</span> <span class="n">equilibrated_messages</span> <span class="c">## assumed here to be ns x nc</span>
+		<span class="n">c</span> <span class="o">=</span> <span class="n">code</span>   <span class="o">=</span> <span class="n">effective_code_matrix</span> <span class="c">## assumed here to be nc x na</span>
+		<span class="n">w</span> <span class="o">=</span> <span class="n">fitness_coef</span>  <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fitness_matrix</span>   <span class="c">## assumed here to be ns x na **THIS IS CRITICAL FOR NEW SITE-TYPE SPACE DEFINITIONS**</span>
+		<span class="c">## solution number one:</span>
+		<span class="n">fit1</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">prod</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">u</span><span class="o">.</span><span class="n">repeat</span><span class="p">(</span><span class="n">na</span><span class="p">,</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="n">numpy</span><span class="o">.</span><span class="n">tile</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">ravel</span><span class="p">(),(</span><span class="n">ns</span><span class="p">,</span><span class="mi">1</span><span class="p">))</span> <span class="o">*</span> <span class="n">numpy</span><span class="o">.</span><span class="n">tile</span><span class="p">(</span><span class="n">w</span><span class="p">,(</span><span class="mi">1</span><span class="p">,</span><span class="n">nc</span><span class="p">)),</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span><span class="o">**</span> <span class="n">site_weight</span><span class="p">)</span>
+		<span class="k">return</span> <span class="n">fit1</span>
+		<span class="c">## ## solution number four:</span>
+		<span class="c">## pdb.set_trace()</span>
+		<span class="c">## fitness = 1.0</span>
+		<span class="c">## for alpha in xrange(ns):</span>
+		<span class="c">##     fitness_per_site_type = 0.0</span>
+		<span class="c">##     for codon in xrange(nc):</span>
+		<span class="c">##         #                fitness_per_codon_per_site_type = 0.0</span>
+		<span class="c">##         for aa in xrange (na):</span>
+		<span class="c">##             #                    fitness_per_codon_per_site_type += code[codon][aa] * fitness_coef[alpha][aa]</span>
+		<span class="c">##             #fitness_per_site_type += fitness_per_codon_per_site_type * usage[alpha][codon]</span>
+		<span class="c">##             fitness_per_site_type  += code[codon][aa] * fitness_coef[alpha][aa] * usage[alpha][codon]</span>
+		<span class="c">##     fitness *=  fitness_per_site_type ** site_weight[alpha]</span>
+                <span class="c">## return fitness</span>
+</div>
+<div class="viewcode-block" id="ArdellSellaEvolverAbstractBase.compute_max_fitness_code_mutation"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverAbstractBase.compute_max_fitness_code_mutation">[docs]</a>	<span class="k">def</span> <span class="nf">compute_max_fitness_code_mutation</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">		&#39;&#39;&#39;</span>
+		<span class="k">if</span> <span class="p">(</span><span class="ow">not</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">equilibrated</span><span class="p">)):</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">equilibrate_messages</span><span class="p">()</span>
+		<span class="n">code_mutation</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="n">mutation_num</span> <span class="o">=</span> <span class="mi">0</span>
+		<span class="n">max_mutant_fitness</span> <span class="o">=</span> <span class="mi">0</span>
+		<span class="n">max_mutation_num</span> <span class="o">=</span> <span class="mi">0</span>
+		<span class="n">max_fitness_code_mutation</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="n">num_fitter_code_mutants</span> <span class="o">=</span> <span class="mi">0</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">num_fitter_code_mutants</span> <span class="o">=</span> <span class="mi">0</span>
+		
+		<span class="k">for</span> <span class="n">codon</span> <span class="ow">in</span> <span class="nb">xrange</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_codons</span><span class="p">):</span>
+			<span class="k">for</span> <span class="n">aa</span> <span class="ow">in</span> <span class="nb">xrange</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_aas</span><span class="p">):</span>
+				<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">code</span><span class="o">.</span><span class="n">encodes</span><span class="p">(</span><span class="n">codon</span><span class="p">,</span><span class="n">aa</span><span class="p">):</span>
+					<span class="k">continue</span>
+				<span class="k">else</span><span class="p">:</span>
+					<span class="n">code_mutation</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">code</span><span class="o">.</span><span class="n">mutate</span><span class="p">(</span><span class="n">codon</span><span class="p">,</span><span class="n">aa</span><span class="p">)</span>
+					<span class="n">mutant_fitness</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">compute_code_fitness_given_messages</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">messages</span><span class="p">(),</span> <span class="n">code_mutation</span><span class="o">.</span><span class="n">get_effective_code_matrix</span><span class="p">())</span>
+
+					<span class="k">if</span> <span class="p">(</span><span class="n">mutant_fitness</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">growth_rate</span><span class="p">()):</span>
+						<span class="n">num_fitter_code_mutants</span> <span class="o">+=</span> <span class="mi">1</span>
+						<span class="k">if</span> <span class="p">(</span><span class="n">mutant_fitness</span> <span class="o">&gt;</span> <span class="n">max_mutant_fitness</span> <span class="ow">and</span> <span class="n">math</span><span class="o">.</span><span class="n">fabs</span><span class="p">(</span><span class="n">mutant_fitness</span> <span class="o">-</span> <span class="n">max_mutant_fitness</span><span class="p">)</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">epsilon</span><span class="p">):</span>
+							<span class="n">max_mutant_fitness</span> <span class="o">=</span> <span class="n">mutant_fitness</span>
+							<span class="n">max_fitness_code_mutation</span> <span class="o">=</span> <span class="n">code_mutation</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">num_fitter_code_mutants</span> <span class="o">=</span>  <span class="n">num_fitter_code_mutants</span>
+		<span class="k">return</span> <span class="p">(</span><span class="n">max_mutant_fitness</span><span class="p">,</span><span class="n">max_fitness_code_mutation</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ArdellSellaEvolverAbstractBase.evolve_code_unless_frozen"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverAbstractBase.evolve_code_unless_frozen">[docs]</a>	<span class="k">def</span> <span class="nf">evolve_code_unless_frozen</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">		Mutate genetic code.</span>
+<span class="sd">		</span>
+<span class="sd">		Unless genetic code is frozen, mutate it according to</span>
+<span class="sd">		the Ardell and Sella models, and update code to most</span>
+<span class="sd">		fit mutant if it exists. If no more fit mutant</span>
+<span class="sd">		code exists, set the &quot;frozen&quot; attribute to True.</span>
+<span class="sd">		</span>
+<span class="sd">		&#39;&#39;&#39;</span>
+		<span class="k">if</span> <span class="p">(</span><span class="ow">not</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">frozen</span><span class="p">)):</span>
+			<span class="p">(</span><span class="n">max_mutant_fitness</span><span class="p">,</span> <span class="n">max_fitness_code_mutation</span><span class="p">)</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">compute_max_fitness_code_mutation</span><span class="p">()</span>
+			<span class="k">if</span> <span class="p">(</span><span class="n">max_mutant_fitness</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">growth_rate</span><span class="p">()):</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">code</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">max_fitness_code_mutation</span><span class="p">)</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">_growth_rate_computed</span> <span class="o">=</span> <span class="bp">False</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">equilibrated</span> <span class="o">=</span> <span class="bp">False</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">max_mutant_fitness</span> <span class="o">=</span> <span class="n">max_mutant_fitness</span>
+			<span class="k">else</span><span class="p">:</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">frozen</span> <span class="o">=</span> <span class="bp">True</span>
+                </div>
+<div class="viewcode-block" id="ArdellSellaEvolverAbstractBase.evolve_one_step"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverAbstractBase.evolve_one_step">[docs]</a>	<span class="k">def</span> <span class="nf">evolve_one_step</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">		Mutate genetic code and equilibrate messages.</span>
+<span class="sd">		</span>
+<span class="sd">		Unless genetic code is frozen, mutate it according to</span>
+<span class="sd">		the Ardell and Sella models, update code to most fit</span>
+<span class="sd">		mutant if it exists, and equilibrate messages to the</span>
+<span class="sd">		new mutant genetic code. If no more fit mutant code</span>
+<span class="sd">		exists, set the &quot;frozen&quot; attribute to True.</span>
+<span class="sd">		&#39;&#39;&#39;</span>
+		<span class="k">if</span> <span class="p">(</span><span class="ow">not</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">frozen</span><span class="p">)):</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">evolve_code_unless_frozen</span><span class="p">()</span>
+			<span class="k">if</span> <span class="p">(</span><span class="ow">not</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">equilibrated</span><span class="p">)):</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">equilibrate_messages</span><span class="p">()</span>
+				<span class="k">if</span> <span class="ow">not</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">observables</span><span class="o">.</span><span class="n">show_frozen_results_only</span><span class="p">):</span>
+					<span class="bp">self</span><span class="o">.</span><span class="n">print_observables</span><span class="p">()</span>
+
+            	</div>
+<div class="viewcode-block" id="ArdellSellaEvolverAbstractBase.evolve_until_frozen"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverAbstractBase.evolve_until_frozen">[docs]</a>	<span class="k">def</span> <span class="nf">evolve_until_frozen</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">		Iteratively evlove genetic code and messages.</span>
+<span class="sd">		</span>
+<span class="sd">		Until genetic code is frozen, mutate it according to</span>
+<span class="sd">		the Ardell and Sella models, update code to most fit</span>
+<span class="sd">		mutant if it exists, and equilibrate messages to the</span>
+<span class="sd">		new mutant genetic code. Once no more fit mutant code</span>
+<span class="sd">		exists, set the &quot;frozen&quot; attribute to True.</span>
+<span class="sd">		&#39;&#39;&#39;</span>
+		<span class="k">while</span> <span class="p">(</span><span class="ow">not</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">frozen</span><span class="p">)):</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">evolve_one_step</span><span class="p">()</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">observables</span><span class="o">.</span><span class="n">show_frozen_results_only</span><span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">print_observables</span><span class="p">()</span>
+
+</div>
+<div class="viewcode-block" id="ArdellSellaEvolverAbstractBase.print_initial_observables"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverAbstractBase.print_initial_observables">[docs]</a>	<span class="k">def</span> <span class="nf">print_initial_observables</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">if</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">observables</span><span class="o">.</span><span class="n">show_initial_parameters</span><span class="p">):</span>
+			<span class="k">print</span> <span class="s">&#39;# Delta:{} Epsilon:{}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">delta</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">epsilon</span><span class="p">)</span>
+		<span class="k">if</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">observables</span><span class="o">.</span><span class="n">show_matrix_parameters</span><span class="p">):</span>
+			<span class="n">precision</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">observables</span><span class="o">.</span><span class="n">print_precision</span>
+			<span class="n">mm</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">codons</span><span class="o">.</span><span class="n">get_mutation_matrix</span><span class="p">()</span>
+			<span class="k">print</span> <span class="s">&quot;# Mutation Matrix:</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">,</span><span class="n">mm</span>
+			<span class="n">dm</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">aas</span><span class="o">.</span><span class="n">get_distance_matrix</span><span class="p">()</span>
+			<span class="k">print</span> <span class="s">&quot;# Distance matrix:</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">,</span><span class="n">dm</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">precision</span><span class="p">)</span>
+			<span class="n">fm</span> <span class="o">=</span> <span class="n">site_types</span><span class="o">.</span><span class="n">get_fitness_matrix</span><span class="p">()</span>
+			<span class="k">print</span> <span class="s">&quot;# Fitness matrix:</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">,</span><span class="n">fm</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">precision</span><span class="p">)</span>
+			<span class="n">msm</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_mutation_selection_matrix</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+			<span class="k">print</span> <span class="s">&quot;# Iteration Matrix for site-type 0:</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">,</span><span class="n">msm</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">precision</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="ArdellSellaEvolverAbstractBase.print_observables_header"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverAbstractBase.print_observables_header">[docs]</a>	<span class="k">def</span> <span class="nf">print_observables_header</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">observables</span><span class="o">.</span><span class="n">show_code_evolution_statistics</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">observables</span><span class="o">.</span><span class="n">show_all</span><span class="p">:</span>
+			<span class="k">print</span> <span class="s">&#39;# RBE = Reassignments Before Explicit&#39;</span>
+			<span class="k">print</span> <span class="s">&#39;# RAE = Reassignments After Explicit&#39;</span>
+			<span class="k">print</span> <span class="s">&#39;# NAA = Number encoded Amino Acids&#39;</span>
+			<span class="k">print</span> <span class="s">&#39;# NER = Normalized Encoded Range (Ardell and Sella, 2001)&#39;</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">observables</span><span class="o">.</span><span class="n">show_fitness_statistics</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">observables</span><span class="o">.</span><span class="n">show_all</span><span class="p">:</span>
+			<span class="k">print</span> <span class="s">&#39;# NFCM = Number Fitter Code Mutants&#39;</span>
+			<span class="k">print</span> <span class="s">&#39;# MMF  = Maximum Mutant Fitness&#39;</span>
+			<span class="k">print</span> <span class="s">&#39;# GR   = Growth Rate&#39;</span>
+			<span class="k">print</span> <span class="s">&#39;# GRFL = Growth Rate from Lambda&#39;</span>
+			<span class="k">print</span> <span class="s">&#39;#&#39;</span>
+		
+		<span class="n">precision</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">observables</span><span class="o">.</span><span class="n">print_precision</span>
+		<span class="n">width</span> <span class="o">=</span> <span class="n">precision</span> <span class="o">+</span> <span class="mi">8</span>
+		<span class="k">print</span> <span class="s">&#39;#{:&gt;{width}s}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="s">&#39;STEPS&#39;</span><span class="p">,</span><span class="n">width</span><span class="o">=</span><span class="p">(</span><span class="n">width</span><span class="o">-</span><span class="mi">1</span><span class="p">)),</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">observables</span><span class="o">.</span><span class="n">show_code_evolution_statistics</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">observables</span><span class="o">.</span><span class="n">show_all</span><span class="p">:</span>
+			<span class="n">obs</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;RBE&#39;</span><span class="p">,</span><span class="s">&#39;RAE&#39;</span><span class="p">,</span><span class="s">&#39;NAA&#39;</span><span class="p">,</span><span class="s">&#39;NER&#39;</span><span class="p">]</span>
+			<span class="k">print</span> <span class="p">(</span><span class="s">&#39;{:&gt;{width}s}&#39;</span><span class="o">*</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">obs</span><span class="p">)))</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="o">*</span><span class="n">obs</span><span class="p">,</span><span class="n">width</span><span class="o">=</span><span class="n">width</span><span class="p">),</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">observables</span><span class="o">.</span><span class="n">show_fitness_statistics</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">observables</span><span class="o">.</span><span class="n">show_all</span><span class="p">:</span>
+			<span class="n">obs</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;NFCM&#39;</span><span class="p">,</span><span class="s">&#39;MMF&#39;</span><span class="p">,</span><span class="s">&#39;GR&#39;</span><span class="p">,</span><span class="s">&#39;GRFL&#39;</span><span class="p">]</span>
+			<span class="k">print</span> <span class="p">(</span><span class="s">&#39;{:&gt;{width}s}&#39;</span><span class="o">*</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">obs</span><span class="p">)))</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="o">*</span><span class="n">obs</span><span class="p">,</span><span class="n">width</span><span class="o">=</span><span class="n">width</span><span class="p">),</span>
+		<span class="k">print</span>	      
+
+</div>
+<div class="viewcode-block" id="ArdellSellaEvolverAbstractBase.print_observables"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverAbstractBase.print_observables">[docs]</a>	<span class="k">def</span> <span class="nf">print_observables</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">observables</span><span class="o">.</span><span class="n">show_codes</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">observables</span><span class="o">.</span><span class="n">show_all</span><span class="p">:</span>
+			<span class="k">print</span> <span class="s">&#39;{}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">code</span><span class="p">)</span>
+
+		<span class="n">precision</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">observables</span><span class="o">.</span><span class="n">print_precision</span>
+		<span class="n">width</span> <span class="o">=</span> <span class="n">precision</span> <span class="o">+</span> <span class="mi">8</span>
+
+		<span class="k">print</span> <span class="s">&#39;{:{width}d}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">code</span><span class="o">.</span><span class="n">num_mutations</span><span class="p">,</span><span class="n">width</span><span class="o">=</span><span class="n">width</span><span class="p">),</span>
+
+		<span class="c">#if self.observables.show_codes_single_line:</span>
+		<span class="c">#	print &#39;{}\t&#39;.format(self.code.as_string),</span>
+
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">observables</span><span class="o">.</span><span class="n">show_code_evolution_statistics</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">observables</span><span class="o">.</span><span class="n">show_all</span><span class="p">:</span>
+			<span class="n">obs</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">code</span><span class="o">.</span><span class="n">num_reassignments_before_explicit</span><span class="p">(),</span><span class="bp">self</span><span class="o">.</span><span class="n">code</span><span class="o">.</span><span class="n">num_reassignments_after_explicit</span><span class="p">(),</span><span class="bp">self</span><span class="o">.</span><span class="n">code</span><span class="o">.</span><span class="n">num_encoded_amino_acids</span><span class="p">()]</span>
+			<span class="k">print</span> <span class="p">(</span><span class="s">&#39;{:&gt;{width}d}&#39;</span><span class="o">*</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">obs</span><span class="p">)))</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="o">*</span><span class="n">obs</span><span class="p">,</span><span class="n">width</span><span class="o">=</span><span class="n">width</span><span class="p">),</span>
+			<span class="n">ner</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">code</span><span class="o">.</span><span class="n">normalized_encoded_range</span><span class="p">()</span>
+			<span class="k">if</span> <span class="n">ner</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span> <span class="o">==</span> <span class="s">&#39;str&#39;</span><span class="p">:</span>
+				<span class="nb">type</span> <span class="o">=</span> <span class="s">&#39;s&#39;</span>
+			<span class="k">else</span><span class="p">:</span>
+				<span class="nb">type</span> <span class="o">=</span> <span class="s">&#39;f&#39;</span>
+			<span class="k">print</span> <span class="s">&#39;{:&gt;{width}.{precision}{type}}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">code</span><span class="o">.</span><span class="n">normalized_encoded_range</span><span class="p">(),</span><span class="n">width</span><span class="o">=</span><span class="n">width</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="n">precision</span><span class="o">=</span><span class="n">precision</span><span class="p">,</span><span class="nb">type</span><span class="o">=</span><span class="nb">type</span><span class="p">),</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">observables</span><span class="o">.</span><span class="n">show_fitness_statistics</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">observables</span><span class="o">.</span><span class="n">show_all</span><span class="p">:</span>
+			<span class="k">print</span> <span class="s">&#39;{:&gt;{width}d}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_fitter_code_mutants</span><span class="p">,</span><span class="n">width</span><span class="o">=</span><span class="n">width</span><span class="p">),</span>
+			<span class="n">obs</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">max_mutant_fitness</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">growth_rate</span><span class="p">(),</span><span class="bp">self</span><span class="o">.</span><span class="n">growth_rate_from_lambda</span><span class="p">()]</span>
+			<span class="k">print</span> <span class="p">(</span><span class="s">&#39;{:&gt;{width}.{precision}f}&#39;</span><span class="o">*</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">obs</span><span class="p">)))</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="o">*</span><span class="n">obs</span><span class="p">,</span><span class="n">width</span><span class="o">=</span><span class="n">width</span><span class="p">,</span><span class="n">precision</span><span class="o">=</span><span class="n">precision</span><span class="p">),</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">observables</span><span class="o">.</span><span class="n">show_messages</span><span class="p">:</span>
+			<span class="k">print</span> <span class="bp">self</span><span class="o">.</span><span class="n">messages</span><span class="p">()</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">precision</span><span class="p">),</span>
+		<span class="k">print</span> <span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span>
+</div></div>
+<div class="viewcode-block" id="ArdellSellaEvolverPowerMethod"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverPowerMethod">[docs]</a><span class="k">class</span> <span class="nc">ArdellSellaEvolverPowerMethod</span><span class="p">(</span><span class="n">ArdellSellaEvolverAbstractBase</span><span class="p">):</span> 
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">initial_code</span><span class="p">,</span> <span class="n">site_types</span><span class="p">,</span> <span class="n">num_processes</span><span class="p">,</span> <span class="n">observables</span><span class="p">,</span> <span class="n">delta</span><span class="o">=</span><span class="mi">10</span><span class="o">**-</span><span class="mi">32</span><span class="p">,</span> <span class="n">epsilon</span><span class="o">=</span><span class="mi">10</span><span class="o">**-</span><span class="mi">12</span><span class="p">):</span>
+		<span class="n">ArdellSellaEvolverAbstractBase</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">initial_code</span><span class="p">,</span> <span class="n">site_types</span><span class="p">,</span> <span class="n">delta</span><span class="p">,</span> <span class="n">epsilon</span><span class="p">,</span> <span class="n">observables</span><span class="p">)</span>
+
+<div class="viewcode-block" id="ArdellSellaEvolverPowerMethod.compute_eigensystem"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverPowerMethod.compute_eigensystem">[docs]</a>	<span class="k">def</span> <span class="nf">compute_eigensystem</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">alpha</span><span class="p">,</span> <span class="n">max_time</span> <span class="o">=</span> <span class="mi">60</span><span class="p">,</span> <span class="n">numpy_type</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">float64</span><span class="p">):</span>
+		<span class="n">msm</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_mutation_selection_matrix</span><span class="p">(</span><span class="n">alpha</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">numpy_type</span><span class="p">)</span>
+		<span class="n">eigenvec</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_codons</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">numpy_type</span><span class="p">)</span>
+		<span class="n">start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+		<span class="n">error</span> <span class="o">=</span> <span class="mi">1</span>
+		<span class="k">while</span> <span class="p">(</span> <span class="p">(</span> <span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">max_time</span> <span class="p">)</span> <span class="ow">and</span> <span class="p">(</span> <span class="n">math</span><span class="o">.</span><span class="n">fabs</span><span class="p">(</span><span class="n">error</span><span class="p">)</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">delta</span> <span class="p">)):</span>
+			<span class="n">eigenvec_old</span> <span class="o">=</span> <span class="n">eigenvec</span>
+			<span class="n">eigenvec</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span> <span class="n">msm</span><span class="p">,</span> <span class="n">eigenvec_old</span> <span class="p">)</span>
+			<span class="n">eigenvec</span> <span class="o">/=</span> <span class="n">eigenvec</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>
+			<span class="n">error</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">eigenvec</span> <span class="o">-</span> <span class="n">eigenvec_old</span><span class="p">)</span>
+
+		<span class="k">if</span> <span class="p">(</span> <span class="n">math</span><span class="o">.</span><span class="n">fabs</span><span class="p">(</span><span class="n">error</span><span class="p">)</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">delta</span> <span class="p">):</span>
+				<span class="k">print</span> <span class="s">&#39;Thread time-out occured. Eigenvalue did not converge to specified accuracy </span><span class="si">%f</span><span class="s"> for site-type </span><span class="si">%d</span><span class="s"> within time limit.&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">delta</span><span class="p">,</span><span class="n">alpha</span><span class="p">)</span>
+
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">eigenvalues</span><span class="p">[</span><span class="n">alpha</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_eigenvalue</span><span class="p">(</span><span class="n">msm</span><span class="p">,</span><span class="n">eigenvec</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">eigenmatrix</span><span class="p">[</span><span class="n">alpha</span><span class="p">]</span> <span class="o">=</span> <span class="n">eigenvec</span>
+</div>
+<div class="viewcode-block" id="ArdellSellaEvolverPowerMethod.equilibrate_messages"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverPowerMethod.equilibrate_messages">[docs]</a>	<span class="k">def</span> <span class="nf">equilibrate_messages</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+
+		<span class="k">for</span> <span class="n">alpha</span> <span class="ow">in</span> <span class="nb">xrange</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span><span class="p">):</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">compute_eigensystem</span><span class="p">(</span><span class="n">alpha</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">equilibrated</span> <span class="o">=</span> <span class="bp">True</span>
+		<span class="nb">super</span><span class="p">(</span><span class="n">ArdellSellaEvolverPowerMethod</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">equilibrate_messages</span><span class="p">()</span>
+</div></div>
+<div class="viewcode-block" id="ArdellSellaEvolverPowerMethodProcessChild"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverPowerMethodProcessChild">[docs]</a><span class="k">class</span> <span class="nc">ArdellSellaEvolverPowerMethodProcessChild</span><span class="p">(</span><span class="n">multiprocessing</span><span class="o">.</span><span class="n">Process</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Finds the eigensystem (message equilibrium and growth rate) for an established genetic code</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">in_queue</span><span class="p">,</span> <span class="n">out_queue</span><span class="p">,</span> <span class="n">num_codons</span><span class="p">,</span> <span class="n">delta</span><span class="p">,</span> <span class="n">max_time</span> <span class="o">=</span> <span class="mi">60</span><span class="p">):</span>
+		<span class="n">multiprocessing</span><span class="o">.</span><span class="n">Process</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">in_queue</span> <span class="o">=</span> <span class="n">in_queue</span>   <span class="c"># holds site type index and (DA: code?) matrix and computeS</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">out_queue</span> <span class="o">=</span> <span class="n">out_queue</span> <span class="c"># holds site type index leading eigenvalue and corresponding eigenvector</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">delta</span> <span class="o">=</span> <span class="n">delta</span>         <span class="c"># to what degree of precision user wants to calculate leading eigenvalue</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">max_time</span> <span class="o">=</span> <span class="n">max_time</span>    <span class="c"># in seconds. Each power fucntion has a time limit default is 1 hour</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">num_codons</span> <span class="o">=</span> <span class="n">num_codons</span>
+
+<div class="viewcode-block" id="ArdellSellaEvolverPowerMethodProcessChild.run"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverPowerMethodProcessChild.run">[docs]</a>	<span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+			<span class="n">lamda</span> <span class="o">=</span> <span class="mi">987</span> 
+			<span class="n">err</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">delta</span> <span class="o">+</span> <span class="mi">1</span>
+			<span class="n">alpha</span><span class="p">,</span> <span class="n">msm</span>  <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">in_queue</span><span class="o">.</span><span class="n">get</span><span class="p">()</span> <span class="c"># alpha indexes the site-type</span>
+			<span class="n">eigenvec</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_codons</span><span class="p">)</span>
+			<span class="n">start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+			<span class="n">convergence</span> <span class="o">=</span> <span class="bp">True</span>
+			<span class="k">while</span> <span class="p">(</span> <span class="p">(</span> <span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start</span><span class="p">)</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_time</span> <span class="p">)</span> <span class="ow">and</span> <span class="p">(</span> <span class="n">math</span><span class="o">.</span><span class="n">fabs</span><span class="p">(</span><span class="n">err</span><span class="p">)</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">delta</span> <span class="p">)</span> <span class="p">):</span>
+				<span class="n">eigenvec_old</span> <span class="o">=</span> <span class="n">eigenvec</span>
+				<span class="n">eigenvec</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span> <span class="n">msm</span><span class="p">,</span> <span class="n">eigenvec_old</span> <span class="p">)</span>
+				<span class="n">eigenvec</span> <span class="o">/=</span> <span class="n">eigenvec</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>
+				<span class="n">error</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">eigenvec</span> <span class="o">-</span> <span class="n">eigenvec_old</span><span class="p">)</span>
+
+			<span class="k">if</span> <span class="p">(</span> <span class="n">math</span><span class="o">.</span><span class="n">fabs</span><span class="p">(</span><span class="n">error</span><span class="p">)</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">delta</span> <span class="p">):</span>
+				<span class="n">convergence</span> <span class="o">=</span> <span class="bp">False</span>
+				<span class="c"># print &#39;Thread time-out occured. Eigenvalue did not converge to specified accuracy %f for site-type %d within time limit.&#39; % (self.delta,alpha)</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">out_queue</span><span class="o">.</span><span class="n">put</span><span class="p">((</span><span class="n">alpha</span><span class="p">,</span><span class="n">msm</span><span class="p">,</span><span class="n">eigenvec</span><span class="p">,</span><span class="n">convergence</span><span class="p">))</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">in_queue</span><span class="o">.</span><span class="n">task_done</span><span class="p">()</span>
+</div></div>
+<div class="viewcode-block" id="ArdellSellaEvolverPowerMulticore"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverPowerMulticore">[docs]</a><span class="k">class</span> <span class="nc">ArdellSellaEvolverPowerMulticore</span> <span class="p">(</span><span class="n">ArdellSellaEvolverAbstractBase</span><span class="p">):</span> 
+	<span class="n">in_queue</span> <span class="o">=</span> <span class="n">multiprocessing</span><span class="o">.</span><span class="n">JoinableQueue</span><span class="p">()</span>
+	<span class="n">out_queue</span> <span class="o">=</span> <span class="n">multiprocessing</span><span class="o">.</span><span class="n">JoinableQueue</span><span class="p">()</span>
+
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">initial_code</span><span class="p">,</span> <span class="n">site_types</span><span class="p">,</span> <span class="n">num_processes</span><span class="p">,</span> <span class="n">observables</span><span class="p">,</span> <span class="n">delta</span><span class="o">=</span><span class="mi">10</span><span class="o">**-</span><span class="mi">32</span><span class="p">,</span> <span class="n">epsilon</span><span class="o">=</span><span class="mi">10</span><span class="o">**-</span><span class="mi">12</span><span class="p">):</span>
+		<span class="n">ArdellSellaEvolverAbstractBase</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">initial_code</span><span class="p">,</span> <span class="n">site_types</span><span class="p">,</span> <span class="n">delta</span><span class="p">,</span> <span class="n">epsilon</span><span class="p">,</span> <span class="n">observables</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">num_processes</span> <span class="o">=</span> <span class="n">num_processes</span>
+
+		<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_processes</span><span class="p">):</span>
+			<span class="n">child</span> <span class="o">=</span> <span class="n">ArdellSellaEvolverPowerMethodProcessChild</span><span class="p">(</span><span class="n">ArdellSellaEvolverPowerMulticore</span><span class="o">.</span><span class="n">in_queue</span><span class="p">,</span><span class="n">ArdellSellaEvolverPowerMulticore</span><span class="o">.</span><span class="n">out_queue</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">num_codons</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">delta</span><span class="p">)</span>
+			<span class="n">child</span><span class="o">.</span><span class="n">daemon</span> <span class="o">=</span> <span class="bp">True</span>
+			<span class="n">child</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+		
+
+<div class="viewcode-block" id="ArdellSellaEvolverPowerMulticore.equilibrate_messages"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverPowerMulticore.equilibrate_messages">[docs]</a>	<span class="k">def</span> <span class="nf">equilibrate_messages</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">for</span> <span class="n">alpha</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span><span class="p">):</span>
+			<span class="n">msm</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_mutation_selection_matrix</span><span class="p">(</span><span class="n">alpha</span><span class="p">)</span>
+			<span class="n">ArdellSellaEvolverPowerMulticore</span><span class="o">.</span><span class="n">in_queue</span><span class="o">.</span><span class="n">put</span><span class="p">((</span><span class="n">alpha</span><span class="p">,</span><span class="n">msm</span><span class="p">))</span>
+		<span class="n">ArdellSellaEvolverPowerMulticore</span><span class="o">.</span><span class="n">in_queue</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+			
+		<span class="k">while</span><span class="p">(</span><span class="ow">not</span><span class="p">(</span><span class="n">ArdellSellaEvolverPowerMulticore</span><span class="o">.</span><span class="n">out_queue</span><span class="o">.</span><span class="n">empty</span><span class="p">())):</span>
+		       	<span class="n">alpha</span><span class="p">,</span><span class="n">msm</span><span class="p">,</span><span class="n">eigenvec</span><span class="p">,</span><span class="n">convergence</span> <span class="o">=</span> <span class="n">ArdellSellaEvolverPowerMulticore</span><span class="o">.</span><span class="n">out_queue</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+		       	<span class="k">if</span> <span class="p">(</span> <span class="ow">not</span> <span class="n">convergence</span> <span class="p">):</span>
+		       		<span class="k">print</span> <span class="s">&#39;Thread time-out occured. Eigenvalue did not converge to specified accuracy </span><span class="si">%f</span><span class="s"> for site-type </span><span class="si">%d</span><span class="s"> within time limit.&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">delta</span><span class="p">,</span><span class="n">alpha</span><span class="p">)</span>
+
+			<span class="bp">self</span><span class="o">.</span><span class="n">eigenvalues</span><span class="p">[</span><span class="n">alpha</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_eigenvalue</span><span class="p">(</span><span class="n">msm</span><span class="p">,</span><span class="n">eigenvec</span><span class="p">)</span>
+		       	<span class="bp">self</span><span class="o">.</span><span class="n">eigenmatrix</span><span class="p">[</span><span class="n">alpha</span><span class="p">]</span> <span class="o">=</span> <span class="n">eigenvec</span>
+				
+		<span class="bp">self</span><span class="o">.</span><span class="n">equilibrated</span> <span class="o">=</span> <span class="bp">True</span>
+		<span class="nb">super</span><span class="p">(</span><span class="n">ArdellSellaEvolverPowerMulticore</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">equilibrate_messages</span><span class="p">()</span>
+</div></div>
+<div class="viewcode-block" id="ArdellSellaEvolverNumpyProcessChild"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverNumpyProcessChild">[docs]</a><span class="k">class</span> <span class="nc">ArdellSellaEvolverNumpyProcessChild</span><span class="p">(</span><span class="n">multiprocessing</span><span class="o">.</span><span class="n">Process</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		Finds the eigensystem (message equilibrium and growth rate) for an established genetic code</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">in_queue</span><span class="p">,</span> <span class="n">out_queue</span><span class="p">):</span>
+		<span class="n">multiprocessing</span><span class="o">.</span><span class="n">Process</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">in_queue</span> <span class="o">=</span> <span class="n">in_queue</span>   <span class="c"># holds site type index and (DA: code?) matrix and computeS</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">out_queue</span> <span class="o">=</span> <span class="n">out_queue</span> <span class="c"># holds site type index leading eigenvalue and corresponding eigenvector</span>
+		<span class="c">#print &quot;initializing {}&quot;.format(self.name)</span>
+
+<div class="viewcode-block" id="ArdellSellaEvolverNumpyProcessChild.run"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverNumpyProcessChild.run">[docs]</a>	<span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+			<span class="c">#print &quot;running {} and inqueue emptiness is {}&quot;.format(self.name,self.in_queue.empty())</span>
+			<span class="p">(</span><span class="n">alpha</span><span class="p">,</span> <span class="n">msm</span><span class="p">)</span>  <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">in_queue</span><span class="o">.</span><span class="n">get</span><span class="p">()</span> <span class="c"># alpha indexes the site-type</span>
+			<span class="c">#print &quot;processing&quot;</span>
+			<span class="p">(</span><span class="n">eigval</span><span class="p">,</span><span class="n">eigmat</span><span class="p">)</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">eig</span><span class="p">(</span><span class="n">msm</span><span class="p">)</span>
+			<span class="n">maxi</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">eigval</span><span class="p">)</span>
+			<span class="n">eigenvec</span> <span class="o">=</span> <span class="n">eigmat</span><span class="p">[:,</span><span class="n">maxi</span><span class="p">]</span>
+			<span class="n">eigenvec</span> <span class="o">/=</span> <span class="n">eigenvec</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>
+			<span class="n">eigenval</span> <span class="o">=</span> <span class="n">eigval</span><span class="p">[</span><span class="n">maxi</span><span class="p">]</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">out_queue</span><span class="o">.</span><span class="n">put</span><span class="p">((</span><span class="n">alpha</span><span class="p">,</span><span class="n">eigenvec</span><span class="p">,</span><span class="n">eigenval</span><span class="p">))</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">in_queue</span><span class="o">.</span><span class="n">task_done</span><span class="p">()</span>
+</div></div>
+<span class="n">in_queue</span> <span class="o">=</span> <span class="n">multiprocessing</span><span class="o">.</span><span class="n">JoinableQueue</span><span class="p">()</span>
+<span class="n">out_queue</span> <span class="o">=</span> <span class="n">multiprocessing</span><span class="o">.</span><span class="n">JoinableQueue</span><span class="p">()</span>
+
+<div class="viewcode-block" id="ArdellSellaEvolverNumpyMulticore"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverNumpyMulticore">[docs]</a><span class="k">class</span> <span class="nc">ArdellSellaEvolverNumpyMulticore</span> <span class="p">(</span><span class="n">ArdellSellaEvolverAbstractBase</span><span class="p">):</span> 
+
+
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">initial_code</span><span class="p">,</span> <span class="n">site_types</span><span class="p">,</span> <span class="n">num_processes</span><span class="p">,</span> <span class="n">observables</span><span class="p">,</span> <span class="n">delta</span><span class="o">=</span><span class="mi">10</span><span class="o">**-</span><span class="mi">32</span><span class="p">,</span> <span class="n">epsilon</span><span class="o">=</span><span class="mi">10</span><span class="o">**-</span><span class="mi">12</span><span class="p">):</span>
+		<span class="n">ArdellSellaEvolverAbstractBase</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">initial_code</span><span class="p">,</span> <span class="n">site_types</span><span class="p">,</span> <span class="n">delta</span><span class="p">,</span> <span class="n">epsilon</span><span class="p">,</span> <span class="n">observables</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">num_processes</span> <span class="o">=</span> <span class="n">num_processes</span>
+
+		<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_processes</span><span class="p">):</span>
+			<span class="c">#			child = ArdellSellaEvolverNumpyProcessChild(ArdellSellaEvolverNumpyMulticore.in_queue,ArdellSellaEvolverNumpyMulticore.out_queue)</span>
+			<span class="n">child</span> <span class="o">=</span> <span class="n">ArdellSellaEvolverNumpyProcessChild</span><span class="p">(</span><span class="n">in_queue</span><span class="p">,</span><span class="n">out_queue</span><span class="p">)</span>
+			<span class="n">child</span><span class="o">.</span><span class="n">daemon</span> <span class="o">=</span> <span class="bp">True</span>
+			<span class="n">child</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+		
+
+<div class="viewcode-block" id="ArdellSellaEvolverNumpyMulticore.equilibrate_messages"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverNumpyMulticore.equilibrate_messages">[docs]</a>	<span class="k">def</span> <span class="nf">equilibrate_messages</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">for</span> <span class="n">alpha</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span><span class="p">):</span>
+			<span class="n">msm</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_mutation_selection_matrix</span><span class="p">(</span><span class="n">alpha</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+			<span class="n">in_queue</span><span class="o">.</span><span class="n">put</span><span class="p">((</span><span class="n">alpha</span><span class="p">,</span><span class="n">msm</span><span class="p">))</span>
+			<span class="c">#			ArdellSellaEvolverPowerMulticore.in_queue.put((alpha,msm))</span>
+
+		<span class="n">in_queue</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+		<span class="c">#		ArdellSellaEvolverNumpyMulticore.in_queue.join()</span>
+		<span class="c">#		print &quot;inqueue emptiness is {}&quot;.format(ArdellSellaEvolverPowerMulticore.in_queue.empty())</span>
+		<span class="c">#print &quot;inqueue emptiness is {}&quot;.format(in_queue.empty())</span>
+
+		<span class="c">#		while(not(ArdellSellaEvolverNumpyMulticore.out_queue.empty())):</span>
+		<span class="k">while</span><span class="p">(</span><span class="ow">not</span><span class="p">(</span><span class="n">out_queue</span><span class="o">.</span><span class="n">empty</span><span class="p">())):</span>
+			<span class="c">#		       	(alpha,eigenvec,eigenval) = ArdellSellaEvolverNumpyMulticore.out_queue.get()</span>
+		       	<span class="p">(</span><span class="n">alpha</span><span class="p">,</span><span class="n">eigenvec</span><span class="p">,</span><span class="n">eigenval</span><span class="p">)</span> <span class="o">=</span> <span class="n">out_queue</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>			
+			<span class="bp">self</span><span class="o">.</span><span class="n">eigenvalues</span><span class="p">[</span><span class="n">alpha</span><span class="p">]</span> <span class="o">=</span> <span class="n">eigenval</span>
+		       	<span class="bp">self</span><span class="o">.</span><span class="n">eigenmatrix</span><span class="p">[</span><span class="n">alpha</span><span class="p">]</span> <span class="o">=</span> <span class="n">eigenvec</span>
+				
+		<span class="bp">self</span><span class="o">.</span><span class="n">equilibrated</span> <span class="o">=</span> <span class="bp">True</span>
+		<span class="nb">super</span><span class="p">(</span><span class="n">ArdellSellaEvolverNumpyMulticore</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">equilibrate_messages</span><span class="p">()</span>
+		
+</div></div>
+<div class="viewcode-block" id="ArdellSellaEvolverNumpy"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverNumpy">[docs]</a><span class="k">class</span> <span class="nc">ArdellSellaEvolverNumpy</span><span class="p">(</span><span class="n">ArdellSellaEvolverAbstractBase</span><span class="p">):</span> 
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">initial_code</span><span class="p">,</span> <span class="n">site_types</span><span class="p">,</span> <span class="n">num_processes</span><span class="p">,</span> <span class="n">observables</span><span class="p">,</span> <span class="n">delta</span><span class="o">=</span><span class="mi">10</span><span class="o">**-</span><span class="mi">32</span><span class="p">,</span> <span class="n">epsilon</span><span class="o">=</span><span class="mi">10</span><span class="o">**-</span><span class="mi">12</span><span class="p">):</span>
+		<span class="n">ArdellSellaEvolverAbstractBase</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">initial_code</span><span class="p">,</span> <span class="n">site_types</span><span class="p">,</span> <span class="n">delta</span><span class="p">,</span> <span class="n">epsilon</span><span class="p">,</span> <span class="n">observables</span><span class="p">)</span>
+
+<div class="viewcode-block" id="ArdellSellaEvolverNumpy.compute_eigensystem"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverNumpy.compute_eigensystem">[docs]</a>	<span class="k">def</span> <span class="nf">compute_eigensystem</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">alpha</span><span class="p">,</span> <span class="n">max_time</span> <span class="o">=</span> <span class="mi">60</span><span class="p">,</span> <span class="n">numpy_type</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">float64</span><span class="p">):</span>
+		<span class="n">msm</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_mutation_selection_matrix</span><span class="p">(</span><span class="n">alpha</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">numpy_type</span><span class="p">)</span>
+		<span class="p">(</span><span class="n">eigval</span><span class="p">,</span><span class="n">eigmat</span><span class="p">)</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">eig</span><span class="p">(</span><span class="n">msm</span><span class="p">)</span>
+		<span class="n">maxi</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">eigval</span><span class="p">)</span>
+		<span class="n">eigenvec</span> <span class="o">=</span> <span class="n">eigmat</span><span class="p">[:,</span><span class="n">maxi</span><span class="p">]</span>
+		<span class="n">eigenvec</span> <span class="o">/=</span> <span class="n">eigenvec</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>
+		<span class="n">eigenval</span> <span class="o">=</span> <span class="n">eigval</span><span class="p">[</span><span class="n">maxi</span><span class="p">]</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">eigenvalues</span><span class="p">[</span><span class="n">alpha</span><span class="p">]</span> <span class="o">=</span> <span class="n">eigenval</span> <span class="c"># self.get_eigenvalue(msm,eigenvec)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">eigenmatrix</span><span class="p">[</span><span class="n">alpha</span><span class="p">]</span> <span class="o">=</span> <span class="n">eigenvec</span>
+</div>
+<div class="viewcode-block" id="ArdellSellaEvolverNumpy.equilibrate_messages"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverNumpy.equilibrate_messages">[docs]</a>	<span class="k">def</span> <span class="nf">equilibrate_messages</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+
+		<span class="k">for</span> <span class="n">alpha</span> <span class="ow">in</span> <span class="nb">xrange</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span><span class="p">):</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">compute_eigensystem</span><span class="p">(</span><span class="n">alpha</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">equilibrated</span> <span class="o">=</span> <span class="bp">True</span>
+		<span class="nb">super</span><span class="p">(</span><span class="n">ArdellSellaEvolverNumpy</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">equilibrate_messages</span><span class="p">()</span>
+		
+</div></div>
+<div class="viewcode-block" id="ArdellSellaEvolverPerturbative"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverPerturbative">[docs]</a><span class="k">class</span> <span class="nc">ArdellSellaEvolverPerturbative</span><span class="p">(</span><span class="n">ArdellSellaEvolverAbstractBase</span><span class="p">):</span>
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">initial_code</span><span class="p">,</span> <span class="n">site_types</span><span class="p">,</span> <span class="n">num_processes</span><span class="p">,</span> <span class="n">observables</span><span class="p">,</span> <span class="n">delta</span><span class="o">=</span><span class="mi">10</span><span class="o">**-</span><span class="mi">32</span><span class="p">,</span> <span class="n">epsilon</span><span class="o">=</span><span class="mi">10</span><span class="o">**-</span><span class="mi">12</span><span class="p">):</span>
+		<span class="n">ArdellSellaEvolverAbstractBase</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">initial_code</span><span class="p">,</span> <span class="n">site_types</span><span class="p">,</span> <span class="n">delta</span><span class="p">,</span> <span class="n">epsilon</span><span class="p">,</span> <span class="n">observables</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">max_order</span> <span class="o">=</span> <span class="n">max_order</span>
+
+<div class="viewcode-block" id="ArdellSellaEvolverPerturbative.choose"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverPerturbative.choose">[docs]</a>	<span class="k">def</span> <span class="nf">choose</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">n</span><span class="p">,</span> <span class="n">k</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		A fast way to calculate binomial coefficients by Andrew Dalke (contrib).</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+		<span class="k">if</span> <span class="mi">0</span> <span class="o">&lt;=</span> <span class="n">k</span> <span class="o">&lt;=</span> <span class="n">n</span><span class="p">:</span>
+			<span class="n">ntok</span> <span class="o">=</span> <span class="mi">1</span>
+			<span class="n">ktok</span> <span class="o">=</span> <span class="mi">1</span>
+			<span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">xrange</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">n</span> <span class="o">-</span> <span class="n">k</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span><span class="p">):</span>
+				<span class="n">ntok</span> <span class="o">*=</span> <span class="n">n</span>
+				<span class="n">ktok</span> <span class="o">*=</span> <span class="n">t</span>
+				<span class="n">n</span> <span class="o">-=</span> <span class="mi">1</span>
+			<span class="k">return</span> <span class="n">ntok</span> <span class="o">//</span> <span class="n">ktok</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="k">return</span> <span class="mi">0</span>
+</div>
+<div class="viewcode-block" id="ArdellSellaEvolverPerturbative.compute_eigensystem"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverPerturbative.compute_eigensystem">[docs]</a>	<span class="k">def</span> <span class="nf">compute_eigensystem</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">alpha</span><span class="p">,</span> <span class="n">max_time</span> <span class="o">=</span> <span class="mi">60</span><span class="p">,</span> <span class="n">numpy_type</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">float64</span><span class="p">):</span>
+		<span class="kn">import</span> <span class="nn">pdb</span>
+		<span class="c">#		pdb.set_trace()</span>
+		<span class="n">codons</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">codons</span>
+		<span class="n">mu</span> <span class="o">=</span> <span class="n">codons</span><span class="o">.</span><span class="n">mu</span>
+		<span class="n">n</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_codons</span>
+		<span class="n">dm</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">matrix</span><span class="p">(</span><span class="n">codons</span><span class="o">.</span><span class="n">get_derivative_matrix</span><span class="p">())</span>
+		<span class="n">sm</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">matrix</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_selection_matrix</span><span class="p">(</span><span class="n">alpha</span><span class="p">))</span>
+		<span class="n">wp</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">matrix</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">sm</span><span class="p">)</span> <span class="o">-</span> <span class="n">sm</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">])</span><span class="o">.</span><span class="n">transpose</span><span class="p">()</span>
+		<span class="n">wp</span> <span class="o">=</span> <span class="n">wp</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="n">n</span><span class="p">]</span>
+		<span class="n">maxord</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_order</span>
+		<span class="n">lamb</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">matrix</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span><span class="n">maxord</span><span class="o">+</span><span class="mi">1</span><span class="p">)))</span>
+		<span class="n">vmat</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">matrix</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">n</span><span class="p">,</span><span class="n">maxord</span><span class="o">+</span><span class="mi">1</span><span class="p">)))</span>
+		<span class="n">lamb</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">sm</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span><span class="mi">0</span><span class="p">]</span>
+		<span class="n">vmat</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+		<span class="n">eone</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">matrix</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">n</span><span class="p">,</span><span class="mi">1</span><span class="p">)))</span>
+		<span class="n">eone</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+		<span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">xrange</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="n">maxord</span><span class="p">):</span>
+			<span class="n">tempvec</span> <span class="o">=</span> <span class="o">-</span><span class="n">j</span> <span class="o">*</span> <span class="n">dm</span> <span class="o">*</span> <span class="n">sm</span> <span class="o">*</span> <span class="n">vmat</span><span class="p">[:,(</span><span class="n">j</span><span class="o">-</span><span class="mi">1</span><span class="p">)]</span>
+			<span class="n">temp</span> <span class="o">=</span> <span class="o">-</span> <span class="n">eone</span><span class="o">.</span><span class="n">T</span> <span class="o">*</span> <span class="n">tempvec</span>
+			<span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="nb">xrange</span><span class="p">(</span><span class="mi">1</span><span class="p">,(</span><span class="n">j</span><span class="o">-</span><span class="mi">1</span><span class="p">)):</span>
+				<span class="n">temp</span> <span class="o">=</span> <span class="n">temp</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">choose</span><span class="p">(</span><span class="n">j</span><span class="p">,</span><span class="n">m</span><span class="p">)</span> <span class="o">*</span> <span class="n">lamb</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span><span class="n">m</span><span class="p">]</span> <span class="o">*</span> <span class="n">vmat</span><span class="p">[</span><span class="mi">1</span><span class="p">,(</span><span class="n">j</span><span class="o">-</span><span class="n">m</span><span class="p">)];</span>
+			<span class="n">lamb</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span><span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">temp</span>
+
+			<span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="nb">xrange</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="n">j</span><span class="p">):</span>
+				<span class="n">tempvec</span> <span class="o">=</span> <span class="n">tempvec</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">choose</span><span class="p">(</span><span class="n">j</span><span class="p">,</span><span class="n">m</span><span class="p">)</span> <span class="o">*</span> <span class="n">lamb</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span><span class="n">m</span><span class="p">]</span> <span class="o">*</span> <span class="n">vmat</span><span class="p">[:,(</span><span class="n">j</span><span class="o">-</span><span class="n">m</span><span class="p">)]</span>
+
+			<span class="n">vmat</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span><span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span>
+			<span class="n">vmat</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="n">n</span><span class="p">,</span><span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">tempvec</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="n">n</span><span class="p">]</span> <span class="o">/</span> <span class="n">wp</span><span class="p">;</span>
+
+		<span class="n">ordvec</span> <span class="o">=</span> <span class="p">(((</span><span class="n">numpy</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">maxord</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="n">mu</span><span class="p">)</span> <span class="o">**</span> <span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">matrix</span><span class="p">((</span><span class="nb">range</span><span class="p">(</span><span class="n">maxord</span><span class="o">+</span><span class="mi">1</span><span class="p">)))))</span> <span class="o">/</span> <span class="n">numpy</span><span class="o">.</span><span class="n">matrix</span><span class="p">([</span><span class="n">math</span><span class="o">.</span><span class="n">factorial</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">xrange</span><span class="p">((</span><span class="n">maxord</span><span class="o">+</span><span class="mi">1</span><span class="p">))]))</span><span class="o">.</span><span class="n">T</span>
+		<span class="n">lpert</span> <span class="o">=</span> <span class="n">lamb</span> <span class="o">*</span> <span class="n">ordvec</span>
+		<span class="n">vpert</span> <span class="o">=</span> <span class="n">vmat</span> <span class="o">*</span> <span class="n">ordvec</span>
+		<span class="n">vpert</span> <span class="o">/=</span> <span class="n">vpert</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>
+		<span class="p">(</span><span class="n">lpert</span><span class="p">,</span> <span class="n">vpert</span><span class="p">)</span> <span class="o">=</span> <span class="n">codons</span><span class="o">.</span><span class="n">post_process_perturbative_solution</span><span class="p">(</span><span class="n">lpert</span><span class="p">,</span><span class="n">vpert</span><span class="p">)</span>
+			
+		<span class="bp">self</span><span class="o">.</span><span class="n">eigenvalues</span><span class="p">[</span><span class="n">alpha</span><span class="p">]</span> <span class="o">=</span> <span class="n">lpert</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">eigenmatrix</span><span class="p">[</span><span class="n">alpha</span><span class="p">]</span> <span class="o">=</span> <span class="n">vpert</span>
+</div>
+<div class="viewcode-block" id="ArdellSellaEvolverPerturbative.equilibrate_messages"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverPerturbative.equilibrate_messages">[docs]</a>	<span class="k">def</span> <span class="nf">equilibrate_messages</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+
+		<span class="k">for</span> <span class="n">alpha</span> <span class="ow">in</span> <span class="nb">xrange</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span><span class="p">):</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">compute_eigensystem</span><span class="p">(</span><span class="n">alpha</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">equilibrated</span> <span class="o">=</span> <span class="bp">True</span>
+		<span class="nb">super</span><span class="p">(</span><span class="n">ArdellSellaEvolverNumpy</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">equilibrate_messages</span><span class="p">()</span>
+
+</div></div>
+<div class="viewcode-block" id="eigensystem_CUDA_implementation"><a class="viewcode-back" href="../cmcpy.html#evolvers.eigensystem_CUDA_implementation">[docs]</a><span class="k">class</span> <span class="nc">eigensystem_CUDA_implementation</span><span class="p">:</span>
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parent</span><span class="p">,</span> <span class="n">max_time</span> <span class="o">=</span> <span class="mi">60</span><span class="p">,</span> <span class="n">delta</span> <span class="o">=</span> <span class="mi">10</span><span class="o">**</span><span class="p">(</span><span class="o">-</span><span class="mi">32</span><span class="p">)):</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">verbose</span> <span class="o">=</span> <span class="bp">False</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">debug_mode</span> <span class="o">=</span> <span class="bp">False</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">starttime</span><span class="o">=</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">max_time</span><span class="o">=</span><span class="n">max_time</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">parent</span> <span class="o">=</span> <span class="n">parent</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">delta</span> <span class="o">=</span> <span class="n">delta</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">num_site_types</span>
+		<span class="c"># create super matrix; dimension (num_site_types)^2 by num_site_types</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">alpha1msm</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">get_mutation_selection_matrix</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">alpha1msm</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">supermatrix</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="p">))</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">supermatrix</span><span class="p">[(</span><span class="mi">0</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="p">):((</span><span class="mi">0</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="p">)]</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">alpha1msm</span>
+		<span class="c"># fill super matrix</span>
+                <span class="c"># While this &#39;for&#39; loop accomplishes the same goal as Python&#39;s list comprehension,</span>
+                <span class="c"># NumPy&#39;s list comprehension capability is unknown.</span>
+		<span class="k">for</span> <span class="n">alpha</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span><span class="p">):</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">supermatrix</span><span class="p">[(</span><span class="n">alpha</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="p">):((</span><span class="n">alpha</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="p">)]</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">get_mutation_selection_matrix</span><span class="p">(</span><span class="n">alpha</span><span class="p">)</span>
+		<span class="c">#print &#39;supermatrix: &#39;,self.supermatrix</span>
+		<span class="c"># eigenvector of ones; dimension num_site_types*msm_dim</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">eigenvec</span><span class="o">=</span><span class="n">numpy</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">eigenvec_old</span><span class="o">=</span><span class="n">numpy</span><span class="o">.</span><span class="n">copy</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">eigenvec</span><span class="p">)</span>
+		<span class="c">## length num_site_types*msm_dim eigenvec will be rearranged into a (num_site_types)by (msm_dim)</span>
+                <span class="c">#       eigen matrix -- one of the outputs of this class -- later</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">eigenmatrix</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="p">))</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">loop_power</span><span class="o">=</span><span class="n">numpy</span><span class="o">.</span><span class="n">int32</span><span class="p">(</span><span class="mi">8</span><span class="p">)</span>
+                <span class="c"># Maximum power of 2 of CUDA kernel loop count;</span>
+                <span class="c"># to avoid &#39;time-out&#39; errors, kernel calls can be kept short by keeping this number low</span>
+                <span class="c"># (11 should be fine).  The time difference between two kernel calls of 2^10 loops each</span>
+                <span class="c"># and one kernel call of 2^11 loops is negligable.  Of course, the time difference between</span>
+                <span class="c"># running 2^11 kernel calls of one loop and one kernel call of 2^11 loops would be significant.</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">power_max</span><span class="o">=</span><span class="n">numpy</span><span class="o">.</span><span class="n">int32</span><span class="p">(</span><span class="mi">11</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">loop_total</span><span class="o">=</span><span class="mi">0</span>
+		<span class="c"># memory allocation</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">cuda_supermatrix</span><span class="o">=</span><span class="n">cuda</span><span class="o">.</span><span class="n">mem_alloc</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">supermatrix</span><span class="o">.</span><span class="n">nbytes</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">cuda_loop_power</span><span class="o">=</span><span class="n">cuda</span><span class="o">.</span><span class="n">mem_alloc</span><span class="p">(</span><span class="mi">8</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">cuda_power_max</span><span class="o">=</span><span class="n">cuda</span><span class="o">.</span><span class="n">mem_alloc</span><span class="p">(</span><span class="mi">8</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">cuda_eigenvec</span><span class="o">=</span><span class="n">cuda</span><span class="o">.</span><span class="n">mem_alloc</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">eigenvec</span><span class="o">.</span><span class="n">nbytes</span><span class="p">)</span>
+		<span class="c">## sums to normalize by</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">cuda_vsum</span><span class="o">=</span><span class="n">cuda</span><span class="o">.</span><span class="n">mem_alloc</span><span class="p">(</span><span class="mi">4</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span><span class="p">)</span> <span class="c">## one float for each eigenvector</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">source_module</span> <span class="o">=</span> <span class="n">SourceModule</span><span class="p">(</span><span class="s">&quot;&quot;&quot;</span>
+<span class="s">			#include &lt;stdio.h&gt;</span>
+
+<span class="s">			__global__ void eigensystem(float* vector, const float* mat, const int* loop_power,</span>
+<span class="s">                        const int* power_max, float* vsum){</span>
+<span class="s">				//dimension of individual eigenmatrix</span>
+<span class="s">				const int dim = blockDim.x;</span>
+<span class="s">				// one eigenmatrix per block</span>
+<span class="s">				const int b = blockIdx.x;</span>
+<span class="s">				const int t = threadIdx.x;</span>
+<span class="s">				const int block_pos_mat = b*__powf(dim,2);</span>
+<span class="s">				const int i = block_pos_mat+(t*dim); // i -- row of supermatrix</span>
+<span class="s">				const int thread_pos_evec = b*dim;</span>
+<span class="s">                                int j;</span>
+<span class="s">				//const double loop_count = loop;</span>
+<span class="s">				//const int loop_count = 3000;</span>
+<span class="s">				//unsigned long loop_count = pow(2, loop_power);</span>
+<span class="s">                                unsigned int loop_count = 2;</span>
+<span class="s">                                if(*loop_power&lt;*power_max){</span>
+<span class="s">                                        loop_count = loop_count &lt;&lt; (*loop_power);</span>
+<span class="s">                                }else{</span>
+<span class="s">                                        loop_count = loop_count &lt;&lt; (*power_max);</span>
+<span class="s">                                }</span>
+<span class="s">                                //printf(</span><span class="se">\&quot;</span><span class="s">block.thread </span><span class="si">%d</span><span class="s">.</span><span class="si">%d</span><span class="s">; #loops: </span><span class="si">%u</span><span class="se">\\</span><span class="s">n</span><span class="se">\&quot;</span><span class="s">, blockIdx.x, threadIdx.x, loop_count);</span>
+
+<span class="s">				unsigned int l;</span>
+<span class="s">                                __shared__ float product[64];</span>
+<span class="s">                                __shared__ float e_vec_sum; // sum of all dot products on block; used for normalization</span>
+<span class="s">				for(l=0;l&lt;loop_count;l++){</span>
+<span class="s">					//__shared__ float product[dim];  //does not work</span>
+<span class="s">					product[t] = 0.0;</span>
+<span class="s">					e_vec_sum = 0.0;</span>
+<span class="s">                                        /* While CUDAs printf statement can print output from multiple threads and</span>
+<span class="s">                                        blocks in one kernel call, this &#39;if&#39; condition restricts the printing to one</span>
+<span class="s">                                        thread of one block.  This is still useful because, so far, the bugs needing </span>
+<span class="s">                                        to be fixed have been shared by all CUDA blocks and threads.Fixing one has</span>
+<span class="s">                                        fixed all.</span>
+<span class="s">                                        if(blockIdx.x == 0 &amp;&amp; threadIdx.x == 0){</span>
+<span class="s">                                                printf(&quot;block.thread </span><span class="si">%d</span><span class="s">.</span><span class="si">%d</span><span class="s">;</span><span class="se">\\</span><span class="s">t</span><span class="se">\\</span><span class="s">t loop_power: </span><span class="si">%u</span><span class="s"> power_max: </span><span class="si">%u</span><span class="s"></span>
+<span class="s">                                                        loop_count: </span><span class="si">%u</span><span class="s">  l: </span><span class="si">%u</span><span class="se">\\</span><span class="s">n&quot;, blockIdx.x, threadIdx.x,</span>
+<span class="s">                                                        *loop_power, *power_max, loop_count, l);</span>
+<span class="s">                                        }</span>
+<span class="s">                                        */</span>
+<span class="s">					for(j=0;j&lt;dim;j++){</span>
+<span class="s">						//e_vec_sum += mat[i+j]*vector[thread_pos_evec+j];</span>
+<span class="s">						//product[t] += mat[i+j]*vector[thread_pos_evec+j];</span>
+<span class="s">						float out = mat[i+j]*vector[thread_pos_evec+j];</span>
+<span class="s">						atomicAdd(&amp;e_vec_sum, out);</span>
+<span class="s">						atomicAdd(&amp;product[t], out);</span>
+<span class="s">					}</span>
+<span class="s">					__syncthreads;</span>
+<span class="s">					vector[thread_pos_evec+t]=product[t];</span>
+<span class="s">					// Normalize...</span>
+<span class="s">					vector[thread_pos_evec+t]=vector[thread_pos_evec+t]/e_vec_sum;</span>
+<span class="s">				}				</span>
+<span class="s">			}</span>
+<span class="s">		&quot;&quot;&quot;</span><span class="p">)</span>
+		<span class="c">## getting reference to kernel</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">cuda_eigensystem</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">source_module</span><span class="o">.</span><span class="n">get_function</span><span class="p">(</span><span class="s">&quot;eigensystem&quot;</span><span class="p">)</span>
+		<span class="c"># moving data into global memory;</span>
+		<span class="c"># only done once; subsequent loops kernel calls pick up where the last left off</span>
+		<span class="n">cuda</span><span class="o">.</span><span class="n">memcpy_htod</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cuda_eigenvec</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">eigenvec</span><span class="p">)</span>
+		<span class="n">cuda</span><span class="o">.</span><span class="n">memcpy_htod</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cuda_supermatrix</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">supermatrix</span><span class="p">)</span>
+		<span class="n">cuda</span><span class="o">.</span><span class="n">memcpy_htod</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cuda_power_max</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">power_max</span><span class="p">)</span>
+		
+	
+	
+<div class="viewcode-block" id="eigensystem_CUDA_implementation.calculate"><a class="viewcode-back" href="../cmcpy.html#evolvers.eigensystem_CUDA_implementation.calculate">[docs]</a>        <span class="k">def</span> <span class="nf">calculate</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="c"># move power of 2 request onto GPU</span>
+		<span class="n">cuda</span><span class="o">.</span><span class="n">memcpy_htod</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cuda_loop_power</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">loop_power</span><span class="p">)</span>
+		<span class="c"># calling kernel</span>
+		<span class="k">if</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">verbose</span><span class="p">):</span>
+			<span class="k">print</span> <span class="s">&quot;================================== &quot;</span>
+			<span class="k">print</span><span class="p">(</span><span class="s">&quot;&quot;&quot;&quot;Calling CUDA; </span><span class="si">%d</span><span class="s"> by </span><span class="si">%d</span><span class="s"> supermatrix;</span><span class="se">\n</span><span class="s">eigenvector of length </span><span class="si">%d</span><span class="s">;</span><span class="se">\n</span><span class="si">%d</span><span class="s"> loops run</span>
+<span class="s">                                so far; </span><span class="se">\n</span><span class="si">%d</span><span class="s"> loop request...&quot;&quot;&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="p">,</span>
+                                <span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">loop_total</span><span class="p">,</span> <span class="mi">2</span><span class="o">**</span><span class="bp">self</span><span class="o">.</span><span class="n">loop_power</span><span class="p">))</span>
+			<span class="k">print</span> <span class="s">&quot;Blocks: </span><span class="si">%d</span><span class="s"> by </span><span class="si">%d</span><span class="se">\n</span><span class="s">Threads/block: </span><span class="si">%d</span><span class="s"> by </span><span class="si">%d</span><span class="s"> by </span><span class="si">%d</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span><span class="p">,</span><span class="mi">1</span><span class="p">,</span>
+                                <span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="p">,</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">)</span>
+			<span class="k">print</span> <span class="s">&quot;================================== &quot;</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">cuda_eigensystem</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cuda_eigenvec</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">cuda_supermatrix</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">cuda_loop_power</span><span class="p">,</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">cuda_power_max</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">cuda_vsum</span><span class="p">,</span> <span class="n">grid</span><span class="o">=</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span><span class="p">,</span><span class="mi">1</span><span class="p">),</span> <span class="n">block</span><span class="o">=</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="p">,</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">))</span>
+		<span class="c">## just called kernel for self. loops; add this to self.loop_total; logging purposes only</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">loop_total</span><span class="o">+=</span><span class="mi">2</span><span class="o">**</span><span class="bp">self</span><span class="o">.</span><span class="n">loop_power</span>
+		<span class="c"># copy cuda_eigenvec back to main memory</span>
+		<span class="n">cuda</span><span class="o">.</span><span class="n">memcpy_dtoh</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">eigenvec</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">cuda_eigenvec</span><span class="p">)</span></div>
+<div class="viewcode-block" id="eigensystem_CUDA_implementation.get_eigenvalue"><a class="viewcode-back" href="../cmcpy.html#evolvers.eigensystem_CUDA_implementation.get_eigenvalue">[docs]</a>	<span class="k">def</span> <span class="nf">get_eigenvalue</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">alpha</span><span class="p">):</span>
+		<span class="c">## use self.subeigenvecrix of self.supermatrix, and subvector of self.eigenvec;</span>
+		<span class="c">## direct translation of original &#39;evolvers&#39; get_eigenvalue( msm, eigenvec)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">top</span> <span class="o">=</span> <span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">supermatrix</span><span class="p">[(</span><span class="n">alpha</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="p">):((</span><span class="n">alpha</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="p">)],</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">eigenvec</span><span class="p">[(</span><span class="n">alpha</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="p">):((</span><span class="n">alpha</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="p">)])</span><span class="o">*</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">eigenvec</span><span class="p">[(</span><span class="n">alpha</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="p">):((</span><span class="n">alpha</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="p">)])</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">bottom</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">eigenvec</span><span class="p">[(</span><span class="n">alpha</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="p">):((</span><span class="n">alpha</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="p">)]</span> <span class="o">*</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">eigenvec</span><span class="p">[(</span><span class="n">alpha</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="p">):((</span><span class="n">alpha</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="p">)])</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">lamda</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">top</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">/</span><span class="bp">self</span><span class="o">.</span><span class="n">bottom</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>
+		<span class="c">#print &#39;self.lamda =&#39;,self.lamda</span>
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">lamda</span></div>
+<div class="viewcode-block" id="eigensystem_CUDA_implementation.get_eigenvalues"><a class="viewcode-back" href="../cmcpy.html#evolvers.eigensystem_CUDA_implementation.get_eigenvalues">[docs]</a>	<span class="k">def</span> <span class="nf">get_eigenvalues</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="c">## compute all eigenvalues and put them in an array</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">eigenvalues</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+		<span class="k">for</span> <span class="n">alpha</span> <span class="ow">in</span> <span class="nb">xrange</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span><span class="p">):</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">eigenvalues</span><span class="p">[</span><span class="n">alpha</span><span class="p">]</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">get_eigenvalue</span><span class="p">(</span><span class="n">alpha</span><span class="p">)</span>
+			<span class="c">#print &#39;alpha:&#39;,alpha,&#39;\teigenvalues:&#39;,self.eigenvalues[alpha]</span>
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">eigenvalues</span></div>
+<div class="viewcode-block" id="eigensystem_CUDA_implementation.get_eigenmatrix"><a class="viewcode-back" href="../cmcpy.html#evolvers.eigensystem_CUDA_implementation.get_eigenmatrix">[docs]</a>	<span class="k">def</span> <span class="nf">get_eigenmatrix</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="c">## rearrange eigenvector of length (num_site_types * msm_dim) into eigenmatrix</span>
+		<span class="k">for</span> <span class="n">alpha</span> <span class="ow">in</span> <span class="nb">xrange</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span><span class="p">):</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">eigenmatrix</span><span class="p">[</span><span class="n">alpha</span><span class="p">]</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">eigenvec</span><span class="p">[(</span><span class="n">alpha</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="p">):((</span><span class="n">alpha</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="p">)]</span>
+			<span class="c">#print &#39;alpha:&#39;,alpha,&#39;\teigenmatrix:&#39;,self.eigenmatrix[alpha]</span>
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">eigenmatrix</span></div>
+<div class="viewcode-block" id="eigensystem_CUDA_implementation.error_check"><a class="viewcode-back" href="../cmcpy.html#evolvers.eigensystem_CUDA_implementation.error_check">[docs]</a>	<span class="k">def</span> <span class="nf">error_check</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">errorarray</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+		<span class="k">for</span> <span class="n">alpha</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">num_site_types</span><span class="p">):</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">errorarray</span><span class="p">[</span><span class="n">alpha</span><span class="p">]</span><span class="o">=</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">eigenvec</span><span class="p">[</span>
+                                <span class="p">(</span><span class="n">alpha</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="p">):((</span><span class="n">alpha</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="p">)]</span> <span class="o">-</span>
+                                <span class="bp">self</span><span class="o">.</span><span class="n">eigenvec_old</span><span class="p">[(</span><span class="n">alpha</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="p">):((</span><span class="n">alpha</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">msm_dim</span><span class="p">)]))</span>
+                <span class="k">if</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">verbose</span><span class="p">):</span>
+	                <span class="k">print</span> <span class="s">&#39;error, length </span><span class="si">%d</span><span class="s">: &#39;</span> <span class="o">%</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">errorarray</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">errorarray</span>
+		<span class="k">if</span><span class="p">((</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="o">-</span><span class="bp">self</span><span class="o">.</span><span class="n">starttime</span><span class="p">)</span><span class="o">&gt;</span><span class="bp">self</span><span class="o">.</span><span class="n">max_time</span><span class="p">):</span>
+			<span class="k">if</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">verbose</span><span class="p">):</span>
+				<span class="k">print</span> <span class="s">&#39;time out...&#39;</span>
+                        <span class="k">return</span> <span class="bp">True</span>
+		<span class="k">elif</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">errorarray</span><span class="p">))</span><span class="o">&gt;</span><span class="bp">self</span><span class="o">.</span><span class="n">delta</span><span class="p">):</span>
+                        <span class="c"># Error exceeds threshold</span>
+			<span class="k">if</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">verbose</span><span class="p">):</span>
+				<span class="k">print</span> <span class="s">&#39;error exceeds delta (threshold) of&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">delta</span>
+			<span class="c">## increase loop request</span>
+                        <span class="k">if</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">loop_power</span><span class="o">&lt;</span><span class="bp">self</span><span class="o">.</span><span class="n">power_max</span><span class="p">):</span>
+                                <span class="bp">self</span><span class="o">.</span><span class="n">loop_power</span><span class="o">+=</span><span class="mi">1</span>
+			<span class="c">## need to run more loops; copy eigenvec to eigenvec_old</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">eigenvec_old</span><span class="o">=</span><span class="n">numpy</span><span class="o">.</span><span class="n">copy</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">eigenvec</span><span class="p">)</span>
+                        <span class="k">return</span> <span class="bp">False</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="k">if</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">verbose</span><span class="p">):</span>
+				<span class="k">print</span> <span class="s">&#39;-=-=-=-=-=-=-=-=-&#39;</span>
+				<span class="k">print</span> <span class="s">&#39;error below delta!&#39;</span>
+				<span class="k">print</span> <span class="s">&#39;-=-=-=-=-=-=-=-=-&#39;</span>
+                        <span class="k">return</span> <span class="bp">True</span></div>
+<div class="viewcode-block" id="eigensystem_CUDA_implementation.done"><a class="viewcode-back" href="../cmcpy.html#evolvers.eigensystem_CUDA_implementation.done">[docs]</a>	<span class="k">def</span> <span class="nf">done</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="k">if</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">verbose</span><span class="p">):</span>
+			<span class="k">print</span> <span class="s">&#39;CUDA loop total (for all site types):</span><span class="se">\t</span><span class="s">&#39;</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">loop_total</span>
+			<span class="k">print</span> <span class="s">&#39;final maximum error: &#39;</span><span class="p">,</span><span class="n">numpy</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">errorarray</span><span class="p">))</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">eigenvalues</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_eigenvalues</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">eigenmatrix</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_eigenmatrix</span><span class="p">()</span>
+		</div></div>
+<div class="viewcode-block" id="ArdellSellaEvolverPowerCUDA"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverPowerCUDA">[docs]</a><span class="k">class</span> <span class="nc">ArdellSellaEvolverPowerCUDA</span> <span class="p">(</span><span class="n">ArdellSellaEvolverAbstractBase</span><span class="p">):</span> 
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">initial_code</span><span class="p">,</span> <span class="n">site_types</span><span class="p">,</span> <span class="n">num_processes</span><span class="p">,</span> <span class="n">observables</span><span class="p">,</span> <span class="n">delta</span><span class="o">=</span><span class="mi">10</span><span class="o">**-</span><span class="mi">32</span><span class="p">,</span> <span class="n">epsilon</span><span class="o">=</span><span class="mi">10</span><span class="o">**-</span><span class="mi">12</span><span class="p">):</span>
+		<span class="n">ArdellSellaEvolverAbstractBase</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">initial_code</span><span class="p">,</span> <span class="n">site_types</span><span class="p">,</span> <span class="n">delta</span><span class="p">,</span> <span class="n">epsilon</span><span class="p">,</span> <span class="n">observables</span> <span class="o">=</span> <span class="n">cmcpy</span><span class="o">.</span><span class="n">observables</span><span class="o">.</span><span class="n">Observables</span><span class="p">())</span>
+                <span class="c">#from pycuda.compiler import SourceModule</span>
+                <span class="c">#import pycuda.driver as self.cuda</span>
+                <span class="c">#import pycuda.autoinit</span>
+
+                <span class="c">#SourceModule = __import__(pycuda.compiler.SourceModule)</span>
+                <span class="c">#cuda = __import__(pycuda.driver)</span>
+                <span class="c">#pycuda = __import__(pycuda.autoinit)</span>
+
+<div class="viewcode-block" id="ArdellSellaEvolverPowerCUDA.equilibrate_messages"><a class="viewcode-back" href="../cmcpy.html#evolvers.ArdellSellaEvolverPowerCUDA.equilibrate_messages">[docs]</a>	<span class="k">def</span> <span class="nf">equilibrate_messages</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="n">super_matrix_eigen_system</span> <span class="o">=</span> <span class="n">eigensystem_CUDA_implementation</span><span class="p">(</span><span class="n">parent</span><span class="o">=</span><span class="bp">self</span><span class="p">,</span> <span class="n">delta</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">delta</span><span class="p">)</span>
+                <span class="c"># All function calls have been moved out of the eigensystem_CUDA_implementation class</span>
+		<span class="n">super_matrix_eigen_system</span><span class="o">.</span><span class="n">calculate</span><span class="p">()</span>
+                <span class="n">converged</span> <span class="o">=</span> <span class="n">super_matrix_eigen_system</span><span class="o">.</span><span class="n">error_check</span><span class="p">()</span>
+                <span class="k">while</span><span class="p">(</span><span class="ow">not</span> <span class="n">converged</span><span class="p">):</span>
+                  <span class="c">#super_matrix_eigen_system.reload()</span>
+                  <span class="n">super_matrix_eigen_system</span><span class="o">.</span><span class="n">calculate</span><span class="p">()</span>
+                  <span class="n">converged</span> <span class="o">=</span> <span class="n">super_matrix_eigen_system</span><span class="o">.</span><span class="n">error_check</span><span class="p">()</span>
+                <span class="n">super_matrix_eigen_system</span><span class="o">.</span><span class="n">done</span><span class="p">()</span>
+		<span class="k">del</span> <span class="n">super_matrix_eigen_system</span>
+		<span class="c">## CUDA eigensystem solver done; eigenvalues and eigenmatrix have been inserted into this object</span>
+		<span class="c">##	by child object (CUDA eigensystem solver)	</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">equilibrated</span> <span class="o">=</span> <span class="bp">True</span>
+		<span class="nb">super</span><span class="p">(</span><span class="n">ArdellSellaEvolverPowerCUDA</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">equilibrate_messages</span><span class="p">()</span></div></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../index.html">CMCpy 0.1 documentation</a> &raquo;</li>
+          <li><a href="index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2012, David H. Ardell, Peter Becich and Brian Stark.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>
