@@ -1,0 +1,229 @@
+Changelog
+=========
+
+1.2 - December 7, 2012
+----------------------
+
+- Rewrite code to handle links in rich text fields. This fixes ticket
+  `ticket 56 <https://github.com/euphorie/Euphorie/issues/56>`_.
+
+- Add new translation: Bulgarian, Flemish, Catalan, Latvian and Portugese.
+
+- Update htmllaundry to 2.0.
+
+- Update TinyMCE to version 3.5.6.
+
+- Configure HTML cleanup code to strip data: attributes. 
+
+
+1.1 - December 20, 2011
+-----------------------
+
+- Allow anonymous users to switch the current language as well. This fixes
+  Euphorie ticket `27 <https://github.com/euphorie/Euphorie/issues/27>`_,
+
+
+1.0.1 - December 9, 2011
+------------------------
+
+- Update package metadata.
+  [wichert]
+
+- Fix MANIFEST so tiny_mce is included in the distribution.
+  [wichert]
+
+
+1.0 - December 8, 2011
+----------------------
+
+- Add support for Plone 4.1 and Chameleon 2.x.
+  [wichert]
+
+- Register screen-ie6.css as zrt-resource.
+  [jcbrand]
+
+- New Spanish, Czech, Slovenian translations
+  [thomas_w]
+
+- Refactored infoPanels on z3cforms to fix alignment issues.
+  [jcbrand]
+
+- Don't capitalize questions and legends.
+  [jcbrand]
+
+- Add css class to enable secondary InfoPanels (per field).
+  [jcbrand]
+
+- Two newlines TinyMCE bug fixed (Github issue #1)
+  [jcbrand]
+
+
+1.0rc8 - May 17, 2011
+---------------------
+
+- Correct htmllaundry dependency.
+  [wichert]
+
+- Correct location of toolbar CSS.
+  [wichert]
+
+
+1.0rc7 - April 26, 2011
+-----------------------
+
+- Exclude prototype from all distribution forms; the symlinked files confuse
+  distutils too much.
+  [wichert]
+
+- Add MANIFEST.in and restructure symlinks for css/javacsript files to
+  guarantee all files are included in eggs.
+  [wichert]
+
+1.0rc6 - April 21, 2011
+-----------------------
+
+- Re-release rc5 as rc6 to fixup error in source control tagging.
+  [wichert]
+
+
+1.0rc5 - April 21, 2011
+-----------------------
+
+- Prefer `Title` method to get the current title for the title of the delete
+  confirmation page.
+  [wichert]
+
+- Do not put a <p> element in an <object>; IE9 will move it outside the object
+  element, thus resulting in leftovers even when using the object->iframe
+  conversion.
+  [wichert]
+
+- Enable the iframe workaround for IE 9 as well.
+  [wichert]
+
+- Add support for status messages containing markup.
+  [jcbrand]
+
+- Bugfix. Prevent clicking on the "Actions" site menu action if it doesn't have
+  a URL to go to. 
+  [jcbrand]
+
+
+1.0rc4 - Febuary 1, 2011
+------------------------
+
+- Paper brown bag: fix initialisation of rich text editor in forms. This
+  broke in 1.0rc3 as a part of the tooltip changes.
+  [wichert]
+
+
+1.0rc3 - January 25, 2011
+-------------------------
+
+- Upgrade to jQuery 1.4.4 and jQuery UI 1.8.9.
+  [wichert]
+
+- Add javascript workaround for bad handling if ``<button>`` elements in
+  Internet Explorer versions before 8.
+  [wichert]
+
+- Do form-related markup transforms earlier so positioning of tooltips
+  from global transforms works correctly.
+  [wichert]
+
+
+1.0rc2 - Janary 11, 2011
+------------------------
+
+- Fix TinyMCE: making text bold or italic works again.
+  [wichert]
+
+- Expose date/time format methods from the Tools view directly as well
+  for use in python code.
+  [wichert]
+
+
+1.0rc1 - December 7, 2010
+-------------------------
+
+- zope.i18n is not capable of rendering pre-1900 dates. To prevent site errors
+  detect this and return an textual error instead. 
+  [wichert]
+
+- Do not load the TinyMCE linesfield plugin. It is not needed, and it triggered
+  a symlink handling bug in setuptools/distutils.
+  [wichert]
+
+- Fix transparent background for sitemenu in IE7.
+  [wichert]
+
+- Refactor positioning of form tooltips.
+  [wichert]
+
+- Update to jQuery 1.4.3 and jQuery UI 1.8.6.
+  [wichert]
+
+
+1.0b4 - October 6, 2010
+-----------------------
+
+- Update IE8 styling.
+  [cornae]
+
+1.0b3 - October 5, 2010
+-----------------------
+
+- Correct font reference for IE6 and IE7.
+  [wichert]
+
+- Update form field dependency checker to deal with z3c.form's madness of
+  always using :list for checkbox field names.
+  [wichert]
+
+
+1.0b2 - September 29, 2010
+--------------------------
+
+- Form CSS improvements.
+  [cornae]
+
+
+1.0b1 - September 23, 2010
+--------------------------
+
+- Modify site menu to generate the contents of the actions menu in code. This
+  makes it easier to extend the menu using a derived class.
+  [wichert]
+
+- Make the email address and name of the contact person where emails are send
+  to configurable via appconfig.
+  [wichert]
+
+- Move ``dfn`` elements for tooltips outside ``label`` elements to make sure
+  we can handle click events for them. Otherwise browsers pretend the click
+  was targeted to the input element inside the label.
+  [cornae, wichert]
+
+
+1.0a2 - September 9, 2010
+-------------------------
+
+- Update error page handler to deal with double acquisition wrapping which
+  can happen on certain NotFound errors in Zope 2.12.
+  [wichert]
+
+- Add `plone.app.testing <http://pypi.python.org/pypi/plone.app.testing>`_
+  based test fixture.
+  [wichert]
+
+- Delete some old copy/paste leftovers from `Euphorie
+  <http://pypi.python.org/pypi/Euphorie>`_.
+  [wichert]
+
+
+1.0a1 - August 31, 2010
+-----------------------
+
+- First release.
+  [wichert, cornae]
+
