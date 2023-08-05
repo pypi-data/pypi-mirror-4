@@ -1,0 +1,353 @@
+Metadata-Version: 1.0
+Name: p01.sampler
+Version: 0.5.0
+Summary: Sampledata Generator
+Home-page: http://pypi.python.org/pypi/p01.sampler
+Author: Roger Ineichen and the Zope Community
+Author-email: zope-dev@zope.org
+License: ZPL 2.1
+Description: This package tries to do the best to support the development of sample
+        data generators. A sample data generator is a pluggable tool to create data
+        needed for tests. It's an improved version of z3.sampledata and offers an
+        additional sample data cleanup method next to other improvements. Also see
+        p01.sampledata for basic samepl data generators.
+        
+        
+        Detailed Documentation
+        **********************
+        
+        ===============================
+        Pluggable sample data framework
+        ===============================
+        
+        This package is a replacement for the flull blown p01.sampler package.
+        
+        This package tries to do the best to support the development of sample
+        data generators. A sample data generator is a pluggable tool to create data
+        needed for tests.
+        
+        There are several goals to this framework:
+        
+        - provides an easy setup ofering ZCML directives
+        
+        - provides a management interface
+        
+        The framework is pluggable and allows the creators of generator extensions to
+        provide their own plugins that generate sample data for those extensions.
+        
+        
+        Generators
+        ----------
+        
+        A generator generates sample data.
+        
+          >>> import zope.interface
+          >>> import zope.component
+          >>> from p01.sampler import interfaces
+        
+          >>> class GeneratePrincipals(object):
+          ...     zope.interface.implements(interfaces.ISampleDataPlugin)
+          ...     dependencies = []
+          ...     schema = None
+          ... 
+          ...     def validate(self):
+          ...         return True
+          ... 
+          ...     def generate(self, context, param={}, dataSource=None, seed=None):
+          ...         print self.__class__.__name__
+          ...         if dataSource is not None:
+          ...             for data in dataSource:
+          ...                 print '- %s'%data['login']
+          >>> principalPlugin = GeneratePrincipals()
+        
+        For our tests we provide another generator :
+        
+          >>> class GenerateSite(object):
+          ...     zope.interface.implements(interfaces.ISampleDataPlugin)
+          ...     dependencies = []
+          ...     schema = None
+          ... 
+          ...     def validate(self):
+          ...         return True
+          ... 
+          ...     def generate(self, context, param={}, dataSource=None, seed=None):
+          ...         if 'sitename' in param:
+          ...             print 'This is site %r'%param['sitename']
+          ...         else:
+          ...             print self.__class__.__name__
+          ...         return 'I am from the site'
+          >>> sitePlugin = GenerateSite()
+        
+        
+        Generator Manager
+        -----------------
+        
+        A generator manager groups a collection of generators.
+        The manager allows to :
+        
+          - define dependencies between generators
+        
+          - define data connections between dependent generators
+        
+          - provide default configuration data
+        
+          >>> from p01.sampler import manager
+          >>> mgr = manager.Manager('manager', '')
+        
+        
+        Generator Plugin
+        ~~~~~~~~~~~~~~~~
+        
+        For the manager our sample generators must be registered as named utilities.
+        
+          >>> zope.component.provideUtility(sitePlugin,
+          ...     interfaces.ISampleDataPlugin, 'p01.sampler.site')
+          >>> zope.component.provideUtility(principalPlugin,
+          ...     interfaces.ISampleDataPlugin, 'p01.sampler.principals')
+        
+        
+        Generating Sample Data
+        ~~~~~~~~~~~~~~~~~~~~~~
+        
+        Now we can add generators to the manager.
+        
+          >>> mgr.add('p01.sampler.principals', dependsOn=['p01.sampler.site',],
+          ...     contextFrom='p01.sampler.site')
+        
+        In addition to the "hardwired" dependencies defined by the dependencies
+        property in each generator it is possible to add dependencies in the generator
+        manager.
+        
+        A manager provides it's generators.
+        
+          >>> mgr.generators.keys()
+          ['p01.sampler.principals']
+        
+        We can tell the manager to generate all samples.
+        There is no need to add the sample generator 'p01.sampler.site', it is added
+        automatically because of the dependency of 'p01.sampler.principals'.
+        
+          >>> infos = mgr.generate(context=None, param={}, seed='something')
+          GenerateSite
+          GeneratePrincipals
+        
+          >>> [info.name for info in infos]
+          ['p01.sampler.site', 'p01.sampler.principals']
+        
+        
+        Parameters for the sample generators
+        ------------------------------------
+        
+        To have more control over the sample generation process it is possible to
+        setup parameters for the generators.
+        
+          >>> mgr = manager.Manager('manager', '')
+        
+          >>> mgr.add('p01.sampler.site',
+          ...             param={'sitename':'samplesite'})
+        
+          >>> mgr.add('p01.sampler.principals',
+          ...             dependsOn=['p01.sampler.site',],
+          ...             contextFrom='p01.sampler.site')
+        
+          >>> infos = mgr.generate(context=None, param={}, seed='something')
+          This is site 'samplesite'
+          GeneratePrincipals
+        
+        It is also possible to overwrite the parameters from the configuration.
+        
+          >>> infos = mgr.generate(context=None,
+          ...                          param={'p01.sampler.site':
+          ...                                 {'sitename':'managers site'}},
+          ...                          seed='something')
+          This is site 'managers site'
+          GeneratePrincipals
+        
+        
+        Cycles in the generator definition
+        ----------------------------------
+        
+          >>> mgr = manager.Manager('manager', '')
+          >>> mgr.add('p01.sampler.principals',
+          ...             dependsOn=['p01.sampler.site',],
+          ...             contextFrom='p01.sampler.site')
+          >>> mgr.add('p01.sampler.site',
+          ...             dependsOn=['p01.sampler.principals',])
+        
+          >>> infos = mgr.generate(context=None, param={}, seed='something')
+          Traceback (most recent call last):
+          ...
+          CyclicDependencyError: cyclic dependency at 'p01.sampler.principals'
+        
+        
+        A test for a complex dependency.
+        
+          >>> from p01.sampler.plugin import SampleDataPlugin
+          >>> class Generator(SampleDataPlugin):
+          ...     zope.interface.implements(interfaces.ISampleDataPlugin)
+          ...     name = 'generator'
+          ...     dependencies = []
+          ...     schema = None
+          ...     def generate(self, context, param={}, dataSource=None, seed=None):
+          ...         return 'I am a generator'
+          >>> zope.component.provideUtility(Generator(), interfaces.ISampleDataPlugin,
+          ...     'g.1')
+          >>> zope.component.provideUtility(Generator(), interfaces.ISampleDataPlugin,
+          ...     'g.2')
+          >>> zope.component.provideUtility(Generator(), interfaces.ISampleDataPlugin,
+          ...     'g.3')
+          >>> mgr = manager.Manager('manager', '')
+          >>> mgr.add('g.1')
+          >>> mgr.add('g.2', contextFrom='g.1')
+          >>> mgr.add('g.3', dependsOn=['g.2', 'g.1'], contextFrom='g.1')
+          >>> infos = mgr.generate(context=None, param={}, seed=None)
+          >>> [info.name for info in infos]
+          ['g.1', 'g.2', 'g.3']
+        
+        
+        Sample Data Source
+        ------------------
+        
+        A sample data generator usually gets its sample data from a data source.
+        Mostly it is necessary to have different data sources for different uses.
+        
+        As an example, it is always a pain if the sample data for the tests use the
+        same data as the UI uses later to provide data for the customer to click
+        around.
+        
+          >>> mgr = manager.Manager('manager', '')
+        
+          >>> mgr.addSource('z3c.datasource.principals',
+          ...                   data=[{'login':'jukart', 'password':'trakuj'},
+          ...                         {'login':'srichter', 'password':'rethcirs'}])
+        
+          >>> mgr.add('p01.sampler.principals',
+          ...             dataSource='z3c.datasource.principals',
+          ...             dependsOn=['p01.sampler.site',],
+          ...             contextFrom='p01.sampler.site')
+        
+          >>> infos = mgr.generate(context=None, param={}, seed='something')
+          GenerateSite
+          GeneratePrincipals
+          - jukart
+          - srichter
+        
+        
+        It is also possible to use adapters to act as a data source.
+        
+          >>> mgr = manager.Manager('manager', '')
+        
+          >>> class IPrincipalDataSource(zope.interface.Interface):
+          ...     pass
+        
+          >>> def principalDataFactory(object):
+          ...      return [{'login':'jukart', 'password':'trakuj'},
+          ...              {'login':'srichter', 'password':'rethcirs'}]
+        
+          >>> zope.component.provideAdapter(
+          ...                          factory=principalDataFactory,
+          ...                          adapts=(interfaces.ISampleDataPlugin,),
+          ...                          provides=IPrincipalDataSource,
+          ...                          name='testprincipals')
+        
+          >>> mgr.addSource('z3c.datasource.principals',
+          ...                   adapterName='testprincipals',
+          ...                   adaptTo=IPrincipalDataSource)
+        
+          >>> mgr.add('p01.sampler.principals',
+          ...             dataSource='z3c.datasource.principals',
+          ...             dependsOn=['p01.sampler.site',],
+          ...             contextFrom='p01.sampler.site')
+        
+          >>> infos = mgr.generate(context=None, param={}, seed='something')
+          GenerateSite
+          GeneratePrincipals
+          - jukart
+          - srichter
+        
+        
+        How to setup configuration for the generator manager
+        ----------------------------------------------------
+        
+        Configuration can be done using ZCML.
+        
+          <configure xmlns="http://namespaces.zope.org/zope">
+        
+            <configure
+                xmlns:zcml="http://namespaces.zope.org/zcml"
+                zcml:condition="have devmode">
+        
+              <utility
+                  factory=".SampleSite"
+                  provides="p01.sampler.interfaces.ISampleDataPlugin"
+                  name="z3c.site"
+                  />
+        
+              <utility
+                  factory=".SamplePrincipals"
+                  provides="p01.sampler.interfaces.ISampleDataPlugin"
+                  name="z3c.principals"
+                  />
+        
+              <SampleManager
+                name="Site with principals"
+                >
+                <generator name="z3c.site" />
+                <generator
+                  name="z3c.principal"
+                  dependsOn="z3c.site"
+                  contextFrom="z3c.site" />
+              </SampleManager>
+        
+            </configure>
+        
+          </configure>
+        
+        
+        Data Sources
+        ------------
+        
+        This package implements the base functionality for data generators.
+        A data generator is used to provide the raw data for a sample generator.
+        Raw data can be read from text files in different ways.
+        
+          >>> from p01.sampler.data import DataGenerator
+          >>> generator = DataGenerator(55)
+        
+        The generator can read data lines from files.
+        
+          >>> generator.readLines('testlines.txt')
+          [u'Line 1', u'Another line']
+        
+        The generator can read data from CSV files.
+        
+          >>> generator.readCSV('testlines.csv')
+          [['Line 1', 'Col 2'], ['Another line', 'Another Col']]
+        
+        The generator can read a list of files from a path :
+        
+          >>> import os
+          >>> generator.files(os.path.dirname(__file__))
+          ['...README.txt', ...]
+        
+        
+        =======
+        CHANGES
+        =======
+        
+        0.5.0 (2012-11-17)
+        ------------------
+        
+        - initial release
+        
+Keywords: zope3 p01 sample data generator
+Platform: UNKNOWN
+Classifier: Development Status :: 4 - Beta
+Classifier: Environment :: Web Environment
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: Zope Public License
+Classifier: Programming Language :: Python
+Classifier: Natural Language :: English
+Classifier: Operating System :: OS Independent
+Classifier: Topic :: Internet :: WWW/HTTP
+Classifier: Framework :: Zope3
