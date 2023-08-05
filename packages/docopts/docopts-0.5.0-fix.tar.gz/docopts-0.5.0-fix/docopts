@@ -1,0 +1,151 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+__doc__ = """Shell interface for docopt, the CLI description language.
+
+Usage:
+  docopts [options] <doc> <version> [--] [<argv>...]
+
+Arguments:
+  <doc>                         The help message in docopt format.  If - is
+                                given, read the help message from standard
+                                input.
+  <version>                     A version message.  If an empty argument is
+                                given via '', no version message is used.
+                                If - is given, the version message is read
+                                from standard input.  The version message is
+                                read after the help message if both are given
+                                via standard input.
+
+Options:
+  -A <name>                     Export the arguments as a Bash 4.x associative
+                                array called <name>.
+  -s <sep>, --separator=<sep>   The string to use to separate <doc> from
+                                <version> when both are given via standard
+                                input [default: ----]
+  -H, --no-help                 Don't handle --help and --version specially.
+  -h, --help                    Show help options.
+  -V, --version                 Print program version.
+
+"""
+
+__version__ = """docopts 0.5.0+fix
+Copyright (C) 2012 Vladimir Keleshev, Lari Rasku.
+License MIT <http://opensource.org/licenses/MIT>.
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+
+"""
+
+import re
+import sys
+
+from cStringIO import StringIO
+from docopt import docopt, DocoptExit, DocoptLanguageError
+
+# helper functions
+def shellquote(s):
+    return "'" + s.replace("'", r"'\''") + "'"
+
+def isbashidentifier(s):
+    return re.match(r'^([A-Za-z]|[A-Za-z_][0-9A-Za-z_]+)$', s)
+
+def to_bash(obj):
+    return {
+        type(None): lambda x: '',
+        bool:       lambda x: 'true' if x else 'false',
+        int:        lambda x: str(x),
+        str:        lambda x: shellquote(x),
+        list:       lambda x: '(' + ' '.join(map(shellquote, x)) + ')',
+    }[type(obj)](obj)
+
+def name_mangle(elem):
+    if elem == '-' or elem == '--':
+        return None
+    elif re.match(r'^<.*>$', elem):
+        var = elem[1:-1]
+    elif re.match(r'^-[^-]$', elem):
+        var = elem[1]
+    elif re.match(r'^--.+$', elem):
+        var = elem[2:]
+    else:
+        var = elem
+    var = var.replace('-', '_')
+    if not isbashidentifier(var):
+        raise ValueError(elem)
+    else:
+        return var
+
+# parse docopts's own arguments
+args = docopt(doc=__doc__.strip(), version=__version__.strip())
+
+argv  = args['<argv>']
+name  = args['-A']
+help  = not args['--no-help']
+separator = args['--separator']
+
+doc = args['<doc>']
+version = args['<version>']
+if doc == '-' and version == '-':
+    doc, version = (page.strip() for page in
+                    sys.stdin.read().split(separator, 1))
+elif doc == '-':
+    doc = sys.stdin.read().strip()
+elif version == '-':
+    version = sys.stdin.read().strip()
+if version == '':
+    version = None
+
+# parse options or abort if there is an error in docopt
+try:
+    # temporarily redirect stdout to a StringIO so we can catch docopt()
+    # output on --help and --version
+    sys_stdout = sys.stdout
+    sys.stdout = StringIO()
+    exit_message = None
+    args = docopt(doc, argv, help, version)
+except DocoptLanguageError as e:
+    # invalid docstring by user
+    sys.exit("%s: invalid doc argument: %s" % sys.argv[0], e)
+except DocoptExit as e:
+    # invoked with invalid arguments
+    exit_message = "echo %s >&2\nexit 64" % (shellquote(str(e)),)
+except SystemExit as e:
+    # --help or --version found and --no-help was not given
+    exit_message = "echo -n %s\nexit 0" % (shellquote(sys.stdout.getvalue()),)
+finally:
+    # restore stdout to normal and quit if a docopt parse error happened
+    sys.stdout.close()
+    sys.stdout = sys_stdout
+    if exit_message:
+        print(exit_message)
+        sys.exit()
+
+if name is not None:
+    if not isbashidentifier(name):
+        sys.exit("%s: not a valid Bash identifier: %s" % (sys.argv[0], name))
+    arrays = dict((elem, value) for elem, value in args.items() if
+                  isinstance(value, list))
+    for elem, value in arrays.items():
+        del args[elem]
+        args[elem+',#'] = len(value)
+        args.update(('%s,%d' % (elem, i), v) for i,v in enumerate(value))
+    print('declare -A %s' % (name,))
+    for elem, value in args.items():
+        print('%s[%s]=%s' % (name, shellquote(elem), to_bash(value)))
+else:
+    try:
+        variables = dict(zip(map(name_mangle, args.keys()),
+                             map(to_bash, args.values())))
+    except ValueError as e:
+        sys.exit("%s: name could not be mangled into a valid Bash "
+                 "identifier: %s" % (sys.argv[0], e))
+    else:
+        variables.pop(None, None)
+        args.pop('-', None)
+        args.pop('--', None)
+    if len(variables) < len(args):
+        sys.exit("%s: two or more elements have identically mangled names" %
+                 (sys.argv[0],))
+    for var, value in variables.items():
+        print("%s=%s" % (var, value))
