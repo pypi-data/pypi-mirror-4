@@ -1,0 +1,207 @@
+=============
+WebKitBrowser
+=============
+
+This test will show how we can setup a WebKitBrowser and access a weg page
+using a simple GET request and submit a form using javascript. Note, this
+test will not do ajax calls. We simply tell that our WebKitBrowser should
+click on a clickable element using JQuery which does a form submit.
+
+ATTENTION: This test will start and stop a WSGI server in our test setup using
+our simple test WSGI application. Our WebKitBrowser browser instance will
+access this WSGI application like a real browser. This means the test browser
+will process any JavaScript. See setUpWSGITestApplication in p01/tester/tests.py
+
+Let's setup our WebKitBrowser test browser:
+
+  >>> from pprint import pprint
+  >>> from p01.tester.browser import DEBUG
+  >>> from p01.tester.browser import WebKitBrowser
+
+  >>> appURL = 'http://localhost:9090/'
+  >>> browser = WebKitBrowser(logLevel=DEBUG)
+  >>> browser.open(appURL + 'search.html')
+
+As you can see we will get the right url:
+
+  >>> browser.url
+  u'http://localhost:9090/search.html'
+
+  >>> print browser.log
+  Load started: http://localhost:9090/search.html
+  Provisional load: http://localhost:9090/search.html
+  Request: GET http://localhost:9090/search.html
+    User-Agent: ...
+    Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+  Wait on load started
+  Reply success: http://localhost:9090/search.html
+    Date: ...
+    Server: ...
+    Content-Type: text/html
+    Content-Length: ...
+  Request: GET http://localhost:9090/jquery-1.8.1.js
+    User-Agent: ...
+    Accept: */*
+    Referer: http://localhost:9090/search.html
+  Reply success: http://localhost:9090/jquery-1.8.1.js
+    Date: ...
+    Server: ...
+    Content-Type: application/javascript
+    Content-Length: ...
+  Page load: successful http://localhost:9090/search.html (808 bytes)
+  Wait on load after loop
+  Apply JQuery simulate
+
+And we will get our test page content:
+
+  >>> print browser.html
+  <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head>
+    <script type="text/javascript" src="http://localhost:9090/jquery-1.8.1.js"></script>
+    <script type="text/javascript">
+      var state = null;
+      jQuery(document).ready(function ($) {
+        state = 'ready';
+        $('#form-widgets-text').val('search something');
+        $('#form-widgets-submit').click(function() {
+          $('#form').submit();
+        });
+      });
+    </script>
+  </head>
+  <body>
+    <form action="./search.html" method="POST" id="form">
+      <input type="text" id="form-widgets-text" name="form.widgets.text" value="">
+      <input type="button" id="form-widgets-submit" value="submit me">
+      <!-- no result given -->
+    </form>
+  <BLANKLINE>
+  <BLANKLINE>
+  </body></html>
+
+Also important is to check if the javascript variable ``state`` was set to
+``ready`` by JQuery ready handling. This means jQuery get processed by our
+own jQuery JavaScript source:
+
+  >>> browser.js('state')
+  u'ready'
+
+Append some HTML content using explicit JQuery javascript code:
+
+  >>> code = "$('#form').append('<div id=\"new\">appended<\/div>')"
+  >>> browser.js(code, False)
+  >>> browser.js("$('#new').html()")
+  u'appended'
+
+Let's get the default search text input value:
+
+  >>> browser.val('#form-widgets-text')
+  u'search something'
+
+And set a new value:
+
+  >>> browser.val('#form-widgets-text', 'search me')
+
+The html content doesn't show the new value. That's like if you view the source
+in a browser. The injected parts do only exist in the DOM:
+
+  >>> 'search me' in browser.html
+  False
+
+but we can check them with JQuery:
+
+  >>> import time
+  >>> time.sleep(0.1)
+  >>> browser.val('#form-widgets-text')
+  u'search me'
+
+or with another CSS selector:
+
+  >>> browser.val('input[name=form\\\.widgets\\\.text]')
+  u'search me'
+
+Now submit our form using the input button. Remember input fields with the type
+button will do nothing by default. But as you can see, we will submit the
+form within our javascript method defined in our test form. This is not
+possible with a default zope.testbrowser based on mechanize.
+
+Also note that the submit event is sent to an element when the user is
+attempting to submit a form. It can only be attached to <form> elements.
+Forms can be submitted either by clicking an explicit <input type="submit">,
+<input type="image">, or <button type="submit">, or by pressing Enter when
+certain form elements have focus.
+
+
+Let's reset the log and click on our submit button:
+
+  >>> browser.resetLogMessages()
+  >>> browser.click("input#form-widgets-submit", waitOnCallback=2)
+
+As you can see the page get loaded. But we currently skip javascript errors.
+If you carfully check the log messages, you can see that the JQuery lib get
+applied to the new loaded page. But there is already a JQuery script defined.
+I don't know why this happens, but it seems that in the next test JQuery is
+available: 
+
+  >>> print browser.log
+  JavaScript: $("input#form-widgets-submit").simulate("click");
+  Wait on callback started
+  Load started: http://localhost:9090/search.html
+  Provisional load: http://localhost:9090/search.html
+  Request: POST http://localhost:9090/search.html
+    Origin: http://localhost:9090
+    User-Agent: ...
+    Content-Type: application/x-www-form-urlencoded
+    Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+    Referer: http://localhost:9090/search.html
+    Content-Length: ...
+  Request: GET http://localhost:9090/jquery-1.8.1.js
+    User-Agent: ...
+    Accept: */*
+    Referer: http://localhost:9090/search.html
+  Reply success: http://localhost:9090/search.html
+    Date: ...
+    Server: ...
+    Content-Type: application/xhtml+xml
+    Content-Length: ...
+  Reply success: http://localhost:9090/jquery-1.8.1.js
+    Date: ...
+    Server: ...
+    Content-Type: application/javascript
+    Content-Length: ...
+  Page load: successful http://localhost:9090/search.html (897 bytes)
+  Wait on callback after loop
+
+  >>> print browser.html
+  <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <script type="text/javascript" src="http://localhost:9090/jquery-1.8.1.js"></script>
+    <script type="text/javascript">
+      var state = null;
+      jQuery(document).ready(function ($) {
+        state = 'ready';
+        $('#form-widgets-text').val('search something');
+        $('#form-widgets-submit').click(function() {
+          $('#form').submit();
+        });
+      });
+    </script>
+  </head>
+  <body>
+    <form action="./search.html" method="POST" id="form">
+      <input type="text" id="form-widgets-text" name="form.widgets.text" value="" />
+      <input type="button" id="form-widgets-submit" value="submit me" />
+  <BLANKLINE>
+  <div id="result">
+    <strong>Result</strong>
+    <div class="item">here comes your search result</div>
+  </div>
+  <BLANKLINE>
+    </form>
+  </body>
+  </html>
+
+
+tear down
+---------
+
+  >>> browser.close()

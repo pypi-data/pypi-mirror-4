@@ -1,0 +1,234 @@
+====
+ajax
+====
+
+We will use some simple ajax calls using JQuery. The goal is to find out if
+our WebKitBrowser is able to do XMLHttp requests because this could make
+troubles compared to simply GET or POST requests. Using an XMLHttp request
+means that the browser has to deal with the Same Origin Policy. See:
+http://en.wikipedia.org/wiki/Same_origin_policy. Our test will show that JQuery
+can handle that by adding the right request headers.
+
+ATTENTION: This test will start and stop a WSGI server in our test setup using
+our simple test WSGI application. Our WebKitBrowser browser instance will
+access this WSGI application like a real browser. This means the test browser
+will process any JavaScript. See setUpWSGITestApplication in p01/tester/tests.py
+
+  >>> import p01.tester.testing
+  >>> logger = p01.tester.testing.getLogger('p01.tester.server')
+
+Let's setup our WebKitBrowser test browser:
+
+  >>> from pprint import pprint
+  >>> from p01.tester.browser import WebKitBrowser
+
+  >>> appURL = 'http://localhost:9090/'
+  >>> browser = WebKitBrowser()
+  >>> browser.open(appURL + 'post.html')
+
+As you can see we will get the right url:
+
+  >>> browser.url
+  u'http://localhost:9090/post.html'
+
+  >>> print browser.log
+  Request: GET http://localhost:9090/post.html
+    User-Agent: ...
+    Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+  Request: GET http://localhost:9090/jquery-1.8.1.js
+    User-Agent: ...
+    Accept: */*
+    Referer: http://localhost:9090/post.html
+  Reply success: http://localhost:9090/post.html
+    Date: ...
+    Server: ...
+    Content-Type: text/html
+    Content-Length: ...
+  Reply success: http://localhost:9090/jquery-1.8.1.js
+    Date: ...
+    Server: ...
+    Content-Type: application/javascript
+    Content-Length: ...
+  Request: POST http://localhost:9090/post-first.html
+    Origin: http://localhost:9090
+    XMLHTTPRequest invoked
+    X-Requested-With: XMLHttpRequest
+    User-Agent: ...
+    Accept: application/json, text/javascript, */*; q=0.01
+    Referer: http://localhost:9090/post.html
+    Content-Length: ...
+  Reply success: http://localhost:9090/post-first.html
+    Date: ...
+    Server: ...
+    XmlHttpRequest reply received
+    Content-Type: application/json
+    Content-Length: ...
+  Page load: successful http://localhost:9090/post.html (1689 bytes)
+
+Also check our server log:
+
+  >>> print logger.normalized
+  INFO 127.0.0.1:... - - [.../.../... ...:...:...] "GET /post.html HTTP/1.1" 200 1707
+  INFO 127.0.0.1:... - - [.../.../... ...:...:...] "GET /jquery-1.8.1.js HTTP/1.1" 200 ...
+  INFO 127.0.0.1:... - - [.../.../... ...:...:...] "POST /post-first.html HTTP/1.1" 200 51
+
+
+And we will get our test page content. Take care this is stil the initial
+content without the ajax loaded content. Ajax loaded content is only available
+in memory and not in our html value:
+
+  >>> print browser.html
+  <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head>
+    <script type="text/javascript" src="http://localhost:9090/jquery-1.8.1.js"></script>
+    <script type="text/javascript">
+      var state = null;
+      jQuery(document).ready(function ($) {
+        // load asap
+        $.ajax({
+          url: "http://localhost:9090/post-first.html",
+          type: 'POST',
+          dataType: 'json',
+          processData: false,
+          async: false,
+          success: function(data, textStatus) {
+            $('#result').html(data.result);
+            $('#status').html(textStatus);
+          },
+          error: function(jqXHR, textStatus, errorThrown) {
+            $('#result').html("FIRST ERROR");
+            $('#status').html(textStatus);
+          }
+        });
+        // clickable json loader
+        $('#clickable').click(function() {
+          $.ajax({
+            url: "http://localhost:9090/post-second.html",
+            type: 'POST',
+            dataType: 'json',
+            processData: false,
+            async: false,
+            success: function(data, textStatus) {
+              $('#result').html(data.result);
+              $('#status').html(textStatus);
+            },
+            error: function(jqXHR, textStatus, errorThrown) {
+              $('#result').html("SECOND ERROR");
+              $('#status').html(textStatus);
+            }
+          });
+        });
+      });
+    </script>
+  </head>
+  <body>
+    <form action="http://localhost:9090/post-nada.html" method="POST" id="form">
+      <input type="button" id="clickable" value="clickable">
+      <div id="result">FIRST DATA</div>
+      <div id="status">success</div>
+    </form>
+  </body></html>
+
+  >>> '<div id="result">FIRST DATA</div>' in browser.html
+  True
+
+  >>> '<div id="status">success</div>' in browser.html
+  True
+
+  >>> pprint(browser.headers)
+  {'Content-Length': '51',
+   'Content-Type': 'application/json',
+   'Date': '...',
+   'Server': 'WSGIServer/0.1 Python/...'}
+
+
+Now let's test if we can send an ajax request started with JQuery:
+
+  >>> browser.resetLogMessages()
+  >>> browser.js('$("#clickable").click()', False, waitOnCallback=1)
+
+  >>> print browser.html
+  <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head>
+    <script type="text/javascript" src="http://localhost:9090/jquery-1.8.1.js"></script>
+    <script type="text/javascript">
+      var state = null;
+      jQuery(document).ready(function ($) {
+        // load asap
+        $.ajax({
+          url: "http://localhost:9090/post-first.html",
+          type: 'POST',
+          dataType: 'json',
+          processData: false,
+          async: false,
+          success: function(data, textStatus) {
+            $('#result').html(data.result);
+            $('#status').html(textStatus);
+          },
+          error: function(jqXHR, textStatus, errorThrown) {
+            $('#result').html("FIRST ERROR");
+            $('#status').html(textStatus);
+          }
+        });
+        // clickable json loader
+        $('#clickable').click(function() {
+          $.ajax({
+            url: "http://localhost:9090/post-second.html",
+            type: 'POST',
+            dataType: 'json',
+            processData: false,
+            async: false,
+            success: function(data, textStatus) {
+              $('#result').html(data.result);
+              $('#status').html(textStatus);
+            },
+            error: function(jqXHR, textStatus, errorThrown) {
+              $('#result').html("SECOND ERROR");
+              $('#status').html(textStatus);
+            }
+          });
+        });
+      });
+    </script>
+  </head>
+  <body>
+    <form action="http://localhost:9090/post-nada.html" method="POST" id="form">
+      <input type="button" id="clickable" value="clickable">
+      <div id="result">SECOND DATA</div>
+      <div id="status">success</div>
+    </form>
+  </body></html>
+  
+  >>> '<div id="result">SECOND DATA</div>' in browser.html
+  True
+  
+  >>> '<div id="status">success</div>' in browser.html
+  True
+
+  >>> pprint(browser.headers)
+  {'Content-Length': '52',
+   'Content-Type': 'application/json',
+   'Date': '...',
+   'Server': 'WSGIServer/0.1 Python/...'}
+
+  >>> print browser.log
+  JavaScript: $("#clickable").click()
+  Request: POST http://localhost:9090/post-second.html
+    Origin: http://localhost:9090
+    XMLHTTPRequest invoked
+    X-Requested-With: XMLHttpRequest
+    User-Agent: ...
+    Accept: application/json, text/javascript, */*; q=0.01
+    Referer: http://localhost:9090/post.html
+    Content-Length: ...
+  Reply success: http://localhost:9090/post-second.html
+    Date: ...
+    Server: ...
+    XmlHttpRequest reply received
+    Content-Type: application/json
+    Content-Length: ...
+
+
+tear down
+---------
+
+  >>> browser.close()
+  >>> logger.uninstall()
