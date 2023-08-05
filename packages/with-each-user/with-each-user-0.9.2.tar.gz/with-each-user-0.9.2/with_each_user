@@ -1,0 +1,253 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+import os
+import sys
+import pwd
+import pipes
+import fnmatch
+import argparse
+import multiprocessing
+import subprocess as subp
+
+
+def main(arguments):
+    """
+    Execute commands sequentially
+
+    :param arguments: list of arguments parsed with argparse
+    """
+    for user in get_users(mask=arguments.mask,
+                          shell=arguments.shell,
+                          min_uid=arguments.min_uid,
+                          max_uid=arguments.max_uid):
+        next_action = 'continue'
+        if arguments.interactive:
+            next_action = ask_for_next_action(user)
+        if next_action == 'continue':
+            run_command(get_run_arguments(user, arguments))
+        if next_action == 'cancel':
+            break
+
+
+def ask_for_next_action(user):
+    """
+    Helper function which is used in interactive mode (-i option)
+    """
+    while True:
+        question = ('Do you want to keep going with '
+                    '{user.pw_name}? [y/n/c]: ').format(user=user)
+        answer = raw_input(question)
+        if answer.lower().startswith('y'):
+            return 'continue'
+        elif answer.lower().startswith('n'):
+            return 'skip'
+        elif answer.lower().startswith('c'):
+            return 'cancel'
+        print ('Please enter\n'
+               '  "y" to run command\n'
+               '  "n" to skip execution of the command for this user\n'
+               '  "c" to cancel\n')
+
+
+def main_parallel(arguments):
+    """
+    Execute commands in parallel.
+
+    Concurrency level is defined by '-c' option
+
+    :param arguments: list of arguments parsed with argparse
+    """
+    func_args = []
+    manager = multiprocessing.Manager()
+    lock = manager.Lock()
+    for user in get_users(mask=arguments.mask,
+                          shell=arguments.shell,
+                          min_uid=arguments.min_uid,
+                          max_uid=arguments.max_uid):
+        run_arguments = get_run_arguments(user, arguments)
+        run_arguments['lock'] = lock
+        func_args.append(run_arguments)
+    pool = multiprocessing.Pool(arguments.concurrency)
+    pool.map(run_command, func_args)
+
+
+def get_run_arguments(user, arguments):
+    """
+    Helper function to convert arguments + user to one dict
+
+    Required because pool.map accepts exactly one argument
+    """
+    run_arguments = arguments.__dict__.copy()
+    run_arguments['user'] = user
+    return run_arguments
+
+
+def run_command(run_arguments):
+    """
+    The real command which does the stuff on behalf of user
+
+    Basically, it just does
+
+    su - username -c "command you typed"
+    or, if option '--root' is used
+    bash -c "command you typed"
+
+
+    and prints data to stdout/stderr or to log files
+    """
+    user = run_arguments['user']
+    command = ' '.join(run_arguments['command'])
+    current_directory = run_arguments.get('current_directory')
+    log_directory = run_arguments.get('log_directory')
+    lock = run_arguments.get('lock', FakeLock())
+
+    if current_directory is not None:
+        command = 'cd {0} && {1}'.format(pipes.quote(current_directory), command)
+    if run_arguments.get('format'):
+        command = format_command(user, command)
+    if run_arguments.get('root'):
+        cmd = ['bash', '-c', command]
+    else:
+        cmd = ['su', '-', user.pw_name, '-c', command]
+        if run_arguments.get('preserve_environment'):
+            cmd.insert(1, '-p')
+    pipe = subp.Popen(cmd, stdout=subp.PIPE, stderr=subp.PIPE)
+    out, err = pipe.communicate()
+    if log_directory:
+        if not os.path.isdir(log_directory):
+            os.makedirs(log_directory)
+        out_file = os.path.join(log_directory, '{0}.out'.format(user.pw_name))
+        with open(out_file, 'w') as fd:
+            fd.write(out or '')
+        err_file = os.path.join(log_directory, '{0}.err'.format(user.pw_name))
+        with open(err_file, 'w') as fd:
+            fd.write(err or '')
+    else:
+        prefixed_out = add_prefix(out, '[{0} out] '.format(user.pw_name))
+        prefixed_err = add_prefix(err, '[{0} err] '.format(user.pw_name))
+        lock.acquire()
+        try:
+            sys.stdout.write(prefixed_out)
+            sys.stderr.write(prefixed_err)
+        finally:
+            lock.release()
+
+
+def format_command(user, command):
+    """
+    Format command string, if "-f" option is passed
+    """
+    context = {'user': user.pw_name, 'uid': user.pw_uid, 'gid': user.pw_gid,
+               'gecos': user.pw_gecos, 'home': user.pw_dir,
+               'shell': user.pw_shell}
+    return command.format(**context)
+
+
+def add_prefix(text, prefix):
+    """
+    Helper function which adds the prefix to every line of multiline string
+    """
+    if not text.strip():
+        return ''
+    chunks = text.splitlines()
+    ret = ''.join(['{0}{1}\n'.format(prefix, chunk) for chunk in chunks])
+    return ret
+
+
+class FakeLock(object):
+    """
+    Fake lock object. Used when commands are executed sequentially
+    """
+
+    def acquire(self, blocking=True):
+        pass
+
+    def release(self):
+        pass
+
+
+def get_users(mask=None, shell=None,
+                         min_uid=None,
+                         max_uid=None):
+    """
+    Get the list of all users
+
+    :param mask:    a glob mask (i.e. "user*") to filter users
+    :param shell:   filter user by their shells
+    :param min_uid: minimum uid to filter users out
+    :param max_uid: maximum uid to filter users out
+
+    Return pwd.struct_passwd with fields:
+    pw_name, pw_passwd, pw_uid, pw_gid, pw_gecos, pw_dir, pw_shell
+    """
+    ret = []
+    for entry in pwd.getpwall():
+        if min_uid is not None and entry.pw_uid < min_uid:
+            continue
+        if max_uid is not None and entry.pw_uid > max_uid:
+            continue
+        if shell is not None and entry.pw_shell != shell:
+            continue
+        if mask and not fnmatch.fnmatch(entry.pw_name, mask):
+            continue
+        ret.append(entry)
+    return ret
+
+
+def get_arguments():
+    parser = argparse.ArgumentParser(
+                        description='Execute a command for a number users in '
+                                    'the server')
+    parser.add_argument('-m', '--mask',
+                        help='Filter users by their logins. '
+                             'Globbing is here allowed, you can type, '
+                             'for example, "user*"')
+    parser.add_argument('-s', '--shell',
+                        help='Filter users by their shells. For example, '
+                             'you can exclude the majority of system users '
+                             'by issuing "/bin/bash" here')
+    parser.add_argument('-u', '--min-uid', type=int, default=0,
+                        help='Filter users by their minimal uid.')
+    parser.add_argument('-U', '--max-uid', type=int, default=None,
+                        help='Filter users by their max uid (to filter out '
+                             '"nobody", for example')
+    parser.add_argument('-c', '--concurrency', type=int, default=1,
+                        help='Number of processes to run simultaneously')
+    parser.add_argument('-d', '--current-directory',
+                        help='Script working directory (relative to user\'s home)')
+    parser.add_argument('-p', '--preserve-environment', action='store_true',
+                        default=False,
+                        help='Preserve root environment. Arguments match the '
+                             'same of "su" command')
+    parser.add_argument('-f', '--format', action='store_true',
+                        default=False,
+                        help='Format command line with variables custom for '
+                             'every user. Supported variables: {user}, {uid}, '
+                             '{gid}, {home}, {shell}, {gecos}.')
+    parser.add_argument('-r', '--root', action='store_true',
+                        default=False,
+                        help='Run command with root privileges (do not "su" to '
+                             'selected user). Option "--format" is helpful '
+                             'there')
+    parser.add_argument('-i', '--interactive', action='store_true', default=False,
+                        help='Interactive execution. Set this flag to run '
+                             'processes interactively')
+    parser.add_argument('-L', '--log-directory',
+                        help='Directory to store log for all executions. '
+                             'Omit this argument if you want just to print '
+                             'everything to stdout/stderr')
+    parser.add_argument('command', nargs='+',
+                        help='Shell command to execute')
+    args = parser.parse_args()
+    return args
+
+
+if __name__ == '__main__':
+    arguments = get_arguments()
+    if os.getuid() != 0:
+        raise SystemExit('You must be "root" to run this program')
+    if arguments.interactive or arguments.concurrency < 2:
+        ret = main(arguments)
+    else:
+        ret = main_parallel(arguments)
+    raise SystemExit(ret)
