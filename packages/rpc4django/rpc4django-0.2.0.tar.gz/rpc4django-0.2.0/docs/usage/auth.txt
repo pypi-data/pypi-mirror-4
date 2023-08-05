@@ -1,0 +1,93 @@
+Authentication
+==============
+
+RPC4Django can be used with authenticated HTTP(s) requests and Django's 
+`auth <http://docs.djangoproject.com/en/dev/topics/auth>`_ framework.
+
+Where security is a concern, authentication should **only** be used where
+SSL or TLS are enabled.
+
+.. note:: **A note about versions**
+
+  It uses `RemoteUserMiddleware`_ or another derived middleware which is only 
+  built-in to Django 1.1 and higher. It is possible to use it
+  with Django versions prior to 1.1, but it would require the 
+  ``RemoteUserMiddleware`` and the ``RemoteUserBackend`` to be added manually.
+
+  .. _RemoteUserMiddleware: http://docs.djangoproject.com/en/1.1/howto/auth-remote-user/
+
+Setup
+-----
+
+Firstly, the webserver should be configured to use basic HTTP authentication or some sort of single sign on (SSO) solution.
+
+In settings.py, the following changes need to be made:
+
+::
+
+    MIDDLEWARE_CLASSES = (
+        # ...
+        # Must be enabled for RPC4Django authenticated method calls
+        'django.contrib.auth.middleware.AuthenticationMiddleware',
+        
+        # Required for RPC4Django authenticated method calls
+        # Requires Django 1.1+
+        'django.contrib.auth.middleware.RemoteUserMiddleware',
+    )
+    
+    # Required for RPC4Django authenticated method calls
+    # Requires Django 1.1+
+    AUTHENTICATION_BACKENDS = (
+        'django.contrib.auth.backends.RemoteUserBackend',
+    )
+
+Usage
+-----
+
+To protect a method, it needs to be defined with the ``@rpcmethod`` decorator and the ``permission`` or ``login_required`` parameters.
+
+::
+
+    from rpc4django import rpcmethod
+    
+    @rpcmethod(name='rpc4django.secret', signature=['string'], permission='auth.add_group')
+    def secret():
+        return "Successfully called a protected method"
+
+    @rpcmethod(name='rpc4django.restricted', signature=['string'], login_required=True)
+    def restricted():
+        return "Successfully called a method for logged in users only"
+
+To call an authenticated method from the Python command prompt, use the following:
+
+::
+
+    from xmlrpclib import ServerProxy
+    s = ServerProxy('https://username:password@example.com')
+    s.rpc4django.secret()
+    
+.. _ootb_auth:
+    
+Out of the Box Authentication
+-----------------------------
+
+By setting :envvar:`RPC4DJANGO_RESTRICT_OOTB_AUTH` to ``False``, 
+:meth:`system.login <rpc4django.rpcdispatcher.RPCDispatcher.system_login>` and 
+:meth:`system.logout <rpc4django.rpcdispatcher.RPCDispatcher.system_logout>` 
+methods will be enabled. These rely on Django's SessionMiddleware_ which requires
+a cookie-aware transport.
+
+.. _SessionMiddleware: http://docs.djangoproject.com/en/dev/topics/http/sessions/#enabling-sessions
+
+::
+
+    from xmlrpclib import ServerProxy
+    from rpc4django.utils import CookieTransport
+    s = ServerProxy('https://example.com', transport=CookieTransport())
+    
+    s.rpc4django.secret()   # 403 Forbidden
+    
+    if s.system.login(username, password):
+        s.rpc4django.secret()   # Success!
+        s.system.logout()
+    
