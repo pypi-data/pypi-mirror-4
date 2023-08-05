@@ -1,0 +1,1 @@
+This package provides a session implementation based on mongodb for Zope3.
