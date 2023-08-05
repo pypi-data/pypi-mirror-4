@@ -1,0 +1,91 @@
+==================================
+Works 4.x to Word Python Converter
+==================================
+
+General
+=======
+Works 4.x to Word Python Converter bulk converts those ancient archaic Microsoft Works Word Processor 4.x (.wps) files to Microsoft Word 2007 format (.docx). If run with no arguments it will just create the converted file beside each processed file with the same name except the extension. The script does NO changes to the existing files unless you specifically tell it to (see *Usage*).
+
+Requirements
+============
+`Python 2.7x<http://www.python.org/download>`_ and the following Python packages (but if you use Easy_Install or PIP you don't need to worry about these - they'll be automagically installed for you):
+1. `Python Docx<http://pypi.python.org/pypi/docx/0.1.2>`_
+2. `PIL (Python Image Library)<http://pypi.python.org/pypi/PIL/1.1.6>`_ 
+3. `LXML<http://lxml.de/installation.html>`_ (or many might prefer a `exe installer<http://www.lfd.uci.edu/~gohlke/pythonlibs/#lxml>`_)
+4. `Send2Trash<http://pypi.python.org/pypi/Send2Trash/1.2.0>`_
+5. `Python dateutil<http://pypi.python.org/pypi/python-dateutil/2.1>`_
+
+Installation
+===========
+**Special note for Windows users:** Unfortunately most Windows system aren't be set up to build & install LXML from the source so unless you know otherwise just presume that it will be *much* easier to manually download and run the `LXML exe installer<http://www.lfd.uci.edu/~gohlke/pythonlibs/#lxml>`_ and do that first before proceeding with installation.
+
+Installation via PIP::
+    pip install works-4x-to-word-python-converter
+or Easy_Install::
+    easy_install works-4x-to-word-python-converter
+is suggestioned (PIP more so since it is a better python package installation solution). You can also download the source files, eggs or for Windows users a nice executable installer from here. 
+
+Usage
+=====
+If you have your Python scrips dir in your path (which you really should) usage is very simple::
+    works_to_word.py -S C:\source\files
+(Replacing C:\source\files with the actual location of the source files of course)
+If it isn't set you just have to include the full path which on Windows with Python 2.7x defaults to C:\Python27\Scripts like so::
+    C:\Python27\Scripts\works_to_word.py -S C:\source\files
+Or if you have multiple python versions installed and you want to use a non-default one::
+    C:\Python27\Python.exe C:\Python27\Scripts\works_to_word.py -S C:\source\files
+    
+Source location is not the only option you have; there are half a dozen arguments you can use::
+    -h, --help          show this help message and exit
+    -S SOURCEPATH, --sourcePath=SOURCEPATH
+                        Set the source path to process, if unset defaults to
+                        location from which program is run
+    -D DESTPATH, --destPath=DESTPATH
+                        Set the destination path to save processed files to,
+                        if unset defaults to saving beside the existing files
+    --delete            Deletes the source files after processing - ARE YOU
+                        SURE YOU WANT TO DO THIS?!
+    -A, --archive       Archive the source files after processing - but
+                        doesn't delete them, consider using with the dangerous
+                        --delete flag
+    -d, --debug         If called with the --debug flag instead of just
+                        warning that a file failed will raise the error so
+                        that you can debug it properly - or send problematic
+                        file to nick.wilde.90@gmail.com
+
+
+Changelog
+=========
+
+Version 2.0.1:
+    Added readme
+    Fixed packaging error that distribute_setup.py wasn't automatically being included so for some systems it could not be found and hence installation would fail.
+    Added LICENCE.txt to package.
+    Added python-dateutil to requirements since with the latest version of Python docx it is required but the package for python-docx does not automatically include it even when used with PIP or Easy_Install.
+    
+Version 2.0.0:
+    Created proper python package
+    Added command line argument processing
+        -h/--help
+        -S/--sourcePath
+        -D/--destPath
+        --delete
+        -A/--archive
+        -d/--debug
+    Improved error handling
+
+Versions <= 1.0 2011-2012 quick and dirty script to do a needed job on the double.
+
+Future Plans
+============
+No plan for timing but possible future plans may include:
+    GUI
+    Option to scan inside archives for sourcefiles
+
+Acknowledgements
+================
+
+Thanks to Guido et al for the awesome language that Python is.
+Thanks to the authors of all the required packages that enable this to actually do something.
+Thanks to Wrye (of The Elder Scrolls IV Oblivion fame) for my first python hints/suggestions/'that's not the best way to do it' (and the amazing program that is Wrye Bash)
+Thanks to Amorilia for all his suggestions of improvement to my python code over the years
