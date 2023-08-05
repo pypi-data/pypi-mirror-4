@@ -1,0 +1,230 @@
+#!/usr/bin/python2.6
+# -*- coding:utf-8; tab-width:4; mode:python -*-
+
+import sys
+import os
+import logging
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from commodity.pattern import memoized
+from commodity.deco import tag
+from commodity.log import CapitalLoggingFormatter
+
+# FIXME: to commodity
+def set_logging_formatter(logger, formatter):
+    if not logger.handlers:
+        logger.addHandler(logging.StreamHandler())
+
+    for handler in logger.handlers:
+        handler.setFormatter(formatter)
+
+logger = logging.getLogger('bucket')
+logger.setLevel(logging.ERROR)
+logger.propagate = False
+
+set_logging_formatter(
+    logger,
+    CapitalLoggingFormatter('[%(levelcapital)s] %(name)s %(message)s'))
+
+from bitbucket.cli import Parser
+from bitbucket.exceptions import BBException
+from bitbucket.api import Session
+
+
+
+class CLI(object):
+    def __init__(self, config):
+        self.config = config
+        self.set_logging_level(config.verbose)
+        self.session = Session(config.account, logger)
+
+    def set_logging_level(self, verbosity):
+        if self.config.verbose > 1:
+            logger.setLevel(logging.DEBUG)
+        elif self.config.verbose == 1:
+            logger.setLevel(logging.INFO)
+        else:
+            logger.setLevel(logging.ERROR)
+
+    def run(self, command):
+        method = getattr(self, command.replace('-', '_'))
+        assert hasattr(method, 'command')
+        retval =  method()
+        print "-- ok"
+        return retval
+
+    @memoized
+    def key_manager(self):
+        return self.session.create_ssh_key_manager()
+
+    @memoized
+    def repo_manager(self):
+        manager = self.session.create_repo_manager(
+            owner=self.config.owner, proto=self.config.repo_clone.proto)
+
+        print "account:", self.session.user
+        if manager.owner != self.session.user:
+            print "owner:  ", manager.owner
+        return manager
+
+    @tag('command')
+    def show_config(self):
+        print self.config
+
+    @tag('command')
+    def ssh_ls(self):
+        print "SSH public keys for user:", self.session.user
+        key_summaries = self.key_manager().list_key_summaries()
+        if not key_summaries:
+            print "No keys found"
+            return
+
+        print str.join('\n', key_summaries)
+
+    @tag('command')
+    def ssh_add(self):
+        pk = self.key_manager().add_key(self.config.keylabel, self.config.keyfile)
+        print 'PK for the uploaded key:', pk
+
+    @tag('command')
+    def ssh_del(self):
+        self.key_manager().delete_key_by_label(self.config.keylabel)
+
+    @tag('command')
+    def repo_ls(self):
+        repo_manager = self.repo_manager()
+        repos = repo_manager.get_repos()
+        item = u'{slug}'
+        if self.config.repo_ls.show_access:
+            item = u'{access:7} - ' + item
+
+        if self.config.repo_ls.show_scm:
+            item = u'{scm:3} - ' + item
+
+        if self.config.repo_ls.show_desc:
+            item = item + u'\n    desc: {description}\n'
+
+        print '-- repos:'
+        for repo in repos:
+            info = repo.fields.copy()
+            info['access'] = 'private' if info['is_private'] else 'public'
+            if self.config.repo_ls.scm not in ['all', info['scm']]:
+                continue
+            if self.config.repo_ls.access not in ['all', info['access']]:
+                continue
+            line = item.format(**info)
+            print line.encode('utf-8')
+
+    @tag('command')
+    def repo_create(self):
+        self.set_owner_from_reponame()
+        repo = self.repo_manager().create_repo(
+            self.config.reponame,
+            scm=self.config.repo_create.scm,
+            private=self.config.repo_create.private,
+            desc=self.config.repo_create.desc)
+
+        print u"repo '%s' created" % repo
+
+        if self.config.repo_create.clone:
+            self.repo_clone()
+
+    @tag('command')
+    def repo_set(self):
+        self.set_owner_from_reponame()
+        repo = self.repo_manager().get_repo(self.config.reponame)
+
+        if self.config.repo_set.private is not None:
+            repo.fields['is_private'] = self.config.repo_set.private
+
+    @tag('command')
+    def repo_del(self):
+        self.set_owner_from_reponame()
+        answer = raw_input("This is an IRRECOVERABLE operation!!\nAre you sure? (write uppercase 'yes'): ")
+        if answer != 'YES':
+            print '-- canceled'
+            return
+
+        self.repo_manager().delete_repo(self.config.reponame)
+
+    @tag('command')
+    def repo_clone(self):
+        self.set_owner_from_reponame()
+        destdir = self.config.repo_clone.destdir
+
+        repo = self.repo_manager().get_repo(self.config.reponame)
+        if repo.have_local_copy(destdir):
+            repo.update(destdir)
+            message = u"repo '%s' is already cloned, updating..." % repo
+        else:
+            repo.clone(destdir)
+            message = u"repo '%s' cloned" % repo
+
+        if destdir != '.':
+            message += u" to '%s'" % destdir
+
+        print message
+
+    @tag('command')
+    def repo_sync(self):
+        self.config.owner = self.config.repo_sync.owner
+        repo_manager = self.repo_manager()
+        destdir = self.config.repo_clone.destdir
+
+        repos = []
+        if self.config.reponames:
+            repos = repo_manager.get_repos(self.config.reponames)
+
+        elif self.config.repo_sync.already:
+            all_repos = repo_manager.get_repos()
+            repos = [r for r in all_repos if r.have_local_copy(destdir)]
+
+        elif self.config.repo_sync.all:
+            repos = repo_manager.get_repos()
+
+        else:
+            logger.error('You must specify a repository at least')
+            return
+
+        for repo in repos:
+            repo.sync(destdir)
+            print u"repo '%s' synchronized" % repo
+
+
+    def set_owner_from_reponame(self):
+        reponame = self.config.reponame.strip('/')
+        if '/' in reponame:
+            self.config.owner, self.config.reponame = reponame.split('/')
+        else:
+            self.config.owner = None
+
+def main():
+    parser = Parser()
+
+    try:
+        config = parser.parse()
+    except Exception as e:
+        raise
+        print e
+        return 1
+
+    cli = CLI(config)
+
+    try:
+        cli.run(config.command)
+
+    except BBException as e:
+        print e
+        print "FAIL"
+        return 1
+
+    except KeyboardInterrupt:
+        print "canceled"
+
+    except:
+        print "ERROR"
+        raise
+
+
+if __name__ == '__main__':
+    sys.exit(main())
