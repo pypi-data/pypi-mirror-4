@@ -1,0 +1,64 @@
+=====================
+Buffer capacity tests
+=====================
+
+We want less writes to the mongodb, so we buffer log entries
+in memory. How many entries are buffered is set by the "capacity"
+setup variable.
+
+  >>> import logging
+  >>> from pprint import pprint
+
+  >>> import m01.logger
+  >>> pprint(logging._handlerList) # Python 2.7 has weakref stuff here
+  [<weakref at ...; to 'NullHandler' at ...>,
+   <weakref at ...; to 'MongoHandler' at ...>]
+
+  >>> logger = logging.getLogger('m01.logger.testing')
+  >>> mongoHandler = logger.handlers[0]
+  >>> mongoHandler
+  <MongoHandler m01_logger_testing.testing; from testinstance>
+
+Adjust default log level:
+
+  >>> logger.setLevel(logging.DEBUG)
+
+For this test capacity is set to 5,
+So after 3 log entries, nothing should be in the mongodb yet:
+
+  >>> logger.info(u'one')
+  >>> logger.info(u'two')
+  >>> logger.info(u'three')
+
+  >>> found = tuple(mongoHandler.collection.find())
+  >>> len(found)
+  0
+
+Log 2 more and we should be there:
+
+  >>> logger.info(u'four')
+  >>> logger.info(u'five')
+
+  >>> found = tuple(mongoHandler.collection.find())
+  >>> len(found)
+  5
+
+All 5 messages should be in the db now:
+
+  >>> found = tuple(mongoHandler.collection.find())
+  >>> for x in found:
+  ...     print x[u'levelname'], x[u'message'], x[u'filename'], x[u'instance']
+  INFO one <doctest capacity.txt[...]> testinstance
+  INFO two <doctest capacity.txt[...]> testinstance
+  INFO three <doctest capacity.txt[...]> testinstance
+  INFO four <doctest capacity.txt[...]> testinstance
+  INFO five <doctest capacity.txt[...]> testinstance
+
+Add another one and we still have 5 in the db:
+
+  >>> logger.info(u'six')
+
+  >>> found = tuple(mongoHandler.collection.find())
+  >>> len(found)
+  5
+
