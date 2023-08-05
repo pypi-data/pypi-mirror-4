@@ -1,0 +1,47 @@
+# -*- coding: utf-8 -*-
+import os
+import sys
+import re
+try:
+    from setuptools import setup
+except ImportError:
+    from distutils.core import setup
+
+from pymlconf import __version__ as package_version
+
+# reading pymlconf version (same way sqlalchemy does)
+with open(os.path.join(os.path.dirname(__file__),'pymlconf', '__init__.py')) as v_file:
+    package_version = re.compile(r".*__version__ = '(.*?)'",re.S).match(v_file.read()).group(1)
+
+dependencies = ['pyyaml>=3.10']
+
+# checking for current python version to add legacy `ordereddict` module into dependencies
+if sys.version_info < (2, 7):
+    dependencies.append('ordereddict')
+
+def read(fname):
+    return open(os.path.join(os.path.dirname(__file__), fname)).read()
+
+setup(
+    name="pymlconf",
+    version=package_version,
+    author="Vahid Mardani",
+    author_email="vahid.mardani@gmail.com",
+    url="http://packages.python.org/pymlconf",
+    description="Python high level configuration library",
+    maintainer="Vahid Mardani",
+    maintainer_email="vahid.mardani@gmail.com",
+    packages=["pymlconf"],
+    platforms=["any"],
+    long_description=read('README.txt'),
+    install_requires=dependencies,
+    classifiers=[
+        "Development Status :: 5 - Production/Stable",
+        "License :: Freeware",
+        'Intended Audience :: Developers',
+        'Operating System :: OS Independent',
+        'Programming Language :: Python :: 2.6',
+        'Programming Language :: Python :: 2.7',
+        'Topic :: Software Development :: Libraries'
+        ],
+    )
