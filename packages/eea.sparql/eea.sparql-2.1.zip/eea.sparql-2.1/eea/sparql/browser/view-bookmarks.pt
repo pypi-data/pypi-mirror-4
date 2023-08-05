@@ -1,0 +1,149 @@
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en-US"
+  lang="en-US"
+  metal:use-macro="here/main_template/macros/master"
+  i18n:domain="eea">
+
+<body>
+<div metal:fill-slot="content-core" 
+     tal:define="isManager python: checkPermission('Manage portal', here);
+                options view/getBookmarks; 
+                isDaviz view/isDavizInstalled;
+                isAnon context/@@plone_portal_state/anonymous;
+                bookmarks_url python:'/'.join(['/'.join(context.endpoint_url.split('/')[0:-1]),'factsheet.action'])">
+
+
+    <table class="grid listing" id="sparql-bookmarks" tal:condition="options/data">
+      <thead>
+        <tr>
+          <th style="width: 40%" i18n:translate="">
+            Dataset
+          </th>
+          <th style="width: 50%" i18n:translate="">
+            Existing visualizations
+          </th>
+          <th tal:condition="python: not isAnon" i18n:translate="">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tal:row repeat="row options/data">
+        <tr>
+          <td>
+            <a tal:attributes="href python:bookmarks_url+'?uri='+row['bookmark']"
+              tal:content="row/name" target="_blank">bookmark</a>
+          </td>
+          <td tal:define="name row/name">
+            <ul>
+                <li tal:repeat="vis python:view.getVisualizations(name)">
+                <a tal:attributes="href vis/absolute_url; title vis/pretty_title_or_id">
+                  <tal:if define="image_tile vis/cover.png | nothing">
+                    <span tal:condition="image_tile">
+                        <img tal:attributes="
+                            title vis/pretty_title_or_id;
+                            alt vis/pretty_title_or_id;
+                            src string:${vis/absolute_url}/image_tile" />
+                    </span>
+                    <span tal:condition="not: image_tile" 
+                          tal:replace="vis/pretty_title_or_id" />
+                  </tal:if>
+                </a>
+            </li></ul>
+            <tal:block tal:condition="python: isDaviz">
+                    <form action="createVisualization" method="POST">
+                        <input type="hidden" name="title" tal:attributes="value python:row['name']"/>
+                        <input type="submit" value="Create Visualization" i18n:attributes="value" class="context"/>
+                    </form>
+            </tal:block>
+          </td>
+          <td tal:condition="python: not isAnon" >
+            <form action="addOrUpdateQueryFromBookmark" method="POST">
+                <input type="hidden" name="title" tal:attributes="value python:row['name']"/>
+                <input type="hidden" name="query" tal:attributes="value python:row['sparql']"/>
+                <input type="submit" tal:attributes="value python:{0:'Add',1:'Go To',2:'Update'}.get(row['status'])" class="context"/>
+            </form>
+          </td>
+        </tr>
+        </tal:row>
+      </tbody>
+    </table>
+    
+    <h3 i18n:translate="">Data repository info</h3>
+    <label i18n:translate="">SPARQL Endpoint:</label>
+    <br/>
+    <span tal:content="context/endpoint_url">endpoint</span>
+    <br/>
+    <label i18n:translate="">Synchronisation info</label>
+    
+    <form tal:condition="options/arg_spec"
+          name="method-arguments" method="get">
+      <table>
+        <tr tal:repeat="arg options/arg_spec">
+          <td class="form-label" tal:content="arg"/>
+          <td tal:define="input_name python:'%s:utf8:ustring' % (arg,)">
+            <input size="50"
+                   tal:define="prev_value python:request.form.get(arg)"
+                   tal:attributes="name input_name; value prev_value"/>
+          </td>
+        </tr>
+        <tr><td colspan="2"><input type="submit" value="Execute" i18n:attributes="value"/></td></tr>
+      </table>
+    </form>
+
+    <blockquote class="sparql-query"
+            tal:condition="options/query|nothing"
+            tal:content="structure options/query"/>
+
+    <p class="sparql-stats" tal:condition="options/data">
+      Received
+      <span class="number" tal:content="python:len(options['data'])"/>
+      datasets (sparql queries) <tal:block condition="python:'duration' in options"> in
+      <span class="number" tal:content="python:'%.3f' % options['duration']"/>
+      seconds</tal:block>
+    </p>
+
+    <form action="syncQueriesWithBookmarks" tal:condition="isManager">
+        <input type="submit" 
+               value="Synchronize Queries with Bookmarks" 
+               class="context" 
+               i18n:attributes="value"/>
+    </form>
+
+    <p class="sparql-has-result"
+       tal:define="has_result options/data/has_result|nothing"
+       tal:condition="python: has_result is not None">
+       
+      <tal:block condition="has_result" i18n:translate=""> 
+          Query will return a result.
+      </tal:block>
+      <tal:block condition="not:has_result" i18n:translate="">
+          Query will not return a result.
+      </tal:block>     
+    </p>
+
+    
+    <blockquote class="sparql-error"
+            tal:condition="options/error|nothing"
+            tal:content="options/error"/>
+
+    <br/>
+    <h3 i18n:translate="">Downloads</h3>
+    <div class="eea-sparql-downloads">
+        <a tal:attributes="href string:${context/absolute_url}/download.json" 
+           tal:content="string:JSON"></a>
+        <a tal:attributes="href string:${context/absolute_url}/download.exhibit"
+           tal:content="string:Exhibit JSON"></a>
+        <a tal:attributes="href string:${context/absolute_url}/download.table"
+           tal:content="string:HTML"></a>
+        <a tal:attributes="href string:${context/absolute_url}/download.xml"
+           tal:content="string:XML"></a>
+        <a tal:attributes="href string:${context/absolute_url}/download.schema.xml"
+           i18n:translate="">
+            XML with Schema
+        </a>
+        <a tal:attributes="href string:${context/absolute_url}/download.csv"
+           tal:content="string:CSV"></a>
+        <a tal:attributes="href string:${context/absolute_url}/download.tsv"
+           tal:content="string:TSV"></a>
+    </div>
+</div>
+</body>
+</html>
