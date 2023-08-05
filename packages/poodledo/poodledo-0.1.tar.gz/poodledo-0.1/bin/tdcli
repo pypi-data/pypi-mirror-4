@@ -1,0 +1,119 @@
+#!/usr/bin/env python
+
+from poodledo.apiclient import PoodledoError
+from poodledo.cli import do_login
+from poodledo.lexer import parse, USAGE
+from optparse import OptionParser
+from sys import exit
+import readline
+
+def ask_ok(prompt, retries=4, complaint='Yes or no, comrade!'):
+    while True:
+        ok = raw_input(prompt)
+        if ok in ('y', 'ye', 'yes'):
+            return True
+        if ok in ('n', 'no', 'nop', 'nope'):
+            return False
+        retries = retries - 1
+        if retries < 0:
+            raise IOError('refusenik user')
+        print complaint
+
+
+class Completer(object):
+    def complete(self, text, state):
+        if state == 0:
+            origline = readline.get_line_buffer()
+            begin = readline.get_begidx()
+            char = origline[begin-1:begin]
+            if char == '*':
+                self.options = [x.name for x in client.getFolders()]
+            elif char == '+':
+                self.options = [x.name for x in client.getGoals()]
+            elif char == '-':
+                self.options = [x.name for x in client.getLocations()]
+            elif char == '@':
+                self.options = [x.name for x in client.getContexts()]
+            elif char == '$':
+                self.options = ['Next Action', 'Active', 'Planning', 'Delegated', 'Waiting',
+                                'Hold', 'Postponed', 'Someday', 'Canceled', 'Reference']
+
+            if text:
+                self.matches = [s for s in self.options if s.lower().startswith(text.lower())]
+            else:
+                self.matches = self.options[:]
+
+        # Return the state'th item from the match list,
+        # if we have that many.
+        try:
+            response = self.matches[state]
+        except IndexError:
+            response = None
+        return response
+
+
+if __name__ == '__main__':
+    parser = OptionParser(usage = "usage: %prog <task description>")
+    parser.add_option("-t", "--tasks", action="store_const", const='task', dest="action",
+                      help="Show unfinished tasks")
+    parser.add_option("-c", "--contexts", action="store_const", const='context', dest="action",
+                      help="Show list of contexts")
+    parser.add_option("-f", "--folders", action="store_const", const='folder', dest="action",
+                      help="Show list of folders")
+    parser.add_option("-g", "--goals", action="store_const", const='goal', dest="action",
+                      help="Show list of goals")
+    parser.add_option("-l", "--locations", action="store_const", const='location', dest="action",
+                      help="Show list of locations")
+    (options, args) = parser.parse_args()
+
+    try:
+        client = do_login()
+    except PoodledoError as e:
+        print e
+        exit(1)
+
+    if options.action:
+        if options.action == 'task':
+            items = [x.title for x in reversed(client.getTasks(comp=False))]
+        else:
+            items = sorted([x.name for x in client.dispatchCall(options.action, 'getall')()])
+
+        for item in items: print "* " + item
+        exit(0)
+
+    elif len(args) >= 1:
+        r = [' '.join(args)]
+    else:
+        readline.parse_and_bind('tab: complete')
+        readline.set_completer_delims(
+            readline.get_completer_delims().replace(":","").replace("-","").replace("/","").replace(' ','')
+        )
+        readline.set_completer(Completer().complete)
+        print USAGE
+
+        r = []
+        while True:
+            try:
+                r2 = raw_input('> ')
+                r.append(r2)
+            except (KeyboardInterrupt, EOFError):
+                break
+
+    task = parse(r)
+    if not task: exit(1)
+    for obj in ['folder', 'goal', 'location', 'context']:
+        if obj in task:
+            try:
+                client.dispatchCall(obj, 'get')(task[obj])
+            except PoodledoError:
+                try:
+                    if ask_ok("That %s (%s) doesn't exist! Create it? " % (obj, task[obj])):
+                        client.dispatchCall(obj, 'add')(task[obj])
+                except KeyboardInterrupt:
+                    print
+                    exit(0)
+
+    print task
+    client.addTask(**task)
+    print
+    print client.getTask(task['title'])

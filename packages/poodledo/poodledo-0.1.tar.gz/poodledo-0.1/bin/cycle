@@ -1,0 +1,191 @@
+#!/usr/bin/env python
+
+from poodledo.apiclient import PoodledoError
+from poodledo.cli import do_login, get_config, get_tag, get_cutoff
+from datetime import datetime, timedelta
+from dateutil import tz
+from poodledo.lexer import parse, USAGE
+from optparse import OptionParser
+from sys import exit
+from time import mktime, localtime
+import parsedatetime.parsedatetime as pdt
+
+def get_day_boundaries(day='today'):
+    p = pdt.Calendar()
+    if day == "week":
+        sunday = p.parse("last sunday")[0]
+        saturday = p.parse("saturday")[0]
+        start = datetime.fromtimestamp(mktime(sunday), tz.tzlocal())
+        end = datetime.fromtimestamp(mktime(saturday), tz.tzlocal())
+        daystart = datetime(start.year, start.month, start.day, tzinfo=start.tzinfo)
+        dayend = datetime(end.year, end.month, end.day, tzinfo=end.tzinfo)
+    else:
+        timest = p.parse(day)[0]
+        now = datetime.fromtimestamp(mktime(timest), tz.tzlocal())
+        daystart = datetime(now.year, now.month, now.day, tzinfo=now.tzinfo)
+        dayend = daystart + timedelta(days=1)
+
+    utc_daystart = mktime(daystart.timetuple())
+    utc_dayend = mktime(dayend.timetuple())
+    return (utc_daystart, utc_dayend)
+
+def get_timedelta(source, dest):
+    # returns the number of seconds to add to a task's current duedate and duetime
+    # assuming source is struct_time and dest is str
+    p = pdt.Calendar()
+    realsource = datetime.fromtimestamp(source, tz.tzutc())
+    realdest = datetime.fromtimestamp(mktime(p.parse(dest)[0]), tz.tzlocal())
+    return ((realdest - realsource).days) * 86400
+
+def date_callback(option, opt_str, value, parser):
+    # thanks to http://stackoverflow.com/a/2205552/459089
+    args=[]
+    for arg in parser.rargs:
+        if arg[0] != "-":
+            args.append(arg)
+        else:
+            del parser.rargs[:len(args)]
+            break
+    setattr(parser.values, option.dest, args)
+
+
+if __name__ == '__main__':
+    parser = OptionParser(usage = "usage: %prog [<flag> [<TASK#>]] [-d <DATE>]\nPrints today's tasks by default")
+    parser.add_option("-d", "--day", action="callback", metavar="DAY",
+                      default='today', callback=date_callback, dest="day",
+                      help="Day to operate on ('today' by default, parses most datestrings)")
+    parser.add_option("-t", "--tag", action="store", metavar="TAG",
+                      help="Only show tasks with the tag TAG")
+    parser.add_option("-a", "--add", action="store_true",
+                      help="Add a new task for today")
+    parser.add_option("-m", "--move", action="store", metavar="TASK# [DAY]",
+                      help="Move the specified task (or '*' for all tasks on that day) to the specified DAY (or tomorrow by default)")
+    parser.add_option("-c", "--complete", action="store", type=int, metavar="TASK#",
+                      help="Mark this task as complete")
+    parser.add_option("-p", "--priority", action="store", type=int, metavar="TASK#",
+                      help="Change the priority of this task (A, B, C, D, or E)")
+    parser.add_option("-s", "--show", action="store", type=int, metavar="TASK#",
+                      help="Show task details")
+    (options, args) = parser.parse_args()
+
+    try:
+        config = get_config()
+        client = do_login(config)
+    except PoodledoError as e:
+        print e
+        exit(1)
+
+    if options.tag:
+        tag = options.tag
+    else:
+        tag = get_tag(config)
+
+    if isinstance(options.day, list):
+        options.day = " ".join(options.day)
+
+    priority_cutoff = get_cutoff(config)
+
+    start, end = get_day_boundaries(options.day)
+    priorities = ['D', 'C', 'B', 'A', 'E']
+
+    tasks = []
+    raw_tasks = [x for x in client.getTasks(fields='duedate,duetime,priority,tag',comp=False) if start < int(x.duedate) < end]
+
+    for item in raw_tasks:
+        if tag:
+            if item.tag == tag:
+                tasks.append(item)
+        else:
+            tasks.append(item)
+
+    tasks.sort(cmp, key=lambda x:(-(x.priority), x.duedate, x.duetime))
+
+    if options.add and options.complete:
+        if len(args) > 0:
+            r = ' '.join(args)
+        else:
+            print USAGE
+            import readline
+            r = raw_input("Enter a task description: ")
+        task = parse(r)
+        client.addTask(startdate=start, duedate=start, tag=tag, **task)
+        client.editTask(task['title'], completed=mktime(localtime()))
+
+    elif options.add:
+        if len(args) > 0:
+            r = ' '.join(args)
+        else:
+            print USAGE
+            import readline
+            r = raw_input("Enter a task description: ")
+        task = parse(r)
+        if not tag:
+            print client.addTask(duedate=start, **task)
+        else:
+            print client.addTask(duedate=start, tag=tag, **task)
+
+    elif options.move:
+        queue = []
+        try:
+            task = tasks[int(options.move)-1]
+            queue.append(task)
+        except ValueError:
+            if options.move == "*":
+                queue = tasks
+            else:
+                parser.error("That task does not exist!")
+        except IndexError:
+            parser.error("That task does not exist!")
+
+        for task in queue:
+            dest = len(args) >= 1 and " ".join(args[0:]) or "tomorrow"
+            print "Moving task '%s' to %s" % (task.title, dest)
+            delta = get_timedelta(task.duedate, dest)
+
+            if task.duetime != 0:
+                client.editTask(task, duedate=task.duedate + delta, duetime=task.duetime + delta)
+            else:
+                client.editTask(task, duedate=task.duedate + delta)
+
+    elif options.priority:
+        if len(args) == 1:
+            try:
+                task = tasks[options.priority-1]
+            except IndexError:
+                parser.error("That task does not exist!")
+            print "Reprioritizing task '%s' to %s" % (task.title, args[0])
+            client.editTask(task, priority=priorities.index(args[0]))
+        else:
+            print "Please provide a priority to assign to the task."
+
+    elif options.complete:
+        try:
+            task = tasks[options.complete-1]
+        except IndexError:
+            parser.error("That task does not exist!")
+        print "Marking task '%s' as complete" % task.title
+        client.editTask(task, completed=mktime(localtime()))
+
+    elif options.show:
+        try:
+            task = tasks[options.show-1]
+        except IndexError:
+            parser.error("That task does not exist!")
+        print "Showing task '%s'" % task.title
+        print client.getTask(task, cache=True)
+
+    else:
+        if not tasks:
+            print "No tasks for %s. Go home early!" % options.day
+        for item in tasks:
+            if item.priority < priority_cutoff: continue
+            output = []
+            output.append("%s:" % str(tasks.index(item) + 1))
+            output.append("(%s)" % priorities[item.priority])
+            if options.day == "week":
+                output.append("[%s]" % datetime.fromtimestamp(item.duedate).strftime('%A'))
+            if tag:
+                output.append("{%s}" % item.tag)
+            output.append(item.title)
+
+            print " ".join(output)
