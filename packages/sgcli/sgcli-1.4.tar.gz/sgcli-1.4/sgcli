@@ -1,0 +1,823 @@
+#!/usr/bin/env python
+
+import bisect
+import cStringIO
+import curses
+from curses.ascii import (isalnum,
+                          BS,
+                          DEL,
+                          ESC,
+                          SP,
+                          TAB)
+import datetime
+import itertools
+import json
+import os
+import random
+import re
+import subprocess
+import threading
+import time
+import webbrowser
+
+from PIL import (Image,
+                 ImageOps)
+import requests
+
+
+WIDTH = 80
+HEIGHT = 25
+PER_PAGE = 10
+
+
+def addstr(win, y, x, s, *args):
+    # Bounds checking
+    y = max(0, y)
+    x = max(0, x)
+    if y >= HEIGHT:
+        return
+    if x >= WIDTH:
+        return
+    s = s[:WIDTH - x - 1]
+
+    return win.addstr(y, x, s, *args)
+
+
+def set_dimensions(screen):
+    global WIDTH
+    global HEIGHT
+    global PER_PAGE
+    global PER_PAGE_2
+
+    HEIGHT, WIDTH = screen.getmaxyx()
+    PER_PAGE = max((HEIGHT - 4) / 3, 1)
+    PER_PAGE_2 = max((HEIGHT - 5) / 2, 1)
+
+
+def main(stdscr):
+    set_dimensions(stdscr)
+    stdscr.keypad(1)
+    curses.curs_set(0)
+    curses.init_pair(1, curses.COLOR_BLUE, curses.COLOR_BLACK)
+    curses.init_pair(2, curses.COLOR_GREEN, curses.COLOR_BLACK)
+    curses.init_pair(3, curses.COLOR_CYAN, curses.COLOR_BLACK)
+    curses.init_pair(4, curses.COLOR_YELLOW, curses.COLOR_BLACK)
+    curses.init_pair(5, curses.COLOR_RED, curses.COLOR_BLACK)
+    curses.init_pair(6, curses.COLOR_MAGENTA, curses.COLOR_BLACK)
+
+    home(stdscr)
+
+
+def centered(win, y, message, *args):
+    addstr(win, y, int((WIDTH - len(message)) / 2), message, *args)
+
+
+def autocomplete(kill_switch, redraw, query, results):
+    try:
+        res = json.loads(requests.get("http://api.seatgeek.com/2/autocomplete?q=%s&limit=3" % query).text)
+    except:
+        return
+    if kill_switch.is_set():
+        return
+    results[:] = [res]
+    redraw.set()
+
+
+def search(stdscr, input=""):
+    prev_input = ""
+    autocomplete_results = []
+    kill_switch = None
+    redraw = None
+    selected_result = None
+
+    stdscr.clear()
+    stdscr.border()
+    centered(stdscr, 2, "Enter a performer, event or venue:")
+    addstr(stdscr, 4, WIDTH / 2 - 30, "_" * 60, curses.A_DIM)
+    addstr(stdscr, 4, WIDTH / 2 - 30, input[:60])
+    curses.curs_set(2)
+    stdscr.refresh()
+
+    stdscr.nodelay(True)
+
+    while True:
+        if input != prev_input or (redraw and (redraw == True or redraw.is_set())):
+            if input != prev_input:
+                prev_input = input
+            else:
+                redraw = None
+
+            stdscr.clear()
+            stdscr.border()
+            centered(stdscr, 2, "Enter a performer, event or venue:")
+
+            if autocomplete_results:
+                events = autocomplete_results[0].get("events", [])
+                performers = autocomplete_results[0].get("performers", [])
+                venues = autocomplete_results[0].get("venues", [])
+                y = 5
+                if events:
+                    addstr(stdscr, y + 1, 2, "Events")
+                    y += 2
+                for event in events:
+                    attrs = 0
+                    if selected_result == event:
+                        attrs = curses.A_REVERSE
+                    addstr(stdscr, y, 4, pad(event["title"], WIDTH - 6), attrs)
+                    y += 1
+                if performers:
+                    addstr(stdscr, y + 1, 2, "Performers")
+                    y += 2
+                for performer in performers:
+                    attrs = 0
+                    if selected_result == performer:
+                        attrs = curses.A_REVERSE
+                    addstr(stdscr, y, 4, pad(performer["name"], WIDTH - 6), attrs)
+                    y += 1
+                if venues:
+                    addstr(stdscr, y + 1, 2, "Venues")
+                    y += 2
+                for venue in venues:
+                    attrs = 0
+                    if selected_result == venue:
+                        attrs = curses.A_REVERSE
+                    state = venue["state"]
+                    if not state or venue["country"] != "US":
+                        state = venue["country"]
+                    addstr(stdscr, y, 4, pad("%s - %s, %s" % (venue["name"],
+                                                              venue["city"],
+                                                              state),
+                                             WIDTH - 6), attrs)
+                    y += 1
+
+            addstr(stdscr, 4, WIDTH / 2 - 30, "_" * 60, curses.A_DIM)
+            query = input
+            if selected_result:
+                if selected_result.get("city"):
+                    state = selected_result["state"]
+                    if not state or selected_result["country"] != "US":
+                        state = selected_result["country"]
+                    query = "%s - %s, %s" % (selected_result["name"],
+                                             selected_result["city"],
+                                             state)
+                else:
+                    query = selected_result.get("title", selected_result.get("name"))
+            addstr(stdscr, 4, WIDTH / 2 - 30, query[:60])
+
+            # getch seems to do an implicit refresh, but let's make it explicit
+            stdscr.refresh()
+
+        merged_results = []
+        if autocomplete_results:
+            merged_results = autocomplete_results[0].get("events", []) + autocomplete_results[0].get("performers", []) + autocomplete_results[0].get("venues", [])
+
+        ev = stdscr.getch()
+        if ev == SP:
+            selected_result = None
+            input += " "
+        elif ev == curses.KEY_RESIZE:
+            set_dimensions(stdscr)
+        elif ev in (BS, DEL, curses.KEY_BACKSPACE):
+            if selected_result:
+                redraw = True
+                selected_result = None
+            else:
+                input = input[:-1]
+        elif ev == ESC:
+            stdscr.nodelay(False)
+            curses.curs_set(0)
+            return home(stdscr)
+        elif ev == ord("\n"):
+            stdscr.nodelay(False)
+            curses.curs_set(0)
+            return search_results(stdscr, query)
+        elif ev == TAB and merged_results:
+            idx = 0
+            for i in range(len(merged_results)):
+                if merged_results[i] == selected_result:
+                    idx = i + 1
+            idx = idx % len(merged_results)
+            redraw = True
+            selected_result = merged_results[idx]
+        elif ev == curses.KEY_BTAB and merged_results:
+            idx = 0
+            for i in range(len(merged_results)):
+                if merged_results[i] == selected_result:
+                    idx = i - 1
+            idx = idx % len(merged_results)
+            redraw = True
+            selected_result = merged_results[idx]
+        elif isalnum(ev) or ev in (ord(","), ord("."), ord("-")):
+            selected_result = None
+            input += chr(ev)
+
+        if input and input != prev_input:
+            # We are going to spawn a new thread, so disable any existing ones
+            if kill_switch:
+                kill_switch.set()
+
+            kill_switch = threading.Event()
+            redraw = threading.Event()
+            t = threading.Thread(target=autocomplete, args=(kill_switch, redraw, input, autocomplete_results))
+            t.start()
+
+        time.sleep(0.01)
+
+
+def loading_thread(screen, ev, message):
+    dots = []
+    while not ev.is_set():
+        dots.append([1, random.randint(1, WIDTH - 2), "."])
+        dots.append([1, random.randint(1, WIDTH - 2), "*"])
+
+        screen.clear()
+        screen.border()
+
+        for dot in dots:
+            addstr(screen, dot[0], dot[1], dot[2])
+            dot[0] += 1
+        dots = [d for d in dots if d[0] < HEIGHT - 1]
+
+        centered(screen, 12, message)
+        screen.refresh()
+        ev.wait(0.1)
+
+
+def loading(screen, message="Loading..."):
+    ev = threading.Event()
+    t = threading.Thread(target=loading_thread, args=(screen, ev, message))
+    t.start()
+    return (ev, t)
+
+
+def search_results(stdscr, query):
+    (ev, t) = loading(stdscr)
+    try:
+        res = json.loads(requests.get("http://api.seatgeek.com/2/events?per_page=100&q=" + query).text)
+        events = res.get("events", [])
+    except:
+        events = []
+    ev.set()
+    t.join()
+
+    if not events:
+        stdscr.clear()
+        stdscr.border()
+        centered(stdscr, 2, "Search results for '%s'" % query)
+        centered(stdscr, 4, "No results :( - any key to search again")
+        act_on_input(stdscr, search)
+
+    return results_page(stdscr, query, events, 0, 0)
+
+
+def pad(s, l, left=False):
+    if len(s) > l:
+        return s[:l]
+    if left:
+        return " " * (l - len(s)) + s
+    return s + " " * (l - len(s))
+
+
+def draw_event(scr, event, row, highlight):
+    attrs = 0
+    if highlight:
+        attrs = curses.A_REVERSE
+
+    dt = datetime.datetime.strptime(event["datetime_local"], "%Y-%m-%dT%H:%M:%S")
+    date_str = pad(dt.strftime("%%a %%b %d" % dt.day), 10)
+    if dt.hour == 3 and dt.minute == 30:
+        time_str = pad("Time TBD", 10, True)
+    else:
+        time_str = pad(dt.strftime("%I:%M %p"), 10, True)
+
+    addstr(scr, 4 + 3 * row, 2, date_str, attrs)
+    addstr(scr, 5 + 3 * row, 2, time_str, attrs)
+    addstr(scr, 4 + 3 * row, 13, pad(event["title"], WIDTH - 15), attrs)
+    byline = "  " + event["venue"]["name"]
+    state = event["venue"]["state"]
+    if not state or event["venue"]["country"] != "US":
+        state = event["venue"]["country"]
+    byline += " - " + event["venue"]["city"] + ", " + state
+    addstr(scr, 5 + 3 * row, 13, pad(byline, WIDTH - 15), attrs)
+
+
+DOWN_KEYS = (ord("n"), ord("k"), curses.KEY_DOWN, 14) # 14 is ^n
+UP_KEYS = (ord("p"), ord("j"), curses.KEY_UP, 16) # 16 is ^p
+LEFT_KEYS = (ord("b"), ord("h"), curses.KEY_LEFT, 2) # 2 is ^b
+RIGHT_KEYS = (ord("f"), ord("l"), curses.KEY_RIGHT, 6) # 6 is ^f
+
+def results_page(stdscr, query, events, page_number, result_number):
+    stdscr.clear()
+    stdscr.border()
+
+    max_page = (len(events) - 1) / PER_PAGE
+    if page_number > max_page or page_number < 0:
+        raise Exception("Bad page # %s" % page_number)
+
+    centered(stdscr, 2, "Search results for '%s' (%s/%s)" % (query, page_number + 1, max_page + 1))
+
+    i = 0
+    for event in events[page_number * PER_PAGE:(page_number + 1) * PER_PAGE]:
+        draw_event(stdscr, event, i, i == result_number)
+        i += 1
+
+    stdscr.refresh()
+
+    while True:
+        ev = stdscr.getch()
+        if ev == ord("q"):
+            return confirm_quit(stdscr)
+        elif ev == curses.KEY_RESIZE:
+            set_dimensions(stdscr)
+        elif ev == ESC:
+            return quit(stdscr)
+        elif ev == ord("s"):
+            return search(stdscr)
+        elif ev == ord("h"):
+            return home(stdscr)
+        elif ev in (BS, DEL, curses.KEY_BACKSPACE):
+            return search(stdscr, query)
+        elif ev in DOWN_KEYS:
+            if (result_number < PER_PAGE - 1) and (PER_PAGE * page_number + result_number < len(events) - 1):
+                result_number += 1
+            elif page_number < max_page:
+                result_number = 0
+                page_number += 1
+        elif ev in UP_KEYS:
+            if result_number > 0:
+                result_number -= 1
+            elif page_number > 0:
+                result_number = PER_PAGE - 1
+                page_number -= 1
+        elif ev in RIGHT_KEYS:
+            if page_number < max_page:
+                page_number += 1
+            if (PER_PAGE * page_number + result_number > len(events) - 1):
+                result_number = len(events) - 1 - PER_PAGE * page_number
+        elif ev in LEFT_KEYS:
+            if page_number > 0:
+                page_number -= 1
+        elif ev == ord("\n"):
+            return event_page(stdscr, query, events, page_number, result_number)
+        return results_page(stdscr, query, events, page_number, result_number)
+
+
+def draw_event_header(screen, event):
+    screen.clear()
+    screen.border()
+
+    centered(screen, 1, event["title"])
+
+    dt = datetime.datetime.strptime(event["datetime_local"], "%Y-%m-%dT%H:%M:%S")
+    if dt.hour == 3 and dt.minute == 30:
+        time_str = "Time TBD"
+    else:
+        time_str = dt.strftime("%I:%M %p")
+    date_str = dt.strftime("%%a %%b %d" % dt.day) + ", " + time_str
+    byline = date_str + " - " + event["venue"]["name"]
+    state = event["venue"]["state"]
+    if not state or event["venue"]["country"] != "US":
+        state = event["venue"]["country"]
+    byline += ", " + state
+    centered(screen, 2, byline)
+
+
+def event_page(screen, query, events, page_number, result_number):
+    event = events[PER_PAGE * page_number + result_number]
+
+    (ev, t) = loading(screen, "Searching the web's ticket sites...")
+    try:
+        res = json.loads(requests.get("http://seatgeek.com/event/listings?id=%d&calculate_coords=1" % event["id"]).text)
+        listings = res["listings"]
+    except:
+        listings = []
+    ev.set()
+    t.join()
+
+    if not listings:
+        draw_event_header(screen, event)
+        centered(screen, 4, "Shoot. No listings found :(. Here's a bunny.")
+        centered(screen, 6, "                          +MM0^            ")
+        centered(screen, 7, "                           +MMMM1          ")
+        centered(screen, 8, "                           0MMNMM+         ")
+        centered(screen, 9, "                           +MMMNNN         ")
+        centered(screen, 10, "              ^^++++^^      1MMM0N1++^     ")
+        centered(screen, 11, "         +1o00000o00000oooo1+oMM000MM00o^  ")
+        centered(screen, 12, "       10000o000000000oo000oo00MNNMMMM000+ ")
+        centered(screen, 13, "     o000oo0o00o0000o0000000o0000MMMMN0000+")
+        centered(screen, 14, "   +0000000000000000oo000000000000NNN0000N0")
+        centered(screen, 15, "  +000000NMMMMMNN00000000000000NN00000000o^")
+        centered(screen, 16, "  0000MMMMMMMMMMMMMN00000000000MMNNMo1+^^  ")
+        centered(screen, 17, "  0000MMMMMN000000NNNo000000000NMM1+       ")
+        centered(screen, 18, "  100000000000000000NN00ooo000001^         ")
+        centered(screen, 19, " 1o0000o00000000000000N000000N+            ")
+        centered(screen, 20, "NMMMM0o00000000000000000000MM0             ")
+        centered(screen, 21, "+o0MMMoo000000000000000000NNMNo1^          ")
+        centered(screen, 22, "      ^o000000000o000ooooo0000NM0          ")
+        centered(screen, 24, "(h) home  (s) search  (q) quit  (BKSP) back")
+
+        screen.refresh()
+
+        while True:
+            ev = screen.getch()
+            if ev == ord("q"):
+                return confirm_quit(screen)
+            elif ev == curses.KEY_RESIZE:
+                set_dimensions(screen)
+            elif ev == ESC:
+                return quit(screen)
+            elif ev == ord("s"):
+                return search(screen)
+            elif ev == ord("h"):
+                return home(screen)
+            elif ev in (BS, DEL, curses.KEY_BACKSPACE):
+                return results_page(screen, query, events, page_number, result_number)
+
+    previous_args = [screen, query, events, page_number, result_number]
+    return listings_page(previous_args, screen, event, listings, 0, 0)
+
+
+def grouped(listings, fixed_quantity=0):
+    grouped = {}
+    for l in listings:
+        if fixed_quantity and fixed_quantity not in l.get("sp", []):
+            continue
+        key = l.get("mk") or "%s_%s" % (l["s"], l.get("r", "none"))
+        if not fixed_quantity:
+            key += "--%s" % l["q"]
+        if key not in grouped:
+            grouped[key] = l
+    return sorted(grouped.values(), key=lambda x: x.get("dq"), reverse=True)
+
+
+def draw_listing(screen, listing, row, highlight):
+    attrs = 0
+    if highlight:
+        attrs = curses.A_REVERSE
+    elif listing.get("b") in (0, 1):
+        attrs = curses.color_pair(2)
+    elif listing.get("b") == 2:
+        attrs = curses.color_pair(4)
+    elif "b" in listing:
+        attrs = curses.color_pair(5)
+
+    addstr(screen, 5 + 2 * row, 2, " " * (WIDTH - 4), attrs)
+    if listing.get("dq"):
+        addstr(screen, 5 + 2 * row, 3, "(%d)" % listing["dq"], attrs)
+    addstr(screen, 5 + 2 * row, 8, (listing["s"] + " - row " + listing.get("r", "none")).title(), attrs)
+    addstr(screen, 5 + 2 * row, WIDTH - 15, pad(str(listing["q"]), 2, True) + pad((listing["et"] and " etix" or " tix"), 7), attrs)
+    addstr(screen, 5 + 2 * row, WIDTH - 7, pad("$" + str(listing["pf"]), 4, True), attrs)
+
+
+def listings_page(previous_args, screen, event, all_listings, page_number, result_number, quantity=0):
+    flash = ""
+    listings = grouped(all_listings, quantity)
+    if not listings:
+        flash = "No listings for %d tickets available, showing all " % quantity
+        listings = grouped(all_listings, 0)
+
+    max_page = (len(listings) - 1) / PER_PAGE_2
+    if page_number > max_page or page_number < 0:
+        raise Exception("Bad page # %s" % page_number)
+
+    draw_event_header(screen, event)
+    centered(screen, 3, "%s(%s/%s)" % (flash, page_number + 1, max_page + 1))
+
+    current_listing = None
+    i = 0
+    for listing in listings[page_number * PER_PAGE_2:(page_number + 1) * PER_PAGE_2]:
+        if i == result_number:
+            current_listing = listing
+        draw_listing(screen, listing, i, i == result_number)
+        i += 1
+
+    screen.refresh()
+
+    while True:
+        ev = screen.getch()
+        if ev == ord("q"):
+            return confirm_quit(screen)
+        elif ev == curses.KEY_RESIZE:
+            set_dimensions(screen)
+        elif ev == ESC:
+            return quit(screen)
+        elif ev == ord("s"):
+            return search(screen)
+        elif ev == ord("h"):
+            return home(screen)
+        elif ev in (BS, DEL, curses.KEY_BACKSPACE):
+            return results_page(*previous_args)
+        elif ord("9") >= ev and ev >= ord("0"):
+            quantity = ev - ord("0")
+            return listings_page(previous_args, screen, event, all_listings, 0, 0, quantity)
+        elif ev in DOWN_KEYS:
+            if (result_number < PER_PAGE_2 - 1) and (PER_PAGE_2 * page_number + result_number < len(listings) - 1):
+                result_number += 1
+            elif page_number < max_page:
+                result_number = 0
+                page_number += 1
+        elif ev in UP_KEYS:
+            if result_number > 0:
+                result_number -= 1
+            elif page_number > 0:
+                result_number = PER_PAGE_2 - 1
+                page_number -= 1
+        elif ev in RIGHT_KEYS:
+            if page_number < max_page:
+                page_number += 1
+            if (PER_PAGE_2 * page_number + result_number > len(listings) - 1):
+                result_number = len(listings) - 1 - PER_PAGE_2 * page_number
+        elif ev in LEFT_KEYS:
+            if page_number > 0:
+                page_number -= 1
+        elif ev == ord("\n"):
+            previous_args = [previous_args, screen, event, all_listings, page_number, result_number, quantity]
+            return listing_page(previous_args, screen, event, current_listing)
+        return listings_page(previous_args, screen, event, all_listings, page_number, result_number, quantity)
+
+
+def which(program):
+    def is_exe(fpath):
+        return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
+
+    fpath, fname = os.path.split(program)
+    if fpath:
+        if is_exe(program):
+            return program
+    else:
+        for path in os.environ["PATH"].split(os.pathsep):
+            exe_file = os.path.join(path, program)
+            if is_exe(exe_file):
+                return exe_file
+
+    return None
+
+
+def listing_page(previous_args, screen, event, listing):
+    map_image = None
+    ga = False
+    no_map = False
+
+    if event.get("general_admission"):
+        ga = True
+    else:
+        # Load the map and check if it's an actual map
+        map_image = "http://seatgeek.com/event/static_map_image?width=320&height=320&event_id=%s" % (event["id"])
+
+        (ev, t) = loading(screen)
+        try:
+            map_image = requests.get(map_image)
+            if "v2155/concert/1/1" in map_image.url:
+                map_image = None
+                no_map = True
+
+        except:
+            map_image = None
+            no_map = True
+
+        ev.set()
+        t.join()
+
+    draw_event_header(screen, event)
+    centered(screen, 4, "%s tickets in Section %s, Row %s" % (listing["q"],
+                                                              listing["s"].title(),
+                                                              listing.get("r", "none").title()))
+    centered(screen, 5, "$%s base + $%s fees & shipping = $%s each. (b)uy on %s" % (listing["p"], listing["pf"] - listing["p"], listing["pf"], listing["m"]))
+    if listing["d"]:
+        description = re.sub('<[^<]+?>', '', listing["d"])
+        centered(screen, 6, description[:WIDTH-2])
+
+    if ga:
+        centered(screen, 12, "General Admission Show")
+        centered(screen, 13, "This show does not have assigned seating.")
+    elif no_map:
+        centered(screen, 12, "Seating Chart Unavailable")
+    else:
+        # Let's draw the MAP!
+        # Font stretch is approx 9x20
+        # Given height limit of ~20, we want width of 45
+
+        max_width = WIDTH - 2
+        max_height = HEIGHT - 9
+
+        width_limited_height = max_width * 9 / 20
+        if width_limited_height < max_height:
+            width, height = max_width, width_limited_height
+        else:
+            width, height = max_height * 20 / 9, max_height
+
+        try:
+            img = Image.open(cStringIO.StringIO(map_image.content))
+            characters = "#X=*+-. "
+            bounds = [32, 64, 96, 128, 160, 192, 224]
+
+            img = img.resize((width, height),Image.BILINEAR)
+            bw = img.copy()
+            bw = bw.convert("L") # convert to mono
+
+            img = ImageOps.posterize(img.convert("RGB"), 1)
+
+            start_x = (WIDTH - width) / 2
+            for y in range(0, img.size[1]):
+                str=""
+                for x in range(0, img.size[0]):
+                    lum = 255 - bw.getpixel((x,y))
+                    c = characters[bisect.bisect(bounds, lum)]
+                    color_num={(0,0,0): 0,
+                               (0,0,128): 1,
+                               (0,128,0): 2,
+                               (0,128,128): 3,
+                               (128,0,0): 5,
+                               (128,0,128): 6,
+                               (128,128,0): 4,
+                               (128,128,128): 0}[img.getpixel((x,y))]
+                    addstr(screen, 8 + y, start_x + x, c, curses.color_pair(color_num))
+                    str += c
+
+            # Draw the marker
+            x = width * listing["co"]["x"] / 1000 + start_x
+            y = height * listing["co"]["y"] / 1000 + 8
+            addstr(screen, y, x, "O", curses.color_pair(1))
+
+            addstr(screen, y, x+1, "|", curses.color_pair(1))
+            addstr(screen, y, x-1, "|", curses.color_pair(1))
+            addstr(screen, y+1, x+1, "/", curses.color_pair(1))
+            addstr(screen, y+1, x-1, "\\", curses.color_pair(1))
+            addstr(screen, y-1, x+1, "\\", curses.color_pair(1))
+            addstr(screen, y-1, x-1, "/", curses.color_pair(1))
+            addstr(screen, y-1, x, " ", curses.color_pair(1))
+            addstr(screen, y-2, x, "_", curses.color_pair(1))
+            addstr(screen, y+1, x, "_", curses.color_pair(1))
+        except:
+            centered(screen, 12, "Error Rendering Map")
+
+    screen.refresh()
+
+    link = "http://seatgeek.com/event/click/?tid=%s&eid=%s&section=%s&row=%s&quantity=%s&price=%s&baseprice=%s&market=%s&sg=0&dq=%s" % (listing["id"], event["id"], listing["s"], listing.get("r", "none"), listing["q"], listing["pf"], listing["p"], listing["m"], listing.get("dq",0))
+
+    def open_browser(use_links):
+        browse(link, use_links)
+        return post_purchase(screen, previous_args)
+
+    return act_on_input(screen, {"q": confirm_quit,
+                                 ESC: quit,
+                                 "s": search,
+                                 "h": home,
+                                 (BS, DEL, curses.KEY_BACKSPACE): [listings_page] + previous_args,
+                                 "b": [open_browser, True],
+                                 "w": [open_browser, False]})
+
+
+def post_purchase(screen, previous_args):
+    screen.nodelay(True)
+
+    dots = []
+    i = 0
+
+    while True:
+        i += 1
+        dots.append([random.randint(1, HEIGHT - 2), WIDTH - 2, random.random() < 0.5 and "+" or "o"])
+
+        screen.clear()
+        screen.border()
+
+        for dot in dots:
+            addstr(screen, dot[0], dot[1], dot[2])
+            dot[1] -= 1
+            if random.random() < 0.1:
+                dot[2] = dot[2] == "+" and "o" or "+"
+        dots = [d for d in dots if d[1] > 1]
+
+        trail_length = (WIDTH - 10) / 4
+        addstr(screen, 10, 2, (i % 4 < 2 and "-_" or "_-") * trail_length, curses.color_pair(5))
+        addstr(screen, 11, 2, (i % 4 < 2 and "-_" or "_-") * trail_length, curses.color_pair(4))
+        addstr(screen, 12, 2, (i % 4 < 2 and "-_" or "_-") * trail_length, curses.color_pair(2))
+        addstr(screen, 13, 2, (i % 4 < 2 and "-_" or "_-") * trail_length, curses.color_pair(1))
+        addstr(screen, 10, 2 + trail_length * 2, ",------,")
+        addstr(screen, 11, 2 + trail_length * 2, "|   /\\_/\\")
+        addstr(screen, 12, 2 + trail_length * 2, "|__( ^ .^)")
+        addstr(screen, 13, 4 - (i % 3) + trail_length * 2, "\"\"  \"\"")
+        addstr(screen, 11 + (i % 6 / 3), 1 + trail_length * 2, "~")
+
+        centered(screen, 5, "Thanks for using SeatGeek! Enjoy the event!")
+        centered(screen, 6, "(BKSP) back  (s) search  (h) home  (q) quit")
+        screen.refresh()
+
+        ev = screen.getch()
+        if ev == ord("q"):
+            screen.nodelay(False)
+            return confirm_quit(screen)
+        elif ev == curses.KEY_RESIZE:
+            set_dimensions(screen)
+        elif ev == ESC:
+            screen.nodelay(False)
+            return quit(screen)
+        elif ev == ord("s"):
+            screen.nodelay(False)
+            return search(screen)
+        elif ev == ord("h"):
+            screen.nodelay(False)
+            return home(screen)
+        elif ev in (BS, DEL, curses.KEY_BACKSPACE):
+            screen.nodelay(False)
+            return listings_page(*previous_args)
+
+        time.sleep(0.1)
+
+
+def draw_logo(stdscr):
+    x = (WIDTH - 50) / 2
+    addstr(stdscr, 2, x, " ;;;;               ;   ", curses.color_pair(1))
+    addstr(stdscr, 3, x, "::                  ;   ", curses.color_pair(1))
+    addstr(stdscr, 4, x, ";,     .;;:  :;;;  ;;;; ", curses.color_pair(1))
+    addstr(stdscr, 5, x, "`;:    ;  ;` `  ;,  ;   ", curses.color_pair(1))
+    addstr(stdscr, 6, x, "  ,;: ,;::;,    :,  ;   ", curses.color_pair(1))
+    addstr(stdscr, 7, x, "    ; :,     ,;,:,  ;   ", curses.color_pair(1))
+    addstr(stdscr, 8, x, "    ; ,;     ;  ;,  ;`  ", curses.color_pair(1))
+    addstr(stdscr, 9, x, ",:,;,  ;:,:` ;,:,:. ;;, ", curses.color_pair(1))
+    addstr(stdscr, 10, x, " ..     `.`   .  `   .` ", curses.color_pair(1))
+
+    addstr(stdscr, 1, x + 24, "                    :;,   ")
+    addstr(stdscr, 2, x + 24, "  ;;;;;              :,   ")
+    addstr(stdscr, 3, x + 24, " ;.                  :,   ")
+    addstr(stdscr, 4, x + 24, "::       ,;;,  `;;;  :, ,;")
+    addstr(stdscr, 5, x + 24, ";`      .;  ;  ;  :, :,`; ")
+    addstr(stdscr, 6, x + 24, ";     ; ;;::;..;::;; ::;  ")
+    addstr(stdscr, 7, x + 24, ";.    ; ;.    ,;     ::;  ")
+    addstr(stdscr, 8, x + 24, ".;    ; ::    .;     :,,; ")
+    addstr(stdscr, 9, x + 24, " :;;:;;  ;:,:  ;;,:. :, ;:")
+    addstr(stdscr, 10, x + 24, "   ..`    `.    `.`  `   `")
+    addstr(stdscr, 11, x + 24, "      `              ,    ")
+    addstr(stdscr, 12, x + 24, "     :;;            ,;    ")
+    addstr(stdscr, 13, x + 24, "       ,;          :;     ")
+    addstr(stdscr, 14, x + 24, "        `;,      .;:      ")
+    addstr(stdscr, 15, x + 24, "          ,;;;;;;;        ")
+
+
+def confirm_quit(screen):
+    screen.clear()
+    screen.border()
+    draw_logo(screen)
+    centered(screen, 19, "ONE DOES NOT SIMPLY")
+    centered(screen, 20, "QUIT SEATGEEK")
+    centered(screen, 24, "Quit? (y/n)")
+    screen.refresh()
+
+    return act_on_input(screen, {"y": quit, "n": home})
+
+
+def quit(stdscr, message=None):
+    stdscr.clear()
+    draw_logo(stdscr)
+    centered(stdscr, 19, "Seat you later!")
+    if message:
+        centered(stdscr, 20, message)
+    stdscr.refresh()
+
+
+def browse(uri, prefer_links=True):
+    links = which("links") or which("elinks") or which("lynx")
+    if prefer_links and links:
+        subprocess.call([links, uri])
+    else:
+        webbrowser.open(uri)
+
+
+def act_on_input(screen, actions):
+    def key(k):
+        if isinstance(k, str):
+            return [ord(k)]
+        if isinstance(k, (list, tuple)):
+            return list(itertools.chain.from_iterable(key(l) for l in k))
+        return [k]
+
+    while True:
+        ev = screen.getch()
+        if ev == curses.KEY_RESIZE:
+            set_dimensions(screen)
+        elif not isinstance(actions, dict):
+            return actions(screen)
+        else:
+            for k,v in actions.iteritems():
+                if ev in key(k):
+                    if isinstance(v, list):
+                        return v[0](*v[1:])
+                    return v(screen)
+
+
+def home(stdscr):
+    stdscr.clear()
+    stdscr.border()
+    draw_logo(stdscr)
+    centered(stdscr, 19, "Welcome to SeatGeek!")
+    centered(stdscr, 20, "(s) search  (q/ESC) quit")
+    stdscr.refresh()
+
+    return act_on_input(stdscr, {"q": confirm_quit,
+                                 ESC: quit,
+                                 "s": search})
+
+
+if __name__ == "__main__":
+    os.environ["TERM"] = "xterm"
+    curses.wrapper(main)
