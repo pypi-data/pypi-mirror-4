@@ -1,0 +1,10 @@
+__version__ = "0.5.4-develop-4-gbe53665"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = 'develop'
+__git_remote_tracking_branch__ = 'origin/develop'
+__git_remote_url__ = 'git@gitserver:/host/infi-projector.git'
+__git_head_hash__ = 'be536659f367b0731fcc105b8a1d952735477d63'
+__git_head_subject__ = 'TRIVIAL GuiScriptsSet'
+__git_head_message__ = ''
+__git_dirty_diff__ = ''
