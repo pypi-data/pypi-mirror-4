@@ -1,0 +1,10 @@
+__version__ = "0.3"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '326e48160b4fdd0aa27056b98eda48d29322298a'
+__git_head_subject__ = 'Finished release v0.3.'
+__git_head_message__ = '# By Guy Rozendorn (11) and Arnon Yaari (1)\n* release/v0.3:\n  TRIVIAL change log message from info to debug\n  HOSTDEV-436 making tests pass on older versions of Git\n  HOSTDEV-436 push first, then upload\n  HOSTDEV-436 implementation of projector version <version-tag> --push-changes, and test\n  TRIVIAL renaming configuration file to .projector\n  HOSTDEV-428 added documentation to the new feature in the README.md\n  HOSTDEV-428\n  TRIVIAL logging to stderr, level will be DEBUG if DEBUG env-var is set\n  HOSTDEV-409 fixed get_latest_version\n  HOSTDEV-409 projector version upload --version latest|current are supported\n  HOSTDEV-404 MANIFEST.in\n  empty commit after version v0.2.6'
+__git_dirty_diff__ = ''
