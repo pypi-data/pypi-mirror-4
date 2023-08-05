@@ -1,0 +1,306 @@
+Metadata-Version: 1.0
+Name: oops-tools
+Version: 0.6.5
+Summary: =================
+Home-page: UNKNOWN
+Author: Launchpad Developers
+Author-email: launchpad-dev@lists.launchpad.net
+License: UNKNOWN
+Description: ..
+            This file is part of oopstools
+        
+            Copyright 2009-2011 Canonical Ltd.  All rights reserved.
+        
+            This program is free software: you can redistribute it and/or modify
+            it under the terms of the GNU Affero General Public License as published by
+            the Free Software Foundation, either version 3 of the License, or
+            (at your option) any later version.
+        
+            This program is distributed in the hope that it will be useful,
+            but WITHOUT ANY WARRANTY; without even the implied warranty of
+            MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+            GNU Affero General Public License for more details.
+        
+            You should have received a copy of the GNU Affero General Public License
+            along with this program.  If not, see <http://www.gnu.org/licenses/>.
+        
+        OOPS Tools
+        ==========
+        
+        This is a Django application to analyze OOPS reports
+        (see https://launchpad.net/python-oops).
+        
+        Please see https://dev.launchpad.net/LazrStyleGuide and
+        https://dev.launchpad.net/Hacking for how to develop in this
+        package.
+        
+        Dependencies
+        ============
+        
+        OOPStools uses buildout for configuration.
+        
+        All dependencies (except for the database packages) are available from the
+        lazr-source-dependencies branch on Launchpad. Simply typing make will set-up
+        the download-cache of dependencies eggs and then create the buildout.
+        
+        If you already have that shared eggs cache branch available locally (to share
+        between branches of the Lazr project), simply set the LAZR_SOURCEDEPS_DIR to
+        the directory containing the download-cache and eggs directories before
+        invoking make.
+        
+        To run under apache with mod_wsgi (recommended)
+        
+            * libapache2-mod-wsgi package
+        
+        To run under apache with mod_python
+        
+            * libapache2-mod-python package
+        
+        Deployment using mod_wsgi
+        =========================
+        
+        Create a custom cfg file - start with production.cfg and take a copy. Update
+        your copy with your database configuration and the paths to your OOPS
+        directories:
+        
+        [configuration]
+        db-name = /path/to/your/oops.db
+        index-template = 'index.html'
+        oopsdir = /path/where/rsynced/oopses/are/found
+            /another/such/path
+        
+        Update settings.py setting a custom SECRET_KEY, and appropriate AMQP connection
+        details (so that the oops-tools web site itself can report errors, should they
+        occur).
+        
+        To deploy oops tools make sure all the dependecies are installed.
+        
+         * bin/buildout -c yourfilename.cfg
+        
+         * Run bin/django syncdb
+        
+         * Run bin/django migrate
+        
+         * Copy apache/oops-tools.dev.mod_wsgi to /etc/apache2/sites-available/
+        
+        AMQP Integration
+        ================
+        
+        The script bin/amqp2disk is an AMQP handler that will receive OOPS reports over
+        AMQP and publish them locally to disk as well as loading the metadata directly
+        into the oops-tools database. To use this you will need to config your OOPS
+        creation to publish over AMQP. If you are using Python then the oops-amqp
+        module will help you do this.
+        
+        The Django web UI also integrates with AMQP to report errors that occur
+        rendering or searching for OOPS reports. The settings to control this are in
+        settings.py (or in your configuration file which buildout compiles into a
+        settings.py).
+        
+        Running locally
+        ===============
+        
+        Sometimes Launchpad developers want to run oops-tools to help analyse locally
+        generated OOPS reports.
+        
+        The first step is to setup the local database.
+        
+        Local PostgreSQL setup
+        ++++++++++++++++++++++
+        
+        If you do Launchpad development, you probably have PostgreSQL already running
+        on port 5432. You'll need another cluster to run the oops-tools database.
+        
+        Create a new cluster for lpoops:
+        
+            $ LC_ALL=C sudo pg_createcluster 9.1 lpoops --encoding UNICODE --port 5433
+        
+        Apply the following patch to /etc/postgresql/9.1/lpoops/pg_hba.conf. Note that
+        this configuration change needs to be before the "DO NOT DISABLE!" line in the
+        pg_hba.conf file.
+        
+            sudo patch /etc/postgresql/9.1/lpoops/pg_hba.conf <<'EOF'
+            --- pg_hba.conf 2005-11-02 17:33:08.000000000 -0800
+            +++ /tmp/pg_hba.conf    2005-11-03 07:32:46.932400423 -0800
+            @@ -58,7 +58,9 @@
+             # on a non-local interface via the listen_addresses configuration parameter,
+             # or via the -i or -h command line switches.
+             #
+            -
+            +# Oops-tools users
+            +local   all         all                           trust
+            +host    all         all         127.0.0.1/32      trust
+        
+        
+            EOF
+        
+        In case localhost is using IPv6, you'll need an extra line just below the one above.
+        
+            host    all         all         ::1/128               trust
+        
+        Start the cluster.
+        
+            $ sudo pg_ctlcluster 9.1 lpoops start
+        
+        Add your own user to the cluster:
+        
+            $ sudo -u postgres createuser -a -d $USER --port 5433
+        
+        To create the new db:
+        
+            $ createuser lpoops --createdb --no-superuser --no-createrole --port 5433
+            $ createdb -O lpoops lpoops  --port 5433
+        
+        Note that this command creates a password-less database. Use --password to
+        create a db with a password.
+        
+        To delete the db:
+        
+            $ dropdb lpoops --port 5433
+            $ dropuser lpoops --port 5433
+        
+        Configuration changes
+        +++++++++++++++++++++
+        
+        If you used a different port than 5433 for the PostgreSQL setup, pass the
+        DBPORT variable to make and it'll build the configuration files using the
+        value provided.
+        
+         * `make DBPORT=$PORT`
+         * Run bin/django syncdb
+         * Run bin/django migrate
+         * `make run` at the root of the oops-tools directory
+         * Point your browser to http://localhost:8000/oops
+        
+        ===================
+        NEWS for oopstools
+        ===================
+        
+        NEXT
+        ====
+        
+        0.6.5
+        =====
+        
+        * Dependency bump to non-broken version of timeline-django. (Robert Collins)
+        
+        0.6.4
+        =====
+        
+        * Oops-tools now depends on newer djangorecipe, django 1.3.3 and
+          oops-datedir-repo 0.0.19. The -repo dependency bump gets the analogous fix
+          for 1050722 for the on-disk purging. (Robert Collins).
+        
+        * Oops reports generated by oops-tools itself will now include django event
+          data from timeline_django. This can be disabled if needed by disabling the
+          oops_timeline hook in oopstools.wsgi. (Robert Collins)
+        
+        * When pruning, look for OOPS references up to now rather than up to
+          prune_until. Otherwise we miss any references created in the last
+          week, probably only finding references within 24 hours of the OOPS
+          occurring. (William Grant, #1050722)
+        
+        0.6.3
+        =====
+        
+        * Reports have a per-report email address that can be set, to allow different
+          reports to go to different addresses. (Robert Collins)
+        
+        * HTML reports can be created for non-ascii OOPS topics.
+          (Robert Collins, #1048470)
+        
+        0.6.2
+        =====
+        
+        * Corrupt timeline objects are handled more gracefully if they are not a list,
+          or the list rows are too short or too long. (Robert Collins, #890001)
+        
+        * Failures in processing an AMQP sourced OOPS will now write out the path to
+          the disk copy of the failed OOPS, to ease debugging.
+          (Robert Collins, #892914)
+        
+        * Failures in the Django web UI will now raise an OOPS over AMQP, making
+          oops-tools an oops-tools consumer. (Robert Collins)
+        
+        * Flush stdout when logging an OOPS receipt in amqp2disk.
+          (Robert Collins, #884569)
+        
+        * Hostnames are now shown in the OOPS detail page. This makes it possible to
+          figure out if one host in particular is having trouble. (Robert Collins)
+        
+        * Long oops ids - which are likely hashes - no longer have the old appserver id
+          heuristic applied to them: if they have a missing or empty reporter, they are
+          associated with the instance 'unknown'. (Robert Collins, #889982)
+        
+        * Mixed case OOPS reports can now be looked up in the web UI without their
+          OOPS-prefix (if they had one). (Robert Collins, #884571)
+        
+        * Now uses the lp source dependencies rather than lazr, as part of simplifying
+          the maintenance of the many related LP projects. (Robert Collins)
+        
+        * Old OOPS reports can be cleaned out using the new script bin/prune.
+          (Robert Collins)
+        
+        * OOPS reports that don't meet the normal rules for req_vars are handled
+          a bit better.
+          (Robert Collins, William Grant, Roman Yepishev, #885416, #884265)
+        
+        * Report timelines now include a backtrace for each event, making it easier to
+          determine the origin of the event (e.g. why something is looked up).
+          Timelines without this information will show 'unknown' in the relevant
+          column on the OOPS page. (Robert Collins, #890976)
+        
+        * The OOPS reporter field - or prefix as it was known - is now shown
+          in the OOPS details page. (Robert Collins)
+        
+        * The prefix and appinstance values can now be up to 100 characters long.
+          (Robert Collins, #892917)
+        
+        * The req_vars variable in OOPS reports may now be a dict.
+          (Robert Collins, #888866)
+        
+        0.6.1
+        =====
+        
+        * Added AMQP support via the bin/amqp2disk script. (Robert Collins)
+        
+        * Bumped oops-amqp rev to 0.0.3 for bugfixes. (Robert Collins)
+        
+        * amqp2disk now creates a fanout exchange if --bind-to is supplied.
+          (Robert Collins)
+        
+        * amqp2disk -v will print the received OOPS ids on the console, for
+          entertainment and delight. (Robert Collins)
+        
+        * OOPS reports with non-ascii URL values are handled by url escaping the URL
+          bytestring (this is separate to handling of unicode URL values).
+          (Roman Yepishev, Robert Collins, #881400)
+        
+        * OOPS reports with unicode URL values are now handled during oops loading: the
+          unicode string is utf8 encoded (an arbitrary choice) and url escaped.
+          (Robert Collins, #879309)
+        
+        * OOPS reports with no topic (formerlly called pageid) will no longer use their
+          url instead. Rather '' is used, and reports will show Unknown for empty
+          pageids. (Robert Collins, #880641)
+        
+        0.6
+        ===
+        
+        * Initial release
+        
+        * Add dependency on testtools and fixtures for cleaner tests.
+        
+        * Fix race conditions with oops loading and non-sequential oopses. These can
+          occur when e.g. rsync is writing at the same time as oops loading, or if a
+          non-sequential publisher is used. (Robert Collins, #667373)
+        
+        * Update to oops-datedir-repo 0.0.7 and add reading of bson serialized oopses
+          (which are more extensible and more easily parsed). (Robert Collins)
+        
+Platform: UNKNOWN
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: GNU Affero General Public License v3
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python
