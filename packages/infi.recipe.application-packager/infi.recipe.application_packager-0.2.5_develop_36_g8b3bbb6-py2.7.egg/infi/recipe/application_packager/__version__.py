@@ -1,0 +1,10 @@
+__version__ = "0.2.5-develop-36-g8b3bbb6"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = 'develop'
+__git_remote_tracking_branch__ = 'origin/develop'
+__git_remote_url__ = 'git@gitserver:/host/infi-recipe-application-packager.git'
+__git_head_hash__ = '8b3bbb61dcbed5adb829a65a054680009d485ace'
+__git_head_subject__ = 'HOSTDEV-426 fixing devenv_build again'
+__git_head_message__ = ''
+__git_dirty_diff__ = ''
