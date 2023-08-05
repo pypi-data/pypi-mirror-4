@@ -1,0 +1,44 @@
+pyLICORS: readme
+================
+``pylicors`` is a Python module for predictive state estimation from 
+continuous valued spatio-temporal data.
+
+.. warning::
+  This package is in a **Planning status**. That means it has only very limited
+  functionality, and function names, arguments, output, etc. **WILL** change in 
+  the future.  Do not use this yet for any more involved analysis or automated
+  analysis of any kind.  The code you write now **will break** with the next releases.
+
+``pylicors`` has two *cousins* in `R<www.r-project.org>`_: 
+  - `LICORS<cran.r-project.org/web/packages/LICORS>`_
+  - `LSC<cran.r-project.org/web/packages/LSC>`_
+
+Support and Documentation
+-------------------------
+
+See  `pylicors website <http://pypi.python.org/pypi/pylicors>`_ 
+on `PyPI <http://pypi.python.org/pypi/>`_  to view
+documentation, report bugs, and obtain support.
+
+License
+-------
+
+``pylicors`` is offered under the `GPL3 license
+<http://opensource.org/licenses/gpl-3.0.html>`_.
+
+Authors
+-------
+
+``pylicors`` is developed and maintained by `Georg M. Goerg
+<http://www.stat.cmu.edu/~gmg>`_.
+
+Credits
+-------
+
+- `numpy`_
+- `pyopencv`_
+- `OpenCV`_
+
+.. _numpy: numpy.scipy.org/
+.. _pyopencv: http://code.google.com/p/pyopencv/
+.. _`OpenCV`: http://opencv.willowgarage.com/wiki/
