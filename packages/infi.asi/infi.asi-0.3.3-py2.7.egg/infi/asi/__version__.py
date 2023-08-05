@@ -1,0 +1,10 @@
+__version__ = "0.3.3"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '028188306a6a1d7ce6b3698f36bffa00b185fcb0'
+__git_head_subject__ = 'Finished release v0.3.3.'
+__git_head_message__ = '# By Arnon Yaari (1) and Guy Rozendorn (1)\n* release/v0.3.3:\n  STORAGEMODEL-197 LinuxIoctlCommandExecuter\n  empty commit after version v0.3.2'
+__git_dirty_diff__ = ''
