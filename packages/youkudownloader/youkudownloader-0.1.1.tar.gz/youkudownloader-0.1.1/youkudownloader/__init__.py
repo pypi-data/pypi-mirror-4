@@ -1,0 +1,23 @@
+#!/usr/bin/env python
+
+import common
+import acfun
+import bilibili
+import chinanews
+import cntv
+import ifeng
+import iqiyi
+import ku6
+import letv
+import mtime
+import pptv
+import qq
+import sina
+import sohu
+import tudou
+import w56
+import yesky
+import yinyuetai
+import youku
+import zol
+import __main__
