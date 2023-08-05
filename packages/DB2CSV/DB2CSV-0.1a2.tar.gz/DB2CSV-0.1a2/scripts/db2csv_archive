@@ -1,0 +1,14 @@
+#!python
+# Copyright (C) 2012 the DB2CSV authors and contributors
+# <see AUTHORS file>
+#
+# This module is part of ColanderAlchemy and is released under
+# the MIT License: http://www.opensource.org/licenses/mit-license.php
+
+if __name__ == '__main__':
+
+    from db2csv import Database, Parser
+
+    parser = Parser()
+    db = Database(parser.db_uri, parser.dst_dir, parser.zip, parser.verbose)
+    db.archive()
