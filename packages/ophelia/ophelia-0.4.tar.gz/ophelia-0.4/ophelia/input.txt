@@ -1,0 +1,208 @@
+===================
+Input file handling
+===================
+
+Scripts and templates
+=====================
+
+Ophelia input files, which are read while traversing the requested resource
+path, contain both page templates and Python scripts. Splitter objects are
+responsible for splitting up input files into scripts and templates. They
+implement the ISplitterAPI interface meant for use in scripts and templates:
+
+>>> from zope.interface.verify import verifyClass
+>>> from ophelia.input import Splitter
+>>> from ophelia.interfaces import ISplitterAPI
+>>> verifyClass(ISplitterAPI, Splitter)
+True
+
+>>> splitter = Splitter()
+
+When called with the content of an input file as an argument, the splitter
+will return a pair of unicode strings: the script code and the template text.
+The two must be separated by an XML declaration in the input. While the script
+code will be stripped of any leading or trailing whitespace, the template text
+starts immediately after the end of the XML declaration, including any line
+breaks:
+
+>>> splitter("""\
+... title = u"A headline"
+...
+... <?xml?>
+... <h1 tal:content="title" />
+... """)
+(u'title = u"A headline"', u'\n<h1 tal:content="title" />\n')
+
+If no XML declaration is present, the whole input will be considered template
+text:
+
+>>> splitter("""\
+... <h1 tal:content="title" />
+... """)
+(u'', u'<h1 tal:content="title" />\n')
+
+The splitter does not complain if the Python script or the template text are
+invalid:
+
+>>> splitter("""\
+...    !!!= foobar
+... <?xml?>
+... <h1 tal:asdf=+#.> ></h2>
+... """)
+(u'!!!= foobar', u'\n<h1 tal:asdf=+#.> ></h2>\n')
+
+The XML declaration is found by a regular expression search. It tries not to
+be inappropriately greedy:
+
+>>> splitter("""\
+... title = u"A headline"
+... <?xml <?xml?> ?>
+... <h1 tal:content="title" />
+... """)
+(u'title = u"A headline"\n<?xml', u' ?>\n<h1 tal:content="title" />\n')
+
+
+Template offset
+===============
+
+In order for the line numbers and row pointer shown in page template traceback
+supplements to refer to the input file as opposed to the template part of it,
+the line and row offset of the template needs to be stored.
+
+XXX During the 0.3 line, this is done through the ``_last_template_offset``
+attribute of the splitter which holds a tuple of line and row offset;
+eventually a better (and backwards-incompatible) API should be defined.
+
+Without a script prepended, the template starts without any offset:
+
+>>> splitter("""\
+... <p/>
+... """)
+(u'', u'<p/>\n')
+>>> splitter._last_template_offset
+(0, 0)
+
+The last line of the script and the XML declaration contribute to the row
+offset of the first line of the template:
+
+>>> splitter("""\
+... pass <?xml?> <p/>
+... """)
+(u'pass', u' <p/>\n')
+>>> splitter._last_template_offset
+(0, 12)
+
+Complete script lines cause a line offset; the remainder of the line
+containing the XML declaration is already part of the template:
+
+>>> splitter("""\
+... title = u'A headline'
+... pass <?xml?>
+... <p/>
+... """)
+(u"title = u'A headline'\npass", u'\n<p/>\n')
+>>> splitter._last_template_offset
+(1, 12)
+
+The algorithm used works correctly for multi-line XML declarations:
+
+>>> splitter("""\
+... title = u'A headline'
+... pass <?xml
+... version="1.1"?>
+... <p/>
+... """)
+(u"title = u'A headline'\npass", u'\n<p/>\n')
+>>> splitter._last_template_offset
+(2, 15)
+
+
+Input encoding
+==============
+
+The splitter assumes input to be ASCII encoded by default. Characters beyond
+the 7 bit range will cause the splitter to fail:
+
+>>> splitter("""\
+... title = u"\xc3\x9cberschrift"
+... <?xml?>
+... """)
+Traceback (most recent call last):
+UnicodeDecodeError: 'ascii' codec can't decode byte 0xc3 in position 10:
+                    ordinal not in range(128)
+
+>>> splitter("""\
+... <h1 tal:content="title">\xc3\x9cberschrift</h1>
+... """)
+Traceback (most recent call last):
+UnicodeDecodeError: 'ascii' codec can't decode byte 0xc3 in position 24:
+                    ordinal not in range(128)
+
+The encoding may be overridden on a file-by-file basis by including
+native-style encoding declarations in the script and template:
+
+>>> splitter("""\
+... # coding: utf-8
+... title = u"\xc3\x9cberschrift"
+... <?xml version="1.1" encoding="utf-8" ?>
+... <h1 tal:content="title">\xc3\x9cberschrift</h1>
+... """)
+(u'title = u"\xdcberschrift"',
+ u'\n<h1 tal:content="title">\xdcberschrift</h1>\n')
+
+These declarations are independent from each other. Declaring the encoding for
+only the script or the template but using non-ASCII characters in the other
+will still cause a failure:
+
+>>> splitter("""\
+... title = u"\xc3\x9cberschrift"
+... <?xml version="1.1" encoding="utf-8" ?>
+... <h1 tal:content="title">\xc3\x9cberschrift</h1>
+... """)
+Traceback (most recent call last):
+UnicodeDecodeError: 'ascii' codec can't decode byte 0xc3 in position 10:
+                    ordinal not in range(128)
+
+>>> splitter("""\
+... # coding: utf-8
+... title = u"\xc3\x9cberschrift"
+... <?xml?>
+... <h1 tal:content="title">\xc3\x9cberschrift</h1>
+... """)
+Traceback (most recent call last):
+UnicodeDecodeError: 'ascii' codec can't decode byte 0xc3 in position 25:
+                    ordinal not in range(128)
+
+To avoid having to specify the encoding of scripts and templates in every
+file, two attributes of the splitter may be assigned the name of the desired
+encoding. Their values read 'ascii' by default:
+
+>>> splitter.script_encoding
+'ascii'
+>>> splitter.template_encoding
+'ascii'
+
+These attributes are initialized from options that may be passed to the
+splitter upon instantiation:
+
+>>> splitter = Splitter(script_encoding="utf-8",
+...                     template_encoding="utf-8")
+>>> splitter.script_encoding
+'utf-8'
+>>> splitter.template_encoding
+'utf-8'
+
+Now encoding declarations inside input files are no longer necessary:
+
+>>> splitter("""\
+... title = u"\xc3\x9cberschrift"
+... <?xml?>
+... <h1 tal:content="title">\xc3\x9cberschrift</h1>
+... """)
+(u'title = u"\xdcberschrift"',
+ u'\n<h1 tal:content="title">\xdcberschrift</h1>\n')
+
+
+.. Local Variables:
+.. mode: rst
+.. End:
