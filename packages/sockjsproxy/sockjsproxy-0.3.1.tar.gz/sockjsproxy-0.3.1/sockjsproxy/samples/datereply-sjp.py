@@ -1,0 +1,31 @@
+import datetime
+
+import zmq
+
+def main():
+    ctx = zmq.Context()
+    in_socket = ctx.socket(zmq.SUB)
+    in_socket.setsockopt(zmq.SUBSCRIBE, '')
+    in_socket.connect('tcp://localhost:9241')
+    out_socket = ctx.socket(zmq.PUB)
+    out_socket.connect('tcp://localhost:9242')
+
+    print 'Listening for messages'
+    try:
+        while True:
+            (session_id, message_type, data) = in_socket.recv_multipart()
+
+            if message_type == 'connect':
+                print "{} connected".format(session_id)
+            elif message_type == 'disconnect':
+                print "{} disconnected".format(session_id)
+            else:
+                print "{}: {}".format(session_id, data)
+                print "Sending date"
+                out_socket.send_multipart([session_id,
+                                           'The time now is: ' + str(datetime.datetime.now())])
+    except KeyboardInterrupt:
+        pass
+
+if __name__ == '__main__':
+    main()
