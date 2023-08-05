@@ -1,0 +1,254 @@
+Metadata-Version: 1.1
+Name: cipher.googlepam
+Version: 1.5.1
+Summary: Google PAM Module
+Home-page: http://pypi.python.org/pypi/cipher.googlepam
+Author: Stephan Richter
+Author-email: stephan.richter@gmail.com
+License: UNKNOWN
+Description: Google PAM Module
+        =================
+        
+        This package implements a Python PAM module to authenticate users against a
+        Google domain. The following features are provided:
+        
+        - Select any Google domain.
+        
+        - Allow only users from a certain group.
+        
+        - A script to install all Google users as system users.
+        
+        - Password caching using files or memcached.
+        
+        - Advanced logging setup.
+        
+        The code was inspired by the ``python_pam.so`` examples and the
+        ``TracGoogleAppsAuthPlugin`` trac authentication plugin.
+        
+        
+        Configuring Google PAM on Ubuntu 12.04 LTS
+        ------------------------------------------
+        
+        1. Install a few required packages::
+        
+             # apt-get install python-setuptools python-gdata python-bcrypt \
+                               python-memcache libpam-python
+        
+        2. Now install ``cipher.googlepam`` using easy install::
+        
+             # easy_install cipher.googlepam
+        
+        3. Add all users to the system::
+        
+             # add-google-users -v -d <domain> -u <admin-user> -p <admin-pwd> \
+                                -g <google-group> -a <system-admin-group>
+        
+           Note: Use the ``-h`` option to discover all options.
+        
+        4. Create a ``/etc/pam_google.conf`` configuration file::
+        
+             [googlepam]
+             domain=<domain>
+             admin-username=<admin-user>
+             admin-password=<admin-pwd>
+             group=<google-group>
+             excludes = root [<user> ...]
+             prompt = Google Password:
+             cache = file|memcache
+        
+             [file-cache]
+             file = /var/lib/pam_google/user-cache
+             lifespan = 1800
+        
+             [memcache-cache]
+             key-prefix = googlepam.
+             host = 127.0.0.1
+             port = 11211
+             debug = false
+             lifespan = 1800
+        
+             [loggers]
+             keys = root, pam
+        
+             [logger_root]
+             handlers = file
+             level = INFO
+        
+             [logger_pam]
+             qualname = cipher.googlepam.PAM
+             handlers = file
+             propagate = 0
+             level = INFO
+        
+             [handlers]
+             keys = file
+        
+             [handler_file]
+             class = logging.handlers.RotatingFileHandler
+             args = ('/var/log/pam-google.log', 'a', 10*1024*1024, 5)
+             formatter = simple
+        
+             [formatters]
+             keys = simple
+        
+             [formatter_simple]
+             format = %(asctime)s %(levelname)s - %(message)s
+             datefmt = %Y-%m-%dT%H:%M:%S
+        
+        5. Hide contents of the config file from the curious users::
+        
+             # chmod 600 /etc/pam_google.conf
+        
+        6. Put the Google PAM module in a sensible location::
+        
+             # ln -s /usr/local/lib/python2.7/dist-packages/cipher.googlepam-<version>-py2.7.egg/cipher/googlepam/pam_google.py /lib/security/pam_google.py
+        
+        7. Enable pam_google for all authentication. Add the following rule as the
+           first rule in file ``/etc/pam.d/common-auth``::
+        
+             auth    sufficient   pam_python.so /lib/security/pam_google.py -c /etc/pam_google.conf
+        
+        
+        Building a Debian package
+        -------------------------
+        
+        1. Install a few required packages::
+        
+             # apt-get install build-essential debhelper devscripts fakeroot quilt
+        
+        2. Download the latest cipher.googlepam tarball from PyPI (or build one with
+           ``python setup.py sdist``)
+        
+        3. Rename the tarball ``cipher.googlepam_VERSION.orig.tar.gz`` (note: underscore
+           instead of the hyphen!), put it in the parent directory of the source tree
+           (if you don't have a source tree, just untar the tarball).
+        
+        4. Go to the source tree, run ``dch -i``, make sure the version number in the
+           changelog matches the package version, make sure your name and email are
+           correct, write a changelog entry itself (e.g. something like 'New upstream
+           release'.)
+        
+        5. Run ``debuild``.  If everything's fine, you should get a ``deb`` file in the
+           parent directory.
+        
+        Install the deb with ``sudo dpkg -i cipher.googlepam...deb; sudo apt-get -f
+        install``.  Then edit ``/etc/cipher-googlepam/pam_google.conf`` and run
+        ``add-google-users``.  You don't need to manually edit PAM configuration if you
+        use the .deb package.
+        
+        
+        
+        CHANGES
+        =======
+        
+        1.5.1 (2012-10-11)
+        ------------------
+        
+        - MemCache reliability fixes:
+        
+          + **SECURITY FIX**: do not use the same cache key for all users.
+        
+            Previously when one user logged in successfully, others could not log in
+            using their own passwords -- but the first user could now use her password
+            to log in as anyone else.
+        
+          + Do not store custom classes in memcached so we don't get unpickling
+            errors caused by the special execution environment set up by
+            pam_python.so.  Previously the cached value was a subclass of tuple,
+            now it's a plain tuple, so old caches will continue to work with the
+            new code.
+        
+        - FileCache reliability fixes:
+        
+          + Avoid incorrect cache lookups (or invalidations) when a username is a
+            proper prefix of some other username.
+        
+          + Avoid cache poisoning if usernames contain embedded '::' separators or
+            newlines.
+        
+          + Avoid exceptions on a race condition if the cache file disappears after
+            we check for its existence but before we open it for reading.
+        
+        - Add missing test file for multi-group support.  It was accidentally left
+          out of the last release causing a test failure.
+        
+        - Make add-google-users skip users that already exist without printing
+          scary error messages that make it seem the script aborted early.
+        
+        
+        1.5.0 (2012-10-09)
+        ------------------
+        
+        - Support multiple Google groups.  The authenticating user has to be a member
+          of any one of them for access to be allowed.
+        
+        - Added add-google-users new option --exclude to skip adding some users
+          (e.g. the 'admin' user might clash with an existing 'admin' group, causing
+          the script to fail).
+        
+        - Added add-google-users option --add-to-group as a more meaningful alias for
+          the old --admin-group option.
+        
+        - Added add-google-users option --add-to-group-command for completeness.
+        
+        
+        1.4.0 (2012-10-08)
+        ------------------
+        
+        - Set umask to avoid world-readable log and cache files.
+        
+        - Add a space after the PAM prompt.
+        
+        - The add-google-users script now reads the pam_google config file to get the
+          domain, username, password and group.  You can also use -C/--config-file to
+          specify a different config file.
+        
+        - add-google-users does not break if you don't specify --admin-group.
+        
+        - Added Debian packaging.
+        
+        
+        1.3.0 (2012-04-24)
+        ------------------
+        
+        - Added ability to cache authentication result, since some uses, such as
+          Apache authentication can cause a lot of requests. File- and
+          memcached-based caches have been implemented and are available/configurable
+          in the configuration file.
+        
+        - Fully stubbed out the Google API for faster and simpler testing.
+        
+        - Removed all traces of Cipher's specific account details.
+        
+        - Changed all headers to ZPL.
+        
+        - The package is ready for public release.
+        
+        
+        1.2.0 (2012-04-17)
+        ------------------
+        
+        - Do not fail if the username already exists.
+        
+        
+        1.1.0 (2012-04-17)
+        ------------------
+        
+        - Make the admin group configurable.
+        
+        
+        1.0.0 (2012-04-17)
+        ------------------
+        
+        - PAM module authenticating against users in a group of a particular Google
+          domain.
+        
+        - Script to add all users of a group within a Google domain as system users.
+        
+Keywords: pam google
+Platform: UNKNOWN
+Classifier: Development Status :: 4 - Beta
+Classifier: Programming Language :: Python
+Classifier: Topic :: Internet
+Classifier: Topic :: Security
+Classifier: Topic :: System :: Systems Administration :: Authentication/Directory
