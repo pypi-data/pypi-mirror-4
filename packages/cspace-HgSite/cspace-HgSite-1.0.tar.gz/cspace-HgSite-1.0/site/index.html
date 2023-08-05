@@ -1,0 +1,549 @@
+<!DOCTYPE html
+  PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:xi="http://www.w3.org/2001/XInclude"
+      xmlns:py="http://genshi.edgewall.org/">
+  <xi:include href="site.html"/>
+
+  <head>
+    <title>${meta.project} &ndash; ${meta.description}</title>
+  </head>
+
+  <body>
+    <div id="content">
+      <div id="metadata">
+        <table>
+          <tbody>
+            <tr>
+              <th>Project:</th><td><tt>${meta.project}</tt></td>
+              <th>License:</th><td><a href="${browse_href('COPYING')}">${meta.license}</a></td>
+            </tr>
+            <tr>
+              <th>Version:</th><td>${meta.version} (${meta.date if not meta.devel else last_changed})</td>
+              <th>Download:</th><td><a href="${meta.download_url}">${meta.download_url}</a></td>
+            </tr>
+            <tr>
+              <th>Author:</th>
+              <td><a href="mailto:${meta.author_email}">${meta.author} &lt;${meta.author_email}&gt;</a></td>
+              <th>Repository:</th>
+              <td><a py:with="url = req.abs_url(repo_href())" href="${url}">${url}</a>
+                (<a href="${req.repo_default}">Browse</a>)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div id="toc">
+        <span><a href="#overview">Overview</a></span>
+        <span><a href="#quick-start">Quick start</a></span>
+        <span><a href="#url-structure">URL structure</a></span>
+        <span><a href="#installation">Installation</a></span>
+        <span><a href="#configuration">Configuration</a></span>
+        <span><a href="#renderers">Renderers</a></span>
+        <span><a href="#api">API</a></span>
+        <span><a href="#contribute">Contribute</a></span>
+        <span><a href="#releases">Releases</a></span>
+      </div>
+
+      <div class="section">
+        <h2 id="overview">Overview</h2>
+        <p><tt>${meta.project}</tt> is a <a href="${mercurial}">Mercurial</a> extension
+          that allows <strong>serving a dynamic, read-only website</strong> using a Mercurial repository as the backend
+          storage. Pages are served by <tt>hgweb</tt>, the same component that serves the Mercurial
+          repository, and no additional configuration is necessary in the web server.</p>
+        <p>Current features include:</p>
+        <ul>
+          <li>A subset of the <strong>files in the repository are rendered</strong> through a number of
+            <a href="#renderers">renderers</a>, based on their path. Built-in renderers include support for
+            <a href="#genshi-renderers">Genshi templates</a>, <a href="#static-renderer">static</a>
+            files and <a href="#exec-renderer">in-repository</a> renderers, and you can also
+            <a href="#adding-renderers">add your own</a>.</li>
+          <li>It is possible to <strong>view a site as it was at any revision</strong>, thanks to the
+            consistent versioning of the <a href="#hgsite-config">rendering configuration</a> and all the
+            files composing a site. Have your own <a href="http://web.archive.org/">Wayback Machine</a>
+            for your site!</li>
+          <li>Rendered pages have <strong>full access to the repository</strong>. This allows linking to
+            specific files in the repository browser, including snippets of code in a page (with
+            <a href="#highlight">syntax highlighting</a>), or even implementing a fully custom repository
+            browser.</li>
+        </ul>
+        <p>These features allow a number of interesting use cases, for example:</p>
+        <ul>
+          <li><strong>Serve a <tt>README</tt> file</strong> at the top-level of your repository,
+            GitHub-style.</li>
+          <li><strong>Serve the web site for a small project directly out of the project's repository</strong>.
+            Using a templating engine like Genshi allows writing HTML pages relatively comfortably, as it
+            allows factoring out common parts to avoid duplication. Editing and testing is very easy thanks
+            to the immediate feedback provided by <var>hg serve</var>. And pushing changes to production is
+            as easy as <var>hg push</var>.</li>
+          <li><strong>Keep the documentation of a project together with the project's code</strong> in a
+            single repository, and serve it directly out of the repository. As both are versioned together,
+            it's easy to get the documentation for a specific version of the code. Moreover, the templates
+            have access to all the files in the repository, so the documentation can link to files in the
+            repository browser or inline snippets directly. You could even create a fully custom repository
+            browser.</li>
+          <li><strong>Run a small blog</strong>. The site structure can be done with a few HTML templates,
+            and the articles could be stored as individual files, which could be listed and rendered in the
+            templates.</li>
+        </ul>
+        <p>This site is (of course) <a href="${browse_href('site')}">powered</a> by <tt>hgweb</tt> with
+          <tt>${meta.project}</tt>, and demonstrates most of the available features.</p>
+      </div>
+
+      <div class="section">
+        <h2 id="quick-start">Quick start</h2>
+        <p>Here's a very short guide to get started with <tt>${meta.project}</tt>. The sample files are
+        available in the <tt><a href="${browse_href('examples')}">examples</a></tt> directory.</p>
+        <ul>
+          <li>Install <a href="${pypi}/setuptools">setuptools</a>,
+            <a href="${genshi}/wiki/Documentation/install.html">Genshi</a> and
+            <a href="${pygments}/docs/installation/">Pygments</a>.</li>
+          <li>Install <tt>${meta.project}</tt>:
+<pre>
+$ easy_install ${meta.name}
+</pre>
+          </li>
+          <li>In a local clone of your project, edit <tt>.hg/hgrc</tt> and add:
+<highlight lexer="ini">
+[extensions]
+cspace.hgsite =
+
+[hgsite]
+allow_wc = true
+default_revision =
+</highlight>
+          </li>
+          <li>Create a file named <var>.hgsite</var> at the top-level of your project, with the following
+            content:
+<highlight lexer="ini">
+[render]
+html = .*\.html$
+html.renderer = genshi:xhtml
+html.mimetype = text/html
+</highlight>
+          </li>
+          <li>Create a directory named <var>site</var>, and create the file <var>site/index.html</var>
+            with the following content:
+${include('examples/hello_world.html', 'genshi')}
+          </li>
+          <li>Run <kbd>hg serve</kbd> and go to
+            <tt><a py:with="url = 'http://localhost:8000/'" href="${url}">${url}</a></tt>.</li>
+        </ul>
+        <p>Congratulations! You are viewing your new project site.</p>
+      </div>
+
+      <div class="section">
+        <h2 id="url-structure">URL structure</h2>
+        <p><tt>${meta.project}</tt> URLs have the following form:</p>
+<pre>
+http://{host}/{path/to/repo}/[~{node}/]{path}
+</pre>
+        <p>The file to be rendered for a given URL is determined by the following rules:</p>
+        <ul>
+          <li>If the file <var>{<a href="#hgsite-config-base_path">base_path</a>}/{path}</var> exists in
+            the repository, it is selected.</li>
+          <li>For each extension <var>{ext}</var> in
+            <var><a href="#hgsite-config-ext_search_path">ext_search_path</a></var>, if the file
+            <var>{<a href="#hgsite-config-base_path">base_path</a>}/{path}.{ext}</var> exists in the
+            repository, it is selected.</li>
+          <li>Otherwise, the list of all files in the repository starting with
+            <var>{<a href="#hgsite-config-base_path">base_path</a>}/{path}.</var> is sorted
+            lexically, and the first file in the list is selected.</li>
+        </ul>
+        <p>This allows having nice URLs like <var>http://example.com/repo/documentation</var> that
+          don't expose file extensions.</p>
+        <p>The optional <var>~</var>-prefixed <var>{node}</var> before the file path can be any revision
+          reference (as defined by <kbd>hg help revisions</kbd>), and specifies which revision of the file
+          must be rendered. An empty <var>{node}</var> resolves to the working copy (if
+          <a href="#hgrc-hgsite-allow_wc">allow_wc</a> is <tt>true</tt>). This allows viewing the site as
+          it was at any revision.</p>
+        <p>Note that <tt>${meta.project}</tt> shares the URL path namespace with <tt>hgweb</tt>, and the
+          latter has priority. This is only an issue when no node is specified. For example, if
+          <var>path</var> starts with <var>log/</var>, then the request will be handled by
+          <tt>hgweb</tt>. Page and directory names should therefore be chosen so as not to conflict with
+          <tt>hgweb</tt> <a href="${mercurial_repo}/file/default/mercurial/hgweb/webcommands.py">web commands</a>,
+          as listed in <var>__all__</var>. In particular, static resources should not be placed in a
+          directory named <var>static</var>, as this name is already used by <tt>hgweb</tt>.</p>
+      </div>
+
+      <div class="section">
+        <h2 id="installation">Installation</h2>
+        <p>${meta.project} requires the following packages:</p>
+        <ul>
+          <li><a href="${genshi}">Genshi</a> (optional), for the XML and text renderers</li>
+          <li><a href="${pygments}">Pygments</a> (optional), for syntax highlighting</li>
+          <li><a href="${pypi}/setuptools">Setuptools</a> or
+            <a href="${pypi}/distribute">distribute</a></li>
+        </ul>
+        <p>The extension can be installed with either of the following methods, which may require
+          administrator privileges.</p>
+        <ul>
+          <li>With <var>easy_install</var>:
+<pre>
+$ easy_install ${meta.name}
+</pre>
+          </li>
+          <li>From a source tarball or a ZIP archive:
+<pre>
+$ tar -xvzf ${meta.name}-${meta.version}.tar.gz
+$ cd ${meta.name}-${meta.version}
+$ python setup.py install
+</pre>
+          </li>
+          <li>From a clone of the repository:
+<pre>
+$ hg clone ${req.abs_url(repo_href())} ${meta.project}
+$ cd ${meta.project}
+$ python setup.py install
+</pre>
+          </li>
+        </ul>
+      </div>
+
+      <div class="section">
+        <h2 id="configuration">Configuration</h2>
+        <p>The configuration is split into two parts:</p>
+        <ul>
+          <li>An <tt><a href="#hgrc-hgsite">[hgsite]</a></tt> section in <tt>hgrc</tt>.</li>
+          <li>A versioned file named <tt>.hgsite</tt> in the repository root.</li>
+        </ul>
+        <p>The extension must be enabled by adding the following lines in <tt>hgrc</tt>:</p>
+<highlight lexer="ini">
+[extensions]
+cspace.hgsite =
+</highlight>
+        <p>Once enabled, it is activated when a file named <tt>.hgsite</tt> exists at the
+          <a href="#url-structure">requested revision</a> (it can be empty).</p>
+
+        <h3 id="hgrc-hgsite">Section <tt>[hgsite]</tt> in <tt>hgrc</tt></h3>
+        <p>This section configures the aspects of the extension that are independent of the served content.
+          The following options are available:</p>
+        <ul>
+          <li id="hgrc-hgsite-allow_wc"><tt class="def">allow_wc</tt> (boolean): Specifies if content
+            can be served from the the working copy. When <tt>true</tt>, URLs with an empty revision will
+            render files from the working copy. This is most useful during development (when using
+            <kbd>hg serve</kbd>), as it allows to see the effect of edits without having to commit.
+            However, it may be a security issue, as it may allow accessing files outside of the working
+            copy. The default is (of course) <tt>false</tt>.</li>
+          <li id="hgrc-hgsite-context_genshi"><tt class="def">context.genshi</tt> (path): The path to a
+            Python module that will be executed in the rendering context of Genshi prior to rendering.
+            Relative paths are resolved relative to the <var>.hg</var> directory of the repository. This
+            allows manipulating the context independently of the (immutable) content of the repository.
+            This can be used e.g. to fix the rendering of old site revisions when dependencies (Genshi,
+            <tt>${meta.project}</tt> itself) change in backward-incompatible ways.</li>
+          <li id="hgrc-hgsite-default_revision"><tt class="def">default_revision</tt> (string): A
+            revision reference (as defined by <kbd>hg help revisions</kbd>) or a revset expression
+            (see <kbd>hg help revsets</kbd>) that specifies the revision to use when no <var>{node}</var>
+            is specified in the <a href="#url-structure">URL</a>. An empty value resolves to the working
+            copy (if <var>allow_wc</var> is <tt>true</tt>). When a revset expression resolves to multiple
+            revisions, the first revision in the set is used. The default is <var>default</var>, the tip
+            of the default branch.</li>
+        </ul>
+        <p>A typical <tt>[hgsite]</tt> section for a production site could look like this:</p>
+<highlight lexer="ini">
+[hgsite]
+; Serve the most recent tagged revision on branch stable by default
+default_revision = last(sort(tag() and branch(stable), date))
+</highlight>
+
+        <h3 id="hgsite-config">Section <tt>[config]</tt> in <tt>.hgsite</tt></h3>
+        <p>This section configures the location of the site files, and the way the path section of the
+          URL is mapped to repository paths. The following options are available:</p>
+        <ul>
+          <li id="hgsite-config-base_path"><tt class="def">base_path</tt> (string): The path within the
+            repository that contains the files to be rendered. The default is <var>site</var>.</li>
+          <li id="hgsite-config-error_page"><tt class="def">error_page</tt> (string): The site-relative
+            path to use to render a custom error page. If this option is empty (the default), errors are
+            propagated to <tt>hgweb</tt>.</li>
+          <li id="hgsite-config-ext_search_path"><tt class="def">ext_search_path</tt> (string): A
+            comma-separated list of extensions that will be appended to the path specified in the URL to
+            try and <a href="#url-structure">find the file</a> to be rendered. The default is empty.</li>
+          <li id="hgsite-config-site_index"><tt class="def">site_index</tt> (string): The
+            site-relative path to use for the site root URL (i.e. <tt>http://example.com/repo/site</tt>).
+            The default is <var>index</var>.</li>
+        </ul>
+        <p>Here's a sample <tt>[config]</tt> section:</p>
+<highlight lexer="ini">
+[config]
+; Site files are in site/...
+base_path = site
+; Try {path}, {path}.html, {path}.txt and finally {path}.*
+ext_search_path = html, txt
+; Set {path} = 'index' at the site root
+site_index = index
+</highlight>
+
+        <h3 id="hgsite-render">Section <tt>[render]</tt> in <tt>.hgsite</tt></h3>
+        <p>This section configures how files are rendered. Option names that don't contain a
+          <var>.</var> (period) define regexp patterns to be matched against the file path, and rendering
+          arguments are specified in options with the same name and a <var>.{argument}</var> suffix.
+          For example, if a pattern is specified in the option <var>html</var>, the corresponding
+          arguments are taken from <var>html.renderer</var>, <var>html.mimetype</var> and so on.</p>
+        <p>To determine the renderer to be used for a file, the options are first sorted lexically,
+          then the (repository-relative) path is matched against each pattern in order. The first
+          matching pattern wins. If none of the patterns matches, a "404 Not found" error is returned.</p>
+        <p>The following options define the renderer for a set of paths (<var>{name}</var> can be an
+          arbitrary identifier not containing <var>.</var>):</p>
+        <ul>
+          <li><tt class="def">{name}</tt> (string): A regexp pattern to match against the
+            (repository-relative) path of the file to be rendered.</li>
+          <li><tt class="def">{name}.renderer</tt> (string): The renderer to use for files matching the
+            pattern. The default is <var><a href="#static-renderer">static</a></var>.</li>
+        </ul>
+        <p>Renderers can accept additional arguments, which are passed in the <var>config</var> argument
+          of the <a href="#adding-renderers">rendering function</a>. The following arguments are supported
+          by most renderers:</p>
+        <ul>
+          <li><tt class="def">{name}.mimetype</tt> (string): The MIME type to return in the
+            <tt>Content-Type</tt> header of the reply. If this option isn't set, the MIME type is guessed
+            from the file extension, with a renderer-dependent fallback.</li>
+          <li><tt class="def">{name}.encoding</tt> (string): The encoding used in the file. This value is
+            used by the renderer and is also returned as the <tt>charset=</tt> parameter in the
+            <tt>Content-Type</tt> header of the reply. The default is renderer-dependent.</li>
+        </ul>
+        <p>Here's a sample <tt>[render]</tt> section (see the <tt>.hgsite</tt> file for
+          <a href="${browse_href('.hgsite')}">this site</a> for even more examples):</p>
+<highlight lexer="ini">
+[render]
+html = .*\.html$
+html.renderer = genshi:xhtml
+html.mimetype = text/html
+image = .*\.(ico|jpg|png)$
+js = .*\.js$
+js.mimetype = text/javascript
+js.encoding = utf-8
+txt = .*\.txt$
+txt.renderer = genshi:text
+txt.mimetype = text/plain
+</highlight>
+      </div>
+
+      <div class="section">
+        <h2 id="renderers">Renderers</h2>
+
+        <h3 id="static-renderer">Static renderer</h3>
+        <p>The <var>static</var> renderer serves the target file as-is, without any processing. The
+          fallback MIME type for this renderer is <var>application/octet-stream</var>.</p>
+
+        <h3 id="genshi-renderers">Genshi renderers</h3>
+        <p>The following renderers use Genshi for rendering:</p>
+        <ul>
+          <li><tt class="def">genshi:html</tt>, <tt class="def">genshi:xhtml</tt> and
+            <tt class="def">genshi:xml</tt> render files as
+            <a href="${genshi_doc}/xml-templates.html">XML templates</a> with the <var>html</var>,
+            <var>xhtml</var> and <var>xml</var>
+            <a href="${genshi_doc}/streams.html#id1">serialization method</a>, respectively.
+            The fallback MIME type for these renderers, if guessing fails, is <var>text/xml</var>.</li>
+          <li><tt class="def">genshi:text</tt> renders files as
+            <a href="${genshi_doc}/text-templates.html">text templates</a> with the <var>text</var>
+            <a href="${genshi_doc}/streams.html#id1">serialization method</a>. The fallback MIME type
+            for this renderer, if guessing fails, is <var>text/plain</var>.</li>
+        </ul>
+
+        <p>Files included from within templates with <tt>&lt;xi:include&gt;</tt> and
+          <tt>{% include %}</tt> are read from the same revision as the including file. This ensures
+          that rendering is consistent at any requested revision.</p>
+
+        <h4 id="genshi-context">Rendering context</h4>
+        <p>The context in which templates are evaluated is pre-populated with the following symbols:</p>
+        <ul>
+          <li id="highlight"><tt class="func">highlight(text, lexer, tabsize=0) &rarr; stream</tt>
+            Apply Pygments syntax highlighting to the given text, with the given
+            <a href="${pygments}/docs/lexers/">lexer</a>, and return a Genshi stream with the markup.
+            The stream can be inserted into a markup template with standard <var>$${}</var> syntax. If
+            <var>tabsize</var> is nonzero, expand tabs to that size. For an example how to use syntax
+            highlighting, see the
+            <a href="${browse_href('site/common.html', line=r'py:match path=&quot;highlight&quot;')}"><tt>py:match</tt>
+            directives</a> and
+            <a href="${browse_href('site/common.html', line=r'function=&quot;include\(')}">functions</a>
+            used for this site.</li>
+          <li><tt class="def">req</tt>: A <a href="#request-object">request object</a> for the current
+            request.</li>
+          <li>All additional arguments passed to the renderer as
+            <var><a href="#adding-renderers">**kwargs</a></var>.</li>
+        </ul>
+
+        <h3 id="pygments-css-renderer">Pygments CSS renderer</h3>
+        <p>The <var>pygments:css</var> renderer outputs the CSS for Pygments syntax highlighting. It
+          doesn't need a target file, and can therefore be set up to render any path. It accepts the
+          following options:</p>
+        <ul>
+          <li><tt class="def">{name}.container</tt> (string): A comma-separated list of CSS selectors that
+            identify the containers of syntax-highlighted sections. For example, if this option is set to
+            <var>pre.highlight</var>, the highlighting styles will only be active within
+            <hl lexer="html">&lt;pre class="highlight"&gt;</hl> tags.</li>
+          <li><tt class="def">{name}.style</tt> (string): The highlighting
+            <a href="${pygments}/docs/styles/">style</a> to use. The default is <var>trac</var>.</li>
+        </ul>
+        <p>When using <a href="#highlight">syntax highlighting</a>, this renderer should be configured for
+          a (virtual) path (for example <var>site/res/pygments.css</var>):</p>
+<highlight lexer="ini">
+[render]
+pygments-css = site/res/pygments\.css$
+pygments-css.renderer = pygments:css
+pygments-css.container = pre.highlight
+</highlight>
+        <p>and pages using highlighting should link to it with:</p>
+<highlight lexer="html">
+&lt;link rel="stylesheet" href="$${req.hist_href(None, 'res/pygments.css')}" type="text/css"/&gt;
+</highlight>
+
+        <h3 id="exec-renderer">Exec renderer</h3>
+        <p>The <var>exec</var> renderer executes the target file as a Python module, then calls the
+          <var>render()</var> function that must be defined in the module for rendering. The function
+          has the same signature as <a href="#adding-renderers">custom renderers</a>.</p>
+      </div>
+
+      <div class="section">
+        <h2 id="api">API</h2>
+        <h3 id="request-object">Request object</h3>
+        <p>The <var><a href="${browse_href('cspace/hgsite/site.py', line=r'^class Request\(')}">req</a></var>
+          object is a wrapper around Mercurial's
+          <var><a href="${mercurial_repo}/file/default/mercurial/hgweb/request.py">wsgirequest</a></var>
+          object, with additional functionality. All attributes and methods of the <var>wsgirequest</var>
+          are accessible through <var>req</var>.</p>
+
+        <h4 id="request-attributes">Attributes</h4>
+        <p>The following attributes are set on the <var>req</var> object:</p>
+        <ul>
+          <li><tt class="def">ctx</tt>: The <a href="${mercurial_api}#Change_contexts">change
+            context</a> for the node at which to render.</li>
+          <li><tt class="def">cfg</tt>: The
+            <var><a href="${browse_href('cspace/hgsite/site.py', line=r'^class Config\(')}">Config</a></var>
+            object holding the <tt>.hgsite</tt> configuration.</li>
+          <li><tt class="def">path_info</tt>: The full <var>PATH_INFO</var> for the current
+            request.</li>
+          <li><tt class="def">repo</tt>: The <a href="${mercurial_api}#Repositories">repository</a>
+            object.</li>
+          <li><tt class="def">repo_default</tt>: The URL of the default <tt>hgweb</tt> page for the
+            selected Mercurial template style (the page normally displayed at the root of the repository,
+            e.g. <var>shortlog</var> for the "paper" style). This is typically used for a "Browse
+            repository" link.</li>
+          <li><tt class="def">url_node</tt>: The <a href="#url-structure">requested node</a>. This is an
+            empty string for the working copy, and <tt>None</tt> for the
+            <a href="#hgrc-hgsite-default_revision">default revision</a>.</li>
+          <li><tt class="def">url_path</tt>: The <a href="#url-structure">requested path</a>.</li>
+          <li><tt class="def">web</tt>: The <var>hgweb</var> instance handling the request.</li>
+        </ul>
+
+        <h4 id="request-url-builders">URL builders</h4>
+        <p>The <var>req</var> object provides methods to build URLs relative to various bases. Methods
+          taking generic argument lists buid the URL by starting from the base, appending the
+          <var>/</var>-joined positional arguments, and appending a query string built from the keyword
+          arguments. Empty path segments and keyword arguments with <tt>None</tt> values are discarded. See
+          <a href="${browse_href('cspace/hgsite/util.py', line=r'^def href_builder\(')}">href_builder()</a>
+          for details.</p>
+        <ul>
+          <li><tt class="func">href(*args, **kwargs) &rarr; url</tt>
+            Build a URL relative to the requested node. The generated URL has the same <var>{node}</var>
+            as the rendered file. This should be used for inter-page links.</li>
+          <li><tt class="func">rev_href(*args, **kwargs) &rarr; url</tt>
+            Build a URL relative to the exact revision at which a file is rendered. The generated URL
+            specifies the full hex revision as the <var>{node}</var>. This should be used for links where
+            the revision must be consistent with the rendered file.</li>
+          <li><tt class="func">static_href(path) &rarr; url</tt>
+            Build a URL for the static resource at the given (site) path. The generated URL specifies
+            the full hex revision where the file was last modified as the <var>{node}</var>. This should
+            be used to reference files rendered with the <a href="#static-renderer">static renderer</a>,
+            typically stylesheets, scripts and images.</li>
+          <li><tt class="func">hist_href(node, *args, **kwargs) &rarr; url</tt>
+            Build a URL relative to the given node (a "historical" URL). <var>node</var> can be any
+            revision reference (as defined by <kbd>hg help revisions</kbd>), an empty string for
+            the working copy, or <tt>None</tt> for the <a href="#hgrc-hgsite-default_revision">default
+            revision</a>. This can be used to generate links to a different versions of the site, for
+            example for each release tag.</li>
+          <li><tt class="func">repo_href(*args, **kwargs) &rarr; url</tt>
+            Build a URL relative to the repository root. This can be used to link to other parts of
+            <tt>hgweb</tt>, for example the revision log, or specific files or changesets.</li>
+          <li><tt class="func">browse_href(path, line=None, n=1) &rarr; url</tt>
+            Build a URL to the Mercurial file browser page for the given file, at the requested revision.
+            If <var>line</var> is a number, the URL is anchored at that line. If it's a string, it is
+            compiled as a regexp and the URL is anchored at the <var>n</var><sup>th</sup> match, at the
+            start of the first capturing group or at the start of the match if there are no capturing
+            groups.</li>
+        </ul>
+        <p>The URLs generated by the builders are site-relative, i.e. they don't specify the scheme and
+          host. They can be made absolute with <var>req.abs_url()</var>.</p>
+        <p>As an example, the call <var>req.href('doc', page, q='test', lang='en')</var>, assuming
+          the repository base URL is <tt>'/hg/repo'</tt>, the node is <tt>'default'</tt> and
+          <var>page</var> is <tt>'config'</tt>, will return the URL
+          <var>/hg/repo/~default/doc/config?q=test&amp;lang=en</var>.</p>
+
+        <h4 id="request-reply-methods">Reply methods</h4>
+        <p>The <var>req</var> object provides methods for renderers to simplify the generation of a
+          reply. These methods set the status code, appropriate headers, and return an iterable
+          that yields content chunks. This iterable should be returned by the renderer.</p>
+        <ul>
+          <li><tt class="func">redirect(url) &rarr; chunks</tt>
+            Send a reply to redirect the browser to the given URL.</li>
+          <li><tt class="func">send(content, mimetype=None, encoding=None, status=200, headers=None)
+            &rarr; chunks</tt>
+            Send a reply with the given status, optionally with a <var>Content-Type</var> header and
+            additional headers (passed as a list of <var>(name, value)</var> pairs) and the given
+            (string) content.</li>
+        </ul>
+        <p>Alternatively, renderers can generate a reply "by hand" by calling <var>req.header()</var>
+          and <var>req.respond()</var>, and returning an iterable yielding content chunks.</p>
+
+        <h3 id="adding-renderers">Adding renderers</h3>
+        <p>Extensions can register additional renderers by decorating functions with the
+          <var>@renderer()</var> decorator defined in <var>cspace.hgsite.site</var>. The decorator
+          takes the following arguments:</p>
+        <ul>
+          <li><tt class="def">@renderer(*names, file_must_exist=True)</tt>
+            <ul>
+              <li><tt class="def">names</tt>: The names under which this renderer must be registered.</li>
+              <li><tt class="def">file_must_exist</tt>: When <tt>False</tt>, the file to be rendered
+                doesn't have to exist in the repository. This allows defining "pseudo-renderers" like
+                the <a href="#pygments-css-renderer">Pygments CSS renderer</a>.</li>
+            </ul>
+          </li>
+        </ul>
+
+        <p>A renderer is a function with the following signature:</p>
+        <ul>
+          <li><tt class="def">render(req, path, name, config, **kwargs) &rarr; chunks</tt>
+            <ul>
+              <li><tt class="def">req</tt>: A <a href="#request-object">request object</a> for the current
+                request.</li>
+              <li><tt class="def">path</tt>: The repository-relative path of the file to be rendered.</li>
+              <li><tt class="def">name</tt>: The name of the renderer, as specified at registration
+                time.</li>
+              <li><tt class="def">config</tt>: A <tt>dict</tt> of configuration arguments for this renderer,
+                as set in the <tt><a href="#hgsite-render">[render]</a></tt> section of <tt>.hgsite</tt>.</li>
+              <li><tt class="def">**kwargs</tt>: Additional context-dependent arguments for the renderer.
+                <ul>
+                  <li><tt class="def">exc_info</tt>: The value returned by <var>sys.exc_info()</var>
+                    when handling an exception. This symbol is only present when rendering a custom
+                    error page.</li>
+                </ul>
+              </li>
+              <li><tt class="def">chunks</tt>: An iterable yielding chunks of reply content.</li>
+            </ul>
+          </li>
+        </ul>
+        <p>Renderers will typically use the <var><a href="#request-reply-methods">req.send()</a></var>
+          method to generate the reply.</p>
+      </div>
+
+      <div class="section">
+        <h2 id="contribute">Contribute</h2>
+        <p>Found a bug? Got a great idea to improve <tt>${meta.project}</tt>? A patch to add a renderer
+          for your favorite templating engine? Suggestions for improving the documentation?</p>
+
+        <p>Please <a href="mailto:${meta.author_email}?subject=[${meta.project}]">let me know</a>!</p>
+      </div>
+
+      <div class="section">
+        <h2 id="releases">Releases</h2>
+        <ul py:with="tags = sorted(((req.repo[node].date(), tag)
+                                    for tag, node in req.repo.tags().iteritems() if tag[0].isdigit()),
+                                   reverse=True)">
+          <li><a href="${hist_href(dev_tip)}">Development</a> (${util.shortdate(req.repo[dev_tip].date())})</li>
+          <li py:for="date, tag in tags"><a href="${hist_href(tag)}">${tag}</a> (${util.shortdate(date)})</li>
+        </ul>
+      </div>
+    </div>
+  </body>
+</html>
