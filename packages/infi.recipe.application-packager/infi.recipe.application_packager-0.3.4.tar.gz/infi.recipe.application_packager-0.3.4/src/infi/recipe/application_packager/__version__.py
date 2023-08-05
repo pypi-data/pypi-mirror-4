@@ -1,0 +1,10 @@
+__version__ = "0.3.4"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = 'a7c6d7feb747d20556da7d5aa59cbc771162aa04'
+__git_head_subject__ = 'Finished release v0.3.4.'
+__git_head_message__ = "* release/v0.3.4: (29 commits)\n  HOSTDEV-344 deleting the 'old' eggs directory during postinstall phase\n  HOSTDEV-518 fixing previous commit\n  HOSTDEV-518 fixing previous commit\n  HOSTDEV-518 fixing previous commit\n  HOSTDEV-518\n  TRIVIAL whitespace\n  HOSTDEV-507 fixing the tests, again\n  HOSTDEV-507 fixing the tests, again\n  HOSTDEV-507 fixing the tests, need to devenv build\n  HOSTDEV-507 fixing the tests\n  buildout.cfg: remove infi.projector from requirements\n  HOSTDEV-507 fixing the tests\n  HOSTDEV-507 creating the console scripts entry points during tests only\n  buildout.cfg: removing sample from console_scripts\n  buildout.cfg: removing hello from console_scripts\n  buildout.cfg: removing pre_uninstall from console_scripts\n  buildout.cfg: removing post_install from console_scripts\n  HOSTDEV-513 lower-case version strings will hopefully make this work on Windows\n  HOSTDEV-513 another sort of fix\n  HOSTDEV-513 more fixes\n  ..."
+__git_dirty_diff__ = ''
