@@ -1,0 +1,2 @@
+class EcoTagResult(dict):
+    pass

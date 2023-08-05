@@ -1,0 +1,2 @@
+The genbank sequence format
+===========================
