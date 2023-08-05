@@ -1,0 +1,524 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Usage Guide &mdash; dogpile.core 0.3.3 documentation</title>
+    
+    <link rel="stylesheet" href="_static/nature.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     '0.3.3',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="dogpile.core 0.3.3 documentation" href="index.html" />
+    <link rel="next" title="API" href="api.html" />
+    <link rel="prev" title="Front Matter" href="front.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="api.html" title="API"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="front.html" title="Front Matter"
+             accesskey="P">previous</a> |</li>
+        <li><a href="index.html">dogpile.core 0.3.3 documentation</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="usage-guide">
+<h1>Usage Guide<a class="headerlink" href="#usage-guide" title="Permalink to this headline">¶</a></h1>
+<p>At its core, dogpile.core provides a locking interface around a &#8220;value creation&#8221; function.</p>
+<p>The interface supports several levels of usage, starting from
+one that is very rudimentary, then providing more intricate
+usage patterns to deal with certain scenarios.  The documentation here will attempt to
+provide examples that use successively more and more of these features, as
+we approach how a fully featured caching system might be constructed around
+dogpile.core.</p>
+<div class="section" id="do-i-need-to-learn-the-dogpile-core-api-directly">
+<h2>Do I Need to Learn the dogpile.core API Directly?<a class="headerlink" href="#do-i-need-to-learn-the-dogpile-core-api-directly" title="Permalink to this headline">¶</a></h2>
+<p>It&#8217;s anticipated that most users of dogpile.core will be using it indirectly via the
+<a class="reference external" href="http://bitbucket.org/zzzeek/dogpile.cache">dogpile.cache</a> caching
+front-end.  If you fall into this category, then the short answer is no.</p>
+<p>dogpile.core provides core internals to the
+<a class="reference external" href="http://bitbucket.org/zzzeek/dogpile.cache">dogpile.cache</a>
+package, which provides a simple-to-use caching API, rudimental
+backends for Memcached and others, and easy hooks to add new backends.
+Users of dogpile.cache
+don&#8217;t need to know or access dogpile.core&#8217;s APIs directly, though a rough understanding
+the general idea is always helpful.</p>
+<p>Using the core dogpile.core APIs described here directly implies you&#8217;re building your own
+resource-usage system outside, or in addition to, the one
+<a class="reference external" href="http://bitbucket.org/zzzeek/dogpile.cache">dogpile.cache</a> provides.</p>
+</div>
+<div class="section" id="rudimentary-usage">
+<h2>Rudimentary Usage<a class="headerlink" href="#rudimentary-usage" title="Permalink to this headline">¶</a></h2>
+<p>A simple example:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="kn">from</span> <span class="nn">dogpile.core</span> <span class="kn">import</span> <span class="n">Dogpile</span>
+
+<span class="c"># store a reference to a &quot;resource&quot;, some</span>
+<span class="c"># object that is expensive to create.</span>
+<span class="n">the_resource</span> <span class="o">=</span> <span class="p">[</span><span class="bp">None</span><span class="p">]</span>
+
+<span class="k">def</span> <span class="nf">some_creation_function</span><span class="p">():</span>
+    <span class="c"># create the resource here</span>
+    <span class="n">the_resource</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">create_some_resource</span><span class="p">()</span>
+
+<span class="k">def</span> <span class="nf">use_the_resource</span><span class="p">():</span>
+    <span class="c"># some function that uses</span>
+    <span class="c"># the resource.  Won&#39;t reach</span>
+    <span class="c"># here until some_creation_function()</span>
+    <span class="c"># has completed at least once.</span>
+    <span class="n">the_resource</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">do_something</span><span class="p">()</span>
+
+<span class="c"># create Dogpile with 3600 second</span>
+<span class="c"># expiry time</span>
+<span class="n">dogpile</span> <span class="o">=</span> <span class="n">Dogpile</span><span class="p">(</span><span class="mi">3600</span><span class="p">)</span>
+
+<span class="k">with</span> <span class="n">dogpile</span><span class="o">.</span><span class="n">acquire</span><span class="p">(</span><span class="n">some_creation_function</span><span class="p">):</span>
+    <span class="n">use_the_resource</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>Above, <tt class="docutils literal"><span class="pre">some_creation_function()</span></tt> will be called
+when <a class="reference internal" href="api.html#dogpile.core.Dogpile.acquire" title="dogpile.core.Dogpile.acquire"><tt class="xref py py-meth docutils literal"><span class="pre">Dogpile.acquire()</span></tt></a> is first called.  The
+remainder of the <tt class="docutils literal"><span class="pre">with</span></tt> block then proceeds.   Concurrent threads which
+call <a class="reference internal" href="api.html#dogpile.core.Dogpile.acquire" title="dogpile.core.Dogpile.acquire"><tt class="xref py py-meth docutils literal"><span class="pre">Dogpile.acquire()</span></tt></a> during this initial period
+will be blocked until <tt class="docutils literal"><span class="pre">some_creation_function()</span></tt> completes.</p>
+<p>Once the creation function has completed successfully the first time,
+new calls to <a class="reference internal" href="api.html#dogpile.core.Dogpile.acquire" title="dogpile.core.Dogpile.acquire"><tt class="xref py py-meth docutils literal"><span class="pre">Dogpile.acquire()</span></tt></a> will call <tt class="docutils literal"><span class="pre">some_creation_function()</span></tt>
+each time the &#8220;expiretime&#8221; has been reached, allowing only a single
+thread to call the function.  Concurrent threads
+which call <a class="reference internal" href="api.html#dogpile.core.Dogpile.acquire" title="dogpile.core.Dogpile.acquire"><tt class="xref py py-meth docutils literal"><span class="pre">Dogpile.acquire()</span></tt></a> during this period will
+fall through, and not be blocked.  It is expected that
+the &#8220;stale&#8221; version of the resource remain available at this
+time while the new one is generated.</p>
+<p>By default, <a class="reference internal" href="api.html#dogpile.core.Dogpile" title="dogpile.core.Dogpile"><tt class="xref py py-class docutils literal"><span class="pre">Dogpile</span></tt></a> uses Python&#8217;s <tt class="docutils literal"><span class="pre">threading.Lock()</span></tt>
+to synchronize among threads within a process.  This can
+be altered to support any kind of locking as we&#8217;ll see in a
+later section.</p>
+</div>
+<div class="section" id="using-a-value-function-with-a-cache-backend">
+<h2>Using a Value Function with a Cache Backend<a class="headerlink" href="#using-a-value-function-with-a-cache-backend" title="Permalink to this headline">¶</a></h2>
+<p>The dogpile lock includes a more intricate mode of usage to optimize the
+usage of a cache like Memcached.   The difficulties <a class="reference internal" href="api.html#dogpile.core.Dogpile" title="dogpile.core.Dogpile"><tt class="xref py py-class docutils literal"><span class="pre">Dogpile</span></tt></a> addresses
+in this mode are:</p>
+<ul class="simple">
+<li>Values can disappear from the cache at any time, before our expiration
+time is reached. <a class="reference internal" href="api.html#dogpile.core.Dogpile" title="dogpile.core.Dogpile"><tt class="xref py py-class docutils literal"><span class="pre">Dogpile</span></tt></a> needs to be made aware of this and possibly
+call the creation function ahead of schedule.</li>
+<li>There&#8217;s no function in a Memcached-like system to &#8220;check&#8221; for a key without
+actually retrieving it.  If we need to &#8220;check&#8221; for a key each time,
+we&#8217;d like to use that value instead of calling it twice.</li>
+<li>If we did end up generating the value on this get, we should return
+that value instead of doing a cache round-trip.</li>
+</ul>
+<p>To use this mode, the steps are as follows:</p>
+<ul class="simple">
+<li>Create the <a class="reference internal" href="api.html#dogpile.core.Dogpile" title="dogpile.core.Dogpile"><tt class="xref py py-class docutils literal"><span class="pre">Dogpile</span></tt></a> lock with <tt class="docutils literal"><span class="pre">init=True</span></tt>, to skip the initial
+&#8220;force&#8221; of the creation function.   This is assuming you&#8217;d like to
+rely upon the &#8220;check the value&#8221; function for the initial generation.
+Leave it at False if you&#8217;d like the application to regenerate the
+value unconditionally when the <a class="reference internal" href="api.html#dogpile.core.Dogpile" title="dogpile.core.Dogpile"><tt class="xref py py-class docutils literal"><span class="pre">Dogpile</span></tt></a> lock is first created
+(i.e. typically application startup).</li>
+<li>The &#8220;creation&#8221; function should return the value it creates.</li>
+<li>An additional &#8220;getter&#8221; function is passed to <tt class="docutils literal"><span class="pre">acquire()</span></tt> which
+should return the value to be passed to the context block.  If
+the value isn&#8217;t available, raise <tt class="docutils literal"><span class="pre">NeedRegenerationException</span></tt>.</li>
+</ul>
+<p>Example:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="kn">from</span> <span class="nn">dogpile.core</span> <span class="kn">import</span> <span class="n">Dogpile</span><span class="p">,</span> <span class="n">NeedRegenerationException</span>
+
+<span class="k">def</span> <span class="nf">get_value_from_cache</span><span class="p">():</span>
+    <span class="n">value</span> <span class="o">=</span> <span class="n">my_cache</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;some key&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">NeedRegenerationException</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">value</span>
+
+<span class="k">def</span> <span class="nf">create_and_cache_value</span><span class="p">():</span>
+    <span class="n">value</span> <span class="o">=</span> <span class="n">my_expensive_resource</span><span class="o">.</span><span class="n">create_value</span><span class="p">()</span>
+    <span class="n">my_cache</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="s">&quot;some key&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">value</span>
+
+<span class="n">dogpile</span> <span class="o">=</span> <span class="n">Dogpile</span><span class="p">(</span><span class="mi">3600</span><span class="p">,</span> <span class="n">init</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+
+<span class="k">with</span> <span class="n">dogpile</span><span class="o">.</span><span class="n">acquire</span><span class="p">(</span><span class="n">create_and_cache_value</span><span class="p">,</span> <span class="n">get_value_from_cache</span><span class="p">)</span> <span class="k">as</span> <span class="n">value</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">value</span>
+</pre></div>
+</div>
+<p>Note that <tt class="docutils literal"><span class="pre">get_value_from_cache()</span></tt> should not raise <a class="reference internal" href="api.html#dogpile.core.NeedRegenerationException" title="dogpile.core.NeedRegenerationException"><tt class="xref py py-class docutils literal"><span class="pre">NeedRegenerationException</span></tt></a>
+a second time directly after <tt class="docutils literal"><span class="pre">create_and_cache_value()</span></tt> has been called.</p>
+</div>
+<div class="section" id="using-dogpile-core-for-caching">
+<span id="caching-decorator"></span><h2>Using dogpile.core for Caching<a class="headerlink" href="#using-dogpile-core-for-caching" title="Permalink to this headline">¶</a></h2>
+<p>dogpile.core is part of an effort to &#8220;break up&#8221; the Beaker
+package into smaller, simpler components (which also work better). Here, we
+illustrate how to approximate Beaker&#8217;s &#8220;cache decoration&#8221;
+function, to decorate any function and store the value in
+Memcached.  We create a Python decorator function called <tt class="docutils literal"><span class="pre">cached()</span></tt> which
+will provide caching for the output of a single function.  It&#8217;s given
+the &#8220;key&#8221; which we&#8217;d like to use in Memcached, and internally it makes
+usage of its own <a class="reference internal" href="api.html#dogpile.core.Dogpile" title="dogpile.core.Dogpile"><tt class="xref py py-class docutils literal"><span class="pre">Dogpile</span></tt></a> object that is dedicated to managing
+this one function/key:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="kn">import</span> <span class="nn">pylibmc</span>
+<span class="n">mc_pool</span> <span class="o">=</span> <span class="n">pylibmc</span><span class="o">.</span><span class="n">ThreadMappedPool</span><span class="p">(</span><span class="n">pylibmc</span><span class="o">.</span><span class="n">Client</span><span class="p">(</span><span class="s">&quot;localhost&quot;</span><span class="p">))</span>
+
+<span class="kn">from</span> <span class="nn">dogpile.core</span> <span class="kn">import</span> <span class="n">Dogpile</span><span class="p">,</span> <span class="n">NeedRegenerationException</span>
+
+<span class="k">def</span> <span class="nf">cached</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">expiration_time</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;A decorator that will cache the return value of a function</span>
+<span class="sd">    in memcached given a key.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">get_value</span><span class="p">():</span>
+         <span class="k">with</span> <span class="n">mc_pool</span><span class="o">.</span><span class="n">reserve</span><span class="p">()</span> <span class="k">as</span> <span class="n">mc</span><span class="p">:</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="n">mc</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">NeedRegenerationException</span><span class="p">()</span>
+            <span class="k">return</span> <span class="n">value</span>
+
+    <span class="n">dogpile</span> <span class="o">=</span> <span class="n">Dogpile</span><span class="p">(</span><span class="n">expiration_time</span><span class="p">,</span> <span class="n">init</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">decorate</span><span class="p">(</span><span class="n">fn</span><span class="p">):</span>
+        <span class="k">def</span> <span class="nf">gen_cached</span><span class="p">():</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="n">fn</span><span class="p">()</span>
+            <span class="k">with</span> <span class="n">mc_pool</span><span class="o">.</span><span class="n">reserve</span><span class="p">()</span> <span class="k">as</span> <span class="n">mc</span><span class="p">:</span>
+                <span class="n">mc</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">value</span>
+
+        <span class="k">def</span> <span class="nf">invoke</span><span class="p">():</span>
+            <span class="k">with</span> <span class="n">dogpile</span><span class="o">.</span><span class="n">acquire</span><span class="p">(</span><span class="n">gen_cached</span><span class="p">,</span> <span class="n">get_value</span><span class="p">)</span> <span class="k">as</span> <span class="n">value</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">value</span>
+        <span class="k">return</span> <span class="n">invoke</span>
+
+    <span class="k">return</span> <span class="n">decorate</span>
+</pre></div>
+</div>
+<p>Above we can decorate any function as:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="nd">@cached</span><span class="p">(</span><span class="s">&quot;some key&quot;</span><span class="p">,</span> <span class="mi">3600</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">generate_my_expensive_value</span><span class="p">():</span>
+    <span class="k">return</span> <span class="n">slow_database</span><span class="o">.</span><span class="n">lookup</span><span class="p">(</span><span class="s">&quot;stuff&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The <a class="reference internal" href="api.html#dogpile.core.Dogpile" title="dogpile.core.Dogpile"><tt class="xref py py-class docutils literal"><span class="pre">Dogpile</span></tt></a> lock will ensure that only one thread at a time performs <tt class="docutils literal"><span class="pre">slow_database.lookup()</span></tt>,
+and only every 3600 seconds, unless Memcached has removed the value in which case it will
+be called again as needed.</p>
+<p>In particular, dogpile.core&#8217;s system allows us to call the memcached get() function at most
+once per access, instead of Beaker&#8217;s system which calls it twice, and doesn&#8217;t make us call
+get() when we just created the value.</p>
+</div>
+<div class="section" id="scaling-dogpile-core-against-many-keys">
+<span id="scaling-on-keys"></span><h2>Scaling dogpile.core against Many Keys<a class="headerlink" href="#scaling-dogpile-core-against-many-keys" title="Permalink to this headline">¶</a></h2>
+<p>The patterns so far have illustrated how to use a single, persistently held
+<a class="reference internal" href="api.html#dogpile.core.Dogpile" title="dogpile.core.Dogpile"><tt class="xref py py-class docutils literal"><span class="pre">Dogpile</span></tt></a> object which maintains a thread-based lock for the lifespan
+of some particular value.  The <a class="reference internal" href="api.html#dogpile.core.Dogpile" title="dogpile.core.Dogpile"><tt class="xref py py-class docutils literal"><span class="pre">Dogpile</span></tt></a> also is responsible for
+maintaining the last known &#8220;creation time&#8221; of the value; this is available
+from a given <a class="reference internal" href="api.html#dogpile.core.Dogpile" title="dogpile.core.Dogpile"><tt class="xref py py-class docutils literal"><span class="pre">Dogpile</span></tt></a> object from the <a class="reference internal" href="api.html#dogpile.core.Dogpile.createdtime" title="dogpile.core.Dogpile.createdtime"><tt class="xref py py-attr docutils literal"><span class="pre">Dogpile.createdtime</span></tt></a>
+attribute.</p>
+<p>For an application that may deal with an arbitrary
+number of cache keys retrieved from a remote service, this approach must be
+revised so that we don&#8217;t need to store a <a class="reference internal" href="api.html#dogpile.core.Dogpile" title="dogpile.core.Dogpile"><tt class="xref py py-class docutils literal"><span class="pre">Dogpile</span></tt></a> object for every
+possible key in our application&#8217;s memory.</p>
+<p>The two challenges here are:</p>
+<ul class="simple">
+<li>We need to create new <a class="reference internal" href="api.html#dogpile.core.Dogpile" title="dogpile.core.Dogpile"><tt class="xref py py-class docutils literal"><span class="pre">Dogpile</span></tt></a> objects as needed, ideally
+sharing the object for a given key with all concurrent threads,
+but then not hold onto it afterwards.</li>
+<li>Since we aren&#8217;t holding the <a class="reference internal" href="api.html#dogpile.core.Dogpile" title="dogpile.core.Dogpile"><tt class="xref py py-class docutils literal"><span class="pre">Dogpile</span></tt></a> persistently, we
+need to store the last known &#8220;creation time&#8221; of the value somewhere
+else, i.e. in the cache itself, and ensure <a class="reference internal" href="api.html#dogpile.core.Dogpile" title="dogpile.core.Dogpile"><tt class="xref py py-class docutils literal"><span class="pre">Dogpile</span></tt></a> uses
+it.</li>
+</ul>
+<p>The approach is another one derived from Beaker, where we will use a <em>registry</em>
+that can provide a unique <a class="reference internal" href="api.html#dogpile.core.Dogpile" title="dogpile.core.Dogpile"><tt class="xref py py-class docutils literal"><span class="pre">Dogpile</span></tt></a> object given a particular key,
+ensuring that all concurrent threads use the same object, but then releasing
+the object to the Python garbage collector when this usage is complete.
+The <a class="reference internal" href="api.html#dogpile.core.NameRegistry" title="dogpile.core.NameRegistry"><tt class="xref py py-class docutils literal"><span class="pre">NameRegistry</span></tt></a> object provides this functionality, again
+constructed around the notion of a creation function that is only invoked
+as needed.   We also will instruct the <a class="reference internal" href="api.html#dogpile.core.Dogpile.acquire" title="dogpile.core.Dogpile.acquire"><tt class="xref py py-meth docutils literal"><span class="pre">Dogpile.acquire()</span></tt></a> method
+to use a &#8220;creation time&#8221; value that we retrieve from the cache, via
+the <tt class="docutils literal"><span class="pre">value_and_created_fn</span></tt> parameter, which supercedes the
+<tt class="docutils literal"><span class="pre">value_fn</span></tt> we used earlier.  <tt class="docutils literal"><span class="pre">value_and_created_fn</span></tt> expects a function that will return a tuple
+of <tt class="docutils literal"><span class="pre">(value,</span> <span class="pre">created_at)</span></tt>, where it&#8217;s assumed both have been retrieved from
+the cache backend:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="kn">import</span> <span class="nn">pylibmc</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">from</span> <span class="nn">dogpile.core</span> <span class="kn">import</span> <span class="n">Dogpile</span><span class="p">,</span> <span class="n">NeedRegenerationException</span><span class="p">,</span> <span class="n">NameRegistry</span>
+
+<span class="n">mc_pool</span> <span class="o">=</span> <span class="n">pylibmc</span><span class="o">.</span><span class="n">ThreadMappedPool</span><span class="p">(</span><span class="n">pylibmc</span><span class="o">.</span><span class="n">Client</span><span class="p">(</span><span class="s">&quot;localhost&quot;</span><span class="p">))</span>
+
+<span class="k">def</span> <span class="nf">create_dogpile</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">expiration_time</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">Dogpile</span><span class="p">(</span><span class="n">expiration_time</span><span class="p">)</span>
+
+<span class="n">dogpile_registry</span> <span class="o">=</span> <span class="n">NameRegistry</span><span class="p">(</span><span class="n">create_dogpile</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">get_or_create</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">expiration_time</span><span class="p">,</span> <span class="n">creation_function</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">get_value</span><span class="p">():</span>
+         <span class="k">with</span> <span class="n">mc_pool</span><span class="o">.</span><span class="n">reserve</span><span class="p">()</span> <span class="k">as</span> <span class="n">mc</span><span class="p">:</span>
+            <span class="n">value_plus_time</span> <span class="o">=</span> <span class="n">mc</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">value_plus_time</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">NeedRegenerationException</span><span class="p">()</span>
+            <span class="c"># return a tuple</span>
+            <span class="c"># (value, createdtime)</span>
+            <span class="k">return</span> <span class="n">value_plus_time</span>
+
+    <span class="k">def</span> <span class="nf">gen_cached</span><span class="p">():</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="n">creation_function</span><span class="p">()</span>
+        <span class="k">with</span> <span class="n">mc_pool</span><span class="o">.</span><span class="n">reserve</span><span class="p">()</span> <span class="k">as</span> <span class="n">mc</span><span class="p">:</span>
+            <span class="c"># create a tuple</span>
+            <span class="c"># (value, createdtime)</span>
+            <span class="n">value_plus_time</span> <span class="o">=</span> <span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">())</span>
+            <span class="n">mc</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value_plus_time</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">value_plus_time</span>
+
+    <span class="n">dogpile</span> <span class="o">=</span> <span class="n">dogpile_registry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">expiration_time</span><span class="p">)</span>
+
+    <span class="k">with</span> <span class="n">dogpile</span><span class="o">.</span><span class="n">acquire</span><span class="p">(</span><span class="n">gen_cached</span><span class="p">,</span> <span class="n">value_and_created_fn</span><span class="o">=</span><span class="n">get_value</span><span class="p">)</span> <span class="k">as</span> <span class="n">value</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">value</span>
+</pre></div>
+</div>
+<p>Stepping through the above code:</p>
+<ul class="simple">
+<li>After the imports, we set up the memcached backend using the <tt class="docutils literal"><span class="pre">pylibmc</span></tt> library&#8217;s
+recommended pattern for thread-safe access.</li>
+<li>We create a Python function that will, given a cache key and an expiration time,
+produce a <a class="reference internal" href="api.html#dogpile.core.Dogpile" title="dogpile.core.Dogpile"><tt class="xref py py-class docutils literal"><span class="pre">Dogpile</span></tt></a> object which will produce the dogpile mutex on an
+as-needed basis.   The function here doesn&#8217;t actually need the key, even though
+the <a class="reference internal" href="api.html#dogpile.core.NameRegistry" title="dogpile.core.NameRegistry"><tt class="xref py py-class docutils literal"><span class="pre">NameRegistry</span></tt></a> will be passing it in.  Later, we&#8217;ll see the scenario
+for which we&#8217;ll need this value.</li>
+<li>We construct a <a class="reference internal" href="api.html#dogpile.core.NameRegistry" title="dogpile.core.NameRegistry"><tt class="xref py py-class docutils literal"><span class="pre">NameRegistry</span></tt></a>, using our dogpile creator function, that
+will generate for us new <a class="reference internal" href="api.html#dogpile.core.Dogpile" title="dogpile.core.Dogpile"><tt class="xref py py-class docutils literal"><span class="pre">Dogpile</span></tt></a> locks for individual keys as needed.</li>
+<li>We define the <tt class="docutils literal"><span class="pre">get_or_create()</span></tt> function.  This function will accept the cache
+key, an expiration time value, and a function that is used to create a new value
+if one does not exist or the current value is expired.</li>
+<li>The <tt class="docutils literal"><span class="pre">get_or_create()</span></tt> function defines two callables, <tt class="docutils literal"><span class="pre">get_value()</span></tt> and
+<tt class="docutils literal"><span class="pre">gen_cached()</span></tt>.   These two functions are exactly analogous to the the
+functions of the same name in <a class="reference internal" href="#caching-decorator"><em>Using dogpile.core for Caching</em></a> - <tt class="docutils literal"><span class="pre">get_value()</span></tt>
+retrieves the value from the cache, raising <a class="reference internal" href="api.html#dogpile.core.NeedRegenerationException" title="dogpile.core.NeedRegenerationException"><tt class="xref py py-class docutils literal"><span class="pre">NeedRegenerationException</span></tt></a>
+if not present; <tt class="docutils literal"><span class="pre">gen_cached()</span></tt> calls the creation function to generate a new
+value, stores it in the cache, and returns it.  The only difference here is that
+instead of storing and retrieving the value alone from the cache, the value is
+stored along with its creation time; when we make a new value, we set this
+to <tt class="docutils literal"><span class="pre">time.time()</span></tt>.  While the value and creation time pair are stored here
+as a tuple, it doesn&#8217;t actually matter how the two are persisted;
+only that the tuple value is returned from both functions.</li>
+<li>We acquire a new or existing <a class="reference internal" href="api.html#dogpile.core.Dogpile" title="dogpile.core.Dogpile"><tt class="xref py py-class docutils literal"><span class="pre">Dogpile</span></tt></a> object from the registry using
+<a class="reference internal" href="api.html#dogpile.core.NameRegistry.get" title="dogpile.core.NameRegistry.get"><tt class="xref py py-meth docutils literal"><span class="pre">NameRegistry.get()</span></tt></a>.   We pass the identifying key as well as the expiration
+time.   A new <a class="reference internal" href="api.html#dogpile.core.Dogpile" title="dogpile.core.Dogpile"><tt class="xref py py-class docutils literal"><span class="pre">Dogpile</span></tt></a> is created for the given key if one does not
+exist.  If a <a class="reference internal" href="api.html#dogpile.core.Dogpile" title="dogpile.core.Dogpile"><tt class="xref py py-class docutils literal"><span class="pre">Dogpile</span></tt></a> lock already exists in memory for the given key,
+we get that one back.</li>
+<li>We then call <a class="reference internal" href="api.html#dogpile.core.Dogpile.acquire" title="dogpile.core.Dogpile.acquire"><tt class="xref py py-meth docutils literal"><span class="pre">Dogpile.acquire()</span></tt></a> as we did in the previous cache examples,
+except we use the <tt class="docutils literal"><span class="pre">value_and_created_fn</span></tt> keyword for our <tt class="docutils literal"><span class="pre">get_value()</span></tt>
+function.  <a class="reference internal" href="api.html#dogpile.core.Dogpile" title="dogpile.core.Dogpile"><tt class="xref py py-class docutils literal"><span class="pre">Dogpile</span></tt></a> uses the &#8220;created time&#8221; value we pull from our
+cache to determine when the value was last created.</li>
+</ul>
+<p>An example usage of the completed function:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="kn">import</span> <span class="nn">urllib2</span>
+
+<span class="k">def</span> <span class="nf">get_some_value</span><span class="p">(</span><span class="n">key</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;retrieve a datafile from a slow site based on the given key.&quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">get_data</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">urllib2</span><span class="o">.</span><span class="n">urlopen</span><span class="p">(</span>
+                    <span class="s">&quot;http://someslowsite.com/some_important_datafile_</span><span class="si">%s</span><span class="s">.json&quot;</span> <span class="o">%</span> <span class="n">key</span>
+                <span class="p">)</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">get_or_create</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="mi">3600</span><span class="p">,</span> <span class="n">get_data</span><span class="p">)</span>
+
+<span class="n">my_data</span> <span class="o">=</span> <span class="n">get_some_value</span><span class="p">(</span><span class="s">&quot;somekey&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="section" id="using-a-file-or-distributed-lock-with-dogpile">
+<h2>Using a File or Distributed Lock with Dogpile<a class="headerlink" href="#using-a-file-or-distributed-lock-with-dogpile" title="Permalink to this headline">¶</a></h2>
+<p>The final twist on the caching pattern is to fix the issue of the Dogpile mutex
+itself being local to the current process.   When a handful of threads all go
+to access some key in our cache, they will access the same <a class="reference internal" href="api.html#dogpile.core.Dogpile" title="dogpile.core.Dogpile"><tt class="xref py py-class docutils literal"><span class="pre">Dogpile</span></tt></a> object
+which internally can synchronize their activity using a Python <tt class="docutils literal"><span class="pre">threading.Lock</span></tt>.
+But in this example we&#8217;re talking to a Memcached cache.  What if we have many
+servers which all access this cache?  We&#8217;d like all of these servers to coordinate
+together so that we don&#8217;t just prevent the dogpile problem within a single process,
+we prevent it across all servers.</p>
+<p>To accomplish this, we need an object that can coordinate processes.   In this example
+we&#8217;ll use a file-based lock as provided by the <a class="reference external" href="http://pypi.python.org/pypi/lockfile">lockfile</a>
+package, which uses a unix-symlink concept to provide a filesystem-level lock (which also
+has been made threadsafe).  Another strategy may base itself directly off the Unix <tt class="docutils literal"><span class="pre">os.flock()</span></tt>
+call, and still another approach is to lock within Memcached itself, using a recipe
+such as that described at <a class="reference external" href="http://www.regexprn.com/2010/05/using-memcached-as-distributed-locking.html">Using Memcached as a Distributed Locking Service</a>.
+The type of lock chosen here is based on a tradeoff between global availability
+and reliable performance.  The file-based lock will perform more reliably than the
+memcached lock, but may be difficult to make accessible to multiple servers (with NFS
+being the most likely option, which would eliminate the possibility of the <tt class="docutils literal"><span class="pre">os.flock()</span></tt>
+call).  The memcached lock on the other hand will provide the perfect scope, being available
+from the same memcached server that the cached value itself comes from; however the lock may
+vanish in some cases, which means we still could get a cache-regeneration pileup in that case.</p>
+<p>What all of these locking schemes have in common is that unlike the Python <tt class="docutils literal"><span class="pre">threading.Lock</span></tt>
+object, they all need access to an actual key which acts as the symbol that all processes
+will coordinate upon.   This is where the <tt class="docutils literal"><span class="pre">key</span></tt> argument to our <tt class="docutils literal"><span class="pre">create_dogpile()</span></tt>
+function introduced in <a class="reference internal" href="#scaling-on-keys"><em>Scaling dogpile.core against Many Keys</em></a> comes in.   The example can remain
+the same, except for the changes below to just that function:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="kn">import</span> <span class="nn">lockfile</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">from</span> <span class="nn">hashlib</span> <span class="kn">import</span> <span class="n">sha1</span>
+
+<span class="c"># ... other imports and setup from the previous example</span>
+
+<span class="k">def</span> <span class="nf">create_dogpile</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">expiration_time</span><span class="p">):</span>
+    <span class="n">lock_path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="s">&quot;/tmp&quot;</span><span class="p">,</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s">.lock&quot;</span> <span class="o">%</span> <span class="n">sha1</span><span class="p">(</span><span class="n">key</span><span class="p">)</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">())</span>
+    <span class="k">return</span> <span class="n">Dogpile</span><span class="p">(</span>
+                <span class="n">expiration_time</span><span class="p">,</span>
+                <span class="n">lock</span><span class="o">=</span><span class="n">lockfile</span><span class="o">.</span><span class="n">FileLock</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+                <span class="p">)</span>
+
+<span class="c"># ... everything else from the previous example</span>
+</pre></div>
+</div>
+<p>Where above,the only change is the <tt class="docutils literal"><span class="pre">lock</span></tt> argument passed to the constructor of
+<a class="reference internal" href="api.html#dogpile.core.Dogpile" title="dogpile.core.Dogpile"><tt class="xref py py-class docutils literal"><span class="pre">Dogpile</span></tt></a>.   For a given key &#8220;some_key&#8221;, we generate a hex digest of it
+first as a quick way to remove any filesystem-unfriendly characters, we then use
+<tt class="docutils literal"><span class="pre">lockfile.FileLock()</span></tt> to create a lock against the file
+<tt class="docutils literal"><span class="pre">/tmp/53def077a4264bd3183d4eb21b1f56f883e1b572.lock</span></tt>.   Any number of <a class="reference internal" href="api.html#dogpile.core.Dogpile" title="dogpile.core.Dogpile"><tt class="xref py py-class docutils literal"><span class="pre">Dogpile</span></tt></a>
+objects in various processes will now coordinate with each other, using this common
+filename as the &#8220;baton&#8221; against which creation of a new value proceeds.</p>
+</div>
+<div class="section" id="locking-the-write-phase-against-the-readers">
+<h2>Locking the &#8220;write&#8221; phase against the &#8220;readers&#8221;<a class="headerlink" href="#locking-the-write-phase-against-the-readers" title="Permalink to this headline">¶</a></h2>
+<p>A less prominent feature of Dogpile ported from Beaker is the
+ability to provide a mutex against the actual resource being read
+and created, so that the creation function can perform
+certain tasks only after all reader threads have finished.
+The example of this is when the creation function has prepared a new
+datafile to replace the old one, and would like to switch in the
+new file only when other threads have finished using it.</p>
+<p>To enable this feature, use <a class="reference internal" href="api.html#dogpile.core.SyncReaderDogpile" title="dogpile.core.SyncReaderDogpile"><tt class="xref py py-class docutils literal"><span class="pre">SyncReaderDogpile</span></tt></a>.
+<a class="reference internal" href="api.html#dogpile.core.SyncReaderDogpile.acquire_write_lock" title="dogpile.core.SyncReaderDogpile.acquire_write_lock"><tt class="xref py py-meth docutils literal"><span class="pre">SyncReaderDogpile.acquire_write_lock()</span></tt></a> then provides a safe-write lock
+for the critical section where readers should be blocked:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="kn">from</span> <span class="nn">dogpile.core</span> <span class="kn">import</span> <span class="n">SyncReaderDogpile</span>
+
+<span class="n">dogpile</span> <span class="o">=</span> <span class="n">SyncReaderDogpile</span><span class="p">(</span><span class="mi">3600</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">some_creation_function</span><span class="p">(</span><span class="n">dogpile</span><span class="p">):</span>
+    <span class="n">create_expensive_datafile</span><span class="p">()</span>
+    <span class="k">with</span> <span class="n">dogpile</span><span class="o">.</span><span class="n">acquire_write_lock</span><span class="p">():</span>
+        <span class="n">replace_old_datafile_with_new</span><span class="p">()</span>
+
+<span class="c"># usage:</span>
+<span class="k">with</span> <span class="n">dogpile</span><span class="o">.</span><span class="n">acquire</span><span class="p">(</span><span class="n">some_creation_function</span><span class="p">):</span>
+    <span class="n">read_datafile</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>With the above pattern, <a class="reference internal" href="api.html#dogpile.core.SyncReaderDogpile" title="dogpile.core.SyncReaderDogpile"><tt class="xref py py-class docutils literal"><span class="pre">SyncReaderDogpile</span></tt></a> will
+allow concurrent readers to read from the current version
+of the datafile as
+the <tt class="docutils literal"><span class="pre">create_expensive_datafile()</span></tt> function proceeds with its
+job of generating the information for a new version.
+When the data is ready to be written,  the
+<a class="reference internal" href="api.html#dogpile.core.SyncReaderDogpile.acquire_write_lock" title="dogpile.core.SyncReaderDogpile.acquire_write_lock"><tt class="xref py py-meth docutils literal"><span class="pre">SyncReaderDogpile.acquire_write_lock()</span></tt></a> call will
+block until all current readers of the datafile have completed
+(that is, they&#8217;ve finished their own <a class="reference internal" href="api.html#dogpile.core.Dogpile.acquire" title="dogpile.core.Dogpile.acquire"><tt class="xref py py-meth docutils literal"><span class="pre">Dogpile.acquire()</span></tt></a>
+blocks).   The <tt class="docutils literal"><span class="pre">some_creation_function()</span></tt> function
+then proceeds, as new readers are blocked until
+this function finishes its work of
+rewriting the datafile.</p>
+<p>Note that the <a class="reference internal" href="api.html#dogpile.core.SyncReaderDogpile" title="dogpile.core.SyncReaderDogpile"><tt class="xref py py-class docutils literal"><span class="pre">SyncReaderDogpile</span></tt></a> approach is useful
+for when working with a resource that itself does not support concurent
+access while being written, namely flat files, possibly some forms of DBM file.
+It is <strong>not</strong> needed when dealing with a datasource that already
+provides a high level of concurrency, such as a relational database,
+Memcached, or NoSQL store.   Currently, the <a class="reference internal" href="api.html#dogpile.core.SyncReaderDogpile" title="dogpile.core.SyncReaderDogpile"><tt class="xref py py-class docutils literal"><span class="pre">SyncReaderDogpile</span></tt></a> object
+only synchronizes within the current process among multiple threads;
+it won&#8217;t at this time protect from concurrent access by multiple
+processes.   Beaker did support this behavior however using lock files,
+and this functionality may be re-added in a future release.</p>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Usage Guide</a><ul>
+<li><a class="reference internal" href="#do-i-need-to-learn-the-dogpile-core-api-directly">Do I Need to Learn the dogpile.core API Directly?</a></li>
+<li><a class="reference internal" href="#rudimentary-usage">Rudimentary Usage</a></li>
+<li><a class="reference internal" href="#using-a-value-function-with-a-cache-backend">Using a Value Function with a Cache Backend</a></li>
+<li><a class="reference internal" href="#using-dogpile-core-for-caching">Using dogpile.core for Caching</a></li>
+<li><a class="reference internal" href="#scaling-dogpile-core-against-many-keys">Scaling dogpile.core against Many Keys</a></li>
+<li><a class="reference internal" href="#using-a-file-or-distributed-lock-with-dogpile">Using a File or Distributed Lock with Dogpile</a></li>
+<li><a class="reference internal" href="#locking-the-write-phase-against-the-readers">Locking the &#8220;write&#8221; phase against the &#8220;readers&#8221;</a></li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="front.html"
+                        title="previous chapter">Front Matter</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="api.html"
+                        title="next chapter">API</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/usage.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="api.html" title="API"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="front.html" title="Front Matter"
+             >previous</a> |</li>
+        <li><a href="index.html">dogpile.core 0.3.3 documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2011, 2012 Mike Bayer.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>
