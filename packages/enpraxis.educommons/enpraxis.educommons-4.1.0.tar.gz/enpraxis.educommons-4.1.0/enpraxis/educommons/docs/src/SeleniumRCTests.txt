@@ -1,0 +1,241 @@
+=========================================
+eduCommons $$version$$ SeleniumRC Testing
+=========================================
+
+:Title: eduCommons SeleniumRC Testing
+:Author: Santiago Suarez Ordoñez <santiycr @ gmail..com>
+:Copyright: This document has been placed in the public domain.
+
+.. contents::
+
+Introduction
+-------------
+
+This guide aims to help people writing and 
+running tests using the Selenium RC environment and framework
+built within eduCommons.
+
+Tests buildout
+--------------
+
+Originally, the test environment is not being 
+deployed within the production buildout.
+To create an instance in which the tests can be
+executed, you should run the buildout using the 
+test.cfg configuration::
+
+        $ ./bin/buildout -c tests.cfg
+
+Once the buildout is complete, a test runner script should
+be located inside the bin folder and a new clean instance will be
+created and prepared to run the tests.
+
+.. Note::
+
+    The plone zope instance tu use for the tests will be stored in a 
+    sepparate ZODB to ensure integrity on any production instance.
+
+Running the tests
+-----------------
+
+To run the suite of tests buldled with eduCommons, the first thing to do after
+the tests buildout has been run is to prepare an eduCommons site to test (if the the
+user doesn't have a Plone site to test, yet).
+For this to be done, you must first wake up the instance::
+
+    ./bin/instance start
+
+And then go to the ZMI and follow the procedure of creating an eduCommons Plone site.
+Once the site is ready, the user should setup the different user accounts that the tests
+will use. This accounts should have the following roles and passwords:
+
+ ====     =========   =========
+ Role      Username   Password  
+ ====     =========   =========
+ admin/manager admin  test1234
+ producer  producer   producer
+ reviewer  reviewer  reviewer
+ qa        quality   quality       
+ publisher publisher publisher
+ viewer    viewer    viewer  
+ =======  =========   =========
+
+ Once the instance and the eduCommons test site are ready, the user can run the tests.
+
+
+The seleniumrunner script
++++++++++++++++++++++++++
+
+The selenium runner is a scipt created to find and run **selenium tests** 
+for a product.
+It receives different parameters and it's main objective is to simplify the 
+tests execution and reporting procedure.
+This script will wake-up the selenium RC server, search and run the tests
+and then shutdown the server and report the tests result.
+
+Basic tests execution
++++++++++++++++++++++
+
+To run all the selenium tests for a product (e.g. eduCommons)
+the user should pass at least two parameters:
+
+-i instance
+        The Plone site's name. This is defaulted to "educommons".
+
+-s product
+        The product in which the runner will search for tests to run.
+
+An example test execution will be::
+
+        $ ./bin/seleniumrunner -i educommonsSite -s enpraxis.educommons
+
+This will search all the **selenium** tests for the educommons product and 
+run them on http://localhost:<port_used>/educommonsSite.
+
+For running  a particular test, the -t parameter should be passed to the runner::
+
+        $ ./bin/seleniumrunner -i educommonsSite -s enpraxis.educommons -t createPage
+
+.. Note::
+    
+    Please notice that the createPage.py test should be stored in the
+    respective location and added to the __init__py file (See `Creating a test`_)
+
+Additional parameters
++++++++++++++++++++++
+
+-p port
+        Set the port in which Selenium server will communicate
+        with the tests.
+        The default if 4444.
+
+
+-b browser
+        Set the browser that will be used to run the tests.
+        **Note**: The tests written to ignore this will still
+        run using another browser. See the -f parameter to force
+        these tests to run on a specified browser.
+        The default value is: "\*firefox", but any browser supported 
+        by selenium can be used ("\*iexplore", "\*opera", even 
+        "\*firefox /path/to/firefox-bin").
+
+-f
+        Force all the tests to use the desired browser.
+
+-o 
+        Generate an HTML output as a summary of the results.
+
+for more details on this, please run::
+        
+        $ ./bin/seleniumrunner -h
+
+Creating a test
+---------------
+
+The seleniumrunner script will look for all the classes that inherit from
+unittest.TestCase on a specified package or module located under this kind of
+path::
+
+        namespace.product/namespace/product/tests/seleniumtests
+
+.. Note::
+    Notice that for adding tests to educommons' selenium tests, the path to add
+    the tests will end up being::
+
+        src/enpraxis.educommons/enpraxis/educommons/tests/seleniumtests
+
+Once the test script has been added to the tests location, it should be
+included in the run by adding an import of the test in the *__init__.py*
+file located in the same directory::
+
+        src/enpraxis.educommons/enpraxis/educommons/tests/seleniumtests/__init__.py
+
+
+For a test to be correctly executed by the seleniumrunner script,
+it must follow certain basic rules.
+
+Tests development guidelines
+++++++++++++++++++++++++++++
+
+To create a test, there are certain basic rules to follow:
+
+#) The test should inherit from unittest.TestCase class (this can be done 
+   indirectly also).
+#) The test should use certain global variables for the code to work
+   on different environments and eduCommons instances. These are:
+
+        - browser: For the browser used for the tests
+
+        - port: For the port used to communicate with the server
+
+        - url: For the url of the application under test
+
+        - instance: The Plone site name (this depends on 
+          the name used for the site's creation).
+   This variables should never be changed inside the test code, as the 
+   seleniumrunner script will set them on runtime according with the parameters
+   received.
+#) The selenium client driver used should be seleniumWrapper instead of
+   the classic selenium.py that's installed with the recipe (we will go
+   deeper on this later_).
+
+All this rules can be seen applied to the following `Example test`_.
+
+Example test
+++++++++++++
+
+The following is an example test, it can be used as the basic
+structure for future tests::
+
+        from seleniumWrapper import selenium
+        import unittest
+
+        class NewTest(unittest.TestCase):
+            def setUp(self):
+                self.verificationErrors = []
+                self.selenium = selenium("localhost", port, browser, url, instance)
+                self.selenium.start()
+            
+            def test_new(self):
+                sel = self.selenium
+                sel.login("admin","test1234")
+                # Do specific tests in here
+
+            def tearDown(self):
+                self.selenium.stop()
+                self.assertEqual([], self.verificationErrors)
+
+Notice that the test doesn't have much changes from the basic
+test exported using `Selenium IDE <http://seleniumhq.org/projects/ide/>`_,
+the firefox extension. The only differences are the import of the eduCommons
+wrapper instead of the standard selenium driver and the variables used for the 
+instanciation inside the *setUp* method.
+
+.. Note::
+
+    Please notice that the "instance" variable will have to be used in
+    each *open* command for the users to provide the correct location
+    of the eduCommons plone site to test.
+
+.. _later: 
+
+The seleniumWrapper module
+++++++++++++++++++++++++++
+
+This module is (as it's name says) a wrapper for the selenium standard lib.
+The reason why we created it is to make tests clean and easier to maintain
+by centralizing commonly used code.
+
+Some examples of common methods that the wrapper includes are:
+
+login(username, password):
+    This method wraps all the steps needed to log a user and go to the home
+    page to start a test.
+
+validate_breadcrumbs(*args):
+    This method receives multiple strings as parameters and validates that they
+    are included in the breadcrumbs. Notice that the last string received should
+    be the page where the test is located at that moment.
+
+To see the methods included in the wrapper please read the source code, it is 
+located on *enpraxis.educommons/enpraxis/educommons/tests/seleniumtests/seleniumWrapper.py*
