@@ -1,0 +1,125 @@
+==========================
+zeam.form.ztk time widgets
+==========================
+
+Let's create some interface using times:
+
+  >>> from zope import schema, interface
+  >>> from zope.interface.verify import verifyObject
+  >>> from zope.component import getMultiAdapter
+  >>> import datetime
+
+  >>> class ITimeInfo(interface.Interface):
+  ...     time = schema.Time(title=u'Current time')
+
+And some content for them:
+
+  >>> from zope.publisher.browser import TestRequest
+  >>> from zeam.form.ztk import FormData
+  >>> request = TestRequest()
+
+  >>> class TimeInfo(object):
+  ...    interface.implements(ITimeInfo)
+  ...    time = None
+  >>> timeinfo = TimeInfo()
+  >>> timeinfo.time = datetime.time(12, 00, 00)
+  >>> time_form = FormData(timeinfo, request)
+  >>> time_form.ignoreContent = False
+
+
+Field
+-----
+
+You can get a field for a time:
+
+  >>> from zeam.form.base import Fields, NO_VALUE
+  >>> from zeam.form.base import interfaces
+
+  >>> time_fields = Fields(ITimeInfo)
+  >>> time_field = time_fields['time']
+  >>> time_field
+  <TimeField Current time>
+  >>> verifyObject(interfaces.IField, time_field)
+  True
+
+Validation
+~~~~~~~~~~
+
+You can validate a time between two different times:
+
+  >>> time_field.required = True
+  >>> time_field.min = datetime.time(9, 30)
+  >>> time_field.max = datetime.time(18, 30)
+
+  >>> time_field.validate(NO_VALUE, time_form)
+  u'Missing required value.'
+  >>> time_field.validate(datetime.time(12, 55), time_form)
+  >>> time_field.validate(datetime.time(7, 45), time_form)
+  u'This time is before ${not_before}.'
+  >>> time_field.validate(datetime.time(23, 45), time_form)
+  u'This time is after ${not_after}.'
+
+Widget
+------
+
+You can have a widget for a timeinfo. The input value is a formated version
+of the time, based on the locale of the request:
+
+  >>> from zeam.form.ztk import Widgets
+
+  >>> time_widgets = Widgets(
+  ...     time_fields,
+  ...     form=time_form,
+  ...     request=request)
+  >>> time_widgets.update()
+  >>> len(time_widgets)
+  1
+
+  >>> time_widget = time_widgets['form.field.time']
+  >>> time_widget
+  <TimeFieldWidget Current time>
+
+  >>> verifyObject(interfaces.IFieldWidget, time_widget)
+  True
+
+  >>> time_widget.inputValue()
+  u'12:00'
+
+  >>> print time_widget.render() #doctest: +NORMALIZE_WHITESPACE
+  <input type="text" id="form-field-time" name="form.field.time"
+         class="field field-time field-required" value="12:00" required="required" />
+
+
+Widget extractor
+----------------
+
+You can extract a value from the request. It is a bit more difficult
+here because the parsing is a bit more advanced:
+
+  >>> timeRequest = TestRequest(form={
+  ...     'form.field.time': u'12:21'})
+  >>> niceTimeData = FormData(timeinfo, timeRequest)
+
+  >>> niceTimeExtractor = getMultiAdapter(
+  ...      (time_field, niceTimeData, timeRequest),
+  ...      interfaces.IWidgetExtractor)
+
+  >>> verifyObject(interfaces.IWidgetExtractor, niceTimeExtractor)
+  True
+  >>> niceTimeExtractor.extract()
+  (datetime.time(12, 21), None)
+
+Now if you give an invalid date you will have an error::
+
+  >>> invalidTimeRequest = TestRequest(form={
+  ...     'form.field.time': u'the best time ever'})
+  >>> invalidTimeData = FormData(timeinfo, invalidTimeRequest)
+
+  >>> invalidTimeExtractor = getMultiAdapter(
+  ...      (time_field, invalidTimeData, invalidTimeRequest),
+  ...      interfaces.IWidgetExtractor)
+
+  >>> verifyObject(interfaces.IWidgetExtractor, invalidTimeExtractor)
+  True
+  >>> invalidTimeExtractor.extract()
+  (None, "The datetime string did not match the pattern u'HH:mm'.")
