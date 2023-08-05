@@ -1,0 +1,93 @@
+#!/opt/local/Library/Frameworks/Python.framework/Versions/2.7/Resources/Python.app/Contents/MacOS/Python
+#Copyright 2009 Erik Tollerud
+#
+#   Licensed under the Apache License, Version 2.0 (the "License");
+#   you may not use this file except in compliance with the License.
+#   You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+#   Unless required by applicable law or agreed to in writing, software
+#   distributed under the License is distributed on an "AS IS" BASIS,
+#   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#   See the License for the specific language governing permissions and
+#   limitations under the License.
+
+import warnings
+warnings.filterwarnings('ignore','PyArray_FromDimsAndDataAndDescr: use PyArray_NewFromDescr.*'.lower())
+warnings.filterwarnings('ignore','the sets module is deprecated')
+from numpy import seterr
+seterr(all='ignore')
+
+import sys,os
+from optparse import OptionParser
+from glob import glob
+
+op = OptionParser()
+op.usage = '%prog [ops] [file(s)]'
+op.add_option('-t','--type',dest='type',default='astropysics',help='file format of spectra: "wcs", "deimos", or "astropysics"(default)')
+op.add_option('-e','--extension',dest='ext',default=None,help='Fits extension number')
+op.add_option('-c','--config',dest='configfile',default=None,help='File to save Spylot configuration')
+
+ops,args = op.parse_args()
+
+#if ops.configfile is None or not os.path.exists(ops.configfile):
+#if input is ok import the gui stuff
+from astropysics.gui import spylot
+from astropysics import spec
+
+if len(args) == 0:
+    fns = []
+    fns.extend(glob('*.fits'))
+    fns.extend(glob('*.fits.gz'))
+else:
+    fns = []
+    for pattern in args:
+        fns.extend(glob(pattern))       
+        
+if len(fns) == 0:
+    print 'No files found!'
+    sys.exit(1)
+    
+ss = []
+if ops.type == 'wcs':
+    specs = []
+    ext = ops.ext
+    for fn in fns:
+        try:
+            print 'Loading wcs spectrum file',fn
+            ss.append(spec.load_wcs_spectrum(fn,ext)) 
+        except Exception,e:
+            print 'Could not load',fn,':',e
+elif ops.type == 'deimos':
+    for fn in fns:
+        try:
+            if 'spec1d' in fn.lower():
+                print 'Loading deimos spectrum file',fn
+                ss.append(spec.load_deimos_spectrum(fn,False))
+            else:
+                raise ValueError('Deimos spectrum must be spec1d format!')
+        except Exception,e:
+            print 'Could not load',fn,':',e
+elif ops.type == 'astropysics':
+    for fn in fns:
+        try:
+            print 'Loading astropysics spectrum file',fn
+            ss.append(spec.Spectrum.load(fn))
+        except Exception,e:
+                print 'Could not load',fn,':',e
+            
+else:
+    print 'Unrecognized spectrum type ',ops.type
+    sys.exit(1)
+    
+if len(ss)>0:
+    print 'Loaded',len(ss),'spectra'
+    sp = spylot.Spylot(ss)
+    sp.configure_traits(ops.configfile)
+else:
+    print 'Could not load any spectra, exiting'
+    sys.exit(1)
+    
+
+    
