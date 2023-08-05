@@ -1,0 +1,112 @@
+#!/usr/bin/env python
+
+import argparse
+import logging
+import sys
+import time
+
+import beaver.file_config
+import beaver.beaver_config
+import beaver.transport
+import beaver.utils
+import beaver.worker
+
+from beaver import __version__ as full_version
+
+
+epilog_example = """
+Beaver provides an lightweight method for shipping local log
+files to Logstash. It does this using either redis, stdin,
+zeromq as the transport. This means you'll need a redis,
+stdin, zeromq input somewhere down the road to get the events.
+
+Events are sent in logstash's json_event format. Options can
+also be set as environment variables.
+
+Example 1: Listen to all files in the default path of /var/log on standard out as json
+    cli: beaver
+
+Example 2: Listen to all files in the default path of /var/log on standard out with msgpack
+    cli: BEAVER_FORMAT='msgpack' beaver
+
+Example 3: Listen to all files in the default path of /var/log on standard out as a string
+    cli: BEAVER_FORMAT='string' beaver
+
+Example 4: Sending logs from /var/log files to a redis list
+    cli: REDIS_URL="redis://localhost:6379/0" beaver -t redis
+
+Example 5: Use environment variables to send logs from /var/log files to a redis list
+    cli: REDIS_URL="redis://localhost:6379/0" BEAVER_PATH="/var/log" BEAVER_TRANSPORT=redis beaver
+
+Example 6: Zeromq listening on port 5556 (all interfaces)
+    cli: ZEROMQ_ADDRESS="tcp://*:5556" beaver -m bind -t zmq
+
+Please see the readme for more complete examples.
+
+"""
+parser = argparse.ArgumentParser(description='Beaver logfile shipper',
+                                epilog=epilog_example,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+parser.add_argument('-c', '--configfile', help='ini config file path', dest='config', default='/dev/null')
+parser.add_argument('-d', '--debug', help='enable debug mode', dest='debug', default=False, action='store_true')
+parser.add_argument('-f', '--files', help='space-separated filelist to watch, can include globs (*.log). Overrides --path argument', dest='files', default=None, nargs='+')
+parser.add_argument('--format', help='format to use when sending to transport', default=None, dest='format', choices=['json', 'msgpack', 'string'])
+parser.add_argument('--hostname', help='manual hostname override for source_host', default=None, dest='hostname')
+parser.add_argument('-m', '--mode', help='bind or connect mode', dest='mode', default=None, choices=['bind', 'connect'])
+parser.add_argument('-p', '--path', help='path to log files', default=None, dest='path')
+parser.add_argument('-t', '--transport', help='log transport method', dest='transport', default=None, choices=['rabbitmq', 'redis', 'stdout', 'zmq', 'udp'])
+parser.add_argument('-v', '--version', help='output version and quit', dest='version', default=False, action='store_true')
+parser.add_argument('--fqdn', help="use the machine's FQDN for source_host", dest="fqdn", default=False, action='store_true')
+
+args = parser.parse_args()
+
+if args.version:
+    formatter = logging.Formatter('%(message)s')
+    logger = beaver.utils.setup_custom_logger('beaver', debug=args.debug, formatter=formatter)
+    logger.info("Beaver {0}".format(full_version))
+    sys.exit(0)
+
+
+logger = beaver.utils.setup_custom_logger('beaver', debug=args.debug)
+
+file_config = beaver.file_config.FileConfig(args, logger=logger)
+beaver_config = beaver.beaver_config.BeaverConfig(args, logger=logger)
+beaver_config.update_files(file_config)
+beaver_config.check_for_deprecated_usage()
+
+failure_count = 0
+
+ssh_tunnel = beaver.worker.create_ssh_tunnel(file_config, beaver_config)
+if ssh_tunnel is not None:
+    logger.info("Proxying transport using through local ssh tunnel")
+
+while 1:
+    try:
+        worker = beaver.worker.run_worker(file_config, beaver_config, logger, ssh_tunnel=ssh_tunnel)
+    except beaver.transport.TransportException, e:
+        failure_count = failure_count + 1
+        if failure_count > int(beaver_config.get('max_failure')):
+            failure_count = int(beaver_config.get('max_failure'))
+
+        sleep_time = int(beaver_config.get('respawn_delay')) ** failure_count
+        logger.info("Caught transport exception, respawning in %d seconds" % sleep_time)
+
+        try:
+            time.sleep(sleep_time)
+        except KeyboardInterrupt:
+            logger.info("User cancelled respawn.")
+            if ssh_tunnel is not None:
+                logger.info("Closing ssh tunnel.")
+                ssh_tunnel.close()
+
+            sys.exit(0)
+
+    except KeyboardInterrupt:
+        logger.info("Shutting down. Please wait.")
+        worker.close()
+        if ssh_tunnel is not None:
+            logger.info("Closing ssh tunnel.")
+            ssh_tunnel.close()
+
+        logger.info("Shutdown complete.")
+        sys.exit(0)
