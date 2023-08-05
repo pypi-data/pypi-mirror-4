@@ -1,0 +1,63 @@
+=====
+Testy
+=====
+
+All the assertions from Testify_ but cleaned up a bit & with added py3k support.
+
+.. _Testify: https://github.com/Yelp/Testify
+
+Should work with Python 2.5-3.3 and pypy 1.9. To make sure it will work for you::
+
+    python setup.py test
+
+There are no dependencies.
+
+
+Installation
+============
+
+From source::
+
+    pip install -e ./
+
+or::
+
+    python setup.py install
+
+Or you can just direct from the cheese shop::
+
+    pip install testy
+
+
+Example Usage
+=============
+
+.. code-block:: python
+
+    import re
+    import unittest
+
+    from testy.assertions import assert_equal, assert_raises, assert_match_regex
+
+    class MyTestCase(unittest.TestCase):
+        def setUp(self):
+            self.x = 1
+
+        def test_x(self):
+            assert_equal(self.x, 1)
+
+        def test_exception(self):
+            with assert_raises(TypeError):
+                raise TypeError("Call some code you expect to fail here.")
+
+        def test_pattern(self):
+            pattern = re.compile('\w')
+            assert_match_regex(pattern, 'abc')
+
+        def tearDown(self):
+            self.x = None
+
+
+    if __name__ == "__main__":
+        unittest.main()
+
