@@ -1,0 +1,139 @@
+zeam.form.base
+==============
+
+Fields represent input fields on the form.
+
+Field
+-----
+
+A field is a simple input on a form::
+
+   >>> from zeam.form.base.fields import Field
+   >>> field = Field(u'Age')
+   >>> field
+   <Field Age>
+   >>> field.title
+   u'Age'
+   >>> field.description
+   u''
+
+Field value
+~~~~~~~~~~~
+
+A field dispose of a validate method to validate a value. If field is
+required, ``NO_VALUE`` should not be accepted as a valid value:
+
+   >>> from zeam.form.base.markers import NO_VALUE
+
+   >>> field.required
+   False
+   >>> field.validate(NO_VALUE, None)
+   >>> field.validate(42, None)
+   >>> field.required = True
+   >>> field.validate(NO_VALUE, None)
+   u'Missing required value.'
+   >>> field.validate(42, None)
+
+You can define a custom method to constrain the value to a test of
+your choice:
+
+   >>> field.constrainValue = lambda v: v != 51
+   >>> field.validate(42, None)
+   >>> field.validate(51, None)
+   u'The constraint failed.'
+
+Alternatively, you can use an exception:
+
+   >>> class NoRicardToday(Exception):
+   ...     def doc(self):
+   ...         return u"I don't want Ricard today!"
+
+   >>> def check_for_ricard(value):
+   ...     if value == 51:
+   ...         raise NoRicardToday()
+   ...     return True
+
+   >>> field.constrainValue = check_for_ricard
+   >>> field.validate(51, None)
+   u"I don't want Ricard today!"
+
+On a field, you can set ``required`` to be a callable, that takes the
+form as parameters. That let you define more advanced condition to
+know if the field is required or not::
+
+   >>> my_form = object()
+   >>> field.required = lambda f: f is my_form
+   >>> field.validate(NO_VALUE, None)
+   >>> field.validate(NO_VALUE, my_form)
+   u'Missing required value.'
+
+A field can provide a default value. A context (the form) is given if
+the default value is computed::
+
+   >>> class FormContext(object):
+   ...    value = 51
+
+   >>> field.getDefaultValue(FormContext())
+   <Marker NO_VALUE>
+
+You can modify the defalut value of a field by setting defaultValue to
+be it or a callable. In case of a callable it will be called each a
+new default value is needed::
+
+   >>> field.defaultValue = 42
+   >>> field.getDefaultValue(FormContext())
+   42
+
+   >>> field.defaultValue = lambda f: f.value * 2
+   >>> field.getDefaultValue(FormContext())
+   102
+
+A Field implement IField, and is an IComponent::
+
+   >>> from zope.interface.verify import verifyObject
+   >>> from zeam.form.base import interfaces
+   >>> verifyObject(interfaces.IField, field)
+   True
+   >>> interfaces.IField.extends(interfaces.IComponent)
+   True
+
+
+Fields
+------
+
+Fields is a collection component used to contain Field::
+
+   >>> from zeam.form.base.fields import Fields
+   >>> s1 = Fields(Field('Size'), field)
+   >>> s1
+   <Fields>
+   >>> list(s1)
+   [<Field Size>, <Field Age>]
+
+They implements ``IFields`` and ``ICollection``::
+
+   >>> verifyObject(interfaces.IFields, s1)
+   True
+   >>> interfaces.IFields.extends(interfaces.ICollection)
+   True
+
+So it behave like a collection. You can add other Field, and Fields
+using the extend method (or constructor), but if you whish to add an
+another component it need to be a Field::
+
+   >>> from zeam.form.base.actions import Action, Actions
+
+   >>> s1.extend(Action("Apply"))
+   Traceback (most recent call last):
+      ...
+   TypeError: (u'Invalid type', <Action Apply>)
+
+   >>> s1.extend(Actions(Action("Apply")))
+   Traceback (most recent call last):
+      ...
+   TypeError: (u'Invalid type', <Action Apply>)
+
+   >>> s1.extend(42)
+   Traceback (most recent call last):
+      ...
+   TypeError: (u'Invalid type', 42)

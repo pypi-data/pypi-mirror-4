@@ -1,0 +1,453 @@
+zeam.form.base
+==============
+
+The component and component collections are basic objects used to
+implement fields, actions and widgets. Their behavior described here
+apply to those objects.
+
+Components
+----------
+
+First let's see the component:
+
+  >>> from zeam.form.base.components import Component
+  >>> c1 = Component(u'The Sun', 'sun')
+  >>> c1
+  <Component The Sun>
+  >>> c1.identifier
+  'sun'
+  >>> c1.title
+  u'The Sun'
+
+It correctly implement IComponent:
+
+  >>> from zope.interface.verify import verifyObject
+  >>> from zeam.form.base import interfaces
+  >>> verifyObject(interfaces.IComponent, c1)
+  True
+
+Actually you can create a component without an id, and even using a
+unicode title:
+
+  >>> c2 = Component(u'Moon')
+  >>> c2
+  <Component Moon>
+  >>> c2.identifier
+  'moon'
+  >>> c2.title
+  u'Moon'
+
+Or a number (it won't be converted to string. Like this, this support
+Zope translation messages):
+
+  >>> c69 = Component(69)
+  >>> c69.title
+  69
+
+If by doing so, the title contain spaces, they will be replaced by
+``-``. If UTF-8 character are included, the identifiant will be
+encoded:
+
+  >>> c3 = Component(u'Some lost planet')
+  >>> c3.identifier
+  'some-lost-planet'
+  >>> c4 = Component(u'État du désir')
+  >>> c4.identifier
+  'c383c2897461742d64752d64c383c2a9736972'
+
+Spaces are normalized::
+
+   >>> c5 = Component(' Some unappropriate spacing  ')
+   >>> c5.identifier
+   'some-unappropriate-spacing'
+
+You can clone a component and change its identifier:
+
+  >>> c3clone = c3.clone('new-world')
+  >>> c3clone
+  <Component Some lost planet>
+  >>> c3clone.identifier
+  'new-world'
+  >>> c3clone is c3
+  False
+
+But you can keep the old one as well:
+
+  >>> c4clone = c4.clone()
+  >>> c4clone.identifier
+  'c383c2897461742d64752d64c383c2a9736972'
+  >>> c4clone is c4
+  False
+
+
+Collection
+----------
+
+Collection are simple objects, implementing ICollection:
+
+  >>> from zeam.form.base.components import Collection
+  >>> s1 = Collection()
+  >>> s1
+  <Collection>
+  >>> len(s1)
+  0
+  >>> verifyObject(interfaces.ICollection, s1)
+  True
+
+Adding components to a collection
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Now we can put components in a collection, and list it back in the
+same order:
+
+  >>> s1.append(c1)
+  >>> list(s1)
+  [<Component The Sun>]
+  >>> s1.append(c2)
+  >>> list(s1)
+  [<Component The Sun>, <Component Moon>]
+
+But you can't add twice the same component:
+
+  >>> s1.append(c1)
+  Traceback (most recent call last):
+    ...
+  ValueError: (u'Duplicate identifier', 'sun')
+
+And this need to be a component:
+
+  >>> s1.append('home')
+  Traceback (most recent call last):
+    ...
+  TypeError: (u'Invalid type', 'home')
+
+You create a collection with components or collection as argument:
+
+  >>> s2 = Collection(Component('Jupiter'), Component('Saturn'))
+  >>> list(s2)
+  [<Component Jupiter>, <Component Saturn>]
+  >>> len(s2)
+  2
+  >>> list(Collection(s2, Component('Uranus')))
+  [<Component Jupiter>, <Component Saturn>, <Component Uranus>]
+  >>> Collection(42)
+  Traceback (most recent call last):
+    ...
+  TypeError: (u'Invalid type', 42)
+
+You can add collections. You will receive a copy with all
+components. Components will ordered as the addition is:
+
+  >>> s3 = s1 + s2
+  >>> s3
+  <Collection>
+  >>> s3 is s1
+  False
+  >>> list(s3)
+  [<Component The Sun>, <Component Moon>,
+   <Component Jupiter>, <Component Saturn>]
+  >>> len(s3)
+  4
+  >>> list(s2 + s1)
+  [<Component Jupiter>, <Component Saturn>,
+   <Component The Sun>, <Component Moon>]
+
+You can extend a collection. It work pretty much like the construtor:
+
+  >>> s3.extend(Component('Venus'), Component('Uranus'))
+  >>> list(s3)
+  [<Component The Sun>, <Component Moon>,
+   <Component Jupiter>, <Component Saturn>,
+   <Component Venus>, <Component Uranus>]
+  >>> s3.extend('Kitty')
+  Traceback (most recent call last):
+    ...
+  TypeError: (u'Invalid type', 'Kitty')
+
+You can copy a collection:
+
+  >>> s3copy = s3.copy()
+  >>> list(s3copy) == list(s3)
+  True
+  >>> s3copy is s3
+  False
+
+You can remove all elements from a collection:
+
+  >>> len(s1)
+  2
+  >>> s1.clear()
+  >>> len(s1)
+  0
+
+
+Retriving components from a collection
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+You can retrieve one element of the collection:
+
+  >>> s3.get('moon')
+  <Component Moon>
+  >>> s3.get('uranus')
+  <Component Uranus>
+  >>> s3.get('me')
+  Traceback (most recent call last):
+    ...
+  KeyError: 'me'
+  >>> s3.get('me', default=42)
+  42
+
+And dictionnary like access works:
+
+  >>> s3['uranus']
+  <Component Uranus>
+  >>> s3['venus']
+  <Component Venus>
+  >>> s3['somewhere']
+  Traceback (most recent call last):
+    ...
+  KeyError: 'somewhere'
+
+You can get all components ids:
+
+  >>> s3.keys()
+  ['sun', 'moon', 'jupiter', 'saturn', 'venus', 'uranus']
+
+You can test if a component id is in the collection:
+
+  >>> 'moon' in s3
+  True
+  >>> 'earth' in s3
+  False
+
+You can get a new collection with some of the components of the first
+one:
+
+  >>> s4 = s3.select('venus', 'uranus')
+  >>> s4 is s3
+  False
+  >>> list(s4)
+  [<Component Venus>, <Component Uranus>]
+  >>> s4.keys()
+  ['venus', 'uranus']
+
+Or the other way around some components of a collection:
+
+  >>> s5 = s3.omit('sun', 'moon')
+  >>> s5 is s3
+  False
+  >>> list(s5)
+  [<Component Jupiter>, <Component Saturn>,
+   <Component Venus>, <Component Uranus>]
+
+
+Sorting components in a collection
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The Collection sort call works as the standard python list's one::
+
+  >>> import operator
+  >>> identifier_key = operator.attrgetter('identifier')
+
+  >>> s5.sort(key=identifier_key)
+  >>> print list(s5)
+  [<Component Jupiter>, <Component Saturn>, <Component Uranus>,
+   <Component Venus>]
+
+
+We can use the standard arguments (cmp, key and reverse)::
+
+  >>> s5.sort(key=identifier_key, reverse=True)
+  >>> print list(s5)
+  [<Component Venus>, <Component Uranus>, <Component Saturn>,
+   <Component Jupiter>]
+
+  >>> s5.sort(reverse=True, key=lambda el: el.identifier[-1:])
+  >>> print list(s5)
+  [<Component Venus>, <Component Uranus>, <Component Jupiter>,
+   <Component Saturn>]
+
+  >>> def myLengthSort(a1, a2):
+  ...   return cmp(len(a1), len(a2))
+
+  >>> s5.sort(reverse=True, key=identifier_key, cmp=myLengthSort)
+  >>> print list(s5)
+  [<Component Jupiter>, <Component Uranus>, <Component Saturn>,
+   <Component Venus>]
+
+The collection can be reversed too, as standard lists::
+
+  >>> s5.reverse()
+  >>> print list(s5)
+  [<Component Venus>, <Component Saturn>, <Component Uranus>,
+   <Component Jupiter>]
+
+
+It is possible to order the components of a Collection using a given
+list of ids and the `sort_components` cmp function, and an
+identifier_key::
+
+  >>> from zeam.form.base import sort_components
+
+  >>> sort_components(s5, ['uranus', 'venus', 'jupiter'])
+  >>> print list(s5)
+  [<Component Uranus>, <Component Venus>, <Component Jupiter>,
+   <Component Saturn>]
+
+The keys are sorted in the process::
+
+  >>> print s5.keys()
+  ['uranus', 'venus', 'jupiter', 'saturn']
+
+Successive sortings will leave unspecified fields at their relative places::
+
+  >>> sort_components(s5, ['saturn', 'uranus'])
+  >>> print list(s5)
+  [<Component Saturn>, <Component Uranus>, <Component Venus>,
+   <Component Jupiter>]
+
+We can also revert the sorting, as the standard python behavior::
+
+  >>> sort_components(s5, ['uranus', 'venus'], reverse=True)
+  >>> print list(s5)
+  [<Component Saturn>, <Component Jupiter>, <Component Venus>,
+   <Component Uranus>]
+
+Errors are raised if the provided list is malformed or smaller than 2
+elements::
+
+  >>> sort_components(s5, ['uranus'])
+  Traceback (most recent call last):
+  ...
+  ValueError: Please provide a list of, at least, two component identifiers.
+
+  >>> sort_components(s5, 'something')
+  Traceback (most recent call last):
+  ...
+  ValueError: Please provide a valid list or tuple of component identifiers.
+
+
+The behavior, if unknow ids are provided, is unchanged::
+
+  >>> sort_components(s5, ['venus', 'uranus', 'cardassia', 'bajor'])
+  >>> print list(s5)
+  [<Component Venus>, <Component Uranus>, <Component Saturn>,
+   <Component Jupiter>]
+
+
+When items are added, they get an order attribute, that reflect the
+order they have been added to the collection:
+
+  >>> map(lambda c: c.order, s5)
+  [50, 60, 20, 10]
+
+You can sort back the elements in their first order:
+
+  >>> s5.sort()
+  >>> map(lambda c: c.order, s5)
+  [10, 20, 50, 60]
+  >>> print list(s5)
+  [<Component Jupiter>, <Component Saturn>, <Component Venus>,
+   <Component Uranus>]
+
+And you can the order using this feature:
+
+  >>> s5['venus'].order = s5['uranus'].order + 1
+  >>> s5.sort()
+  >>> map(lambda c: c.order, s5)
+  [10, 20, 60, 61]
+  >>> print list(s5)
+  [<Component Jupiter>, <Component Saturn>, <Component Uranus>,
+   <Component Venus>]
+
+
+Parameters on collections
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+You can provides extra parameters on collections that will be set as
+attributes on the object:
+
+  >>> s6 = Collection(s2, name=u'me', city=u'rotterdam')
+  >>> s6
+  <Collection>
+  >>> list(s6)
+  [<Component Jupiter>, <Component Saturn>]
+  >>> s6.name
+  u'me'
+  >>> s6.city
+  u'rotterdam'
+
+Those attributes are kept if you use the operations ``select``,
+``omit`` or ``copy``:
+
+  >>> s6copy = s6.copy()
+  >>> s6copy.name
+  u'me'
+  >>> s6copy.city
+  u'rotterdam'
+
+  >>> s6omit = s6.omit('jupiter')
+  >>> s6omit.name
+  u'me'
+  >>> s6omit.city
+  u'rotterdam'
+
+  >>> s6select = s6.select('jupiter')
+  >>> s6select.name
+  u'me'
+  >>> s6select.city
+  u'rotterdam'
+
+
+Errors collections
+~~~~~~~~~~~~~~~~~~
+
+Errors collections are special collections that can, in some cases,
+act as a Component. They are meant to be stackable, to provide a clean
+and easy way to group errors logically.
+
+  >>> from zeam.form.base.errors import Errors, Error
+
+  >>> errors = Errors()
+  >>> interfaces.ICollection.providedBy(errors)
+  True
+  >>> verifyObject(interfaces.ICollection, errors)
+  True
+
+When created without the "identifier" keyword, the Errors instance is
+not considered as a Component and will only accept Error subclasses,
+denying stacking Errors::
+
+  >>> interfaces.IComponent.providedBy(errors)
+  False
+
+  >>> errors.append(Errors())
+  Traceback (most recent call last):
+  ...
+  TypeError: (u'Invalid type', <Errors>)
+
+If we give the "identifier" keyword to the Errors constructor, the
+resulting instance is considered a valid Component object::
+
+  >>> errors_group = Errors(identifier='form.somefield')
+  >>> interfaces.IComponent.providedBy(errors_group)
+  True
+
+Therefore, they will be allowed as a valid Errors item::
+
+  >>> errors.append(errors_group)
+  >>> errors.get('form.somefield')
+  <Errors for 'form.somefield'>
+  >>> errors.get('form.somefield') is errors_group
+  True
+
+  >>> verifyObject(interfaces.ICollection, errors_group)
+  True
+  >>> verifyObject(interfaces.IComponent, errors_group)
+  True
+
+We now can stack errors in logical groups::
+
+  >>> errors_group.append(Error(u'Some title', identifier='form.field'))
+  >>> errors_group.get('form.field')
+  <Error Some title>
