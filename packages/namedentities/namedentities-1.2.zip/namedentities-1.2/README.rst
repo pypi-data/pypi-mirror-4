@@ -1,0 +1,75 @@
+Named HTML entities are much neater and much
+easier to comprehend than numeric entities. And because they
+fall within the ASCII range, they're 
+much safer
+to use in multiple contexts
+than Unicode and its various encodings (UTF-8 and such).
+
+This
+module helps convert from numerical HTML entites and Unicode characters that
+fall outside the normal ASCII range into named entities.
+
+Usage
+=====
+
+Python 2::
+  
+    from namedentities import named_entities
+    
+    u = u'both em\u2014and&#x2013;dashes&hellip;'
+    print named_entities(u)
+    
+yields::
+
+    both em&mdash;and&ndash;dashes&hellip;
+    
+Python 3::
+
+    from namedentities import named_entities
+    
+    u = 'both em\u2014and&#x2013;dashes&hellip;'
+    print(named_entities(u))
+    # same result
+
+Or using the `six <http://pypi.python.org/pypi/six>`_ cross-version compatibility
+library, either one::
+
+    from namedentities import named_entities
+    import six
+    
+    u = six.u('both em\u2014and&#x2013;dashes&hellip;')
+    six.print_(named_entities(u))
+    # same result
+
+Recent Changes
+==============
+ 
+ * Now
+   successfully packaged for, and tests against, against Python 2.5, 2.6, 2.7, 3.2, and 3.3.
+   
+ * Commenced automated multi-version testing with
+   `pytest <http://pypi.python.org/pypi/pytest>`_
+   and `tox <http://pypi.python.org/pypi/tox>`_.
+   
+Notes
+=====
+   
+ * Doesn't attempt to encode ``&lt;``, ``&gt;``, or 
+   ``&amp;`` (or their numerical equivalents) to avoid
+   interfering with HTML escaping.
+
+ * This is basically a packaging of `Ian Beck's work
+   <http://beckism.com/2009/03/named_entities_python/>`_. Thank you, Ian!
+
+Installation
+============
+
+::
+
+    pip install namedentities
+
+To ``easy_install`` under a specific Python version (3.3 in this example)::
+
+    python3.3 -m easy_install namedentities
+    
+(You may need to prefix these with "sudo " to authorize installation.)
