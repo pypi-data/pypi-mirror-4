@@ -1,0 +1,236 @@
+Sample integration: newsletter
+------------------------------
+
+We are going to use ``collective.watcherlist`` to create a simple
+newsletter application.
+
+- We will register an adapter from the default Folder content type to
+  ``collective.watcherlist.watchers.WatcherList`` so people can
+  watch this folder, meaning: they will get an email when something
+  interesting happens.
+
+- We will register an adapter from the default News Item content type to
+  ``collective.watcherlist.watchers.WatcherList``.  Theoretically we
+  could use this to let people watch this specific news item (like Poi
+  offers for issues).  But in this case we will handle the watching on
+  the parent folder level and use this adapter just to send an email
+  about this news item.
+
+- We will register an event handler to send an email to the watchers
+  when a news item in the folder gets published.
+
+- We will register a BrowserView for News Items, inheriting from
+  ``collective.watcherlist.browser.BaseMail`` and use this to set the
+  subject and contents of the email.
+
+- We will create a form where an anonymous user can register with his
+  email address.  We keep it simple, so no confirmation email is sent;
+  this is left as an exercise for the reader and can be an interesting
+  contribution.
+
+- We will use the same form to let logged-in members subscribe
+  themselves.
+
+To see how this is done, look at the ``sample`` directory.  Here we
+will run some tests.
+
+
+We start a test browser session as anonymous user and open the
+subscription form::
+
+    >>> browser = self.browser
+    >>> news = self.portal.news
+    >>> browser.open(news.absolute_url() + '/@@subscription_form')
+    >>> "Subscribe this email address to this folder" in browser.contents
+    True
+    >>> browser.getControl(name='email').value = 'guido@example.com'
+    >>> browser.getControl(name='submit').click()
+
+To ease testing a bit, we have defined a very simple browser view that
+anyone can see and that shows the email addresses of the watchers::
+
+    >>> browser.open(news.absolute_url() + '/@@subscription_overview')
+    >>> print browser.contents
+    guido@example.com
+
+We log in as test user and subscribe too::
+
+    >>> self.browser_login()
+    >>> browser.open(news.absolute_url() + '/@@subscription_form')
+    >>> "Subscribe this member to this folder" in browser.contents
+    True
+    >>> browser.getControl(name='toggle').click()
+
+We check the results.  The current user is not actually reported, as
+we assume he does not need to get an email when he himself does
+something that triggers email sending::
+
+    >>> browser.open(news.absolute_url() + '/@@subscription_overview')
+    >>> print browser.contents
+    guido@example.com
+
+We might want to change that, or make it easier for others to change.
+
+Anyway, we logout and see what gets reported now::
+
+    >>> browser.open(self.portal.absolute_url() + '/logout')
+    >>> browser.open(news.absolute_url() + '/@@subscription_overview')
+    >>> print browser.contents
+    guido@example.com
+    testuser@example.com
+
+We will be sending out emails, so first we make sure there are no
+messages in our mock mailhost::
+
+    >>> self.portal.MailHost.reset()
+    >>> len(self.portal.MailHost.messages)
+    0
+
+Now we login as portal owner.
+
+    >>> self.browser_login('portal_owner')
+
+We can use the browser to check what the contents of the mail sent for
+a news item will be.  Default is to show the html content, but we can
+give some options too:
+
+    >>> browser.open(news.first.absolute_url() + '/@@newsitem-mail')
+    >>> print browser.contents
+    <p>Have I got news for <em>you</em>!</p>
+    >>> browser.open(news.first.absolute_url() + '/@@newsitem-mail?type=plain')
+    >>> print browser.contents
+    >>> browser.open(news.first.absolute_url() + '/@@newsitem-mail?type=subject')
+    >>> print browser.contents
+    Newsflash: First News
+
+Now we publish the news item::
+
+    >>> browser.open(news.first.absolute_url())
+    >>> browser.getLink('Publish').click()
+
+We have to watchers, so two emails are sent.  There are some minor
+differences in the way the SecureMailHost in Plone 3 and the MailHost
+in Plone 4 create the email.  So we do some tricks to only check the
+most important parts of the mail, where we do not care about the
+order::
+
+    >>> len(self.portal.MailHost.messages)
+    2
+    >>> mail = sorted(str(self.portal.MailHost.messages[0]).splitlines())
+    >>> print '\n'.join(mail)
+    <BLANKLINE>
+    <p>Have I got news for <em>you</em>!</p>
+    Content-Transfer-Encoding: 7bit
+    Content-Type: text/html; charset="us-ascii"
+    Date: ...
+    From:...admin@example...
+    ...
+    Subject:...Newsflash...First...
+    To: guido@example...
+    >>> mail = sorted(str(self.portal.MailHost.messages[1]).splitlines())
+    >>> print '\n'.join(mail)
+    <BLANKLINE>
+    <p>Have I got news for <em>you</em>!</p>
+    Content-Transfer-Encoding: 7bit
+    Content-Type: text/html; charset="us-ascii"
+    Date: ...
+    From:...admin@example...
+    ...
+    Subject:...Newsflash...First...
+    To: testuser@example...
+    >>> self.portal.MailHost.reset()
+
+To test possible problems with non-ascii characters, we have prepared
+another mail and we check this is the browser again; depending on
+which mailhost version is used, the result can be slightly different::
+
+    >>> browser.open(news.first.absolute_url() + '/@@i18n-mail')
+    >>> print browser.contents
+    >>> browser.open(news.first.absolute_url() + '/@@i18n-mail?type=plain')
+    >>> browser.contents == 'Breaking \xefnt\xe9rn\xe4ti\xf3nal news: First News' or browser.contents == 'Breaking \xc3\xafnt\xc3\xa9rn\xc3\xa4ti\xc3\xb3nal news: First News'
+    True
+    >>> browser.headers.gettype()
+    'text/plain'
+
+We have not specified a subject::
+
+    >>> browser.open(news.first.absolute_url() + '/@@i18n-mail?type=subject')
+    >>> print browser.contents
+    [No subject]
+
+Just for laughs we have registered an event handler that sends this
+mail when an object is modified that has 'i18n' in its title; let's
+trigger that manually or better, by editing::
+
+    >>> browser.open(news.first.absolute_url() + '/edit')
+    >>> browser.getControl(name='title').value = 'First i18n news'
+    >>> browser.getControl('Save').click()
+    >>> len(self.portal.MailHost.messages)
+    2
+
+Note the different charset and encoding::
+ 
+    >>> mail = sorted(str(self.portal.MailHost.messages[0]).splitlines())
+    >>> print '\n'.join(mail)
+    <BLANKLINE>
+    ...
+    Content-Type: text/plain; charset="utf-8"
+    Date: ...
+    From:...admin@example...
+    ...
+    Subject:...No...subject...
+    To: guido@example...
+    >>> 'QnJlYWtpbmcgw69udMOpcm7DpHRpw7NuYWwgbmV3czogRmlyc3QgaTE4biBuZXdz' in mail or 'Breaking =C3=AFnt=C3=A9rn=C3=A4ti=C3=B3nal news: First i18n news' in mail
+    True
+    >>> self.portal.MailHost.reset()
+
+With Zope 2.12.3 or higher we know that we can use the normal ``send``
+method of the MailHost, but otherwise the secureSend method is better.
+We do want to try both in the tests, if possible.  But on Plone 3 you
+should just always use secureSend; in our code you even get a
+TypeError if you do not use it, because the send method does not yet
+accept the 'immediate' argument we pass it.  We can at least force
+using secureSend once here and restore the original setting when we
+are done.
+
+    >>> import collective.watcherlist.mailer
+    >>> ori_USE_SECURE_SEND = collective.watcherlist.mailer.USE_SECURE_SEND
+    >>> collective.watcherlist.mailer.USE_SECURE_SEND = True
+
+So we do the last edit a second time::
+
+    >>> browser.open(news.first.absolute_url() + '/edit')
+    >>> browser.getControl('Save').click()
+
+The resulting email is slightly different, but still basically the same::
+
+    >>> len(self.portal.MailHost.messages)
+    2
+    >>> mail = sorted(str(self.portal.MailHost.messages[0]).splitlines())
+    >>> print '\n'.join(mail)
+    <BLANKLINE>
+    ...
+    From:...admin@example...
+    ...
+    Subject:...No subject...
+    To: guido@example...
+    >>> 'Breaking =C3=AFnt=C3=A9rn=C3=A4ti=C3=B3nal news: First i18n news' in mail or 'QnJlYWtpbmcgw69udMOpcm7DpHRpw7NuYWwgbmV3czogRmlyc3QgaTE4biBuZXdz' in mail
+    True
+    >>> self.portal.MailHost.reset()
+    >>> collective.watcherlist.mailer.USE_SECURE_SEND = ori_USE_SECURE_SEND
+
+We do the last edit another time and first unconfigure the MailHost,
+to see if this indeed prevents sending emails (it will print the mail
+for debugging purposes)::
+
+    >>> ori_smtp_host = self.portal.MailHost.smtp_host
+    >>> self.portal.MailHost.smtp_host = ''
+    >>> browser.open(news.first.absolute_url() + '/edit')
+    >>> browser.getControl('Save').click()
+    Subject = [No subject]
+    Addresses = ('guido@example.com', 'testuser@example.com')
+    Message =
+    ...
+    >>> len(self.portal.MailHost.messages)
+    0
+    >>> self.portal.MailHost.smtp_host = ori_smtp_host
