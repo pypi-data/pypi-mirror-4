@@ -1,0 +1,240 @@
+Metadata-Version: 1.1
+Name: Products.LDAPUserFolder
+Version: 2.24
+Summary: A LDAP-enabled Zope 2 user folder
+Home-page: http://pypi.python.org/pypi/Products.LDAPUserFolder
+Author: Jens Vagelpohl and contributors
+Author-email: jens@dataflake.org
+License: ZPL 2.1 (http://www.zope.org/Resources/License/ZPL-2.1)
+Description: =========================
+         Products.LDAPUserFolder
+        =========================
+        
+        .. contents::
+        
+        This product is a replacement for a Zope user folder. It does not store its 
+        own user objects but builds them on the fly after authenticating a user against 
+        the LDAP database.
+        
+        
+        Bug tracker
+        ===========
+        Please post questions, bug reports or feature requests to the bug tracker
+        at https://bugs.launchpad.net/ldapuserfolder
+        
+        
+        Debugging problems
+        ==================
+        All log messages are sent to the standard Zope event log 'event.log'. In 
+        order to see more verbose logging output you need to increase the log level 
+        in your Zope instance's zope.conf. See the 'eventlog' directive. Setting 
+        the 'level' key to 'debug' will maximize log output and may help pinpoint 
+        problems during setup and testing.
+        
+        
+        Why does the LDAPUserFolder not show all my LDAP groups?
+        ========================================================
+        According to feedback received from people who use Netscape directory 
+        products the way a new group is instantiated allows empty groups to exist 
+        in the system. However, according to the canonical definition for group 
+        records groups must always have a group member attribute.
+        The LDAPUserFolder looks up group records by looking for group member 
+        entries. If a group record has no members then it will be skipped. As said 
+        above, this only seems to affect Netscape directory servers.
+        To work around this (Netscape) phenomenon add one or more members to the 
+        group in question using the tools that came with the directory server. It 
+        should appear in the LDAPUserFolder after that.
+        
+        
+        Why use LDAP to store user records?
+        ===================================
+        LDAP as a source of Zope user records is an excellent choice in many cases, 
+        like...
+        
+        - You already have an existing LDAP setup that might store company employee 
+          data and you do not want to duplicate any data into a Zope user folder
+        - You want to make the same user database available to other applications 
+          like mail, address book clients, operating system authenticators 
+          (PAM-LDAP) or other network services that allow authentication against
+          LDAP
+        - You have several Zope installations that need to share user records or a 
+          ZEO setup
+        - You want to be able to store more than just user name and password in your 
+          Zope user folder
+        - You want to manipulate user data outside of Zope
+        
+        ... the list continues.
+        
+        
+        The LDAP Schema
+        ===============
+        Your LDAP server should contain records that can be used as user 
+        records. Any object types like person, organizationalPerson, 
+        or inetOrgPerson and any derivatives thereof should work. Records
+        of type posixAccount should work correctly as well.
+        The LDAPUserFolder expects your user records to have at least the 
+        following attributes, most of which are required for the 
+        abovementioned object classes, anyway:
+        
+        - an attribute to hold the user ID (like cn, uid, etc)
+        - userPassword (the password field)
+        - objectClass
+        - whatever attribute you choose as the username attribute
+        - typcial person-related attributes like sn (last name), 
+          givenName (first name), uid or mail (email address) will make 
+          working with the LDAPUserFolder nicer
+        
+        Zope users have certain roles associated with them, these roles
+        determine what permissions the user have. For the LDAPUserFolder,
+        role information can be expressed through membership in group
+        records in LDAP.
+        
+        Group records can be of any object type that accepts multiple 
+        attributes of type "uniqueMember" or "member" and that has a 
+        "cn" attribute. One such type is "groupOfUniqueNames". The cn 
+        describes the group / role name while the member attributes point 
+        back to all those user records that are part of this group. Only
+        those group-style records that use full DNs for its members
+        are supported, which excludes classes like posixGroup.
+        
+        For examples of valid group- and user-records for LDAP please
+        see the file SAMPLE_RECORDS.txt in this distribution. It has 
+        samples for a user- and a group record in LDIF format.
+        
+        It is outside of the scope of this documentation to describe the 
+        different object classes and attributes in detail, please see 
+        LDAP documentation for a better treatment.
+        
+        
+        Things to watch out for
+        =======================
+        Since a user folder is one of these items that can lock users out 
+        of your site if they break I suggest testing the settings in some 
+        inconspicuous location before replacing a site's main acl_users folder 
+        with a LDAPUserFolder.
+        As a last resort you will always be able to log in and make changes 
+        as the superuser (or in newer Zope releases called "emergency user") 
+        who, as an added bonus, can delete and create user folders. This is 
+        a breach of the standard "the superuser cannot create / own anything" 
+        policy, but can save your skin in so many ways.
+        
+        LDAP Schema considerations when used with the CMF
+        =================================================
+        The CMF (and by extension, Plone) expect that every user has an email
+        address. In order to make everything work correctly your LDAP user
+        records must have a "mail" attribute, and this attribute must be set
+        up in the "LDAP Schema" tab of your LDAPUserFolder. When you add the
+        "mail" schema item make sure you set the "Map to Name" field to
+        "email". 
+        The attributes that show up on the join form and the personalize view
+        are governed by the properties you 'register' using the 
+        'Member Properties' tab in the portal_memberdata tool ZMI view, which
+        in turn is sourced from the 'LDAP Schema' tab in the LDAPUserFolder
+        ZMI view. Attributes you would like to enable for portal members
+        must be set up on the LDAPUserFolder 'LDAP Schema' tab first, and
+        then registered using the 'Membeer properties' screen in the 
+        Member data tool ZMI view.
+        
+        
+        ------------------------------------------------------------
+        
+        Change log for Products.LDAPUserFolder
+        ======================================
+        
+        2.24 (2012-10-18)
+        -----------------
+        - When comparing a login value to login values found on the LDAP 
+          server strip the login value first. This follows OpenLDAP behavior
+          which considers values as matches even with trailing or leading 
+          spaces in the value query filter.
+          (https://bugs.launchpad.net/bugs/1060080)
+        - LDAPDelegate: When using a user from the Zope security machinery 
+          for the purpose of finding a suitable bind DN and password for 
+          connecting to a LDAP server, discard it when it's not been created
+          as the result of a real login and thus has an invalid password
+          (https://bugs.launchpad.net/bugs/1060112)
+        - use a known set of component versions (versions.txt from Zope 
+          2.3.18) to avoid having to micromanage dependency versions
+        - moved change log entries for version 2.18 and older from CHANGES.txt
+          to HISTORY.txt
+        - reformat HISTORY.txt and make it ReST-compliant
+        - clean up formatting of CHANGES.txt
+        
+        
+        2.23 (2012-04-23)
+        -----------------
+        - Add ``setuptools-git`` to ``setup_requires`` to prevent missing 
+          files in the egg release - versions 2.22 and 2.21 will not build
+          due to a missing ``VERSION.txt``.
+        
+        
+        2.22 (2012-04-23)
+        -----------------
+        - factored some tests into separate modules to increase 
+          maintainability
+        - Moved all documentary text files into the egg root
+        
+        
+        2.21 (2012-04-21)
+        -----------------
+        - Make sure to raise OverflowError if no users can be found 
+          when calling ``getUserNames``
+          (https://bugs.launchpad.net/bugs/972408)
+        - switch to using the standalone ``dataflake.fakeldap`` package 
+          for unit tests
+        
+        
+        2.20 (2011-05-04)
+        -----------------
+        - Fix for CVE-2010-2944
+          (http://secunia.com/advisories/cve_reference/CVE-2010-2944/),
+          which was never reported upstream by the Debian people, who
+          found the problem 8 months ago (see
+          http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=593466).
+          Thanks guys.
+        
+        
+        2.19 (2011-01-10)
+        -----------------
+        - Add attribute name to the negative_cache_key so requests 
+          for same value but different attribute do not poison the 
+          cache.
+          (https://bugs.launchpad.net/bugs/695821)
+        - The changed base classes in Zope 2.13 did not define 
+          isPrincipiaFolderish, so the user folder would no longer show
+          up in the left hand navigation pane in the ZMI.
+          (https://bugs.launchpad.net/bugs/693315)
+        - Fixed a faulty check for unicode so user expiration will not
+          fail if a unicode value is passed in. Changed all checks for
+          string and unicode to use basestring.
+          (https://bugs.launchpad.net/bugs/700071)
+        - Fixed an export/import test error so all tests run again.
+        - The Manager DN Password value on the ``Configure`` tab in the 
+          ZMI showed up in clear text when viewing the HTML source for 
+          the rendered page.
+          (https://bugs.launchpad.net/bugs/664976)
+        
+        
+        Older releases
+        --------------
+        Please see the file `HISTORY.txt` in this package.
+        
+        
+        ------------------------------------------------------------
+        
+        Download
+        ========
+Keywords: web application server zope zope2 ldap
+Platform: UNKNOWN
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Framework :: Zope2
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: Zope Public License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python
+Classifier: Programming Language :: Python :: 2.6
+Classifier: Programming Language :: Python :: 2.7
+Classifier: Programming Language :: Python :: 2 :: Only
+Classifier: Topic :: Internet :: WWW/HTTP :: Site Management
+Classifier: Topic :: Software Development
+Classifier: Topic :: System :: Systems Administration :: Authentication/Directory :: LDAP
