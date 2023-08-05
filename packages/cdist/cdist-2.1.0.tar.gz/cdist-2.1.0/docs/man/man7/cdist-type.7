@@ -1,0 +1,398 @@
+'\" t
+.\"     Title: cdist-type
+.\"    Author: Nico Schottelius <nico-cdist--@--schottelius.org>
+.\" Generator: DocBook XSL Stylesheets v1.77.1 <http://docbook.sf.net/>
+.\"      Date: 12/09/2012
+.\"    Manual: \ \&
+.\"    Source: \ \&
+.\"  Language: English
+.\"
+.TH "CDIST\-TYPE" "7" "12/09/2012" "\ \&" "\ \&"
+.\" -----------------------------------------------------------------
+.\" * Define some portability stuff
+.\" -----------------------------------------------------------------
+.\" ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.\" http://bugs.debian.org/507673
+.\" http://lists.gnu.org/archive/html/groff/2009-02/msg00013.html
+.\" ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.ie \n(.g .ds Aq \(aq
+.el       .ds Aq '
+.\" -----------------------------------------------------------------
+.\" * set default formatting
+.\" -----------------------------------------------------------------
+.\" disable hyphenation
+.nh
+.\" disable justification (adjust text to left margin only)
+.ad l
+.\" -----------------------------------------------------------------
+.\" * MAIN CONTENT STARTS HERE *
+.\" -----------------------------------------------------------------
+.SH "NAME"
+cdist-type \- Functionality bundled
+.SH "SYNOPSIS"
+.sp
+__TYPE ID \-\-parameter value [\-\-parameter value \&...]
+.sp
+__TYPE \-\-parameter value [\-\-parameter value \&...] (for singletons)
+.SH "DESCRIPTION"
+.sp
+Types are the main component of cdist and define functionality\&. If you use cdist, you\(cqll write a type for every functionality you would like to use\&.
+.SH "HOW TO USE A TYPE"
+.sp
+You can use types from the initial manifest or the type manifest like a normal command:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+# Creates empty file /etc/cdist\-configured
+__file /etc/cdist\-configured \-\-type file
+
+# Ensure tree is installed
+__package tree \-\-state installed
+.fi
+.if n \{\
+.RE
+.\}
+.sp
+A list of supported types can be found in the cdist\-reference(7) manpage\&.
+.SH "SINGLETON TYPES"
+.sp
+If a type is flagged as a singleton, it may be used only once per host\&. This is useful for types which can be used only once on a system\&. Singleton types do not take an object name as argument\&.
+.sp
+Example:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+# __issue type manages /etc/issue
+__issue
+
+# Probably your own type \- singletons may use parameters
+__myfancysingleton \-\-colour green
+.fi
+.if n \{\
+.RE
+.\}
+.SH "HOW TO WRITE A NEW TYPE"
+.sp
+A type consists of
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.sp -1
+.IP \(bu 2.3
+.\}
+parameter (optional)
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.sp -1
+.IP \(bu 2.3
+.\}
+manifest (optional)
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.sp -1
+.IP \(bu 2.3
+.\}
+singleton (optional)
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.sp -1
+.IP \(bu 2.3
+.\}
+explorer (optional)
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.sp -1
+.IP \(bu 2.3
+.\}
+gencode (optional)
+.RE
+.sp
+Types are stored below cdist/conf/type/\&. Their name should always be prefixed with two underscores (__) to prevent collisions with other executables in $PATH\&.
+.sp
+To begin a new type, just create the directory \fBcdist/conf/type/__NAME\fR\&.
+.SH "DEFINING PARAMETERS"
+.sp
+Every type consists of required, optional and boolean parameters, which must be created in a newline seperated file in \fB\fBparameter/required\fR\fR, \fB\fBparameter/required_multiple\fR\fR, \fB\fBparameter/optional\fR\fR, \fB\fBparameter/optional_multiple\fR\fR and \fB\fBparameter/boolean\fR\fR\&. Parameters which are allowed multiple times should be listed in required_multiple or optional_multiple respectively\&. For all other parameters the standard unix behaviour of the last given wins is applied\&. If either is missing, the type will have no required, no optional, no boolean or no parameters at all\&.
+.sp
+Example:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+echo servername >> cdist/conf/type/__nginx_vhost/parameter/required
+echo logdirectory >> cdist/conf/type/__nginx_vhost/parameter/optional
+echo server_alias >> cdist/conf/type/__nginx_vhost/parameter/optional_multiple
+echo use_ssl >> cdist/conf/type/__nginx_vhost/parameter/boolean
+.fi
+.if n \{\
+.RE
+.\}
+.SH "USING PARAMETERS"
+.sp
+The parameters given to a type can be accessed and used in all type scripts (e\&.g manifest, gencode\-\fB, explorer/\fR)\&. Note that boolean parameters are represented by file existence\&. File exists → True, file does not exist → False
+.sp
+Example: (e\&.g\&. in cdist/conf/type/__nginx_vhost/manifest)
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+# required parameter
+servername="$(cat "$__object/parameter/servername")"
+
+# optional parameter
+if [ \-f "$__object/parameter/logdirectory" ]; then
+   logdirectory="$(cat "$__object/parameter/logdirectory")"
+fi
+
+# boolean parameter
+if [ \-f "$__object/parameter/use_ssl" ]; then
+   # file exists \-> True
+   # do some fancy ssl stuff
+fi
+
+# parameter with multiple values
+if [ \-f "$__object/parameter/server_alias" ]; then
+   for alias in $(cat "$__object/parameter/server_alias"); do
+      echo $alias > /some/where/usefull
+   done
+fi
+.fi
+.if n \{\
+.RE
+.\}
+.SH "INPUT FROM STDIN"
+.sp
+Every type can access what has been written on stdin when it has been called\&. The result is saved into the \fB\fBstdin\fR\fR file in the object directory\&.
+.sp
+Example use of a type: (e\&.g\&. in cdist/conf/type/__archlinux_hostname)
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+__file /etc/rc\&.conf \-\-source \- << eof
+\&.\&.\&.
+HOSTNAME="$__target_host"
+\&.\&.\&.
+eof
+.fi
+.if n \{\
+.RE
+.\}
+.sp
+If you have not seen this syntax (<< eof) before, it may help you to read about "here documents"\&.
+.SH "IN THE __FILE TYPE, STDIN IS USED AS SOURCE FOR THE FILE, IF - IS USED FOR SOURCE:"
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+if [ \-f "$__object/parameter/source" ]; then
+    source="$(cat "$__object/parameter/source")"
+    if [ "$source" = "\-" ]; then
+        source="$__object/stdin"
+    fi
+\&.\&.\&.\&.
+.fi
+.if n \{\
+.RE
+.\}
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+WRITING THE MANIFEST
+.fi
+.if n \{\
+.RE
+.\}
+.sp
+In the manifest of a type you can use other types, so your type extends their functionality\&. A good example is the __package type, which in a shortened version looks like this:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+os="$(cat "$__global/explorer/os")"
+case "$os" in
+      archlinux) type="pacman" ;;
+      debian|ubuntu) type="apt" ;;
+      gentoo) type="emerge" ;;
+      *)
+         echo "Don\*(Aqt know how to manage packages on: $os" >&2
+         exit 1
+      ;;
+esac
+
+__package_$type "$@"
+.fi
+.if n \{\
+.RE
+.\}
+.sp
+As you can see, the type can reference different environment variables, which are documented in cdist\-reference(7)\&.
+.sp
+Always ensure the manifest is executable, otherwise cdist will not be able to execute it\&. For more information about manifests see cdist\-manifest(7)\&.
+.SH "SINGLETON - ONE INSTANCE ONLY"
+.sp
+If you want to ensure that a type can only be used once per target, you can mark it as a singleton: Just create the (empty) file "singleton" in your type directory:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+touch cdist/conf/type/__NAME/singleton
+.fi
+.if n \{\
+.RE
+.\}
+.sp
+This will also change the way your type must be called:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+__YOURTYPE \-\-parameter value
+.fi
+.if n \{\
+.RE
+.\}
+.sp
+As you can see, the object ID is omitted, because it does not make any sense, if your type can be used only once\&.
+.SH "THE TYPE EXPLORERS"
+.sp
+If a type needs to explore specific details, it can provide type specific explorers, which will be executed on the target for every created object\&.
+.sp
+The explorers are stored under the "explorer" directory below the type\&. It could for instance contain code to check the md5sum of a file on the client, like this (shortened version from the type __file):
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+if [ \-f "$__object/parameter/destination" ]; then
+   destination="$(cat "$__object/parameter/destination")"
+else
+   destination="/$__object_id"
+fi
+
+if [ \-e "$destination" ]; then
+   md5sum < "$destination"
+fi
+.fi
+.if n \{\
+.RE
+.\}
+.SH "WRITING THE GENCODE SCRIPT"
+.sp
+There are two gencode scripts: \fB\fBgencode\-local\fR\fR and \fB\fBgencode\-remote\fR\fR\&. The output of gencode\-local is executed locally, whereas the output of gencode\-remote is executed on the target\&. The gencode scripts can make use of the parameters, the global explorers and the type specific explorers\&.
+.sp
+If the gencode scripts encounter an error, it should print diagnostic messages to stderr and exit non\-zero\&. If you need to debug the gencode script, you can write to stderr:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+# Debug output to stderr
+echo "My fancy debug line" >&2
+
+# Output to be saved by cdist for execution on the target
+echo "touch /etc/cdist\-configured"
+.fi
+.if n \{\
+.RE
+.\}
+.SH "HINTS FOR TYPEWRITERS"
+.sp
+It must be assumed that the target is pretty dumb and thus does not have high level tools like ruby installed\&. If a type requires specific tools to be present on the target, there must be another type that provides this tool and the first type should create an object of the specific type\&.
+.sp
+If your type wants to save temporary data, that may be used by other types later on (for instance \fIfile), you can save them in the subdirectory "files" below $\fRobject (but you must create it yourself)\&. cdist will not touch this directory\&.
+.sp
+If your type contains static files, it\(cqs also recommended to place them in a folder named "files" within the type (again, because cdist guarantees to never ever touch this folder)\&.
+.SH "HOW TO INCLUDE A TYPE INTO UPSTREAM CDIST"
+.sp
+If you think your type may be useful for others, ensure it works with the current master branch of cdist and have a look at cdist\-hacker(7) on how to submit it\&.
+.SH "SEE ALSO"
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.sp -1
+.IP \(bu 2.3
+.\}
+cdist\-explorer(7)
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.sp -1
+.IP \(bu 2.3
+.\}
+cdist\-hacker(7)
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.sp -1
+.IP \(bu 2.3
+.\}
+cdist\-stages(7)
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.sp -1
+.IP \(bu 2.3
+.\}
+cdist\-tutorial(7)
+.RE
+.SH "COPYING"
+.sp
+Copyright (C) 2011\-2012 Nico Schottelius\&. Free use of this software is granted under the terms of the GNU General Public License version 3 (GPLv3)\&.
+.SH "AUTHOR"
+.PP
+\fBNico Schottelius\fR <\&nico\-cdist\-\-@\-\-schottelius\&.org\&>
+.RS 4
+Author.
+.RE

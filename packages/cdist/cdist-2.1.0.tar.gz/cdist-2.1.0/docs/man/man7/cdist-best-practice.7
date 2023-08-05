@@ -1,0 +1,364 @@
+'\" t
+.\"     Title: cdist-best-practice
+.\"    Author: Nico Schottelius <nico-cdist--@--schottelius.org>
+.\" Generator: DocBook XSL Stylesheets v1.77.1 <http://docbook.sf.net/>
+.\"      Date: 12/09/2012
+.\"    Manual: \ \&
+.\"    Source: \ \&
+.\"  Language: English
+.\"
+.TH "CDIST\-BEST\-PRACTIC" "7" "12/09/2012" "\ \&" "\ \&"
+.\" -----------------------------------------------------------------
+.\" * Define some portability stuff
+.\" -----------------------------------------------------------------
+.\" ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.\" http://bugs.debian.org/507673
+.\" http://lists.gnu.org/archive/html/groff/2009-02/msg00013.html
+.\" ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.ie \n(.g .ds Aq \(aq
+.el       .ds Aq '
+.\" -----------------------------------------------------------------
+.\" * set default formatting
+.\" -----------------------------------------------------------------
+.\" disable hyphenation
+.nh
+.\" disable justification (adjust text to left margin only)
+.ad l
+.\" -----------------------------------------------------------------
+.\" * MAIN CONTENT STARTS HERE *
+.\" -----------------------------------------------------------------
+.SH "NAME"
+cdist-best-practice \- Practices used in real environments
+.SH "PASSWORDLESS CONNECTIONS"
+.sp
+It is recommended to run cdist with public key authentication\&. This requires a private/public key pair and the entry "PermitRootLogin without\-password" in the sshd server\&. See sshd_config(5) and ssh\-keygen(1)\&.
+.SH "SPEEDING UP SSH CONNECTIONS"
+.sp
+When connecting to a new host, the initial delay with ssh connections is pretty big\&. You can work around this by "sharing of multiple sessions over a single network connection" (quote from ssh_config(5))\&. The following code is suitable for inclusion into your ~/\&.ssh/config:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+Host *
+  ControlPath ~/\&.ssh/master\-%l\-%r@%h:%p
+  ControlMaster auto
+  ControlPersist 10
+.fi
+.if n \{\
+.RE
+.\}
+.SH "SPEEDING UP SHELL EXECUTION"
+.sp
+On the source host, ensure that /bin/sh is \fBnot\fR bash: bash is quite slow for script execution\&. Instead, you could use dash after installing it:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+ln \-sf /bin/dash /bin/sh
+.fi
+.if n \{\
+.RE
+.\}
+.SH "MULTI MASTER OR ENVIRONMENT SETUPS"
+.sp
+If you plan to distribute cdist among servers or use different environments, you can do so easily with the included version control git\&. For instance if you plan to use the typical three environments production, integration and development, you can realise this with git branches:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+# Go to cdist checkout
+cd /path/to/cdist
+
+# Create branches
+git branch development
+git branch integration
+git branch production
+
+# Make use of a branch, for instance production
+git checkout production
+.fi
+.if n \{\
+.RE
+.\}
+.sp
+Similar if you want to have cdist checked out at multiple machines, you can clone it multiple times:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+machine\-a % git clone git://your\-git\-server/cdist
+machine\-b % git clone git://your\-git\-server/cdist
+.fi
+.if n \{\
+.RE
+.\}
+.SH "SEPERATING WORK BY GROUPS"
+.sp
+If you are working with different groups on one cdist\-configuration, you can delegate to other manifests and have the groups edit only their manifests\&. You can use the following snippet in \fBconf/manifests/init\fR:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+# Include other groups
+sh \-e "$__manifest/systems"
+
+sh \-e "$__manifest/cbrg"
+.fi
+.if n \{\
+.RE
+.\}
+.SH "MAINTAINING MULTIPLE CONFIGURATIONS"
+.sp
+When you need to manage multiple sites with cdist, like company_a, company_b and private for instance, you can easily use git for this purpose\&. Including a possible common base that is reused accross the different sites:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+# create branches
+git branch company_a company_b common private
+
+# make stuff for company a
+git checkout company_a
+# work, commit, etc\&.
+
+# make stuff for company b
+git checkout company_b
+# work, commit, etc\&.
+
+# make stuff relevant for all sites
+git checkout common
+# work, commit, etc\&.
+
+# change to private and include latest common stuff
+git checkout private
+git merge common
+.fi
+.if n \{\
+.RE
+.\}
+.sp
+The following \fB\&.git/config\fR is taken from a a real world scenario:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+# Track upstream, merge from time to time
+[remote "upstream"]
+   url = git://git\&.schottelius\&.org/cdist
+   fetch = +refs/heads/*:refs/remotes/upstream/*
+
+# Same as upstream, but works when being offline
+[remote "local"]
+   fetch = +refs/heads/*:refs/remotes/local/*
+   url = /home/users/nico/p/cdist
+
+# Remote containing various ETH internal branches
+[remote "eth"]
+   url = sans\&.ethz\&.ch:/home/services/sans/git/cdist\-eth
+   fetch = +refs/heads/*:refs/remotes/eth/*
+
+# Public remote that contains my private changes to cdist upstream
+[remote "nico"]
+   url = git\&.schottelius\&.org:/home/services/git/cdist\-nico
+   fetch = +refs/heads/*:refs/remotes/nico/*
+
+# The "nico" branch will be synced with the remote nico, branch master
+[branch "nico"]
+   remote = nico
+   merge = refs/heads/master
+
+# ETH stable contains rock solid configurations used in various places
+[branch "eth\-stable"]
+   remote = eth
+   merge = refs/heads/stable
+.fi
+.if n \{\
+.RE
+.\}
+.sp
+Have a look at git\-remote(1) to adjust the remote configuration, which allows
+.SH "MULTIPLE DEVELOPERS WITH DIFFERENT TRUST"
+.sp
+If you are working in an environment that requires different people to work on the same configuration, but having different privileges, you can implement this scenario with a gateway host and sudo:
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.sp -1
+.IP \(bu 2.3
+.\}
+Create a dedicated user (for instance
+\fBcdist\fR)
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.sp -1
+.IP \(bu 2.3
+.\}
+Setup the ssh\-pubkey for this user that has the right to configure all hosts
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.sp -1
+.IP \(bu 2.3
+.\}
+Create a wrapper to update the cdist configuration in ~cdist/cdist
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.sp -1
+.IP \(bu 2.3
+.\}
+Allow every developer to execute this script via sudo as the user cdist
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.sp -1
+.IP \(bu 2.3
+.\}
+Allow run of cdist as user cdist on specific hosts on a per user/group base
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.sp -1
+.IP \(bu 2.3
+.\}
+f\&.i\&. nico ALL=(ALL) NOPASSWD: /home/cdist/bin/cdist config hostabc
+.RE
+.sp
+For more details consult sudoers(5)
+.SH "TEMPLATING"
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.sp -1
+.IP \(bu 2.3
+.\}
+create directory templates/ in your type (convention)
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.sp -1
+.IP \(bu 2.3
+.\}
+create the template as an executable file like templates/basic\&.conf\&.sh, it will output text using shell variables for the values
+.RE
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+#!/bin/sh
+# in the template, use cat << eof (here document) to output the text
+# and use standard shell variables in the template
+# output everything in the template script to stdout
+cat << EOF
+server {
+  listen                          80;
+  server_name                     $SERVERNAME;
+  root                            $ROOT;
+
+  access_log /var/log/nginx/$SERVERNAME_access\&.log
+  error_log /var/log/nginx/$SERVERNAME_error\&.log
+}
+EOF
+.fi
+.if n \{\
+.RE
+.\}
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.sp -1
+.IP \(bu 2.3
+.\}
+in the manifest, export the relevant variables and add the following lines in your manifest:
+.RE
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+# export variables needed for the template
+  export SERVERNAME=\*(Aqtest"
+  export ROOT=\*(Aq/var/www/test\*(Aq
+# render the template
+  mkdir \-p "$__object/files"
+  "$__type/templates/basic\&.conf\&.sh" > "$__object/files/basic\&.conf"
+# send the rendered template
+  __file /etc/nginx/sites\-available/test\&.conf  \-\-state present   \-\-source "$__object/files/basic\&.conf"
+.fi
+.if n \{\
+.RE
+.\}
+.SH "SEE ALSO"
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.sp -1
+.IP \(bu 2.3
+.\}
+cdist(1)
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.sp -1
+.IP \(bu 2.3
+.\}
+cdist\-tutorial(7)
+.RE
+.SH "COPYING"
+.sp
+Copyright (C) 2011\-2012 Nico Schottelius\&. Free use of this software is granted under the terms of the GNU General Public License version 3 (GPLv3)\&.
+.SH "AUTHOR"
+.PP
+\fBNico Schottelius\fR <\&nico\-cdist\-\-@\-\-schottelius\&.org\&>
+.RS 4
+Author.
+.RE

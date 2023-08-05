@@ -1,0 +1,196 @@
+'\" t
+.\"     Title: cdist-manifest
+.\"    Author: Nico Schottelius <nico-cdist--@--schottelius.org>
+.\" Generator: DocBook XSL Stylesheets v1.77.1 <http://docbook.sf.net/>
+.\"      Date: 12/09/2012
+.\"    Manual: \ \&
+.\"    Source: \ \&
+.\"  Language: English
+.\"
+.TH "CDIST\-MANIFEST" "7" "12/09/2012" "\ \&" "\ \&"
+.\" -----------------------------------------------------------------
+.\" * Define some portability stuff
+.\" -----------------------------------------------------------------
+.\" ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.\" http://bugs.debian.org/507673
+.\" http://lists.gnu.org/archive/html/groff/2009-02/msg00013.html
+.\" ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.ie \n(.g .ds Aq \(aq
+.el       .ds Aq '
+.\" -----------------------------------------------------------------
+.\" * set default formatting
+.\" -----------------------------------------------------------------
+.\" disable hyphenation
+.nh
+.\" disable justification (adjust text to left margin only)
+.ad l
+.\" -----------------------------------------------------------------
+.\" * MAIN CONTENT STARTS HERE *
+.\" -----------------------------------------------------------------
+.SH "NAME"
+cdist-manifest \- (Re\-)Use types
+.SH "DESCRIPTION"
+.sp
+Manifests are used to define which objects to create\&. Objects are instances of \fBtypes\fR, like in object orientated programming languages\&. An object is represented by the combination of \fBtype + slash + object name\fR: \fB\fIfile/etc/cdist\-configured\fR\fR\fB is an object of the type \fR\fB\fB\fR\fBfile\fR\fR with the name \fB\fBetc/cdist\-configured\fR\fR\&.
+.sp
+All available types can be found in the \fBcdist/conf/type/\fR directory, use \fBls cdist/conf/type\fR to get the list of available types\&. If you have setup the MANPATH correctly, you can use \fBman cdist\-reference\fR to access the reference with pointers to the manpages\&.
+.sp
+Types in manifests are used like normal command line tools\&. Let\(cqs have a look at an example:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+# Create object of type __package with the parameter state = removed
+__package apache2 \-\-state removed
+
+# Same with the __directory type
+ __directory /tmp/cdist \-\-state present
+.fi
+.if n \{\
+.RE
+.\}
+.sp
+These two lines create objects, which will later be used to realise the configuration on the target host\&.
+.sp
+Manifests are executed locally as a shell script using \fB/bin/sh \-e\fR\&. The resulting objects are stored in an internal database\&.
+.sp
+The same object can be redefined in multiple different manifests as long as the parameters are exactly the same\&.
+.sp
+In general, manifests are used to define which types are used depending on given conditions\&.
+.SH "INITIAL AND TYPE MANIFESTS"
+.sp
+Cdist knows about two types of manifests: The initial manifest and type manifests\&. The initial manifest is used to define, which configurations to apply to which hosts\&. The type manifests are used to create objects from types\&. More about manifests in types can be found in cdist\-type(7)\&.
+.SH "DEFINE STATE IN THE INITIAL MANIFEST"
+.sp
+The \fBinitial manifest\fR is the entry point for cdist to find out, which \fBobjects\fR to configure on the selected host\&. Cdist searches for the initial manifest at \fBcdist/conf/manifest/init\fR\&.
+.sp
+Within this initial manifest, you define, which objects should be created on which host\&. To distinguish between hosts, you can use the environment variable \fB__target_host\fR\&. Let\(cqs have a look at a simple example:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+__cdistmarker
+
+case "$__target_host" in
+   localhost)
+        __directory /home/services/kvm\-vm \-\-parents yes
+   ;;
+esac
+.fi
+.if n \{\
+.RE
+.\}
+.sp
+This manifest says: Independent of the host, always use the type \fB\fB__cdistmarker\fR\fR, which creates the file \fB/etc/cdist\-configured\fR, with the timestamp as content\&. The directory \fB\fB/home/services/kvm\-vm\fR\fR, including all parent directories, is only created on the host \fB\fBlocalhost\fR\fR\&.
+.sp
+As you can see, there is no magic involved, the manifest is simple shell code that utilises cdist types\&. Every available type can be executed like a normal command\&.
+.SH "SPLITTING UP THE INITIAL MANIFEST"
+.sp
+If you want to split up your initial manifest, you can create other shell scripts in \fBcdist/conf/manifest/\fR and include them in \fBcdist/conf/manifest/init\fR\&. Cdist provides the environment variable \fB\fB__manifest\fR\fR to reference to the directory containing the initial manifest (see cdist\-reference(7))\&.
+.sp
+The following example would include every file with a \fB\&.sh\fR suffix:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+# Include *\&.sh
+for manifest in $__manifest/*\&.sh; do
+    # And source scripts into our shell environment
+    \&. "$manifest"
+done
+.fi
+.if n \{\
+.RE
+.\}
+.SH "DEPENDENCIES"
+.sp
+If you want to describe that something requires something else, just setup the variable "require" to contain the requirements\&. Multiple requirements can be added white space seperated\&.
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+# No dependency
+__file /etc/cdist\-configured
+
+# Require above object
+require="__file/etc/cdist\-configured" __link /tmp/cdist\-testfile \e
+   \-\-source /etc/cdist\-configured  \-\-type symbolic
+
+# Require two objects
+require="__file/etc/cdist\-configured __link/tmp/cdist\-testfile" \e
+   __file /tmp/cdist\-another\-testfile
+.fi
+.if n \{\
+.RE
+.\}
+.sp
+All objects that are created in a type manifest are automatically required from the type that is calling them\&. This is called "autorequirement" in cdist jargon\&.
+.SH "EXAMPLES"
+.sp
+The initial manifest may for instance contain the following code:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+# Always create this file, so other sysadmins know cdist is used\&.
+__file /etc/cdist\-configured \-\-type file
+
+case "$__target_host" in
+   my\&.server\&.name)
+      __file /root/bin/ \-\-type directory
+      __file /etc/issue\&.net \-\-type file \-\-source "$__manifest/issue\&.net
+   ;;
+esac
+.fi
+.if n \{\
+.RE
+.\}
+.sp
+The manifest of the type "nologin" may look like this:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+__file /etc/nologin \-\-type file \-\-source "$__type/files/default\&.nologin"
+.fi
+.if n \{\
+.RE
+.\}
+.SH "SEE ALSO"
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.sp -1
+.IP \(bu 2.3
+.\}
+cdist\-tutorial(7)
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.sp -1
+.IP \(bu 2.3
+.\}
+cdist\-type(7)
+.RE
+.SH "COPYING"
+.sp
+Copyright (C) 2010\-2012 Nico Schottelius\&. Free use of this software is granted under the terms of the GNU General Public License version 3 (GPLv3)\&.
+.SH "AUTHOR"
+.PP
+\fBNico Schottelius\fR <\&nico\-cdist\-\-@\-\-schottelius\&.org\&>
+.RS 4
+Author.
+.RE
