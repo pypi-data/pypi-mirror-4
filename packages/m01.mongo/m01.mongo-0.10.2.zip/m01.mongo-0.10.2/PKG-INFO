@@ -1,0 +1,2228 @@
+Metadata-Version: 1.0
+Name: m01.mongo
+Version: 0.10.2
+Summary: MongoDB connection pool and container implementation for Zope3
+Home-page: http://pypi.python.org/pypi/m01.mongo
+Author: Roger Ineichen, Projekt01 GmbH
+Author-email: dev@projekt01.ch
+License: ZPL 2.1
+Description: This package provides a mongodb object mapper framework including zope
+        transaction support based on some core zope component libraries. This package
+        can get used with or without zope.persistent and as a full replacement for the
+        ZODB. The package is not heavy based on zope itself and can get used in any
+        python project which requires a bridge from mongodb to python object.
+        
+        
+        ======
+        README
+        ======
+        
+        IMPORTANT:
+        If you run the tests with the --all option a real mongodb stub server will
+        start at port 45017!
+        
+        This package provides non persistent MongoDB object implementations. They can
+        simply get mixed with persistent.Persistent and contained.Contained if you like
+        to use them in a mixed MongoDB/ZODB application setup. We currently use this
+        framework as ORM (object relation mapper) where we map MongoDB objects
+        to python/zope schema based objects including validation etc.
+        
+        In our last project, we started with a mixed ZODB/MongoDB application where we
+        mixed persistent.persistent into IMongoContainer objects. But later we where
+        so exited about the performance and stability that we removed the ZODB
+        persistence layer at all. Now we use a ZODB less setup in our application
+        where we start with a non persistent item as our application root. All required
+        tools where we use for such a ZODB less application setup are located in the
+        m01.publisher and p01.recipe.setup package.
+        
+        NOTE: Some of this test use a fake mongodb located in m01/mongo/testing and some
+        other tests will use our mongdb stub from the m01.stub package. You can run
+        the tests with the --all option if you like to run the full tests which will
+        start and stop the mongodb stub server.
+        
+        NOTE:
+        All mongo item interfaces will not provide ILocation or IContained but the
+        bass mongo item implementations will implement Location which provides the
+        ILocation interface directly. This makes it simpler for permission
+        declaration in ZCML.
+        
+        
+        Testing
+        -------
+        
+          >>> import zope.component
+          >>> from m01.mongo import interfaces
+          >>> from m01.mongo import getMongoDBConnection
+          >>> from m01.mongo.pool import MongoConnectionPool
+        
+        
+        MongoConnectionPool
+        --------------------
+        
+        We need to setup a mongo connection pool. We can do this with a global utility
+        configuration. Note we use a different port with our stub server setup:
+        
+          >>> mongoConnectionPool = MongoConnectionPool('localhost', 45020)
+          >>> zope.component.provideUtility(mongoConnectionPool,
+          ...     interfaces.IMongoConnectionPool, name='m01.mongo.testing')
+        
+        The connection pool stores the connection in threading local.
+        
+        
+        MongoClient
+        -----------
+        
+        Now we are able to get a connection pool:
+        
+          >>> pool = zope.component.getUtility(interfaces.IMongoConnectionPool,
+          ...    name='m01.mongo.testing')
+        
+        Such a pool knows the connection which is observed by thread local:
+        
+          >>> conn1 = pool.connection
+          >>> conn1
+          MongoClient('localhost', 45020)
+        
+        We can also use the getMongoDBConnection which knows how to get a connection:
+        
+          >>> conn = getMongoDBConnection('m01.mongo.testing')
+          >>> conn
+          MongoClient('localhost', 45020)
+        
+        As you can see the connection is able to access the database:
+        
+          >>> db = conn.m01MongoTesting
+          >>> db
+          Database(MongoClient('localhost', 45020), u'm01MongoTesting')
+        
+        A data base can retrun a collection:
+        
+          >>> collection = db['m01MongoTest']
+          >>> collection
+          Collection(Database(MongoClient('localhost', 45020), u'm01MongoTesting'), u'm01MongoTest')
+        
+        As you can see we can write to the collection:
+        
+          >>> collection.update({'_id': '123'}, {'$inc': {'counter': 1}}, upsert=True)
+          {u'updatedExisting': False, u'connectionId': 2, u'ok': 1.0, u'err': None, u'n': 1}
+        
+        And we can read from the collection:
+        
+          >>> collection.find_one({'_id': '123'})
+          {u'_id': u'123', u'counter': 1}
+        
+        Remove the result from our test collection:
+        
+          >>> collection.remove({'_id': '123'})
+          {u'connectionId': 2, u'ok': 1.0, u'err': None, u'n': 1}
+        
+        
+        issues
+        ------
+        
+        The following concept brings mongodb to crash in one of our projects. Just try
+        to reproduce it here. but it seems to work as it should:
+        
+          >>> import datetime
+          >>> import bson.son
+          >>> import bson.objectid
+          >>> import m01.mongo
+          >>> from m01.mongo import UTC
+          >>> def createAnswer():
+          ...     _id = bson.objectid.ObjectId()
+          ...     return {'_id': _id,
+          ...             '_type': u'DiscussionAnswer',
+          ...             'comment': u"I don't know",
+          ...             'created': datetime.datetime(2012, 5, 25, 2, 8, 13, 253000, tzinfo=UTC),
+          ...             'fullName': u'Alannis Brauer',
+          ...             'nickName': 'alannis.brauer',
+          ...             'pid': u'4fbee89d7a933127cc0017b2',
+          ...             'text': u'Let me google that for you http://lmgtfy.com/?q=what+is+xeebo'}
+        
+          >>> def createQuestion(idx):
+          ...     _id = m01.mongo.getObjectId(idx)
+          ...     a1 = createAnswer()
+          ...     a2 = createAnswer()
+          ...     return {'__name__': unicode(_id),
+          ...             '_id': _id,
+          ...             '_type': u'DiscussionQuestion',
+          ...             '_version': 1,
+          ...             'answers': [
+          ...                 bson.son.SON(a1),
+          ...                 bson.son.SON(a2)
+          ...             ],
+          ...             'changed': True,
+          ...             'country': u'CHE',
+          ...             'created': datetime.datetime(2012, 5, 25, 2, 8, 13, 252000, tzinfo=UTC),
+          ...             'description': u'I like to ask the following question: What is xeebo',
+          ...             'fullName': u'Emily EMILY',
+          ...             'language': u'en',
+          ...             'modified': datetime.datetime(2012, 5, 25, 2, 10, 7, 863000, tzinfo=UTC),
+          ...             'nickName': 'emily.emily',
+          ...             'pid': u'4fbee8a07a933127cc002bd4',
+          ...             'removed': False,
+          ...             'title': u'What is xeebo',
+          ...             'topicNames': ['admin', 'xeebo'],
+          ...         }
+        
+          >>> idx = 0
+          >>> data = []
+          >>> for i in range(300):
+          ...     qData = createQuestion(idx)
+          ...     data.append(bson.son.SON(qData))
+          ...     idx += 1
+        
+          >>> manipulate = False
+          >>> safe = False
+          >>> check_keys = True
+          >>> res = collection.insert(data, manipulate, safe, check_keys)
+        
+          >>> key = unicode(data[0]['__name__'])
+          >>> key
+          u'000000000000000000000000'
+        
+          >>> res = collection.find_one({'__name__': key})
+          >>> m01.mongo.testing.reNormalizer.pprint(res)
+          {u'__name__': u'000000000000000000000000',
+           u'_id': ObjectId('...'),
+           u'_type': u'DiscussionQuestion',
+           u'_version': 1,
+           u'answers': [{u'_id': ObjectId('...'),
+                         u'_type': u'DiscussionAnswer',
+                         u'comment': u"I don't know",
+                         u'created': datetime(..., tzinfo=<bson.tz_util.FixedOffset ...>),
+                         u'fullName': u'Alannis Brauer',
+                         u'nickName': u'alannis.brauer',
+                         u'pid': u'4fbee89d7a933127cc0017b2',
+                         u'text': u'Let me google that for you http://lmgtfy.com/?q=what+is+xeebo'},
+                        {u'_id': ObjectId('...'),
+                         u'_type': u'DiscussionAnswer',
+                         u'comment': u"I don't know",
+                         u'created': datetime(..., tzinfo=<bson.tz_util.FixedOffset ...>),
+                         u'fullName': u'Alannis Brauer',
+                         u'nickName': u'alannis.brauer',
+                         u'pid': u'4fbee89d7a933127cc0017b2',
+                         u'text': u'Let me google that for you http://lmgtfy.com/?q=what+is+xeebo'}],
+           u'changed': True,
+           u'country': u'CHE',
+           u'created': datetime(..., tzinfo=<bson.tz_util.FixedOffset ...>),
+           u'description': u'I like to ask the following question: What is xeebo',
+           u'fullName': u'Emily EMILY',
+           u'language': u'en',
+           u'modified': datetime(..., tzinfo=<bson.tz_util.FixedOffset ...>),
+           u'nickName': u'emily.emily',
+           u'pid': u'4fbee8a07a933127cc002bd4',
+           u'removed': False,
+           u'title': u'What is xeebo',
+           u'topicNames': [u'admin', u'xeebo']}
+        
+          >>> collection.remove({'__name__': key})
+          {u'connectionId': 2, u'ok': 1.0, u'err': None, u'n': 1}
+        
+        
+        tear down
+        ---------
+        
+        Now tear down our MongoDB database with our current MongoDB connection:
+        
+          >>> import time
+          >>> time.sleep(1)
+          >>> conn.drop_database('m01MongoTesting')
+        
+        
+        ==============
+        MongoContainer
+        ==============
+        
+        The MongoContainer can store non persistent IMongoContainerItem objects in a
+        MongoDB. A MongoContainerItem must be able to dump it's data to valid mongo
+        values. This test will show how our MongoContainer works.
+        
+        
+        Condition
+        ---------
+        
+        Befor we start testing, check if our thread local cache is empty or if we have
+        left over some junk from previous tests:
+        
+          >>> from m01.mongo.testing import pprint
+          >>> from m01.mongo import LOCAL
+          >>> pprint(LOCAL.__dict__)
+          {}
+        
+        
+        Setup
+        -----
+        
+        First import some components:
+        
+          >>> import datetime
+          >>> import transaction
+        
+          >>> import m01.mongo
+          >>> import m01.mongo.base
+          >>> import m01.mongo.container
+          >>> from m01.mongo import interfaces
+          >>> from m01.mongo import testing
+        
+        We also need a application root object. Let's define a static MongoContainer
+        as our application database root item.
+        
+          >>> class MongoRoot(m01.mongo.container.MongoContainer):
+          ...     """Mongo application root"""
+          ... 
+          ...     _id = m01.mongo.getObjectId(0)
+          ... 
+          ...     def __init__(self):
+          ...         pass
+          ... 
+          ...     @property
+          ...     def collection(self):
+          ...         return testing.getRootItems()
+          ...
+          ...     @property
+          ...     def cacheKey(self):
+          ...         return 'root'
+          ... 
+          ...     def load(self, data):
+          ...         """Load data into the right mongo item."""
+          ...         return testing.Companies(data)
+          ... 
+          ...     def __repr__(self):
+          ...         return '<%s %s>' % (self.__class__.__name__, self._id)
+        
+        
+        As you can see our MongoRoot class defines a static mongo ObjectID as _id. This
+        means the same _id get use every time. This _id acts as our __parent__
+        reference.
+        
+        The following method allows us to generate new MongoRoot item instances. This
+        allows us to show that we generate different root items like we would do on a
+        server restart.
+        
+          >>> def getRoot():
+          ...     return MongoRoot()
+        
+        Here is our database root item:
+        
+          >>> root = getRoot()
+          >>> root
+          <MongoRoot 000000000000000000000000>
+        
+          >>> root._id
+          ObjectId('000000000000000000000000')
+        
+        
+        MongoContainer
+        --------------
+        
+        Now let's use our enhanced testing data and setup a content structure:
+        
+          >>> data = {'name': u'Europe'}
+          >>> europe = testing.Companies(data)
+          >>> root[u'europe'] = europe
+        
+          >>> data = {'name': u'Asia'}
+          >>> asia = testing.Companies(data)
+          >>> root[u'asia'] = asia
+        
+          >>> transaction.commit()
+        
+        Let's check our companies in Mongo:
+        
+          >>> rootCollection = testing.getRootItems()
+          >>> obj = rootCollection.find_one({'name': 'Europe'})
+          >>> pprint(obj)
+          {u'__name__': u'europe',
+           u'_id': ObjectId('...'),
+           u'_pid': ObjectId('000000000000000000000000'),
+           u'_type': u'Companies',
+           u'_version': 1,
+           u'created': datetime.datetime(...),
+           u'modified': datetime.datetime(...),
+           u'name': u'Europe'}
+        
+        Now let's add a Company, Employer and some documents:
+        
+          >>> data = {'name': u'Projekt01 GmbH'}
+          >>> m01 = testing.Company(data)
+          >>> europe[u'm01'] = m01
+        
+          >>> data = {'name': u'Roger Ineichen'}
+          >>> roger = testing.Employer(data)
+          >>> m01[u'roger'] = roger
+        
+          >>> data = {'name': u'Manual'}
+          >>> manual = testing.Document(data)
+          >>> roger[u'manual'] = manual
+        
+          >>> transaction.commit()
+        
+        As you can see we added a data structure using our container, item objects:
+        
+          >>> root['europe']
+          <Companies u'europe'>
+        
+          >>> root['europe']['m01']
+          <Company u'm01'>
+        
+          >>> root['europe']['m01']['roger']
+          <Employer u'roger'>
+        
+          >>> root['europe']['m01']['roger']['manual']
+          <Document u'manual'>
+        
+        As you can see this structure is related to their __parent__ references. This
+        means if we add another structure into the same mongodb, each item knows it's
+        container.
+        
+          >>> data = {'name': u'Credit Suisse'}
+          >>> cs = testing.Company(data)
+          >>> asia[u'cs'] = cs
+        
+          >>> data = {'name': u'Max Muster'}
+          >>> max = testing.Employer(data)
+          >>> cs[u'max'] = max
+        
+          >>> data = {'name': u'Paper'}
+          >>> paper = testing.Document(data)
+          >>> max[u'paper'] = paper
+        
+          >>> transaction.commit()
+        
+          >>> pprint(LOCAL.__dict__)
+          {}
+        
+          >>> root['asia']
+          <Companies u'asia'>
+        
+          >>> root['asia']['cs']
+          <Company u'cs'>
+        
+          >>> root['asia']['cs']['max']
+          <Employer u'max'>
+        
+          >>> root['asia']['cs']['max']['paper']
+          <Document u'paper'>
+        
+          >>> transaction.commit()
+        
+        We can't access another item from the same type from another parent container:
+        
+          >>> pprint(LOCAL.__dict__)
+          {}
+        
+          >>> eu = root['europe']
+        
+          >>> transaction.commit()
+        
+          >>> pprint(LOCAL.__dict__)
+          {}
+          
+          >>> eu['cs']
+          Traceback (most recent call last):
+          ...
+          KeyError: 'cs'
+        
+          >>> transaction.commit()
+        
+        As you can see the KeyError left items back in our thread local cache. We can
+        use our thread local cache cleanup event handler which is by default registered
+        as an EndRequestEvent subscriber for cleanup our thread local cache:
+        
+          >>> pprint(LOCAL.__dict__)
+          {u'europe': {'loaded': {}, 'removed': {}}}
+        
+        Let's use our subscriber:
+        
+          >>> from m01.mongo import clearThreadLocalCache
+          >>> clearThreadLocalCache()
+        
+        As you can see our cache items get removed:
+        
+          >>> from m01.mongo import LOCAL
+          >>> pprint(LOCAL.__dict__)
+          {}
+        
+        
+        ============
+        MongoStorage
+        ============
+        
+        The MongoStorage can store non persistent IMongoStorageItem objects in a
+        MongoDB. A MongoStorageItem must be able to dump it's data to valid mongo
+        values. This test will show how our MongoStorage works and also shows the
+        limitations. 
+        
+        Note, this test uses a fake MongoDB server setup. But this fake server is far
+        away from beeing complete. We will add more feature to this fake server if we
+        need them in other projects. See testing.py for more information.
+        
+        
+        Condition
+        ---------
+        
+        Befor we start testing, check if our thread local cache is empty or if we have
+        let over some junk from previous tests:
+        
+          >>> from m01.mongo import LOCAL
+          >>> from m01.mongo.testing import pprint
+          >>> pprint(LOCAL.__dict__)
+          {}
+        
+        
+        Setup
+        -----
+        
+        First import some components:
+        
+          >>> import datetime
+          >>> import transaction
+          >>> from zope.container.interfaces import IReadContainer
+          >>> from m01.mongo import interfaces
+          >>> from m01.mongo import pool
+          >>> from m01.mongo import testing
+        
+        And set up a database root:
+        
+          >>> root = {}
+        
+        
+        MongoStorageItem
+        ----------------
+        
+        The mongo item provides by default a ObjectId stored as _id. If there is none
+        given during create an object, we will set one: 
+        
+          >>> data = {}
+          >>> obj = testing.SampleStorageItem(data)
+          >>> obj._id
+          ObjectId('...')
+        
+        The ObjectId is also use as our __name__  value. See the MongoContainer and
+        MongoContainerItem implementation if you need to choose your own names:
+        
+          >>> obj.__name__
+          u'...'
+        
+          >>> obj.__name__ == unicode(obj._id)
+          True
+        
+        A mongo item also provides created and modified date attributes. If we 
+        initialize an object without a given created date, a new utc datetime instance
+        get used:
+        
+          >>> obj.created
+          datetime.datetime(2...)
+        
+          >>> obj.modified is None
+          True
+        
+        A mongo storage item knows if a state get changed. This means we can find out 
+        if we should write the item back to the MongoDB. The MongoItem stores the state
+        in a _m_changed value like persistent objects do in _p_changed. As you can see
+        the initial state is ```None``:
+        
+          >>> obj._m_changed is None
+          True
+        
+        The MongoItem also has a version number which we increment each time we change
+        the item. By default this version is set as _version attribute and set by
+        default to 0 (zero):
+        
+          >>> obj._version
+          0
+        
+        If we change a value in a MongoItem, the state get changed:
+        
+          >>> obj.title = u'New Title'
+          >>> obj._m_changed
+          True
+        
+        but the version get not imcremented. We only imcrement the version if we save
+        the item in MongoDB:
+        
+          >>> obj._version
+          0
+        
+        We also change the _m_change marker if we remove a value:
+        
+          >>> obj = testing.SampleStorageItem(data)
+          >>> obj._m_changed is None
+          True
+        
+          >>> obj.title
+          u''
+        
+          >>> obj.title = u'New Title'
+          >>> obj._m_changed
+          True
+        
+          >>> obj.title
+          u'New Title'
+        
+        Now let's set the _m_chande property set to False before we delete the attr:
+        
+          >>> obj._m_changed = False
+          >>> obj._m_changed
+          False
+          
+          >>> del obj.title
+        
+        As you can see we can delete an attribute but it only falls back to the default
+        schema field value. This seems fine.
+          
+          >>> obj.title
+          u''
+        
+          >>> obj._m_changed
+          True
+        
+        
+        MongoStorage
+        ------------
+        
+        Now we can add a MongoStorage to the zope datbase:
+        
+          >>> storage = testing.SampleStorage()
+          >>> root['storage'] = storage
+          >>> transaction.commit()
+        
+        Now we can add a sample MongoStorageItem to our storage. Note we can only use the
+        add method which will return the new generated __name__. Using own names is not
+        supported by this implementation. As you can see the name is an MongoDB
+        24 hex character string objectId representation.
+        
+          >>> data = {'title': u'Title',
+          ...         'description': u'Description'}
+          >>> item = testing.SampleStorageItem(data)
+          >>> storage = root['storage']
+        
+        Our storage provides the IMongoStorage and IReadContainer interfaces:
+        
+          >>> interfaces.IMongoStorage.providedBy(storage)
+          True
+        
+          >>> IReadContainer.providedBy(storage)
+          True
+        
+        
+        add
+        ---
+        
+        We can add a mongo item to our storage by using the add method.
+        
+          >>> __name__ = storage.add(item)
+          >>> __name__
+          u'...'
+          >>> len(__name__)
+          24
+        
+          >>> transaction.commit()
+        
+        After adding our item, the item provides a created date:
+        
+          >>> item.created
+          datetime.datetime(...)
+        
+        
+        __len__
+        -------
+        
+          >>> storage = root['storage']
+          >>> len(storage)
+          1
+        
+        
+        __getitem__
+        -----------
+        
+          >>> item = storage[__name__]
+          >>> item
+          <SampleStorageItem ...>
+        
+        As you can see our MongoStorageItem provides the following data. We can dump
+        the item. Note, you probaly have to implement a custom dump method which will
+        dump the right data for you MongoStorageItem.
+        
+          >>> pprint(item.dump())
+          {'__name__': u'...',
+           '_id': ObjectId('...'),
+           '_type': u'SampleStorageItem',
+           '_version': 1,
+           'comments': [],
+           'created': datetime.datetime(...),
+           'description': u'Description',
+           'modified': datetime.datetime(...),
+           'numbers': [],
+           'title': u'Title'}
+        
+        The object provides also a name which is the name we've got during adding the
+        object:
+        
+          >>> item.__name__ == __name__
+          True
+        
+        
+        keys
+        ----
+        
+        The container can also return key:
+        
+          >>> tuple(storage.keys())
+          (u'...',)
+        
+        
+        values
+        ------
+        
+        The container can also return values:
+        
+          >>> tuple(storage.values())
+          (<SampleStorageItem ...>,)
+        
+        items
+        -----
+        
+        The container can also return items:
+        
+          >>> tuple(storage.items())
+          ((u'...', <SampleStorageItem ...>),)
+        
+        
+        __delitem__
+        ------------
+        
+        As next we will remove the item:
+        
+          >>> del storage[__name__]
+          >>> storage.get(__name__) is None
+          True
+        
+          >>> transaction.commit()
+        
+        
+        Object modification
+        -------------------
+        
+        If we get a mongo item from a storage and modify the item, the version get 
+        increased by one and a current modified datetime get set.
+        
+        Let's add a new item:
+        
+          >>> data = {'title': u'A Title',
+          ...         'description': u'A Description'}
+          >>> item = testing.SampleStorageItem(data)
+          >>> __name__ = storage.add(item)
+          >>> transaction.commit()
+        
+        Now get the item::
+        
+          >>> item = storage[__name__]
+          >>> item.title
+          u'A Title'
+        
+        and change the titel:
+        
+          >>> item.title = u'New Title'
+          >>> item.title
+          u'New Title'
+        
+        As you can see the item get marked as changed:
+        
+          >>> item._m_changed
+          True
+        
+        Now get the mongo item version. This should be set to 1 (one) since we only 
+        added the object and didn't change since we added them:
+        
+          >>> item._version
+          1
+        
+        If we now commit the transaction, the version get increased by one:
+        
+          >>> transaction.commit()
+          >>> item._version
+          2
+        
+        If you now load the mongo item from the MongoDB aain, you can see that the
+        title get changed:
+        
+          >>> item = storage[__name__]
+          >>> item.title
+          u'New Title'
+        
+        And that the version get updated to 2:
+        
+          >>> item._version
+          2
+        
+          >>> transaction.commit()
+        
+        Check our thread local cache before we leave this test:
+        
+          >>> pprint(LOCAL.__dict__)
+          {}
+        
+        
+        =====================
+        Shared MongoContainer
+        =====================
+        
+        The MongoContainer can store non persistent IMongoContainerItem objects in a
+        MongoDB. A MongoContainerItem must be able to dump it's data to valid mongo
+        values. This test will show how our MongoContainer works.
+        
+        
+        Condition
+        ---------
+        
+        Befor we start testing, check if our thread local cache is empty or if we have
+        let over some junk from previous tests:
+        
+          >>> from m01.mongo.testing import pprint
+          >>> from m01.mongo import LOCAL
+          >>> pprint(LOCAL.__dict__)
+          {}
+        
+        
+        Setup
+        -----
+        
+        First import some components:
+        
+          >>> import datetime
+          >>> import transaction
+          >>> from zope.container.interfaces import IContainer
+        
+          >>> import m01.mongo
+          >>> import m01.mongo.base
+          >>> import m01.mongo.container
+          >>> from m01.mongo import interfaces
+          >>> from m01.mongo import testing
+        
+        We also need a application root object. Let's define a static MongoContainer
+        as our application database root item.
+        
+          >>> class MongoRoot(m01.mongo.container.MongoContainer):
+          ...     """Mongo application root"""
+          ... 
+          ...     _id = m01.mongo.getObjectId(0)
+          ... 
+          ...     def __init__(self):
+          ...         pass
+          ... 
+          ...     @property
+          ...     def collection(self):
+          ...         return testing.getRootItems()
+          ...
+          ...     @property
+          ...     def cacheKey(self):
+          ...         return 'root'
+          ... 
+          ...     def load(self, data):
+          ...         """Load data into the right mongo item."""
+          ...         return testing.Companies(data)
+          ... 
+          ...     def __repr__(self):
+          ...         return '<%s %s>' % (self.__class__.__name__, self._id)
+        
+        
+        As you can see our MongoRoot class defines a static mongo ObjectID as _id. This
+        means the same _id get use every time. This _id acts as our __parent__
+        reference.
+        
+        The following method allows us to generate new MongoRoot item instances. This
+        allows us to show that we generate different root items like we would do on a
+        server restart.
+        
+          >>> def getRoot():
+          ...     return MongoRoot()
+        
+        Here is our database root item:
+        
+          >>> root = getRoot()
+          >>> root
+          <MongoRoot 000000000000000000000000>
+        
+          >>> root._id
+          ObjectId('000000000000000000000000')
+        
+        
+        Containers
+        ----------
+        
+        Now let's use our enhanced testing data and setup a content structure:
+        
+          >>> data = {'name': u'Europe'}
+          >>> europe = testing.Companies(data)
+          >>> root[u'europe'] = europe
+        
+          >>> data = {'name': u'Asia'}
+          >>> asia = testing.Companies(data)
+          >>> root[u'asia'] = asia
+        
+          >>> transaction.commit()
+        
+        Let's check our companies in Mongo:
+        
+          >>> rootCollection = testing.getRootItems()
+          >>> obj = rootCollection.find_one({'name': 'Europe'})
+          >>> pprint(obj)
+          {u'__name__': u'europe',
+           u'_id': ObjectId('...'),
+           u'_pid': ObjectId('000000000000000000000000'),
+           u'_type': u'Companies',
+           u'_version': 1,
+           u'created': datetime.datetime(...),
+           u'modified': datetime.datetime(...),
+           u'name': u'Europe'}
+        
+        Now let's add a Company, Employer and some documents:
+        
+          >>> data = {'name': u'Projekt01 GmbH'}
+          >>> pro = testing.Company(data)
+          >>> europe[u'pro'] = pro
+        
+          >>> data = {'name': u'Roger Ineichen'}
+          >>> roger = testing.Employer(data)
+          >>> pro[u'roger'] = roger
+        
+          >>> data = {'name': u'Manual'}
+          >>> manual = testing.Document(data)
+          >>> roger[u'manual'] = manual
+        
+          >>> transaction.commit()
+        
+        As you can see we added a data structure using our container, item objects:
+        
+          >>> root['europe']
+          <Companies u'europe'>
+        
+          >>> root['europe']['pro']
+          <Company u'pro'>
+        
+          >>> root['europe']['pro']['roger']
+          <Employer u'roger'>
+        
+          >>> root['europe']['pro']['roger']['manual']
+          <Document u'manual'>
+        
+        As you can see this structure is related to their __parent__ references. This
+        means if we add another structure into the same mongodb, each item knows it's
+        container.
+        
+          >>> data = {'name': u'Credit Suisse'}
+          >>> cs = testing.Company(data)
+          >>> asia[u'cs'] = cs
+        
+          >>> data = {'name': u'Max Muster'}
+          >>> max = testing.Employer(data)
+          >>> cs[u'max'] = max
+        
+          >>> data = {'name': u'Paper'}
+          >>> paper = testing.Document(data)
+          >>> max[u'paper'] = paper
+        
+          >>> transaction.commit()
+        
+          >>> root['asia']
+          <Companies u'asia'>
+        
+          >>> root['asia']['cs']
+          <Company u'cs'>
+        
+          >>> root['asia']['cs']['max']
+          <Employer u'max'>
+        
+          >>> root['asia']['cs']['max']['paper']
+          <Document u'paper'>
+        
+        We can't access another item from the same type from another parent container:
+        
+          >>> root['europe']['cs']
+          Traceback (most recent call last):
+          ...
+          KeyError: 'cs'
+        
+          >>> transaction.commit()
+        
+        As you can see the KeyError left items back in our thread local cache. We can
+        use our thread local cache cleanup event handler which is by default registered
+        as an EndRequestEvent subscriber for cleanup our thread local cache:
+        
+          >>> pprint(LOCAL.__dict__)
+          {u'europe': {'loaded': {}, 'removed': {}}}
+        
+        Let's use our subscriber:
+        
+          >>> from m01.mongo import clearThreadLocalCache
+          >>> clearThreadLocalCache()
+        
+        As you can see our cache items get removed:
+        
+          >>> from m01.mongo import LOCAL
+          >>> pprint(LOCAL.__dict__)
+          {}
+        
+        
+        Shared Container
+        ----------------
+        
+        Now let's implement a shared container which contains all IEmployer items:
+        
+          >>> class SharedEployers(m01.mongo.container.MongoContainer):
+          ...     """Shared Employer container"""
+          ... 
+          ...     # mark a container as shared by set the _mpid to None
+          ...     _mpid = None
+          ... 
+          ...     @property
+          ...     def collection(self):
+          ...         return testing.getEmployers()
+          ... 
+          ...     def load(self, data):
+          ...         return testing.Employer(data)
+        
+        Now let's try if the shared container can access all Employer items:
+        
+          >>> shared = SharedEployers()
+          >>> pprint(tuple(shared.items()))
+          ((u'roger', <Employer u'roger'>), (u'max', <Employer u'max'>))
+        
+          >>> for obj in shared.values():
+          ...     pprint(obj.dump())
+          {'__name__': u'roger',
+           '_id': ObjectId('...'),
+           '_pid': ObjectId('...'),
+           '_type': u'Employer',
+           '_version': 1,
+           'created': datetime.datetime(...),
+           'modified': datetime.datetime(...),
+           'name': u'Roger Ineichen'}
+          {'__name__': u'max',
+           '_id': ObjectId('...'),
+           '_pid': ObjectId('...'),
+           '_type': u'Employer',
+           '_version': 1,
+           'created': datetime.datetime(...),
+           'modified': datetime.datetime(...),
+           'name': u'Max Muster'}
+        
+        Now commit our transaction which will cleanup our caches. Database cleanup is
+        done in our test teardown:
+        
+          >>> transaction.commit()
+        
+        Check our thread local cache before we leave this test:
+        
+          >>> pprint(LOCAL.__dict__)
+          {}
+        
+        
+        ===========
+        MongoObject
+        ===========
+        
+        A MongoObject can get stored independent from anything else in a MongoDB. Such
+        MongoObject can get used together with a field property called
+        MongoOjectProperty. The field property is responsible for set and get such
+        MongoObject to and from MongoDB. A persistent item which provides such a 
+        MongoObject within a MongoObjectProperty only has to provide an oid attribute
+        with a unique value. You can use the m01.oid package for such a unique oid
+        or implement an own pattern.
+        
+        The MongoObject uses the __parent__._moid and the attribute (field) name as
+        it's unique MongoDB key.  
+        
+        Note, this test uses a fake MongoDB server setup. But this fake server is far
+        away from beeing complete. We will add more feature to this fake server if we
+        need them in other projects. See testing.py for more information.
+        
+        
+        Condition
+        ---------
+        
+        Befor we start testing, check if our thread local cache is empty or if we have
+        let over some junk from previous tests:
+        
+          >>> from m01.mongo.testing import pprint
+          >>> from m01.mongo import LOCAL
+          >>> pprint(LOCAL.__dict__)
+          {}
+        
+        
+        Setup
+        -----
+        
+        First import some components:
+        
+          >>> import datetime
+          >>> import transaction
+          >>> from m01.mongo import interfaces
+          >>> from m01.mongo import pool
+          >>> from m01.mongo import testing
+        
+        First, we need to setup a persistent object:
+        
+          >>> content = testing.Content(42)
+          >>> content._moid
+          42
+        
+        And add them to the ZODB:
+        
+          >>> root = {}
+          >>> root['content'] = content
+          >>> transaction.commit()
+        
+          >>> content = root['content']
+          >>> content
+          <Content 42>
+        
+        
+        MongoObject
+        -----------
+        
+        Now let's add a MongoObject instance to our sample content object:
+        
+          >>> data = {'title': u'Mongo Object Title',
+          ...         'description': u'A Description',
+          ...         'item': {'text':u'Item'},
+          ...         'date': datetime.date(2010, 2, 28).toordinal(),
+          ...         'numbers': [1,2,3],
+          ...         'comments': [{'text':u'Comment 1'}, {'text':u'Comment 2'}]}
+          >>> obj = testing.SampleMongoObject(data)
+          >>> obj._id
+          ObjectId('...')
+        
+          obj.title
+          u'Mongo Object Title'
+        
+          >>> obj.description
+          u'A Description'
+        
+          >>> obj.item
+          <SampleSubItem u'...'>
+        
+          >>> obj.item.text
+          u'Item'
+        
+          >>> obj.numbers
+          [1, 2, 3]
+        
+          >>> obj.comments
+          [<SampleSubItem u'...'>, <SampleSubItem u'...'>]
+        
+          >>> tuple(obj.comments)[0].text
+          u'Comment 1'
+        
+          >>> tuple(obj.comments)[1].text
+          u'Comment 2'
+        
+        Our MongoObject doesn't provide a _aprent__ or __name__ right now:
+        
+          >>> obj.__parent__ is None
+          True
+        
+          >>> obj.__name__ is None
+          True
+        
+        But after adding the mongo object to our content which uses a
+        MongoObjectProperty, the mongo object get located and becomes the attribute
+        name as _field value. If the object didn't provide a __name__, the same value
+        will also get applied for __name__:
+        
+          >>> content.obj = obj
+          >>> obj.__parent__
+          <Content 42>
+        
+          >>> obj.__name__
+          u'obj'
+        
+          >>> obj.__name__
+          u'obj'
+        
+        After adding our mongo object, there should be a reference in our thread local
+        cache:
+        
+          >>> pprint(LOCAL.__dict__)
+          {u'42:obj': <SampleMongoObject u'obj'>,
+           'MongoTransactionDataManager': <m01.mongo.tm.MongoTransactionDataManager object at ...>}
+        
+        A MongoObject provides a _oid attribute which is used as the MongoDB key. This
+        value uses the __parent__._moid and the mongo objects attribute name:
+        
+          >>> obj._oid == '%s:%s' % (content._moid, obj.__name__)
+          True
+        
+          >>> obj._oid
+          u'42:obj'
+        
+        Now check if we can get the mongo object again and if we still get the same
+        values:
+        
+          >>> obj = content.obj
+          >>> obj.title
+          u'Mongo Object Title'
+        
+          >>> obj.description
+          u'A Description'
+        
+          >>> obj.item
+          <SampleSubItem u'...'>
+        
+          >>> obj.item.text
+          u'Item'
+        
+          >>> obj.numbers
+          [1, 2, 3]
+        
+          >>> obj.comments
+          [<SampleSubItem u'...'>, <SampleSubItem u'...'>]
+        
+          >>> tuple(obj.comments)[0].text
+          u'Comment 1'
+        
+          >>> tuple(obj.comments)[1].text
+          u'Comment 2'
+        
+        Now let's commit the transaction which will store the obj in our fake mongo DB:
+        
+          >>> transaction.commit()
+        
+        After we commited to the MongoDB, the mongo object and our transaction data
+        manger reference should be gone in the thread local cache:
+        
+          >>> pprint(LOCAL.__dict__)
+          {}
+        
+        Now check our mongo object values again. If your content item is stored in a
+        ZODB, you would get the content item from a ZODB connection root:
+        
+          >>> content = root['content']
+          >>> content
+          <Content 42>
+          
+          >>> obj = content.obj
+          >>> obj
+          <SampleMongoObject u'obj'>
+          
+          >>> obj.title
+          u'Mongo Object Title'
+        
+          >>> obj.description
+          u'A Description'
+        
+          >>> obj.item
+          <SampleSubItem u'...'>
+        
+          >>> obj.item.text
+          u'Item'
+        
+          >>> obj.numbers
+          [1, 2, 3]
+        
+          >>> obj.comments
+          [<SampleSubItem u'...'>, <SampleSubItem u'...'>]
+        
+          >>> tuple(obj.comments)[0].text
+          u'Comment 1'
+        
+          >>> tuple(obj.comments)[1].text
+          u'Comment 2'
+          
+          >>> pprint(obj.dump())
+          {'__name__': u'obj',
+           '_field': u'obj',
+           '_id': ObjectId('...'),
+           '_oid': u'42:obj',
+           '_type': u'SampleMongoObject',
+           '_version': 1,
+           'comments': [{'_id': ObjectId('...'),
+                         '_type': u'SampleSubItem',
+                         'created': datetime.datetime(...),
+                         'text': u'Comment 1'},
+                        {'_id': ObjectId('...'),
+                         '_type': u'SampleSubItem',
+                         'created': datetime.datetime(...),
+                         'text': u'Comment 2'}],
+           'created': datetime.datetime(...),
+           'date': 733831,
+           'description': u'A Description',
+           'item': {'_id': ObjectId('...'),
+                    '_type': u'SampleSubItem',
+                    'created': datetime.datetime(...),
+                    'text': u'Item'},
+           'modified': datetime.datetime(...),
+           'numbers': [1, 2, 3],
+           'removed': False,
+           'title': u'Mongo Object Title'}
+        
+          >>> transaction.commit()
+        
+          >>> pprint(LOCAL.__dict__)
+          {}
+        
+        Now let's replace the existing item with a new one and add another item to
+        the item lists. Also make sure we can use append instead of re-apply the full
+        list like zope widgets do:
+        
+          >>> content = root['content']
+          >>> obj = content.obj
+        
+          >>> obj.item = testing.SampleSubItem({'text': u'New Item'})
+        
+          >>> newItem = testing.SampleSubItem({'text': u'New List Item'})
+          >>> obj.comments.append(newItem)
+        
+          >>> obj.numbers.append(4)
+        
+          >>> transaction.commit()
+        
+        check again:
+        
+          >>> content = root['content']
+          >>> obj = content.obj
+          
+          >>> obj.title
+          u'Mongo Object Title'
+        
+          >>> obj.description
+          u'A Description'
+        
+          >>> obj.item
+          <SampleSubItem u'...'>
+        
+          >>> obj.item.text
+          u'New Item'
+        
+          >>> obj.numbers
+          [1, 2, 3, 4]
+        
+          >>> obj.comments
+          [<SampleSubItem u'...'>, <SampleSubItem u'...'>]
+        
+          >>> tuple(obj.comments)[0].text
+          u'Comment 1'
+        
+          >>> tuple(obj.comments)[1].text
+          u'Comment 2'
+        
+        And now re-apply a full list of values to the list field:
+        
+          >>> comOne = testing.SampleSubItem({'text': u'First List Item'})
+          >>> comTwo = testing.SampleSubItem({'text': u'Second List Item'})
+          >>> comments = [comOne, comTwo]
+          >>> obj.comments = comments
+          >>> obj.numbers = [1,2,3,4,5]
+          >>> transaction.commit()
+        
+        check again:
+        
+          >>> content = root['content']
+          >>> obj = content.obj
+        
+          >>> len(obj.comments)
+          2
+        
+          >>> obj.comments
+          [<SampleSubItem u'...'>, <SampleSubItem u'...'>]
+        
+          >>> len(obj.numbers)
+          5
+        
+          >>> obj.numbers
+          [1, 2, 3, 4, 5]
+        
+        Also check if we can remove list items:
+        
+          >>> obj.numbers.remove(1)
+          >>> obj.numbers.remove(2)
+        
+          >>> obj.comments.remove(comTwo)
+        
+          >>> transaction.commit()
+        
+        check again:
+        
+          >>> content = root['content']
+          >>> obj = content.obj
+        
+          >>> len(obj.comments)
+          1
+        
+          >>> obj.comments
+          [<SampleSubItem u'...'>]
+        
+          >>> len(obj.numbers)
+          3
+        
+          >>> obj.numbers
+          [3, 4, 5]
+        
+          >>> transaction.commit()
+        
+        We can also remove items from the item list by it's __name__:
+        
+          >>> content = root['content']
+          >>> obj = content.obj
+        
+          >>> del obj.comments[comOne.__name__]
+        
+          >>> transaction.commit()
+        
+        check again:
+        
+          >>> content = root['content']
+          >>> obj = content.obj
+        
+          >>> len(obj.comments)
+          0
+        
+          >>> obj.comments
+          []
+        
+          >>> transaction.commit()
+        
+        Or we can add items to the item list by name:
+        
+          >>> content = root['content']
+          >>> obj = content.obj
+        
+          >>> obj.comments[comOne.__name__] = comOne
+        
+          >>> transaction.commit()
+        
+        check again:
+        
+          >>> content = root['content']
+          >>> obj = content.obj
+        
+          >>> len(obj.comments)
+          1
+        
+          >>> obj.comments
+          [<SampleSubItem u'...'>]
+        
+          >>> transaction.commit()
+        
+        
+        Coverage
+        --------
+        
+        Our items list also provides the following methods:
+        
+          >>> obj.comments.__contains__(comOne.__name__)
+          True
+        
+          >>> comOne.__name__ in obj.comments
+          True
+        
+          >>> obj.comments.get(comOne.__name__)
+          <SampleSubItem u'...'>
+        
+          >>> obj.comments.keys() == [comOne.__name__]
+          True
+        
+          >>> obj.comments.values()
+          <generator object ...>
+        
+          >>> tuple(obj.comments.values())
+          (<SampleSubItem u'...'>,)
+        
+          >>> obj.comments.items()
+          <generator object ...>
+        
+          >>> tuple(obj.comments.items())
+          ((u'...', <SampleSubItem u'...'>),)
+        
+          >>> obj.comments == obj.comments
+          True
+        
+        Let's test some internals for increase coverage:
+        
+          >>> obj.comments._m_changed
+          Traceback (most recent call last):
+          ...
+          AttributeError: _m_changed is a write only property
+        
+          >>> obj.comments._m_changed = False
+          Traceback (most recent call last):
+          ...
+          ValueError: Can only dispatch True to __parent__
+        
+          >>> obj.comments.locate(42)
+        
+        Our simple value typ list also provides the following methods:
+        
+          >>> obj.numbers.__contains__(3)
+          True
+        
+          >>> 3 in obj.numbers
+          True
+        
+          >>> obj.numbers == obj.numbers
+          True
+        
+          >>> obj.numbers.pop()
+          5
+        
+          >>> del obj.numbers[0]
+        
+          >>> obj.numbers[0] = 42
+        
+          >>> obj.numbers._m_changed
+          Traceback (most recent call last):
+          ...
+          AttributeError: _m_changed is a write only property
+        
+          >>> obj.numbers._m_changed = False
+          Traceback (most recent call last):
+          ...
+          ValueError: Can only dispatch True to __parent__
+        
+        Check our thread local cache before we leave this test:
+        
+          >>> pprint(LOCAL.__dict__)
+          {}
+        
+        
+        ========
+        Batching
+        ========
+        
+        The MongoMappingBase base class used by MongoStorage and MongoContainer can
+        return batched data or items and batch information.
+        
+        Note; this test runs in level 2 because it uses a working MongoDB. This is 
+        needed because we like to test the real sort and limit functions in a MongoDB.
+        
+        
+        Condition
+        ---------
+        
+        Befor we start testing, check if our thread local cache is empty or if we have
+        left over some junk from previous tests:
+        
+          >>> from m01.mongo.testing import pprint
+          >>> from m01.mongo import LOCAL
+          >>> pprint(LOCAL.__dict__)
+          {}
+        
+        Setup
+        -----
+        
+        First import some components:
+        
+          >>> import datetime
+          >>> import transaction
+          >>> from m01.mongo import testing
+        
+        
+        setup
+        -----
+        
+        Now we can add a MongoStorage to the database. Let's just use a simple
+        dict as database root:
+        
+          >>> root = {}
+          >>> storage = testing.SampleStorage()
+          >>> root['storage'] = storage
+          >>> transaction.commit()
+        
+        Now let's add 1000 MongoItems:
+        
+          >>> storage = root['storage']
+          >>> for i in range(1000):
+          ...     data = {u'title': u'Title %i' % i,
+          ...             u'description': u'Description %i' % i,
+          ...             u'number': i}
+          ...     item = testing.SampleStorageItem(data)
+          ...     __name__ = storage.add(item)
+        
+          >>> transaction.commit()
+        
+        After we commited to the MongoDB, the mongo object and our transaction data
+        manger reference should be gone in the thread local cache:
+        
+          >>> from m01.mongo import LOCAL
+          >>> pprint(LOCAL.__dict__)
+          {}
+        
+        As you can see, our collection contains 1000 items:
+        
+          >>> storage = root['storage']
+          >>> len(storage)
+          1000
+        
+        
+        batching
+        --------
+        
+        Note, this method does not return items, it only returns the MongoDB data. This
+        is what you should use. If this doesn't fit because you need a list of the real
+        MongoItem this would be complicated beause we could have removed marked items
+        in our LOCAL cache which the MongoDB doesn't know about.
+        
+        Let's get the batch information:
+        
+          >>> storage.getBatchData()
+          (<...Cursor object at ...>, 1, 40, 1000)
+        
+        As you an see, we've got a curser with mongo data, the start index, the total
+        amount of items and the page counter. Note, the first page starts at 1 (one)
+        and not zero. Let's show another ample with different values:
+        
+          >>> storage.getBatchData(page=5, size=10)
+          (<...Cursor object at ...>, 5, 100, 1000)
+        
+        As you can see we can iterate our cursor:
+        
+          >>> cursor, page, total, pages = storage.getBatchData(page=1, size=3)
+        
+          >>> pprint(tuple(cursor))
+          ({u'__name__': u'...',
+            u'_id': ObjectId('...'),
+            u'_type': u'SampleStorageItem',
+            u'_version': 1,
+            u'comments': [],
+            u'created': datetime.datetime(...),
+            u'description': u'Description ...',
+            u'modified': datetime.datetime(...),
+            u'number': ...,
+            u'numbers': [],
+            u'title': u'Title ...'},
+           {u'__name__': u'...',
+            u'_id': ObjectId('...'),
+            u'_type': u'SampleStorageItem',
+            u'_version': 1,
+            u'comments': [],
+            u'created': datetime.datetime(...),
+            u'description': u'Description ...',
+            u'modified': datetime.datetime(...),
+            u'number': ...,
+            u'numbers': [],
+            u'title': u'Title ...'},
+           {u'__name__': u'...',
+            u'_id': ObjectId('...'),
+            u'_type': u'SampleStorageItem',
+            u'_version': 1,
+            u'comments': [],
+            u'created': datetime.datetime(...),
+            u'description': u'Description ...',
+            u'modified': datetime.datetime(...),
+            u'number': ...,
+            u'numbers': [],
+            u'title': u'Title ...'})
+        
+        As you can see, the cursor counts the total amount of items:
+        
+          >>> cursor.count()
+          1000
+        
+        But we can force to count the result based on limit and skip arguments by use
+        True as argument:
+        
+          >>> cursor.count(True)
+          3
+        
+        As you can see batching or any other object lookup will left items back in our
+        thread local cache. We can use our thread local cache cleanup event handler
+        which is normal registered as an EndRequestEvent subscriber:
+        
+          >>> from m01.mongo import LOCAL
+          >>> pprint(LOCAL.__dict__)
+          {u'm01_mongo_testing.test...': {'added': {}, 'removed': {}}}
+        
+        Let's use our subscriber:
+        
+          >>> from m01.mongo import clearThreadLocalCache
+          >>> clearThreadLocalCache()
+        
+        As you can see our cache items get removed:
+        
+          >>> from m01.mongo import LOCAL
+          >>> pprint(LOCAL.__dict__)
+          {}
+        
+        
+        order
+        -----
+        
+        An important part in batching is ordering. As you can see, we can limit the 
+        batch size and get a slice of data from a sequence. It is very important that
+        the data get ordered at the MongoDB before we slice the data into a batch.
+        Let's test if this works based on our ordable number value and a sort order
+        where lowest value comes first. Start with page=0:
+        
+          >>> cursor, page, pages, total = storage.getBatchData(page=1, size=3,
+          ...     sortName='number', sortOrder=1)
+        
+          >>> cursor
+          <pymongo.cursor.Cursor object at ...>
+        
+          >>> page
+          1
+        
+          >>> pages
+          334
+        
+          >>> total
+          1000
+        
+        We ordering is done right, the first item should have a number value 0 (zero):
+        
+          >>> pprint(tuple(cursor))
+          ({u'__name__': u'...',
+            u'_id': ObjectId('...'),
+            u'_type': u'SampleStorageItem',
+            u'_version': 1,
+            u'comments': [],
+            u'created': datetime.datetime(...),
+            u'description': u'Description 0',
+            u'modified': datetime.datetime(...),
+            u'number': 0,
+            u'numbers': [],
+            u'title': u'Title 0'},
+           {u'__name__': u'...',
+            u'_id': ObjectId('...'),
+            u'_type': u'SampleStorageItem',
+            u'_version': 1,
+            u'comments': [],
+            u'created': datetime.datetime(...),
+            u'description': u'Description 1',
+            u'modified': datetime.datetime(...),
+            u'number': 1,
+            u'numbers': [],
+            u'title': u'Title 1'},
+           {u'__name__': u'...',
+            u'_id': ObjectId('...'),
+            u'_type': u'SampleStorageItem',
+            u'_version': 1,
+            u'comments': [],
+            u'created': datetime.datetime(...),
+            u'description': u'Description 2',
+            u'modified': datetime.datetime(...),
+            u'number': 2,
+            u'numbers': [],
+            u'title': u'Title 2'})
+        
+        The second page (page=1) should start with number == 3:
+        
+          >>> cursor, page, pages, total = storage.getBatchData(page=2, size=3,
+          ...     sortName='number', sortOrder=1)
+          >>> pprint(tuple(cursor))
+          ({u'__name__': u'...',
+            u'_id': ObjectId('...'),
+            u'_type': u'SampleStorageItem',
+            u'_version': 1,
+            u'comments': [],
+            u'created': datetime.datetime(...),
+            u'description': u'Description 3',
+            u'modified': datetime.datetime(...),
+            u'number': 3,
+            u'numbers': [],
+            u'title': u'Title 3'},
+           {u'__name__': u'...',
+            u'_id': ObjectId('...'),
+            u'_type': u'SampleStorageItem',
+            u'_version': 1,
+            u'comments': [],
+            u'created': datetime.datetime(...),
+            u'description': u'Description 4',
+            u'modified': datetime.datetime(...),
+            u'number': 4,
+            u'numbers': [],
+            u'title': u'Title 4'},
+           {u'__name__': u'...',
+            u'_id': ObjectId('...'),
+            u'_type': u'SampleStorageItem',
+            u'_version': 1,
+            u'comments': [],
+            u'created': datetime.datetime(...),
+            u'description': u'Description 5',
+            u'modified': datetime.datetime(...),
+            u'number': 5,
+            u'numbers': [],
+            u'title': u'Title 5'})
+        
+        As you can see your page size is 334. Let's show this batch slice. The
+        item in this batch should have a number == 999. but note:
+        
+          >>> pages
+          334
+        
+          >>> cursor, page, total, pages = storage.getBatchData(page=334, size=3,
+          ...     sortName='number', sortOrder=1)
+          >>> pprint(tuple(cursor))
+          ({u'__name__': u'...',
+            u'_id': ObjectId('...'),
+            u'_type': u'SampleStorageItem',
+            u'_version': 1,
+            u'comments': [],
+            u'created': datetime.datetime(...),
+            u'description': u'Description 999',
+            u'modified': datetime.datetime(...),
+            u'number': 999,
+            u'numbers': [],
+            u'title': u'Title 999'},)
+        
+        
+        teardown
+        --------
+        
+        Call transaction commit which will cleanup our LOCAL caches:
+        
+          >>> transaction.commit()
+        
+        Again, clear thread local cache:
+        
+          >>> clearThreadLocalCache()
+        
+        Check our thread local cache before we leave this test:
+        
+          >>> pprint(LOCAL.__dict__)
+          {}
+        
+        
+        =======
+        Testing
+        =======
+        
+        Let's test some testing methods.
+        
+          >>> import re
+          >>> import datetime
+          >>> import bson.tz_util
+          >>> import m01.mongo
+          >>> import m01.mongo.testing
+          >>> from m01.mongo.testing import pprint
+        
+        RENormalizer
+        ------------
+        
+        The RENormalizer is able to normalize text and produce comparable output. You
+        can setup the RENormalizer with a list of input, output expressions. This is
+        usefull if you dump mongodb data which contains dates or other not so simple 
+        reproducable data. Such a dump result can get normalized before the unit test
+        will compare the output. Also see zope.testing.renormalizing for the same
+        pattern which is useable as a doctest checker.
+        
+          >>> normalizer = m01.mongo.testing.RENormalizer([
+          ...    (re.compile('[0-9]*[.][0-9]* seconds'), '... seconds'),
+          ...    (re.compile('at 0x[0-9a-f]+'), 'at ...'),
+          ...    ])
+        
+          >>> text = """
+          ... <object object at 0xb7f14438>
+          ... completed in 1.234 seconds.
+          ... ...
+          ... <object object at 0xb7f14450>
+          ... completed in 1.234 seconds.
+          ... """
+        
+          >>> print normalizer(text)
+          <BLANKLINE>
+          <object object at ...>
+          completed in ... seconds.
+          ...
+          <object object at ...>
+          completed in ... seconds.
+          <BLANKLINE>
+        
+        Now let's test some mongodb relevant stuff:
+        
+          >>> from bson.dbref import DBRef
+          >>> from bson.min_key import MinKey
+          >>> from bson.max_key import MaxKey
+          >>> from bson.objectid import ObjectId
+          >>> from bson.timestamp import Timestamp
+        
+          >>> oid = m01.mongo.getObjectId(42)
+          >>> oid
+          ObjectId('0000002a0000000000000000')
+        
+          >>> data = {'oid': oid,
+          ...         'dbref': DBRef("foo", 5, "db"),
+          ...         'date': datetime.datetime(2011, 5, 7, 1, 12),
+          ...         'utc': datetime.datetime(2011, 5, 7, 1, 12, tzinfo=bson.tz_util.utc),
+          ...         'min': MinKey(),
+          ...         'max': MaxKey(),
+          ...         'timestamp': Timestamp(4, 13),
+          ...         're': re.compile("a*b", re.IGNORECASE),
+          ...         'string': 'string',
+          ...         'unicode': u'unicode',
+          ...         'int': 42}
+        
+        Now let's pretty print the data:
+        
+          >>> pprint(data)
+          {'date': datetime.datetime(2011, 5, 7, 1, 12),
+           'dbref': DBRef('foo', 5, 'db'),
+           'int': 42,
+           'max': MaxKey(),
+           'min': MinKey(),
+           'oid': ObjectId('0000002a0000000000000000'),
+           're': <_sre.SRE_Pattern object at ...>,
+           'string': 'string',
+           'timestamp': Timestamp(4, 13),
+           'unicode': u'unicode',
+           'utc': datetime.datetime(2011, 5, 7, 1, 12, tzinfo=<bson.tz_util.FixedOffset object at ...>)}
+        
+        
+        reNormalizer
+        ~~~~~~~~~~~~
+        
+        As you can see our predefined reNormalizer will convert the values using our
+        given patterns: 
+        
+          >>> import m01.mongo.testing
+          >>> data = m01.mongo.testing.reNormalizer(data)
+          >>> print data
+          {'date': datetime.datetime(...),
+           'dbref': DBRef('foo', 5, 'db'),
+           'int': 42,
+           'max': MaxKey(),
+           'min': MinKey(),
+           'oid': ObjectId('...'),
+           're': <_sre.SRE_Pattern object at ...>,
+           'string': 'string',
+           'timestamp': Timestamp('...'),
+           'unicode': u'unicode',
+           'utc': datetime(..., tzinfo=<bson.tz_util.FixedOffset ...>)}
+        
+        
+        pprint
+        ~~~~~~
+        
+          >>> m01.mongo.testing.reNormalizer.pprint(data)
+          {'date': datetime.datetime(...),
+           'dbref': DBRef('foo', 5, 'db'),
+           'int': 42,
+           'max': MaxKey(),
+           'min': MinKey(),
+           'oid': ObjectId('...'),
+           're': <_sre.SRE_Pattern object at ...>,
+           'string': 'string',
+           'timestamp': Timestamp('...'),
+           'unicode': u'unicode',
+           'utc': datetime(..., tzinfo=<bson.tz_util.FixedOffset ...>)}
+        
+        
+        ===========================
+        Speedup your implementation
+        ===========================
+        
+        Since not every strategy is the best for every applications and we can't
+        implement all concepts in this package, but we will list here some imporvements.
+        
+        
+        values and items
+        ----------------
+        
+        The MongoContainers and MongoStorage implementation will load all data within
+        the values and items methods. Even if we already cached them in our thread
+        local cache. Here is an optimized method which could get used if you need to
+        load a larg set of data.
+        
+        The original implementation of MongoMappingBase.values looks like::
+        
+            def values(self):
+                # join transaction handling
+                self.ensureTransaction()
+                for data in self.doFind(self.collection):
+                    __name__ = data['__name__']
+                    if __name__ in self._cache_removed:
+                        # skip removed items
+                        continue
+                    obj = self._cache_loaded.get(__name__)
+                    if obj is None:
+                        try:
+                            # load, locate and cache if not cached
+                            obj = self.doLoad(data)
+                        except (KeyError, TypeError):
+                            continue
+                    yield obj
+                # also return items not stored in MongoDB yet
+                for k, v in self._cache_added.items():
+                    yield v
+        
+        If you like to prevent loading all data, you could probably only load
+        keys and lookup data for items which didn't get cached yet. This would
+        reduce network traffic and could look like::
+        
+            def values(self):
+                # join transaction handling
+                self.ensureTransaction()
+                # only get __name__ and _id
+                for data in self.doFind(self.collection, {}, ['__name__', '_id']):
+                    __name__ = data['__name__']
+                    if __name__ in self._cache_removed:
+                        # skip removed items
+                        continue
+                    obj = self._cache_loaded.get(__name__)
+                    if obj is None:
+                        try:
+                            # now we can load data from mongo
+                            d = self.doFindOne(self.collection, data)
+                            # load, locate and cache if not cached
+                            obj = self.doLoad(d)
+                        except (KeyError, TypeError):
+                            continue
+                    yield obj
+                # also return items not stored in MongoDB yet
+                for k, v in self._cache_added.items():
+                    yield v
+        
+        Note: the same concept can get used for the items method.
+        
+        Note: I don't recommend to call keys, values or items for large collections
+        at any time. Take a look at the batching concept we implemented. The
+        getBatchData method is probably what you need to use with a large set of data.
+        
+        
+        AdvancedConverter
+        -----------------
+        
+        The class below shows an advanced implementation which is able to convert a 
+        nested data structure.
+                
+        Normaly a converter can convert attribute values. If the attribute
+        value is a list of items which contains another list of items, then you need to
+        use another converter which is able to convert this nested structure. But
+        normaly this is the responsibility of the first level item to convert it's
+        values. This is the reason why we didn't implement this concept by default.
+        
+        Remember, a default converter definition looks like::
+        
+          def itemConverter(value):
+              _type = value.get('_type')
+              if _type == 'Car':
+                  return Car
+              if _type == 'House':
+                  return House
+              else:
+                  return value
+        
+        And the class defines something like::
+        
+          converters = {'myItems': itemConverter}
+        
+        Our advanced converter sample can convert a nested data structure and looks
+        like::
+        
+          def toCar(value):
+              return Car(value)
+            
+          converters = {'myItems': {'House': toHouse, 'Car': toCar}}
+        
+        Or you can define a converter method which knows how to convert all kind
+        of item types like::
+        
+          class AdvancedConverter(object):
+          
+              converters = {} # attr-name/converter or {_type:converter}
+              def convert(self, key, value):
+                  """This convert method knows how to handle nested converters."""
+                  converter = self.converters.get(key)
+                  if converter is not None:
+                      if isinstance(converter, dict):
+                          if isinstance(value, (list, tuple)):
+                              res = []
+                              for o in value:
+                                  if isinstance(o, dict):
+                                      _type = o.get('_type')
+                                      if _type is not None:
+                                          converter = converter.get(_type)
+                                          value = converter(o)
+                                  res.append(value)
+                              value = res
+                          elif isinstance(value, dict):
+                              _type = o.get('_type')
+                              if _type is not None:
+                                  converter = converter.get(_type)
+                                  value = converter(value)
+                          else:
+                              value = converter(value)
+                      else:
+                          if isinstance(value, (list, tuple)):
+                              # convert list values
+                              value = [converter(d) for d in value]
+                          else:
+                              # convert simple values
+                              value = converter(value)
+                  return value
+        
+        I'm sure if you understand what we implemented, you will find a lot of space
+        to improve and write your own special methods which can do the right thing for 
+        your use cases.
+        
+        
+        =======
+        CHANGES
+        =======
+        
+        0.10.2 (2013-01-04)
+        -------------------
+        
+        - support _m_insert_write_concern, _m_update_write_concern,
+          _m_remove_write_concern in MongoObject 
+        
+        
+        0.10.1 (2012-12-19)
+        -------------------
+        
+        - feature: implemented MongoDatetime schema field supporting timezone info
+          attribute (tzinfo=UTC).
+        
+        
+        0.10.0 (2012-12-16)
+        -------------------
+        
+        - switch from Connection to MongoClient recommended since pymongo 2.4. Replaced
+          safe with write concern options. By default pymongo will now use safe writes.
+        
+        - use MongoClient as factory in MongoConnectionPool. We didn't rename the class
+          MongoConnectionPool, we will keep them as is. We also don't rename the
+          IMongoConnectionPool interface.
+        
+        - replaced _m_safe_insert, _m_safe_update, _m_safe_remove with
+          _m_insert_write_concern, _m_update_write_concern, _m_remove_write_concern.
+          This new mapping base class options are an empty dict and can get replaced
+          with the new write concern settings. The default empty dict will force to
+          use the write concern defined in the connection.
+        
+        
+        0.9.0 (2012-12-10)
+        ------------------
+        
+        - use m01.mongofake for fake mongodb, collection and friends
+        
+        
+        0.8.0 (2012-11-18)
+        ------------------
+        
+        - bugfix: add missing security declaration for dump data
+        
+        - switch to bson import
+        
+        - reflect changes in test output based on pymongo 2.3
+        
+        - remove p01.i18n package dependency
+        
+        - improve, prevent mark items as changed for same values
+        
+        - improve sort, support key or list as sortName and allow to skip sortOrder if
+          sortName is given
+        
+        - added MANIFEST.in file
+        
+        
+        0.7.0 (2012-05-22)
+        ------------------
+        
+        - bugfix: FakeCollection.remove: use find to find documents
+        
+        - preserve order by using SON for query filter and dump methods
+        
+        - implemented m01.mongo.dictify which can recoursive replace all bson.son.SON
+          with plain dict instances.
+        
+        
+        0.6.2 (2012-03-12)
+        ------------------
+        
+        - bugfix: left out a method
+        
+        
+        0.6.1 (2012-03-12)
+        ------------------
+        
+        - bugfix: return self in FakeMongoConnection __call__method. This let's an
+          instance act similar then the original pymongo Connection class __init__
+          method.
+        
+        - feature: Add `sort` parameter for FakeMongoConnection.find()
+        
+        0.6.0 (2012-01-17)
+        ------------------
+        
+        - bugfix: During a query, if a spec key is missing from the doc, the doc is
+          always ignored.
+        
+        - bugfix: correctly generate an object id in UTC. It was relying on GMT+1
+          (i.e. Roger's timezone).
+        
+        - bugfix: allow to use None as MongoDateProperty value
+        
+        - bugfix: set __parent__ in MongoSubItem __init__ method if given
+        
+        - implemented _m_initialized as a marker for find out when we need to trace
+          changed attributes
+        
+        - implemented clear method in MongoListData and MongoItemsData which allows to
+          remove sequence items at once wihout to pop each item from the sequence
+        
+        - improve MongoObject implementation, implemented _field which stores the
+          parent field name which the MongoObject is stored at. Also adjsut the
+          MongoObjectProperty and support backward compatibility by apply the previous
+          stored __name__ as _field if not given. This new _field and __name__
+          separation allos us to use explicit names e.g. the _id or custom names which
+          we can use for traversing to a MongoObject via traverser or other container
+          like implementations.
+        
+        - Implemented __getattr__ in FakeCollection. This allows to get a sub
+          collection like in pymongo which is a part of the gridfs concept.
+        
+        
+        0.5.5 (2011-10-14)
+        ------------------
+        
+        - Implement filtering with dot notation
+        
+        
+        0.5.4 (2011-09-27)
+        ------------------
+        
+        - Fix: a real mongo DB accepts tuple as the `fields` parameter of `find`.
+        
+        
+        0.5.3 (2011-09-20)
+        ------------------
+        
+        - Fix minimum filtering expressions (Albertas)
+        
+        
+        0.5.2 (2011-09-19)
+        ------------------
+        
+        - Added minimum filtering expressions (Albertas)
+        
+        - moved created and modified to an own interface called ICreatedModified
+        
+        - implemented simple and generic initial geo location support
+        
+        
+        0.5.1 (2011-09-09)
+        ------------------
+        
+        - fix performance test
+        - Added database_names and collection_names
+        
+        
+        0.5.0 (2011-08-19)
+        ------------------
+        
+        - initial release
+        
+Keywords: Zope3 z3c p01 m01 mongo connection pool container
+Platform: UNKNOWN
+Classifier: Development Status :: 4 - Beta
+Classifier: Environment :: Web Environment
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: Zope Public License
+Classifier: Programming Language :: Python
+Classifier: Natural Language :: English
+Classifier: Operating System :: OS Independent
+Classifier: Topic :: Internet :: WWW/HTTP
+Classifier: Framework :: Zope3
