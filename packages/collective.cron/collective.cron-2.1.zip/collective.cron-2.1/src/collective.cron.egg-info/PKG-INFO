@@ -1,0 +1,910 @@
+Metadata-Version: 1.1
+Name: collective.cron
+Version: 2.1
+Summary: Product that enable cron like jobs for plone
+Home-page: http://pypi.python.org/pypi/collective.cron
+Author: kiorky <kiorky@cryptelium.net>
+Author-email: kiorky@cryptelium
+License: GPL
+Description: Introduction
+        ============
+        
+        .. contents::
+        
+        collective.cron is a cron-like asynchronous tasks system based on top of plone.app.async and plone.app.registry.
+        The implementation hasn't not for now all the bells and wistles of a nice UI.
+        However the simple interface do all the stuff And The underlying job manager works reliably.
+        Finaly, you can register your tasks easily.
+        
+        
+        Note that at the moment, we have 100% test coverage. This do not prevent from bugs but that make us comfurtable from the major hazard we can have.
+        
+        The design is modern and modular, imagine that you can even easily change from plone.app.async to another job system.
+        
+        The buildout infrastructure
+        =============================
+        - base.cfg                -> base buildout informations
+        - buildout.cfg            -> base buildout for the current plone version
+        - test-4.0.x.cfg          -> test buildout for plone4.0
+        - test-4.1.x.cfg          -> test buildout for plone4.1
+        - test-4.2.x.cfg          -> test buildout for plone4.2
+        
+        The most important things are in base.cfg.
+        If you plan to integrate plone.app.cron to your buildout, please refer to the plone.app.async documentation.
+        
+        - For now we use the unreleased version of plone.app.async : https://github.com/plone/plone.app.async
+        
+        collective.cron 1.0 => collective.cron 2.0
+        ====================================================
+        - in 1.0, each cron task was a content.
+          This was then tedious to replicate and maintain accross multiple instances and plone versions.
+          One of the goal of collective.cron 2.0 is to avoid at most to have persistance, specially specialized contents to minimize all the common migration problems we have with an objects database.
+          Thus a choice has been made to heavily use plone.app.registry as a configuration backend.
+        
+        - Thus, there is no migration prepared from collective.cron 1.0 to 2.0
+          It is up to you to do it.
+          Specially, you will have to clean the database of all specific collective.cron 1.0 based & persistent content before upgrading.
+          Indeed, As the design of tasks is really different, we can't do any automatic migration.
+        
+        - First with collective.cron 1 in your buildout
+        
+                - Search, record settings then delete all IBackend content
+                - Delete all jobresults & persistent contents
+                - Cleanup all the zc.async queue
+        
+        - In a second time, deactivate collective.cron1 and activate collective.cron 2+ in your buildout
+        
+            - Adapt your adapters and content types to work with collective.cron 2.0 (inputs/mark items to work on)
+            - add equivalent crons records to the crontab setting of the backends job
+        
+        Credits
+        ========
+        Companies
+        ---------
+        |makinacom|_
+        
+          * `Planet Makina Corpus <http://www.makina-corpus.org>`_
+          * `Contact us <mailto:python@makina-corpus.org>`_
+        
+        .. |makinacom| image:: http://depot.makina-corpus.org/public/logo.gif
+        .. _makinacom:  http://www.makina-corpus.com
+        
+        Authors
+        ------------
+        
+        - kiorky  <kiorky@cryptelium.net>
+        
+        Contributors
+        -----------------
+        
+        Repository
+        ============
+        
+        - `GITHUB <https://github.com/collective/collective.cron>`_
+        
+        
+        Design
+        =======
+        - collective.cron lets you register crons which run periodically in your system.
+        - Each plone site has a crontab.
+        - This crontab is used by many composants to execute the cron jobs.
+        - We have a central dashboard which will list all tasks registered on the site crontab.
+        - The tasks configuration is based on plone.app.registry but design to be replaceable (composant)
+        - The tasks execution is based on plone.app.async but design to be also replaceable (composant)
+        - The cron manager will ensure to restore all cron jobs for all plone sites at zope restart.
+        
+        Crontab
+        -------------------------------------
+        A crontab is the collection of all cron registered to a plone site.
+        A crontab can be (de)activated globally
+        Each crontab sub element (the crontab, the crons & associated logs) defines a dump method which make a JSON representation of the object.
+        
+        The major attributes for a crontab are:
+        
+            - crons: An ordered dict of crons. Key is the cron uid
+            - activated: globally power switch for the crontab
+            - manager: the manager is responsible for the crontab persistence
+            - save(): save the crontab
+            - save_cron(cron): save the cron
+        
+        When a crontab is saved, it emits a ``ModifiedCrontabEvent``.
+        
+        Cron
+        -------------------------------------
+        The major attributes for a cron are:
+        
+            - **name**: will be the queried name to search jobs
+            - **periodicity**: give the next time execution
+            - **environ**: An optionnal jsonencoded mapping of values which will be given to the task
+            - uid: internal id for the crontab machinery
+            - user: The user the task will run as, its up to you to make the task run as this user
+            - activated: the activation status of the cron
+            - logs: give the last logs of the cron prior executions
+            - crontab: A possibly null reference to the parent crontab
+        
+        A note on the user which is only **a stocked value**. you can see ``collective.cron.utils.su_plone`` to help you switch to that user.
+        IT IS UP TO YOU TO SWITCH TO THAT USER **IN YOUR JOBRUNNER**.
+        
+        Log
+        -------------------------------------
+        The major attributes for a log are:
+        
+            - date: date of logging
+            - status: status ::= NOTRUN | FAILURE | WARN | OK
+            - message: the logs
+        
+        Crontab registry manager
+        -----------------------------
+        Based on top of plone.app.registry, collective.cron record the crontab current status in the site registry.
+        It adapts a crontab.
+        
+            - activated: Boolean switch status of the crontab
+            - cronsettings: the raw manager settings (.crontab, .activated)
+            - crons:  list of serialized strings representations of the crons
+            - read_only: if true, changes will be a NOOP
+        
+        When a record is touched (added, edited, removed), we fire an event to syncronize the queue.
+        
+        Crontab manager
+        ---------------------
+        This composant is responsible when a CrontabSynchronisationEvent is fired to synchronise the crontab with the job queuing system.
+        It will remove unrelated jobs and schedule new jobs.
+        It adapts a plonesite and a crontab.
+        
+        When the crontab save itself, its emits a ``ModifiedCrontabEvent`` which in turns is redirected as a ``CrontabSynchronisationEvent`` to let the manager synchronize the queue.
+        
+        When the server restarts, a ``ServerRestartEvent`` is called to re-register any cron job that would have been wiped from the queue.
+        
+        Cron manager
+        ------------------
+        This composant is responsible forthe execution and presence in the queue of a particular cronjob.It can register or remove the job execution of a cron.
+        This is a firendly proxy to the 'Queue manager"
+        
+        It adapts a plonesite and a cron.
+        
+        When it register a cronjob, the job queued is a cron jobrunner wrapper responsible for:
+        
+            - Sending a ``StartedCronJobEvent``
+            - Running the relevant JobRunner (a named adapter adapting the plonesite, and the cron)
+            - Sending a ``FinishedCronJobEvent``
+            - logging the execution
+            - Scheduling the next execution
+        
+        JobRunner
+        -------------------------------------
+        A cron jobrunner is a named adapter which:
+            - adapts the plonesite and the current cron
+            - implements IJobRunbner, and specially defines a **run** method.
+        
+        A base class exists in collective cron, just inherit from it
+        This is a complicated definition to have a class like this::
+        
+            from collective.cron import crontab
+            class MyCronJob(crontab.Runner):
+                def run(self):
+                    print "foo"
+        
+        registered in zcml like that::
+        
+            <adapter factory=".module.MyCronJob" name="mycronjob"/>
+        
+        Annd then, you ll have to register cron called ``mycronjob`` in your plonesite,
+        
+        Queue manager
+        ------------------------------------
+        This composant will manage the jobs inside the job queue.
+        You ll have enought methods to know for a specific cron if a job is present, what is its status,
+        You can also register, or delete items from the running queue
+        It adapts a plonesite.
+        
+        Crontab Queue Marker (plone.app.async specific)
+        -----------------------------------------------------
+        Responsible to mark infos in the async queue to make posible the reload of jobs at Zope restart.
+        
+        Detailled documentation
+        =========================
+        There are 3 ways to register tasks:
+        
+            - via the API
+            - via the UI
+            - via Generic Setup (profile)
+        
+        
+        
+        
+        
+        Manage (add, edit, remove, run) tasks via collective.cron API
+        --------------------------------------------------------------
+        
+        setup
+        ++++++++
+        ::
+        
+            >>> import time
+            >>> from collective.cron import interfaces as i
+            >>> from collective.cron.testing import set_now
+            >>> from collective.cron import crontab as mcrontab
+            >>> from collective.cron import utils
+            >>> import datetime, pytz
+            >>> from zc.async.testing import wait_for_result
+            >>> layer['crontab'].save()
+            >>> import transaction
+            >>> get_jobs = lambda:[a for a in layer['queue']]
+        
+        Creation of a jobrunner
+        +++++++++++++++++++++++++++
+        We will define a cronjob to execute on the next scheduled tasks behalf.
+        Here we register global adapters, but you can of course register local adapters on a specific plonesite and they will be taken up::
+        
+            >>> plone = layer['portal']
+            >>> purl = plone.absolute_url()
+            >>> from collective.cron import crontab
+            >>> class MyCronJob(crontab.Runner):
+            ...     runned = []
+            ...     environs = []
+            ...     def run(self):
+            ...         self.runned.append(1) # mutable list will be shared among all instances
+            ...         self.environs.append(self.cron.environ)
+            >>> from zope.component import getGlobalSiteManager
+            >>> gsm = getGlobalSiteManager()
+            >>> gsm.registerAdapter(MyCronJob, name="mycronjob")
+            >>> gsm.registerAdapter(MyCronJob, name="myfoojob")
+        
+        The top object of the crontab, is ... the Crontab.
+        Calling load make the Crontab object and reflect the registry configuration inside it.
+        You ll have to do that::
+        
+            >>> bcrt = mcrontab.Crontab.load()
+            >>> bcrt.crons
+            OrderedDict([(u'...', cron: testcron/... [ON:...])])
+        
+        Think that you can configure tasks with a dict of simple values (they must be json encodable) for your jobs runners to parameterize the task.
+        
+        
+        Adding crons to the crontab
+        +++++++++++++++++++++++++++++
+        We will add the related crontab to the plone site in the cron dashboard::
+        
+            >>> dstart = datetime.datetime(2008,1,1,1,3)
+            >>> set_now(dstart)
+            >>> crt = mcrontab.Crontab()
+            >>> cron = mcrontab.Cron(name=u'mycronjob',
+            ...         activated=True,
+            ...         periodicity = u'*/1 * * * *',
+            ...         environ={u'foo':u'bar'},
+            ...         crontab=crt)
+            >>> cron
+            cron: mycronjob/... [ON:2008-01-01 00:04:00] {u'foo': u'bar'}
+        
+        Never register a cron to two crontab, the cron and crontab have an internal link to each other.
+        If you want to replicate crons between crontab objects, dump them::
+        
+            >>> crt2 = mcrontab.Crontab()
+            >>> crt2.add_cron(mcrontab.Cron.load(cron.dump()))
+        
+        Similar check all the cron properties except crontab & logs::
+        
+            >>> crt2.by_name('mycronjob')[0].similar(cron)
+            True
+        
+        You have three methods to search crons in crontab:
+        
+            - by( ``**`` kwargs) : find all cron matching the infos given in kwargs (see cron constructor)
+            - by_name(value) : give all cron matching name
+            - by_uid(value) : give the cron registered with uid
+        
+        Record the craontab back into the site to register the jobs when you are done::
+        
+            >>> crt.save()
+            >>> transaction.commit()
+        
+        After adding the job, it is queued::
+        
+            >>> get_jobs()[0]
+            <zc.async.job.Job (oid ..., db 'async') ``plone.app.async.service._executeAsUser(('', 'plone'), ('', 'plone'), ('', 'plone', 'acl_users'), 'test_user_1_', collective.cron.crontab.runJob, cron: mycronjob/... [ON:2008-01-01 00:04:00]...)``>
+        
+        Toggle the cron activation
+        ++++++++++++++++++++++++++++++++
+        At the cron level::
+        
+            >>> cron.activated = False
+            >>> crt.save()
+            >>> cron.activated = True
+            >>> len(get_jobs()) > 0
+            False
+        
+        Reactivate::
+        
+            >>> cron.activated = True
+            >>> crt.save()
+            >>> len(get_jobs()) > 0
+            True
+        
+        Globally, at the crontab level (for all crons)::
+        
+            >>> crt.activated = False
+            >>> crt.save()
+            >>> len(get_jobs()) > 0
+            False
+        
+        Reactivate::
+        
+            >>> crt.activated = True
+            >>> crt.save()
+            >>> len(get_jobs()) > 0
+            True
+        
+        Edit a cron
+        +++++++++++++
+        We can change the name and some other infos of a cron
+        
+            >>> cron.name = u'myfoojob'
+            >>> cron.periodicity = u'*/10 * * * *'
+            >>> crt.save()
+        
+        Older jobs have been removed, only the one for this renamed job is present::
+        
+            >>> get_jobs()
+            [<zc.async.job.Job (oid ..., db 'async') ``plone.app.async.service._executeAsUser(('', 'plone'), ('', 'plone'), ('', 'plone', 'acl_users'), 'test_user_1_', collective.cron.crontab.runJob, cron: myfoojob/... [ON:2008-01-01 00:10:00]...)``>]
+        
+        Trigger a job execution
+        ++++++++++++++++++++++++++
+        You can force a job execution by using the  ``CronManager`` composant::
+        
+            >>> set_now(datetime.datetime(2008,1,1,2,4))
+            >>> manager = getMultiAdapter((plone, cron), i.ICronManager)
+            >>> manager.register_job(force=True)
+            True
+            >>> transaction.commit()
+        
+        The job return the status, the messages, the uid of the cron and the plone portal path (tuple)::
+        
+            >>> wait_for_result(get_jobs()[0])
+            (1, [], u'...', ('', 'plone'))
+            >>> MyCronJob.runned
+            [1]
+            >>> MyCronJob.environs[-1]
+            {u'foo': u'bar'}
+        
+        And the job is rescheduled::
+        
+            >>> get_jobs()
+            [<zc.async.job.Job (oid ..., db 'async') ``plone.app.async.service._executeAsUser(('', 'plone'), ('', 'plone'), ('', 'plone', 'acl_users'), 'test_user_1_', collective.cron.crontab.runJob, cron: myfoojob/... [ON:2008-01-01 01:10:00] (1 logs)...)``>]
+            >>> transaction.commit()
+        
+        
+        View & delete a log
+        ++++++++++++++++++++
+        Save the current state::
+        
+            >>> runnedcron = get_jobs()[0].args[5]
+            >>> runnedcron.save()
+            >>> ncron = crontab.Crontab.load().by_uid(cron.uid)
+        
+        View::
+        
+            >>> ncron.logs
+            [log: 2008-01-01 02:04:00/OK]
+        
+        Delete::
+        
+            >>> noecho = ncron.logs.pop(0)
+            >>> ncron.save()
+        
+        Delete a cron from the crontab
+        ++++++++++++++++++++++++++++++++++
+        Simply delete it from the crons indexed by uid::
+        
+            >>> del crt.crons[cron.uid]
+            >>> crt.save()
+            >>> get_jobs()
+            []
+        
+        
+        Teardown
+        +++++++++
+        ::
+        
+            >>> bcrt.save()
+            >>> noecho = gsm.unregisterAdapter(MyCronJob, name="myfoojob")
+            >>> noecho = gsm.unregisterAdapter(MyCronJob, name="mycronjob")
+            >>> transaction.commit()
+        
+        
+        
+        
+        Manage (add, edit, remove, run) tasks via the web interface
+        -------------------------------------------------------------
+        
+        setup
+        ++++++++
+        ::
+        
+            >>> import lxml
+            >>> import time
+            >>> from collective.cron import interfaces as i
+            >>> from collective.cron.testing import set_now
+            >>> from collective.cron import crontab as mcrontab
+            >>> from collective.cron import utils
+            >>> import datetime, pytz
+            >>> layer['crontab'].save()
+            >>> from zc.async.testing import wait_for_result
+            >>> import transaction
+            >>> get_jobs = lambda:[a for a in layer['queue']]
+            >>> bcrt = mcrontab.Crontab.load()
+            >>> crt = mcrontab.Crontab()
+            >>> crt.save()
+            >>> transaction.commit()
+        
+        Creation of a jobrunner
+        ++++++++++++++++++++++++++
+        We will define a cronjob to execute on the next scheduled tasks behalf
+        Think that you can make generic tasks which can be configured by the environ json mapping that you configure along with the cron task.
+        When the job is runned you can access it by ``self.cron.environ``.
+        ::
+        
+            >>> plone = layer['portal']
+            >>> purl = plone.absolute_url()
+            >>> from collective.cron import crontab
+            >>> class MyCronJob(crontab.Runner):
+            ...     runned = []
+            ...     environs = []
+            ...     def run(self):
+            ...         self.runned.append(1) # mutable list will be shared among all instances
+            ...         self.environs.append(self.cron.environ) # mutable list will be shared among all instances
+            >>> from zope.component import getGlobalSiteManager
+            >>> gsm = getGlobalSiteManager()
+            >>> gsm.registerAdapter(MyCronJob, name="mycronjob")
+            >>> gsm.registerAdapter(MyCronJob, name="myfoojob")
+        
+        Registering a job through the interface
+        ++++++++++++++++++++++++++++++++++++++++++
+        
+        We will add the related crontab to the plone site in the cron dashboard::
+        
+            >>> dstart = datetime.datetime(2008,1,1,1,3)
+            >>> set_now(dstart)
+            >>> browser = Browser.new(purl, login=True)
+            >>> browser.getLink('Site Setup').click()
+            >>> browser.getLink('Cron Dashboard').click()
+            >>> '@@cron-settings' in browser.contents
+            True
+            >>> browser.getLink('Add a task').click()
+            >>> browser.getControl(name='form.widgets.name').value = 'mycronjob'
+            >>> browser.getControl(name='form.widgets.periodicity').value = '*/1 * * * *'
+            >>> browser.getControl(name='form.widgets.senviron').value = '{"foo":"bar"}'
+            >>> browser.getControl('Add').click()
+        
+        After adding the job, it is queued, and we are back to the dashboard::
+        
+            >>> 'Crontab Preferences' in browser.contents
+            True
+            >>> 'A new cron was added' in browser.contents
+            True
+            >>> get_jobs()[0]
+            <zc.async.job.Job (oid ..., db 'async') ``plone.app.async.service._executeAsUser(('', 'plone'), ('', 'plone'), ('', 'plone', 'acl_users'), 'plonemanager', collective.cron.crontab.runJob, cron: mycronjob/... [ON:2008-01-01 00:04:00] {u'foo': u'bar'})``>
+        
+        We see that as a safety belt the cron is registered two minutes layer.
+        Effectivly, the cron reference date is NOW+1 minute when the job has never runned::
+        
+            >>> transaction.commit()
+            >>> noecho = [wait_for_result(a, 1) for a in layer['queue']]
+            Traceback (most recent call last):
+            ...
+            AssertionError: job never completed
+        
+        Running now the job ::
+        
+            >>> set_now(datetime.datetime(2008,1,1,1,4))
+            >>> transaction.commit()
+            >>> noecho = [wait_for_result(a) for a in layer['queue']]
+            >>> MyCronJob.environs
+            [{u'foo': u'bar'}]
+            >>> MyCronJob.runned
+            [1]
+            >>> job = get_jobs()[0]
+            >>> job
+            <zc.async.job.Job (oid ..., db 'async') ``plone.app.async.service._executeAsUser(('', 'plone'), ('', 'plone'), ('', 'plone', 'acl_users'), 'plonemanager', collective.cron.crontab.runJob, cron: mycronjob/... [ON:2008-01-01 00:05:00] (1 logs)...)``>
+        
+        Now on the behalf of our timemachine, we step forward in time and see that older
+        cronjobs are rescheduled to execute now
+        
+            >>> set_now(datetime.datetime(2008,1,1,2,0))
+            >>> job == get_jobs()[0]
+            True
+            >>> transaction.commit()
+            >>> job == get_jobs()[0]
+            True
+            >>> noecho = [wait_for_result(a) for a in layer['queue']]
+            >>> MyCronJob.runned
+            [1, 1]
+        
+        After execution the job is rescheduled, always !
+        
+            >>> get_jobs()
+            [<zc.async.job.Job (oid ..., db 'async') ``plone.app.async.service._executeAsUser(('', 'plone'), ('', 'plone'), ('', 'plone', 'acl_users'), 'plonemanager', collective.cron.crontab.runJob, cron: mycronjob/... [ON:2008-01-01 01:01:00] (2 logs)...)``>]
+        
+        
+        Toggle the cron activation
+        ++++++++++++++++++++++++++++++++
+        Deactivate it::
+        
+            >>> browser.getLink('Cron Dashboard').click()
+            >>> browser.getLink('mycronjob').click()
+            >>> browser.getLink(id='edit-cron').click()
+            >>> browser.getControl(name='form.widgets.activated:list').value = []
+            >>> browser.getControl('Apply').click()
+            >>> len(get_jobs()) > 0
+            False
+            >>> transaction.commit()
+        
+        Reactivate it::
+        
+           >>> browser.getLink('Cron Dashboard').click()
+           >>> browser.getLink('mycronjob').click()
+           >>> browser.getLink(id='edit-cron').click()
+           >>> browser.getControl(name='form.widgets.activated:list').value = ['selected']
+           >>> browser.getControl('Apply').click()
+           >>> len(get_jobs()) > 0
+           True
+           >>> transaction.commit()
+        
+        Toggle the crontab activation
+        ++++++++++++++++++++++++++++++++
+        Deactivate it by clicking on the deactivate link (javascript link)::
+        
+            >>> browser.getLink('Cron Dashboard').click()
+            >>> browser.getForm('cron_toggle_form').submit()
+            >>> len(get_jobs()) > 0
+            False
+            >>> transaction.commit()
+        
+        Reactivate it by clicking on the activate link (javascript link)::
+        
+            >>> browser.getLink('Cron Dashboard').click()
+            >>> browser.getForm('cron_toggle_form').submit()
+            >>> len(get_jobs()) > 0
+            True
+            >>> transaction.commit()
+        
+        Edit a cron
+        ++++++++++++++
+        We can change the name and some other infos of a cron
+        
+            >>> browser.getLink('Cron Dashboard').click()
+            >>> browser.getLink('mycronjob').click()
+            >>> browser.getLink(id='edit-cron').click()
+            >>> browser.getControl(name='form.widgets.name').value = 'myfoojob'
+            >>> browser.getControl(name='form.widgets.periodicity').value = '*/10 * * * *'
+            >>> browser.getControl(name='form.widgets.senviron').value = '{"foo":"moo"}'
+            >>> browser.getControl('Apply').click()
+            >>> transaction.commit()
+        
+        Older jobs have been removed, only the one for this renamed job is present::
+        
+            >>> browser.getLink('Cron Dashboard').click()
+            >>> get_jobs()
+            [<zc.async.job.Job (oid ..., db 'async') ``plone.app.async.service._executeAsUser(('', 'plone'), ('', 'plone'), ('', 'plone', 'acl_users'), 'plonemanager', collective.cron.crontab.runJob, cron: myfoojob/... [ON:2008-01-01 01:10:00] (2 logs)...)``>]
+        
+        Trigger a job execution
+        +++++++++++++++++++++++++
+        You can force a job execution on the cron dashboard
+        
+        Transfert to **2:04**, next job is at **2:10**::
+        
+            >>> set_now(datetime.datetime(2008,1,1,2,4))
+            >>> transaction.commit()
+            >>> noecho = [wait_for_result(a, 1) for a in layer['queue']]
+            Traceback (most recent call last):
+            ...
+            AssertionError: job never completed
+            >>> MyCronJob.runned
+            [1, 1]
+        
+        To force the run of the job, just go to the cron and click on ``Run``.
+        Doing a little hack to reproduce the JS executed by clicking on *"Run*"::
+        
+            >>> browser.getLink('myfoojob').click()
+            >>> browser.getControl(name='cron_action').value = 'run-cron'
+            >>> browser.getForm('cron_action_form').submit()
+            >>> browser.contents.strip().replace('\n', ' ')
+            '<!DOCTYPE html...Cron .../myfoojob was queued...
+        
+        Job has been runned (see the logs increment), and also rescheduled::
+        
+            >>> time.sleep(1)
+            >>> transaction.commit()
+            >>> len(MyCronJob.runned) < 3 and wait_for_result(layer['queue'][0], 3) or None
+        
+            >>> get_jobs()
+            [<zc.async.job.Job (oid ..., db 'async') ``plone.app.async.service._executeAsUser(('', 'plone'), ('', 'plone'), ('', 'plone', 'acl_users'), 'plonemanager', collective.cron.crontab.runJob, cron: myfoojob/... [ON:2008-01-01 01:10:00] (3 logs)...)``>]
+            >>> MyCronJob.runned
+            [1, 1, 1]
+            >>> MyCronJob.environs[-1]
+            {u'foo': u'moo'}
+        
+        View & delete a log
+        +++++++++++++++++++++
+        Run the job 20 times for having a bunch of logs::
+        
+            >>> def exec_job():
+            ...     set_now(datetime.datetime(2008,1,1,2,4))
+            ...     cron = get_jobs()[0].args[5]
+            ...     manager = getMultiAdapter((plone, cron), i.ICronManager)
+            ...     manager.register_job(force=True)
+            ...     transaction.commit()
+            ...     return wait_for_result(get_jobs()[0])
+            >>> runned = []
+            >>> runned.append(exec_job())
+            >>> runned.append(exec_job())
+            >>> runned.append(exec_job())
+            >>> runned.append(exec_job())
+            >>> runned.append(exec_job())
+            >>> runned.append(exec_job())
+            >>> runned.append(exec_job())
+            >>> runned.append(exec_job())
+            >>> runned.append(exec_job())
+            >>> runned.append(exec_job())
+            >>> runned.append(exec_job())
+            >>> runned.append(exec_job())
+            >>> runned.append(exec_job())
+            >>> runned.append(exec_job())
+            >>> runned.append(exec_job())
+            >>> runned.append(exec_job())
+            >>> runned.append(exec_job())
+            >>> runned.append(exec_job())
+            >>> runned.append(exec_job())
+            >>> runned.append(exec_job())
+            >>> runned.append(exec_job())
+            >>> cron = get_jobs()[0].args[5]
+            >>> len(cron.logs)
+            24
+        
+        Logs are available directlythrought the cron dashboard
+        We see only the last five.
+        They are ordered in FIFO and not via date::
+        
+            >>> browser.getLink('myfoojob').click()
+            >>> '10/24 last logs' in browser.contents
+            True
+            >>> browser.getControl(name='logs_to_delete').value = ['14']
+            >>> browser.getControl(name='logdelete').click()
+            >>> 'Selected logs have been deleted' in browser.contents
+            True
+            >>> '10/23 last logs' in browser.contents
+            True
+        
+        Removing all logs::
+        
+            >>> browser.getControl(name='alllogs_to_delete').value = True
+            >>> browser.getControl(name='logdeletetop').click()
+            >>> 'All logs have been deleted' in browser.contents
+            True
+            >>> 'last logs' in browser.contents
+            False
+        
+        Delete a cron from the crontab
+        ++++++++++++++++++++++++++++++++
+        ::
+        
+            >>> browser.getLink('Cron Dashboard').click()
+            >>> browser.getLink('Add a task').click()
+            >>> browser.getControl(name='form.widgets.name').value = 'foodeletecron'
+            >>> browser.getControl(name='form.widgets.periodicity').value = '*/1 * * * *'
+            >>> browser.getControl('Add').click()
+            >>> browser.getLink('Cron Dashboard').click()
+            >>> browser.getLink('foodeletecron').click()
+        
+        Doing a little hack to reproduce the JS executed by clicking on "Delete".
+        ::
+        
+            >>> browser.getControl(name='cron_action').value = 'delete-cron'
+            >>> browser.getForm('cron_action_form').submit()
+            >>> browser.contents.strip().replace('\n', ' ')
+            '<!DOCTYPE html...Cron .../foodeletecron was deleted...
+        
+        And, we are back to the dashboard::
+        
+            >>> browser.url
+            'http://localhost/plone/@@cron-settings'
+        
+        Delete a cron from the dasboard
+        +++++++++++++++++++++++++++++++++++
+        ::
+            >>> browser.getLink('Cron Dashboard').click()
+            >>> browser.getLink('Add a task').click()
+            >>> browser.getControl(name='form.widgets.name').value = 'foodeletecron'
+            >>> browser.getControl(name='form.widgets.periodicity').value = '*/1 * * * *'
+            >>> browser.getControl('Add').click()
+            >>> browser.getLink('Cron Dashboard').click()
+        
+        Doing a little hack to reproduce the JS executed by clicking on "Delete".
+        ::
+        
+            >>> cron = crontab.Crontab.load().by_name('foodeletecron')[0]
+            >>> browser.getControl(name='uids_to_delete').value = [cron.uid]
+            >>> browser.getControl('Send').click()
+            >>> browser.contents.strip().replace('\n', ' ')
+            '<!DOCTYPE html...Cron .../foodeletecron was deleted...
+        
+        And, we are back to the dashboard::
+        
+            >>> browser.url
+            'http://localhost/plone/@@cron-settings'
+        
+        
+        Teardown
+        +++++++++
+        ::
+        
+            >>> bcrt.save()
+            >>> noecho = gsm.unregisterAdapter(MyCronJob, name="myfoojob")
+            >>> noecho = gsm.unregisterAdapter(MyCronJob, name="mycronjob")
+            >>> transaction.commit()
+        
+        
+        
+        
+        Manage (add, edit, remove, run) tasks via Generic Setup
+        --------------------------------------------------------
+        
+        - The configuration file used to configure your crons is ``crons.xml``.
+        - You can export crons presents in the site, this will result in a ``crons.xml`` in the output.
+        - You can **add**, **edit** or **remove** crons referenced by their ``uid``.
+        - If you are adding a cron the mandatory elements are ``uid``, ``name`` & ``periodicity``.
+        - If you are editing the mandatory element is ``uid``.
+        - You can set the following:
+        
+            - uid: **Think to give meaningful & uniques uid, UID is unique identifier!**
+            - name
+            - periodicity
+            - environ (default: **'{}'**)
+            - activated (default: **False**)
+        
+        - You cannot add logs.
+        - if a task is already there with the same uid -> this is an edit.
+        
+        
+        In the following documentation, we use the api.
+        But of course in the real life, you hust have to:
+        
+            - write the crons.xml
+            - run the generisSetup step **collective.cron.setupCrons** on your profile.
+        
+        setup
+        ++++++++
+        ::
+        
+            >>> import time
+            >>> from collective.cron import interfaces as i
+            >>> from collective.cron.testing import set_now
+            >>> from collective.cron import crontab as mcrontab
+            >>> from collective.cron import utils
+            >>> from zope.component import getMultiAdapter
+            >>> import datetime, pytz
+            >>> from zc.async.testing import wait_for_result
+            >>> layer['crontab'].save()
+            >>> import transaction
+            >>> get_jobs = lambda:[a for a in layer['queue']]
+        
+        
+        Import
+        ++++++++++
+        ::
+        
+            >>> plone = layer['portal']
+            >>> purl = plone.absolute_url()
+            >>> crt = mcrontab.Crontab()
+            >>> exportimport = getMultiAdapter((plone, crt), i.IExportImporter)
+        
+        
+        Add
+        ~~~~~
+        The most complete declaration to add or edit is ::
+        
+            >>> CRONS = """<?xml version="1.0"?>
+            ... <crons>
+            ...   <cron uid="foouid" name="foo" activated="true"
+            ...         periodicity="*/1 * * * *" >
+            ...       <environ> <![CDATA[ {"foo":"bar"} ]]> </environ>
+            ...   </cron>
+            ...   <!-- YOU CAN OMIT ENVIRON  & activated-->
+            ...   <cron uid="foouid2" name="foo2" periodicity="*/1 * * * *" />
+            ...   <cron uid="foouid3" name="foo3" periodicity="*/1 * * * *" />
+            ... </crons> """
+            >>> exportimport.do_import(CRONS)
+            >>> crt1 = mcrontab.Crontab.load()
+            >>> crt1.crons
+            OrderedDict([(u'foouid', cron: foo/foouid [ON:2008-01-01 00:02:00] {u'foo': u'bar'}), (u'foouid2', cron: foo2/foouid2 [OFF]), (u'foouid3', cron: foo3/foouid3 [OFF])])
+        
+        Delete & reregister
+        ~~~~~~~~~~~~~~~~~~~~~~
+        As always with generic setup to remove a cron, just add a ``remove="true"`` inside the declaration.
+        To remove, just add ``remove="true"`` to the attributes.
+        The order is import as you can re register jobs with same name after::
+        
+            >>> CRONSD = """<?xml version="1.0"?>
+            ... <crons>
+            ...   <cron uid="foouid2" name="foo2" remove="true" periodicity="*/1 * * * *" />
+            ...   <cron uid="foouid2" name="foo2changed" periodicity="*/3 * * * *"/>
+            ...   <cron uid="foouid3" remove="true"/>
+            ... </crons> """
+            >>> exportimport.do_import(CRONSD)
+            >>> crt2 = mcrontab.Crontab.load()
+            >>> crt2.crons
+            OrderedDict([(u'foouid', cron: foo/foouid [ON:2008-01-01 00:02:00] {u'foo': u'bar'}), (u'foouid2', cron: foo2changed/foouid2 [OFF])])
+        
+        Edit
+        ~~~~~~~~~~
+        You can edit every part of a cron::
+        
+            >>> CRONSE = """<?xml version="1.0"?>
+            ... <crons>
+            ...   <cron uid="foouid2" name="foo2editeé" activated="True"  periodicity="*/4 * * * *">
+            ...       <environ><![CDATA[ {"foo":"bar", "miche":"muche"} ]]></environ>
+            ...   </cron>
+            ... </crons> """
+            >>> exportimport.do_import(CRONSE)
+            >>> crt3 = mcrontab.Crontab.load()
+            >>> crt3.crons
+            OrderedDict([(u'foouid', cron: foo/foouid [ON:2008-01-01 00:02:00] {u'foo': u'bar'}), (u'foouid2', cron: foo2editeé/foouid2 [ON:2008-01-01 00:04:00] {u'foo': u'bar', u'miche': u'muche'})])
+        
+        Export
+        ++++++
+        You can also export crons present in the site::
+        
+            >>> ret = exportimport.do_export()
+            >>> waited = """<?xml version="1.0" encoding="UTF-8"?>
+            ... <crons>
+            ...   <cron uid="foouid" name="foo" activated="True" periodicity="*/1 * * * *">
+            ...     <environ><![CDATA[
+            ... {"foo": "bar"}
+            ... ]]>
+            ...     </environ>
+            ...   </cron>
+            ...   <cron uid="foouid2" name="foo2editeé" activated="True" periodicity="*/4 * * * *">
+            ...     <environ><![CDATA[
+            ... {"miche": "muche", "foo": "bar"}
+            ... ]]>
+            ...     </environ>
+            ...   </cron>
+            ... </crons>"""
+            >>> ret == waited
+            True
+        
+        Teardown
+        +++++++++++
+        ::
+        
+            >>> layer['crontab'].save()
+        
+        
+        
+        Changelog
+        ============
+        
+        
+        2.1 (2012-10-10)
+        ----------------
+        
+        - better tests for addons consumers [kiorky]
+        
+        
+        2.0 (2012-10-10)
+        ----------------
+        - Rewrite collective.cron for better robustness, documentation & no extra dependencies on content types
+          [kiorky]
+        
+        
+        
+        1.0 (2011)
+        ----------------
+        - First release
+        
+        
+        
+        
+        
+Platform: UNKNOWN
+Classifier: Programming Language :: Python
+Classifier: Topic :: Software Development
