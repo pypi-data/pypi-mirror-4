@@ -1,0 +1,1 @@
+HTTP_METHOD = ['GET', 'POST', 'PUT', 'DELETE', 'TRACE', 'HEAD', 'OPTIONS']
