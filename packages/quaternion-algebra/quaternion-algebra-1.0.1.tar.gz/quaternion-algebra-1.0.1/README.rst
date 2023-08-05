@@ -1,0 +1,11 @@
+Quaternion arithmetics for Python.
+
+Usage::
+
+    >>> from quaternion import Quaternion as H
+    >>> q1 = H(2, 3, 2, 3)
+    >>> q2 = H(3, 2, 3, 2)
+    >>> q1 * q2
+    (-12 + 8i + 12j + 18k)
+    >>> q2 * q1)
+    (-12 + 18i + 12j + 8k))
