@@ -1,0 +1,79 @@
+Registration form with captcha
+==============================
+
+Setup.
+
+    >>> browser = self.browser
+    >>> browser.open('http://nohost/plone/login_form')
+    >>> browser.getControl('Login Name').value = 'admin'
+    >>> browser.getControl('Password').value = 'secret'
+    >>> browser.getControl('Log in').click()
+    >>> browser.open('http://nohost/plone/@@security-controlpanel')
+    >>> browser.getControl('Enable self-registration').selected = True
+    >>> browser.getControl('Save').click()
+    >>> 'Changes saved' in browser.contents
+    True
+    >>> self.setMailHost()
+
+If the captcha view is absent, the standared registration process will
+take place.
+::
+
+    >>> browser.open('http://nohost/plone/@@register')
+    >>> 'captcha' in browser.contents
+    False
+    >>> browser.getControl('User Name').value = 'user0'
+    >>> browser.getControl('E-mail').value = 'user0@example.com'
+    >>> browser.getControl('Register').click()
+    >>> 'There were errors' in browser.contents
+    False
+
+In order for the captcha to be active, a captcha view that is compatible
+with either either collective.captcha or collective.recaptcha must be
+registered.  The following zcml load code would have worked in the setup
+method, but if done so in here it interferes with the pickling process 
+for some unknown reason.
+::
+
+    from Products.Five import zcml
+    import pmr2.captcha.tests
+    zcml.load_config('test.zcml', package=pmr2.captcha.tests)
+
+So register this view manually by calling the registration methods
+directly like so.
+::
+
+    >>> import pmr2.captcha.tests.view
+    >>> import zope.component
+    >>> import zope.interface
+    >>> zope.component.provideAdapter(
+    ...     pmr2.captcha.tests.view.SimpleCaptchaView, 
+    ...     (None, None), zope.interface.Interface, name='captcha')
+
+Now the captcha secret input will be rendered.
+::
+
+    >>> browser.open('http://nohost/plone/@@register')
+    >>> '<input name="test_captcha" type="hidden" />' in browser.contents
+    True
+
+Trying to register without satisfying the captcha constrain will result
+in an error.
+::
+
+    >>> browser.getControl('User Name').value = 'user1'
+    >>> browser.getControl('E-mail').value = 'user1@example.com'
+    >>> browser.getControl('Register').click()
+    >>> 'There were errors' in browser.contents
+    True
+
+Satisfying the constraints imposed by the captcha will result in a
+successful user registration.
+::
+
+    >>> browser.getControl('User Name').value = 'user1'
+    >>> browser.getControl('E-mail').value = 'user1@example.com'
+    >>> browser.getControl(name='test_captcha').value = 'please_ignore'
+    >>> browser.getControl('Register').click()
+    >>> 'There were errors' in browser.contents
+    False
