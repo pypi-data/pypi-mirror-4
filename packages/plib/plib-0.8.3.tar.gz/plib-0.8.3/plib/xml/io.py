@@ -1,0 +1,351 @@
+#!/usr/bin/env python
+"""
+Module IO -- XML Parsing and Serialization
+Sub-Package XML of Package PLIB -- Python XML and XSLT Utilities
+Copyright (C) 2008-2012 by Peter A. Donis
+
+Released under the GNU General Public License, Version 2
+See the LICENSE and README files for more information
+
+This module includes classes and functions for XML parsing
+and serialization using the LXML library.
+"""
+
+import sys
+from lxml import etree
+from cStringIO import StringIO # use cStringIO for faster parsing of strings
+
+# Global defaults
+
+default_parser = None
+default_lookup = None
+default_element = None
+strip_blanktext = True
+dtd_validate = False
+
+builtin_xml_decl = True
+default_encoding = "utf-8"
+indent_output = True
+
+
+# Quick XML conversion to and from string
+
+def tostr(tree, indent=None):
+    """Quick serialization to string, no encoding (must be ASCII text).
+    """
+    
+    if indent is None:
+        if indent_output is not None:
+            indent = indent_output
+        else:
+            indent = False
+    return etree.tostring(tree, pretty_print=indent)
+
+
+def parsestr(s, strip=None):
+    """Quick parse of string, no custom node class support (meant for markup).
+    """
+    
+    if strip is None:
+        if strip_blanktext is not None:
+            strip = strip_blanktext
+        else:
+            strip = False
+    return etree.parse(StringIO(s), etree.XMLParser(remove_blank_text=strip))
+
+
+class TagLookup(etree.CustomElementClassLookup):
+    """Customized element class lookup for XML tags.
+    
+    Initialize with a mapping of tag names to element classes.
+    Can be used as the lookup parameter to parse functions
+    or an instance can be bound to default_lookup. (The
+    parse functions below also allow passing a dict as the
+    lookup parameter, which is then used to construct an
+    instance of this class.) This class also allows a
+    default element class to be returned if there is no
+    dictionary entry found for a tag name. If there is
+    no dictionary entry and no default_element, the lookup
+    returns None to use the etree default _Element class.
+    
+    NOTE: No error checking is done on the type of the
+    dictionary entries or on the global default_element;
+    the routine using this class must make sure that they
+    are subclasses of lxml.etree.ElementBase or must handle
+    any exceptions.
+    """
+    
+    def __init__(self, tagdict, default=None):
+        etree.CustomElementClassLookup.__init__(self)
+        self._tagdict = tagdict
+        self._default = default
+    
+    def lookup(self, node_type, document, namespace, name):
+        if name in self._tagdict:
+            return self._tagdict[name]
+        elif self._default is not None:
+            return self._default
+        else:
+            return default_element # etree will use etree._Element if default is None
+
+
+def get_parser(look=None, elem=None, strip=None, val=None):
+    """Return XML parser with desired parameters.
+    
+    Returns an XML parser according to desired parameters (using defaults
+    if no parameters are passed). This is primarily intended for use by the
+    parse functions, which pass on their parameters to this one. However, it
+    can also be called directly to return a parser if finer control over
+    the tree is desired. Because the parameters for this function are shared
+    by the parse functions, they are described here for all.
+    
+    Possibilities for parameters are:
+    
+    - Specify a parser object: set the default_parser global to the desired
+      object. The object must be an instance of etree.XMLParser or a subclass.
+      If this option is used, the default_parser is returned and all other
+      parameters are ignored.
+    
+    - Specify a lookup object: set the default_lookup global to the desired
+      object (if you want it to apply to all parsers) or pass an object as
+      the look parameter. The object must be an instance of a subclass of
+      etree.CustomElementClassLookup. The parser returned will use the
+      specified lookup object to define custom element classes. If this
+      parameter is specified, the elem parameter will be ignored.
+    
+    - Specify a lookup dictionary: if the look parameter is a dictionary,
+      it is used to construct a TagLookup instance, and that object is then
+      used as the lookup object for the parser. See the TagLookup docstring.
+    
+    - Specify a default element class: set the default_element global to the
+      desired class or pass the class as the elem parameter. The class must be
+      a subclass of lxml.etree.ElementBase. The parser returned will use the
+      specified class as its default element class. Note that this will only
+      take effect if the lookup parameter is not used (see above).
+      
+      (NOTE: This is *not* the same as using etree.setDefaultElementClass to
+      set the default element class; the default_element global or the elem
+      parameter only applies to elements generated by the parsers returned by
+      this function. Elements generated by other means, such as the default
+      Element and ElementTree factories, will use the global lxml default,
+      which can be changed by calling etree.setDefaultElementClass. The
+      parser-specific scheme implemented here was considered preferable
+      because the anticipated use case will have multiple possible mappings
+      of tag names to element classes, rather than a single global one.)
+    
+    - Stripping blank whitespace: the strip parameter can be passed to
+      control this, or the strip_blanktext global can be set to define global
+      behavior. Note that if this is turned on (which is the default), lxml
+      will only strip blank whitespace if it is certain that it isn't actual
+      text. See the lxml documentation.
+    """
+    
+    if default_parser is not None:
+        result = default_parser
+    else:
+        if look is None:
+            look = default_lookup
+        if elem is None:
+            elem = default_element
+        if strip is None:
+            if strip_blanktext is not None:
+                strip = strip_blanktext
+            else:
+                strip = False
+        if val is None:
+            if dtd_validate is not None:
+                val = dtd_validate
+            else:
+                val = False
+        result = etree.XMLParser(remove_blank_text=strip, dtd_validation=val)
+        if isinstance(look, dict) and look:
+            result.setElementClassLookup(TagLookup(look))
+        elif isinstance(look, etree.ElementClassLookup):
+            result.setElementClassLookup(look)
+        elif elem is not None:
+            result.setElementClassLookup(
+                etree.ElementDefaultClassLookup(element=elem))
+    return result
+
+
+# XML file and string parse functions
+
+def _parse(f, look, elem, strip, val):
+    parser = get_parser(look, elem, strip, val)
+    result = etree.parse(f, parser)
+    if parser.error_log:
+        print >>sys.stderr, "There were parser errors."
+    return result
+
+
+def parseFile(filename, look=None, elem=None, strip=None, val=None):
+    """Return a parsed LXML tree from file filename.
+    """
+    return _parse(file(filename), look, elem, strip, val)
+
+
+def parseString(s, look=None, elem=None, strip=None, val=None):
+    """Return a parsed LXML tree from string s.
+    """
+    return _parse(StringIO(s), look, elem, strip, val)
+
+
+# Utility functions for output
+
+def _xmlheader(tree, encoding):
+    # Utility function for use in toString below if the built-in LXML
+    # support for xml declaration is not used.
+    return '<?xml version="%s" encoding="%s"?>' % (
+        tree.docinfo.xml_version, encoding)
+
+
+def _writefile(f, s):
+    f.write(s)
+    f.flush()
+
+
+def _writefilename(filename, s):
+    f = file(filename, 'w')
+    try:
+        f.write(s)
+    finally:
+        f.close()
+
+
+# XML file and string serialization functions
+
+def toString(tree, default=None, indent=None, xmldecl=None, doctype=None):
+    """Return lxml tree serialized as string with encoding and indentation.
+    
+    Also handles the XML declaration according to the xmldecl parameter: if
+    true, uses the built-in XML support, otherwise includes it manually, and
+    also checks the doctype argument, and includes it instead of the built-in
+    LXML doctype for the tree if it is not None (this is useful if you want
+    to do tricks with the decl or doctype that LXML doesn't support).
+    """
+    
+    if tree.docinfo.encoding is None:
+        if default is None:
+            enc = default_encoding
+        else:
+            enc = default
+    else:
+        enc = tree.docinfo.encoding
+    if indent is None:
+        if indent_output is not None:
+            indent = indent_output
+        else:
+            indent = False
+    if xmldecl is None:
+        xmldecl = builtin_xml_decl
+    result = etree.tostring(tree,
+        encoding=enc, pretty_print=indent, xml_declaration=xmldecl)
+    if not xmldecl:
+        # Can't override a doctype that's already present
+        # TODO: figure out a way to strip old doctype and insert new one
+        if (doctype is None) or tree.docinfo.doctype:
+            doctype = ""
+        if indent:
+            sep = "\n"
+        else:
+            sep = ""
+        result = sep.join(x for x in (_xmlheader(tree, enc), doctype, result)
+            if len(x) > 0)
+    return result
+
+
+def toFile(tree, f, default=None, indent=None):
+    """Serialize lxml tree to file object f with encoding and indentation.
+    """
+    
+    # Call toString before file write so file isn't corrupted on an exception
+    s = toString(tree, default, indent)
+    _writefile(f, s)
+
+
+def toFilename(tree, filename, default=None, indent=None):
+    """Serialize lxml tree to file filename with encoding and indentation.
+    """
+    
+    # Call toString before file open to avoid clobbering file on an exception
+    s = toString(tree, default, indent)
+    _writefilename(filename, s)
+
+
+# XSLT file and string parse functions
+
+def _parsexslt(f):
+    return etree.XSLT(etree.parse(f))
+
+
+def parseStylesheetFile(filename):
+    """Return parsed lxml stylesheet from file filename.
+    """
+    
+    return _parsexslt(file(filename))
+
+
+def parseStylesheetString(s):
+    """Return parsed lxml stylesheet from string s.
+    """
+    
+    return _parsexslt(StringIO(s))
+
+
+# XSLT transform functions, set up to allow chaining of
+# multiple transforms
+
+def _apply(transform, tree, **kwargs):
+    r = tree
+    if hasattr(transform, '__iter__'):
+        for t in transform:
+            r = t(r, **kwargs)
+    else:
+        r = transform(r, **kwargs)
+    return r
+
+
+def applyFile(filename, tree, **kwargs):
+    return _apply(parseStylesheetFile(filename), tree, **kwargs)
+
+
+def applyFiles(filelist, tree, **kwargs):
+    return _apply([parseStylesheetFile(filename)
+        for filename in filelist], tree, **kwargs)
+
+
+# XSLT output file and string serialization functions,
+
+def resultToString(transform, tree, **kwargs):
+    """Output result to string of applying transform to tree.
+    
+    Note that transform may also be an iterable yielding xslt stylesheets,
+    in which case the output is the result of applying them all in sequence
+    to the tree.
+    """
+    
+    return str(_apply(transform, tree, **kwargs))
+
+
+def resultToFile(transform, tree, f, **kwargs):
+    """Output result to file object f of applying transform to tree.
+    
+    Note that transform may also be an iterable yielding xslt stylesheets,
+    in which case the output is the result of applying them all in sequence
+    to the tree.
+    """
+    
+    s = resultToString(transform, tree, **kwargs)
+    _writefile(f, s)
+
+
+def resultToFilename(transform, tree, filename, **kwargs):
+    """Output result to file filename of applying transform to tree.
+    
+    Note that transform may also be an iterable yielding xslt stylesheets,
+    in which case the output is the result of applying them all in sequence
+    to the tree.
+    """
+    
+    s = resultToString(transform, tree, **kwargs)
+    _writefilename(filename, s)

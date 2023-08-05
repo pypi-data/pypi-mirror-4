@@ -1,0 +1,408 @@
+**README** for PLIB Version 0.8.3
+
+:Author:        Peter A. Donis
+:Release Date:  30 Sep 2012
+
+The PLIB package contains a number of useful sub-packages and
+modules, all within the ``plib`` package namespace in order to
+minimize clutter in the top-level namespace of your Python
+installation. Each sub-directory of the ``plib`` directory
+contains a sub-package, except for the ``test`` directory, which
+contains the PLIB test suite. The source distribution also
+contains an ``examples`` directory, which has example programs
+using PLIB, and a ``scripts`` directory, which has a few
+post-install scripts. Finally, the ``setup.py`` script for
+PLIB uses the ``setuputils`` helper module, which helps to
+automate away much of the boilerplate in Python setup scripts.
+This module is available as a separate release at
+http://pypi.python.org/pypi/setuputils.
+
+This version of PLIB is intended to run on the latest Python
+2 versions. It has been tested on 2.7, but most of it should
+run on 2.6 as well; the main known exception is the ``options``
+module in ``plib.stdlib``, which uses the ``argparse`` standard
+library module that was added in 2.7. If you need to run PLIB
+on earlier Python versions, the "legacy" version of PLIB is
+available at http://pypi.python.org/pypi/plib2 as the ``plib2``
+package. However, the PLIB API in this and future versions is
+considerably changed from the "legacy" API, so programs written
+using ``plib2`` will have to be ported to the new API to use
+this or future PLIB versions.
+
+The PLIB Sub-Packages
+=====================
+
+The individual sub-packages and modules contain docstrings
+with more information about their usage; here they are
+briefly listed and described.
+
+(Note: eventually it is planned to have each major sub-package
+available as a separate release, so you can install only what
+you need. PLIB.STDLIB is required by all the others, so it will
+always be there; but, for example, if you're using PLIB on a
+server you don't need PLIB.GUI. The Python packaging mechanism
+is still in flux so this scheme is on hold until the dust
+settles; it may only be feasible in Python 3.)
+
+PLIB.GUI
+--------
+
+This sub-package contains a simple GUI application framework
+with two main features:
+
+- It lets the same high-level code work with a number of
+  different underlying GUI toolkits. Currently supported:
+  Qt (versions 3 and 4), KDE (versions 3 and 4), wxWidgets,
+  and GTK. (The original reason for writing this sub-package
+  was that wxWidgets doesn't use Qt and I like the Qt/KDE
+  widgets better, but I wanted code that would run
+  cross-platform.)
+
+- It allows you to express the layout of your GUI in terms
+  of Python lists and dicts, enabling a much more declarative
+  and easy to read (and maintain) coding style.
+
+Other than selecting the toolkit (which may not be necessary:
+the main module of the sub-package can 'auto-detect' which
+toolkit to use--the ``plib-setup-gui`` post-install script
+does most of the work to enable this--so you only need to
+override if you don't like the default), you should not have
+to worry about any toolkit internal details; the goal of this
+sub-package is to make them all look the same to your code.
+
+Note that the GTK toolkit support in this sub-package is
+"experimental" and may be removed if it proves to be more
+trouble than it's worth. It's currently included because
+wxWidgets' behavior when using GTK as its underlying GUI
+framework has some quirks that I haven't been able to work
+around yet. However, the GTK implementation of a number of
+widgets (particularly tables and list/tree views) is much
+less capable than the wxWidgets one, so the Python code for
+GTK ends up relying much more on ugly hacks.
+
+PLIB.IO
+-------
+
+This sub-package contains classes that encapsulate various forms
+of client/server I/O channels. It is organized into sub-packages
+itself to make the namespace easier to use. First, the ``base``
+sub-package contains base classes that implement common basic
+functionality that is built on by the rest of PLIB.IO.
+
+Most of the remaining sub-packages fall into three main categories,
+and each sub-package in a given category contains the same basic
+class names, so they're easier to remember. The categories are:
+
+- **Device Types**: ``socket`` and ``serial``. Each device type has
+  a ``BaseClient`` and ``BaseServer`` class; the ``socket`` type
+  also has a ``BaseRequest`` class. These will usually not need to
+  be used directly; they are used by the I/O mode classes, and are
+  factored out so that each I/O mode sees the same API for a given
+  device type.
+
+- **I/O modes**: ``async`` and ``blocking`` (the latter does not just
+  mean synchronous: it includes a forking TCP socket server). Each
+  I/O mode has a client and server class for both device types, and
+  a request class for the ``socket`` device type: the class names are
+  ``SerialClient``, ``SerialServer``, ``SocketClient``, ``SocketServer``,
+  and ``BaseRequestHandler``. The ``async`` type also has "persistent"
+  classes, which support full-duplex asynchronous communication; these
+  are the ``PersistentSerial``, ``PersistentSocket``, and
+  ``PersistentRequestHandler`` classes. Mixin versions of these classes
+  (class names with ``Mixin`` at the end) are also provided, for use
+  if alternate data handling is desired (see next bullet), but it is
+  normally not necessary to use these "by hand"--see "automatic mixins"
+  below.
+
+- **Data Handling**: the I/O mode classes given above include basic
+  data handling, but it is *very* basic: the only way it can detect
+  that a "message" has been fully received is to detect a closed
+  channel. For some applications this is enough, but often more
+  sophisticated and robust data handling is needed. The ``data``
+  sub-package provides three mixin classes for this purpose,
+  ``ShutdownReadWrite``, ``TerminatorReadWrite`` and ``ReadWrite``.
+  The first of these detects the end of a received message by a
+  shutdown of the other end of the data channel, but keeps the channel
+  open to allow further writes (all the other classes default to
+  closing the channel when the other end closes). The other two
+  classes allow the detection of multiple "messages" in the data
+  stream, either by detecting a "terminator" string or by having
+  each message include its length at the beginning. These classes
+  also format outgoing messages the same way.
+
+There is also a ``mixins`` sub-package containing classes that
+are used as mixins by the other sub-packages, and a ``classes``
+sub-package containing higher-level classes that use the API.
+Finally, there is a ``chatgen`` module which contains a simple
+class, ``chat_replies``, that yields replies from a remote server
+as a generator, and a ``utils`` module that implements the automatic
+mixin functionality described below.
+
+*Automatic Mixins*: To derive your own client or server classes with
+alternate data handling "by hand", you would need to use the "mixin"
+versions of the appropriate I/O mode classes, and splice the data
+handling class into the middle of the base class list; for example::
+
+    from plib.io.async import SerialClientMixin, SerialBase
+    from plib.io.data import TerminatorReadWrite
+    
+    class AsyncSerialClientWithTerminator(SerialClientMixin,
+        TerminatorReadWrite, SerialBase): pass
+
+This is a bit clumsy, but necessary since the read/write handling has
+to be *before* the client/server class in the MRO, but *after* the
+base device type, for the cooperative ``super`` calls that underlie
+the functionality to work properly. However, since the pattern is the
+same in each case, it can be automated, and this has been done in the
+``async`` and ``blocking`` sub-package namespaces, so that instead of
+doing the above class construction "by hand", you can just append a
+suffix to your desired class name, thus::
+
+    from plib.io.async import SerialClientWithTerminator
+
+The ``WithTerminator`` suffix (or, alternately, ``WithShutdown``
+or ``WithReadWrite``) will cause the equivalent of the above class
+definition to occur on the fly, so that the resulting class appears
+in the ``plib.io.async`` namespace (of course the
+``plib.io.blocking`` namespace has the same capability).
+Once this has happened the first time, however, the class definition
+is stored in the appropriate namespace, so additional imports of the
+same class name (in different modules of your application) will not
+re-do the "on the fly" construction; they will just retrieve the
+same class object that was previously constructed.
+
+The above machinery is also made available for use with your own custom
+read/write handling classes; the ``async`` and ``blocking`` sub-packages
+each export a ``get_readwrite_class`` function that does the same
+on-the-fly class definition as above, but with your custom read/write
+class instead of one of the built-in ones. All you have to do is pass
+the function the name of your desired I/O class and your custom
+read/write class object::
+
+    from plib.io import async
+    
+    class CustomReadWrite(object):
+        # class definition
+    
+    MyAsyncSerialClient = async.get_readwrite_class('SerialClient',
+        CustomReadWrite)
+
+*API Notes*: One of the goals of this sub-package is to provide a
+common, consistent API for all the different types of I/O, so that
+switching one specific implementation of a certain functionality
+for another can be done transparently to the rest of your application's
+code. Thus, all of the usable classes follow the same basic pattern of
+mixing in the various pieces of functionality: from left to right
+in a class's MRO, one finds the type of endpoint (a client or
+server mixin class, which may be specialized to the type of I/O),
+the type of data formatting, if any (a mixin class from the
+``ReadWrite`` module), and the type of I/O, including device type
+(socket, serial port, etc.), mode (non-blocking/asynchronous vs.
+blocking), and basic data handling. Also, each endpoint type has
+a common API independent of the specific type of I/O and mode; a
+client can always use the ``client_communicate`` method to send
+data to the server and receive a response; a server can always use
+the ``serve_forever`` method to start itself; and all I/O objects
+override the same methods to implement application-specific
+functionality: ``process_data``, to deal with data as it comes in,
+and ``query_done``, to determine when the I/O channel should be
+closed. (To see examples of all this in action, look at the test
+suite in ``test_io.py`` and the library module for it,
+``io_testlib.py``; the library module can use the same
+mixin classes to implement test functionality for *all* of the
+different mixes of I/O classes in the test suite.)
+
+PLIB.STDLIB
+-----------
+
+This is a namespace for various functions and classes that
+extend or emulate the Python standard library. Some,
+like the ``cached_property`` decorator, are implementations of
+patterns that have been known for some time, but which don't
+have a "canonical" version in the stdlib yet; rather than
+have PLIB depend on some other third-party package, I've
+simply provided my own implementations here. Others, like
+the ``abstractcontainer`` class and its subclasses, are
+re-implementations of standard Python data structures,
+written to enable PLIB to make as many things as possible
+look like those data structures without having to subclass
+the built-ins (which has some downsides for the use cases
+I've had thus far--see the docstrings for more information).
+
+The following modules or sub-packages are available in the
+``plib.stdlib`` namespace:
+
+- The ``builtins`` module contains some funtions that should be
+  Python builtins, but aren't. :) Importing the module adds those
+  functions to the built-in namespace; this is mostly useful for
+  interactive shells. The functions can also be imported directly
+  from ``plib.stdlib.builtins``, to make it easier to understand
+  where the functions are coming from in module code.
+
+- The ``classes`` sub-package provides some miscellaneous useful
+  classes.
+
+- The ``classtools`` module provides some utilities for working
+  with classes and class attributes.
+
+- The ``cmdline`` module provides utilities useful for command
+  line programs and interactive shells.
+
+- The ``coll`` sub-package provides various collection classes,
+  including abstract collections built on the ``collections``
+  ABCs from the standard library.
+
+- The ``comm`` sub-package provides utilities for managing and
+  communicating with child threads and processes.
+
+- The ``decotools`` module provides functions and factories for
+  working with decorators.
+
+- The ``extensions`` sub-package provides a namespace for functions
+  (and possibly, in the future, other objects) exported from an
+  extension module written using the Python/C API. The general
+  philosophy of PLIB is to do everything possible in pure
+  Python, so the only functions that appear in this sub-package
+  are those which by their very nature cannot be done in pure
+  Python.
+
+- The ``fdtools`` module provides utilities for working with file
+  descriptors.
+
+- The ``imp`` module provides the ``import_from_module`` function,
+  which should be in the standard library ``importlib`` module
+  but isn't. :)
+
+- The ``ini`` sub-package implements an abstract 'INI file' API that
+  uses ``ConfigParser`` on POSIX systems, and the Windows registry
+  on Windows systems. This API allows the configuration file
+  structure to be declared using Python lists and dicts.
+
+- The ``iters`` module provides various functions dealing with
+  or returning iterables.
+
+- The ``localize`` module provides useful functions for getting
+  locale-specific information.
+
+- The ``mail`` module provides a useful shortcut function for
+  sending email from programs.
+
+- The ``mathlib`` module provides some additional math functions
+  to supplement those in the standard library.
+
+- The ``net`` module provides utilities for getting information
+  about networks.
+
+- The ``options`` module provides an easier-to-use overlay for
+  the ``argparse`` module which allows you to express your option
+  configuration in the form of Python lists, tuples, and dicts.
+
+- The ``ostools`` module provides utilities for working with the
+  operating system.
+
+- The ``proc`` module provides a shortcut function for getting
+  the output of a subprocess.
+
+- The ``sigtools`` module provides a low-level implementation of
+  the self-pipe trick for signal handling.
+
+- The ``strings`` module provides functions and constants for
+  working with strings.
+
+- The ``systools`` module exposes some useful variables giving
+  information about the Python runtime system and PLIB itself.
+
+- The ``timer`` module provides functions for timing code, with
+  an alternate API to the standard library's ``timeit`` module
+  that is easier to use when timing functions that you already
+  have as objects, instead of source code strings.
+
+- The ``tztools`` module provides some useful ``tzinfo`` subclasses
+  based on those in the Python docs for the ``datetime`` module,
+  and a function to return the local system timezone name.
+
+- The ``util`` sub-package provides the ``ModuleProxy`` class, which
+  is used by a number of PLIB sub-packages. See the docstrings
+  for the class and the sub-packages using it for more information.
+
+- The ``version`` module provides a version class that can take a
+  standard version tuple as its constructor argument.
+
+PLIB.XML
+--------
+
+This sub-package requires the ``lxml`` extension, which uses
+the very fast ``libxml2`` library but provides a Pythonic API
+similar to ``ElementTree``. The reason for using ``lxml`` instead
+of ``ElementTree`` itself is that ``lxml`` has two key additional
+features:
+
+- Custom element classes: the ``classes`` module in this
+  sub-package builds on this feature by using metaclasses
+  to automate DTD generation and validation, but the
+  feature is also great for many XML applications.
+
+- Full and *fast* XPATH support: this was key in the XML
+  application that first prompted me to write this sub-package.
+  Yes, I know there are plenty of other Python XML packages
+  that do XPATH; the point is to have it *plus* the standard
+  ``ElementTree`` API *plus* the speed of ``libxml2``.
+
+Installation
+============
+
+To install PLIB, you can simply run::
+
+    $ python setup.py install
+
+at a shell prompt from the directory into which you
+unzipped the source tarball (the same directory that this
+README file is in). This will install PLIB and then
+run each of the post-install scripts in the scripts
+directory.
+
+Example Programs
+================
+
+PLIB comes with example programs that illustrate key features
+of the package. After installation, these can be found in the
+``$PREFIX/share/plib/examples`` directory. If you have a
+POSIX system (Linux or Mac OSX), the ``plib-setup-examples``
+post-install script will install symlinks to the example
+programs in the ``$PREFIX/bin`` directory.
+
+The Zen of PLIB
+===============
+
+There is no single unifying purpose or theme to PLIB, but
+like Python itself, it does have a 'Zen' of sorts:
+
+- Express everything possible in terms of built-in Python
+  data structures.
+
+- Once you've expressed it that way, what the code is
+  going to do with it should be obvious.
+
+- Avoid boilerplate code, *and* boilerplate data. Every
+  piece of data your program needs should have one and
+  only one source.
+
+Copyright and License
+=====================
+
+PLIB is Copyright (C) 2008-2012 by Peter A. Donis.
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version. (See the LICENSE file for a
+copy of version 2 of the License.)
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
