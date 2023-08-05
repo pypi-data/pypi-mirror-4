@@ -1,0 +1,1179 @@
+Metadata-Version: 1.0
+Name: collective.testcaselayer
+Version: 1.6
+Summary: Use test cases as zope.testing layers
+Home-page: http://pypi.python.org/pypi/collective.testcaselayer
+Author: Ross Patterson
+Author-email: me@rpatterson.net
+License: GPL
+Description: .. -*-doctest-*-
+        
+        ========================
+        collective.testcaselayer
+        ========================
+        
+        The support for layers provided by zope.testing helps to lessen the
+        amount of time consumed during test driven development by sharing
+        expensive test fixtures, such as is often requires for functional
+        test.  This package provides several well tested facilities to make
+        writing and using layers faster and easier.
+        
+        The collective.testcaselayer.common.common_layer, used in the Quick
+        Start, also includes some commonly useful test fixtures:
+        
+            - a mock mail host
+            - remove 'Unauthorized' and 'NotFound' from error_log ignored
+              exceptions
+            - puts the resources registries in debug mode
+              (portal_css, portal_javascripts, portal_kss)
+        
+        .. -*-doctest-*-
+        
+        Quick Start
+        ===========
+        
+        For a simple testing layer which installs a collective namespace
+        package into Zope and installs it's GenericSetup profile into the
+        PloneTestCase Plone site you can do the following.
+        
+        Specify the testing dependency on collective.testcaselayer in the
+        egg's setup.py::
+        
+            from setuptools import setup, find_packages
+            ...
+            tests_require = ['collective.testcaselayer']
+            ...
+            setup(name='collective.foo',
+                  ...
+                  install_requires=[
+                      'setuptools',
+                      # -*- Extra requirements: -*-
+                  ],
+                  tests_require=tests_require,
+                  extras_require={'tests': tests_require},
+                  ...
+                  entry_points="""
+        
+        Tell your buildout to include the testing dependencies.  This is only
+        necessary for deployments where you'll be running the tests.  As such,
+        you can leave this out of your production buildout configuration and
+        put it only in your buildout's development configuration::
+        
+            ...
+            eggs +=
+                collective.foo [tests]
+            ...
+        
+        Define the layer.  The layer can use all the same methods as a
+        PloneTestCase class, such as:
+        
+            - self.login(user_name)
+            - self.loginAsPortalOwner()
+            - self.addProduct(product)
+            - self.addProfile(profile)
+        
+        An additional, method is provided to load a ZCML file with ZCML debug
+        mode enabled:
+        
+            - self.loadZCML(file, package=package)
+        
+        You could use a collective.foo.testing module like this:
+        
+            >>> from Products.PloneTestCase import ptc
+            >>> 
+            >>> from collective.testcaselayer import ptc as tcl_ptc
+            >>> from collective.testcaselayer import common
+            >>> 
+            >>> class Layer(tcl_ptc.BasePTCLayer):
+            ...     """Install collective.foo"""
+            ... 
+            ...     def afterSetUp(self):
+            ...         ZopeTestCase.installPackage('collective.foo')
+            ...         
+            ...         from collective.foo import tests
+            ...         self.loadZCML('testing.zcml', package=tests)
+            ...         
+            ...         self.addProfile('collective.foo:default')
+            >>> 
+            >>> layer = Layer([common.common_layer])
+        
+        To use this layer in a README.txt doctest, you could use a
+        collective.foo.tests module like this:
+        
+            >>> import unittest
+            >>> import doctest
+            >>> 
+            >>> from Testing import ZopeTestCase
+            >>> from Products.PloneTestCase import ptc
+            >>>
+            >>> from collective.foo import testing
+            >>> 
+            >>> optionflags = (doctest.NORMALIZE_WHITESPACE|
+            ...                doctest.ELLIPSIS|
+            ...                doctest.REPORT_NDIFF)
+            >>> 
+            >>> def test_suite():
+            ...     suite = ZopeTestCase.FunctionalDocFileSuite(
+            ...         'README.txt',
+            ...         optionflags=optionflags,
+            ...         test_class=ptc.FunctionalTestCase)
+            ...     suite.layer = testing.layer
+            ...     return suite
+            >>> 
+            >>> if __name__ == '__main__':
+            ...     unittest.main(defaultTest='test_suite')
+        
+        Now write your README.txt doctest and your tests can be run with
+        something like::
+        
+            $ bin/instance test -s collective.foo
+        
+        Detailed Documentation
+        ======================
+        
+        .. contents:: Table of Contents
+        
+        Layer authors often end up reproducing the functionality provided by
+        their test case classes since the same functionality is needed to
+        perform layer set up or tear down.  The collective.testcaselayer.ztc,
+        collective.testcaselayer.ctc, and collective.testcaselayer.ptc modules
+        provide layer base classes that mix in the test case functionality from
+        ZopeTestCase, CMFTestCase, and PloneTestCase, respectively.  See the
+        collective.testcaselayer.ztc, and collective.testcaselayer.ptc
+        sections below (or ztc.txt and ptc.txt if reading this in the source)
+        for more details.  These layer base classes also include the layer
+        base class support from collective.testcaselayer.layer and the
+        sandboxed ZODB layer support from collective.testcaselayer.sandbox
+        described below.  Additionally, these modules allow for using the test
+        case fixtures as layers themselves.
+        
+        While class objects can be used as layers, as opposed to instances of
+        classes, doing so means that it is not possible for a layer to
+        subclass another layer *just* to re-use functionality without also
+        depending on that layer being set up as well.  See the
+        collective.testcaselayer.layer section below (or layer.txt if reading
+        this in the source) for more details.
+        
+        The DemoStorage included with the ZODB provides a way to "nest" ZODB
+        stores such that all writes will go to the DemoStorage while reads
+        will be taken from the base storage if not available from the
+        DemoStorage.  The collective.testcaselayer.sandbox module uses this
+        feature to associate a DemoStorage with each sandboxed layer to which
+        set up changes are committed and restore the base storage on tear
+        down.  Thus sibling layers that write to the ZODB can be isolated from
+        each other.  See the collective.testcaselayer.sandbox section below
+        (or sandbox.txt if reading this in the source) for more details.
+        
+        .. -*-doctest-*-
+        
+        Common Layer
+        ============
+        
+        If a testing layer uses the
+        collective.testcaselayer.common.common_layer as a base layer then a
+        few commonly useful things will be set up.
+        
+        Before setting up the layer, the default exceptions are ignored in the
+        error_log and the resource registries are not in debug mode.
+        
+            >>> portal.error_log.getProperties()['ignored_exceptions']
+            ('Unauthorized', 'NotFound', 'Redirect')
+        
+            >>> portal.portal_css.getDebugMode()
+            False
+            >>> portal.portal_javascripts.getDebugMode()
+            False
+            >>> 'portal_kss' in portal and portal.portal_kss.getDebugMode() or False
+            False
+        
+        Set up the common_layer.
+        
+            >>> from zope.testing.testrunner import runner
+            >>> from collective.testcaselayer import common
+        
+            >>> def getSetUpLayers(layer):
+            ...     for base in layer.__bases__:
+            ...         if base is not object:
+            ...             for recurs in getSetUpLayers(base):
+            ...                 yield recurs
+            ...             yield base
+            >>> setup_layers = dict((layer, 1) for layer in
+            ...                     getSetUpLayers(common.common_layer))
+        
+            >>> options = runner.get_options([], [])
+            >>> runner.setup_layer(options, common.common_layer, setup_layers)
+            Set up collective.testcaselayer.common.CommonPTCLayer in ... seconds.
+        
+        Now only 'Redirect' is ignored in error_log, and the resources
+        registries are in debug mode.
+        
+            >>> from Testing import ZopeTestCase
+            >>> from Products.PloneTestCase import ptc as plone_ptc
+            >>> app = ZopeTestCase.app()
+            >>> portal = getattr(app, plone_ptc.portal_name)
+        
+            >>> portal.error_log.getProperties()['ignored_exceptions']
+            ('Redirect',)
+        
+            >>> portal.portal_css.getDebugMode()
+            True
+            >>> portal.portal_javascripts.getDebugMode()
+            True
+            >>> 'portal_kss' in portal and portal.portal_kss.getDebugMode() or True
+            True
+        
+        .. -*-doctest-*-
+        
+        Mock Mailhost
+        =============
+        
+        If a testing layer uses the
+        collective.testcaselayer.mail.mockmailhost_layer as a base layer then
+        messages sent with the portal.MailHost.send method will be appended to
+        a list for checking in tests.
+        
+        Start with an empty MailHost.
+        
+            >>> len(portal.MailHost)
+            0
+        
+        Send a message.
+        
+            >>> portal.MailHost.send("""\
+            ... From: foo@foo.com
+            ... To: bar@foo.com
+            ... Subject: Foo message subject
+            ... 
+            ... Foo message body
+            ... """)
+        
+        The MailHost now contains one message.
+        
+            >>> len(portal.MailHost)
+            1
+        
+        The message an be removed using the pop method in which case it's
+        removed from the list.
+        
+            >>> print portal.MailHost.pop().as_string()
+            From: foo@foo.com
+            To: bar@foo.com
+            Subject: Foo message subject
+            Date: ...    
+            Foo message body
+            >>> len(portal.MailHost)
+            0
+        
+        The mock mail host can handle more complicated call signatures used in
+        the wild.
+        
+            >>> portal.MailHost.send(
+            ...     """\
+            ... From: foo@foo.com
+            ... To: bar@foo.com
+            ... Subject: Qux message subject
+            ... 
+            ... Qux message body
+            ... """, 'bar@foo.com', 'foo@foo.com',
+            ...     subject='Qux message subject')
+        
+            >>> print portal.MailHost.pop().as_string()
+            To: bar@foo.com...
+            Qux message body
+            >>> len(portal.MailHost)
+            0
+        
+        .. -*-doctest-*-
+        
+        collective.testcaselayer.ptc
+        ============================
+        
+        The collective.testcaselayer.ptc module extends the layers and layer
+        base classes from collective.testcaselayer.ztc to PloneTestCase.  See
+        ztc.txt for an introduction to using the layers and layer base
+        classes.  Here we will only demonstrate that the facilities specific
+        to PloneTestCase not inherited from ZopeTestCase.
+        
+        Layers
+        ------
+        
+        The PloneTestCase test fixture can be set up and torn down as a layer.
+        
+            >>> from collective.testcaselayer import ptc
+            >>> ptc.ptc_layer
+            <collective.testcaselayer.ptc.PTCLayer testMethod=layerOnly>
+        
+        To test the effects of just this layer, set up the base layer
+        separately.  Because of the way PloneTestCase uses layers, we must first
+        call the setupPloneSite() function.
+        
+            >>> from zope.testing.testrunner import runner
+            >>> from Products.PloneTestCase import ptc as plone_ptc
+            >>> plonesite_layer, = ptc.ptc_layer.__bases__
+            >>> options = runner.get_options([], [])
+            >>> setup_layers = {}
+            >>> runner.setup_layer(options, plonesite_layer, setup_layers)
+            Set up...Products.PloneTestCase.layer.ZCML in ... seconds.
+            Set up Products.PloneTestCase.layer.PloneSite in ... seconds.
+        
+        The PloneTestCase test fixture has not been set up.
+        
+            >>> from Testing import ZopeTestCase
+            >>> app = ZopeTestCase.app()
+            >>> portal = getattr(app, plone_ptc.portal_name)
+            >>> portal.acl_users.getUserById(plone_ptc.default_user)
+            >>> ZopeTestCase.close(app)
+        
+        Set up the PloneTestCase layer.
+        
+            >>> runner.setup_layer(options, ptc.ptc_layer, setup_layers)
+            Set up collective.testcaselayer.ptc.PTCLayer in ... seconds.
+        
+        The PloneTestCase test fixture has been set up.
+        
+            >>> app = ZopeTestCase.app()
+            >>> portal = getattr(app, plone_ptc.portal_name)
+            >>> portal.acl_users.getUserById(plone_ptc.default_user)
+            <PloneUser 'test_user_1_'>
+            >>> ZopeTestCase.close(app)
+        
+        Tear down the PloneTestCase layer.
+        
+            >>> runner.tear_down_unneeded(
+            ...     options,
+            ...     [layer for layer in setup_layers
+            ...      if layer is not ptc.ptc_layer],
+            ...     setup_layers)
+            Tear down collective.testcaselayer.ptc.PTCLayer in ... seconds.
+        
+        The PloneTestCase test fixture is no longer set up.
+        
+            >>> app = ZopeTestCase.app()
+            >>> portal = getattr(app, plone_ptc.portal_name)
+            >>> portal.acl_users.getUserById(plone_ptc.default_user)
+            >>> ZopeTestCase.close(app)
+        
+        Layer Base Classes
+        ------------------
+        
+        The PloneTestCase class facilities can also be used in layers that use
+        the PloneTestCase layer base class.
+        
+            >>> class FooLayer(ptc.BasePTCLayer):
+            ...     def afterSetUp(self):
+            ...         self.addProfile(
+            ...             'Products.CMFDefault:sample_content')
+            ...         self.addProduct('CollectiveTestCaseLayerTesting')
+            ...         self.loginAsPortalOwner()
+        
+        This layer depends on the profile and product added which are set up
+        in a testing only layer.
+        
+            >>> from collective.testcaselayer.testing import layer
+            >>> foo_layer = FooLayer([layer.product_layer, ptc.ptc_layer])
+        
+        The FooLayer test fixture has not been set up.
+        
+            >>> app = ZopeTestCase.app()
+            >>> portal = getattr(app, plone_ptc.portal_name)
+        
+            >>> hasattr(portal, 'subfolder')
+            False
+            >>> hasattr(portal, 'foo')
+            False
+        
+            >>> from AccessControl import SecurityManagement
+            >>> SecurityManagement.getSecurityManager().getUser()
+            <SpecialUser 'Anonymous User'>
+        
+            >>> ZopeTestCase.close(app)
+        
+        Set up the FooLayer.
+        
+            >>> runner.setup_layer(options, foo_layer, setup_layers)
+            Set up collective.testcaselayer.testing.layer.ProductLayer
+            in ... seconds.
+            Set up FooLayer in ... seconds.
+        
+        The FooLayer test fixture has been set up.
+        
+            >>> app = ZopeTestCase.app()
+            >>> portal = getattr(app, plone_ptc.portal_name)
+        
+            >>> portal.subfolder
+            <ATFolder at /plone/subfolder>
+            >>> portal.foo
+            'foo'
+        
+            >>> from AccessControl import SecurityManagement
+            >>> SecurityManagement.getSecurityManager().getUser()
+            <PropertiedUser 'portal_owner'>
+        
+            >>> ZopeTestCase.close(app)
+        
+        Tear down the FooLayer.
+        
+            >>> runner.tear_down_unneeded(
+            ...     options,
+            ...     [layer for layer in setup_layers
+            ...      if layer is not foo_layer],
+            ...     setup_layers)
+            Tear down FooLayer in ... seconds.
+        
+        The FooLayer test fixture is no longer set up.
+        
+            >>> app = ZopeTestCase.app()
+            >>> portal = getattr(app, plone_ptc.portal_name)
+        
+            >>> hasattr(portal, 'subfolder')
+            False
+            >>> hasattr(portal, 'foo')
+            False
+        
+            >>> from AccessControl import SecurityManagement
+            >>> SecurityManagement.getSecurityManager().getUser()
+            <SpecialUser 'Anonymous User'>
+        
+            >>> ZopeTestCase.close(app)
+        
+        Finish tearing down the rest of the layers.
+        
+            >>> runner.tear_down_unneeded(options, [], setup_layers)
+            Tear down collective.testcaselayer.testing.layer.ProductLayer
+            in ... seconds.
+            Tear down Products.PloneTestCase.layer.PloneSite in ... seconds.
+            Tear down Products.PloneTestCase.layer.ZCML in ... seconds.
+        
+        .. -*-doctest-*-
+        
+        collective.testcaselayer.ztc
+        ============================
+        
+        The BaseZTCLayer and cousins are intended to be used as base classes
+        for layers to allow them to use the facilities of ZopeTestCase,
+        PortalTestCase, and their subclasses.  Thus, the layer setUp and
+        tearDown methods can use the test case methods and other support such
+        as: self.login(), self.logout(), self.loginAsPortalOwner(),
+        self.setRoles(), self.setPermissions(), etc..
+        
+        The ZTCLayer and cousins allow using the test fixture setup by any of
+        the test cases as a layer itself.
+        
+        The collective.testcaselayer.ctc and collective.testcaselayer.ptc
+        modules extend this support to CMFTestCase and PloneTestCase, though
+        collective.testcaselayer does not depend on them itself.  These layer
+        base classes allow for use of those test cases' methods such as
+        addProfile() and addProduct() see ctc.txt and ptc.txt for more
+        details.
+        
+        Layers
+        ------
+        
+        The collective.testcaselayer.ztc module provides sandboxed layers that
+        set up the test fixtures for ZopeTestCase.  Note that test case based
+        layers still act like test cases with a special no-op layerOnly() test
+        method to that they have functional str() and repr() values.
+        
+            >>> from collective.testcaselayer import ztc
+            >>> ztc.ztc_layer
+            <collective.testcaselayer.ztc.ZTCLayer testMethod=layerOnly>
+        
+        Before we set up ZopeTestCase as a layer, nothing has been set up.
+        
+            >>> from AccessControl import SecurityManagement
+            >>> SecurityManagement.getSecurityManager().getUser()
+            <SpecialUser 'Anonymous User'>
+        
+            >>> hasattr(ztc.ztc_layer, 'app')
+            False
+        
+            >>> from Testing import ZopeTestCase
+            >>> app = ZopeTestCase.app()
+            >>> 'test_folder_1_' in app.objectIds()
+            False
+            >>> ZopeTestCase.close(app)
+        
+            >>> from Testing.ZopeTestCase import connections
+            >>> connections.count()
+            0
+        
+        Set up ZopeTestCase as a layer.
+        
+            >>> from zope.testing.testrunner import runner
+            >>> options = runner.get_options([], [])
+            >>> setup_layers = {}
+            >>> runner.setup_layer(options, ztc.ztc_layer, setup_layers)
+            Set up collective.testcaselayer.ztc.ZTCLayer in ... seconds.
+        
+        The ZopeTestCase test fixture has been set up, but there is no logged
+        in user.
+        
+            >>> SecurityManagement.getSecurityManager().getUser()
+            <SpecialUser 'Anonymous User'>
+        
+            >>> 'test_folder_1_' in  ztc.ztc_layer.app.objectIds()
+            True
+        
+        Also note that the app attribute of the layer represents an open
+        connection to the ZODB.
+        
+            >>> connections.count()
+            1
+        
+        Tear down the ZopeTestCase layer.
+        
+            >>> runner.tear_down_unneeded(options, [], setup_layers)
+            Tear down collective.testcaselayer.ztc.ZTCLayer in ... seconds.
+        
+        Now everything is back to its previous state.
+        
+            >>> SecurityManagement.getSecurityManager().getUser()
+            <SpecialUser 'Anonymous User'>
+        
+            >>> hasattr(ztc.ztc_layer, 'app')
+            False
+        
+            >>> from Testing import ZopeTestCase
+            >>> app = ZopeTestCase.app()
+            >>> 'test_folder_1_' in app.objectIds()
+            False
+            >>> ZopeTestCase.close(app)
+        
+            >>> connections.count()
+            0
+        
+        Layer Base Classes
+        ------------------
+        
+        The collective.testcaselayer.ztc module also provides base classes for
+        sandboxed layers that don't actually set up the test case fixtures but
+        allow using the facilities provided by the test cases in the layer set
+        up and tear down code.
+        
+        Since layers can be nested, these layer base classes don't do the
+        actual ZopeTestCase test fixture set up unless a subclass explicitly
+        sets _setup_fixture (or _configure_portal for PortalTestCase) to True.
+        Best practice should be to instantiate any layers depending on the ZTC
+        test fixture with the ZTCLayer as a base layer as above.
+        
+        Create a layer class that subclasses the appropriate base layer class.
+        This layer class overrides the afterSetUp() method just as with
+        ZopeTestCase based test cases.  The afterSetUp method here excercises
+        the factilities provided by ZopeTestCase and an additional loadZCML()
+        method for loading ZCML files with ZCML debug mode enabled.
+        
+            >>> from collective.testcaselayer import testing
+            >>> class FooLayer(ztc.BaseZTCLayer):
+            ...     def afterSetUp(self):
+            ...         self.login()
+            ...         self.setRoles(['Manager'])
+            ...         self.loadZCML('loadzcml.zcml', package=testing)
+            >>> foo_layer = FooLayer([ztc.ztc_layer])
+        
+        To test the effects of just this layer, set up the base layer
+        separately.
+        
+            >>> runner.setup_layer(options, ztc.ztc_layer, setup_layers)
+            Set up collective.testcaselayer.ztc.ZTCLayer in ... seconds.
+        
+        Before setting up the new layer, only the ZopeTestCase fixture is set
+        up.
+        
+            >>> SecurityManagement.getSecurityManager().getUser()
+            <SpecialUser 'Anonymous User'>
+        
+            >>> app = ZopeTestCase.app()
+            >>> user = getattr(app, ZopeTestCase.folder_name
+            ...                ).acl_users.getUserById(ZopeTestCase.user_name)
+            >>> user.getRoles()
+            ('test_role_1_', 'Authenticated')
+            >>> ZopeTestCase.close(app)
+        
+        Set up the new layer.
+        
+            >>> runner.setup_layer(options, foo_layer, setup_layers)
+            Set up FooLayer in ... seconds.
+        
+        Now the changed made by afterSetUp() are reflected.
+        
+            >>> authenticated = SecurityManagement.getSecurityManager(
+            ...     ).getUser()
+            >>> authenticated
+            <User 'test_user_1_'>
+            >>> authenticated.getRoles()
+            ('Manager', 'Authenticated')
+        
+        Tear down just the new layer.
+        
+            >>> runner.tear_down_unneeded(
+            ...     options, [ztc.ztc_layer], setup_layers)
+            Tear down FooLayer in ... seconds.
+        
+        Everything is restored to its previous state.
+        
+            >>> SecurityManagement.getSecurityManager().getUser()
+            <SpecialUser 'Anonymous User'>
+        
+            >>> app = ZopeTestCase.app()
+            >>> user = getattr(app, ZopeTestCase.folder_name
+            ...                ).acl_users.getUserById(ZopeTestCase.user_name)
+            >>> user.getRoles()
+            ('test_role_1_', 'Authenticated')
+            >>> ZopeTestCase.close(app)
+        
+        Finish tearing down the rest of the layers.
+        
+            >>> runner.tear_down_unneeded(options, [], setup_layers)
+            Tear down collective.testcaselayer.ztc.ZTCLayer in ... seconds.
+        
+        .. -*-doctest-*-
+        
+        collective.testcaselayer.layer
+        ==============================
+        
+        In many cases, classes can be used as layers themselves where the base
+        classes are used as the base layers.  This means that the layer
+        inheritance herirarchy, used for code factoring and re-use, becomes
+        bound to the layer set up heirachy, used to determine which layers are
+        set up when and for which tests.  IOW, it is not possible for a layer
+        to subclass another layer *just* to re-use functionality without also
+        depending on that layer being set up as well.  Additionally, when
+        using classes as layers, all layer methods (setUp, tearDown,
+        testSetUp, and testTearDown) must be defined on class layers with base
+        classes to avoid accidentally running the method of a base class/layer
+        at the wrong time.
+        
+        The collective.testcaselayer.layer module provides a Layer class
+        intended to be used as a base class for classes whoss instances will
+        be layers.  Instances of this class can also be used directly solely
+        to group layers together into one layer.
+        
+            >>> from collective.testcaselayer import layer
+        
+        Layer Classes
+        -------------
+        
+        Use the collective.testcaselayer.layer.Layer class to create your own
+        layer classes.
+        
+            >>> class FooLayer(layer.Layer):
+            ...     def setUp(self): print 'running FooLayer.setUp'
+        
+        The instances of the class will be your actual zope.testing layer.
+        
+            >>> foo_layer = FooLayer()
+        
+            >>> from zope.testing.testrunner import runner
+            >>> options = runner.get_options([], [])
+            >>> runner.setup_layer(options, foo_layer, {})
+            Set up FooLayer running FooLayer.setUp
+            in ... seconds.
+        
+        Beware that the Layer class itself or subclasses can be used
+        themselves as layers without error but that is not how they're
+        intended to be used.  For example, using the FooLayer class as a layer
+        will treat the Layer base class as a layer itself and will set it up
+        which is meaningless.  Further, it will try to call the setUp method
+        as a class method which will raise an error.
+        
+            >>> runner.setup_layer(options, FooLayer, {})
+            Traceback (most recent call last):
+            TypeError: unbound method setUp() must be called with FooLayer instance as first argument (got nothing instead)
+        
+        Base Layers
+        -----------
+        
+        Base layers are designated by passing them into the layer class on
+        instantiation.
+        
+        Create another layer class.
+        
+            >>> class BarLayer(layer.Layer):
+            ...     def setUp(self): print 'running BarLayer.setUp'
+        
+        Create the new layer that uses foo_layer as a base layer.
+        
+            >>> bar_layer = BarLayer([foo_layer])
+        
+        Set up the layers.
+        
+            >>> runner.setup_layer(options, bar_layer, {})
+            Set up FooLayer running FooLayer.setUp
+            in ... seconds.
+            Set up BarLayer running BarLayer.setUp
+            in ... seconds.
+        
+        Grouping Layers
+        ---------------
+        
+        If all that's required from a layer is that it groups other layers as
+        base layers, then the collective.testcaselayer.layer.Layer class can
+        be used directly.
+        
+        Create another layer.
+        
+            >>> class BazLayer(layer.Layer):
+            ...     def setUp(self): print 'running BazLayer.setUp'
+            >>> baz_layer = BazLayer()
+        
+        Instantiate the Layer class with the base layers, a module, and a name.
+        
+            >>> qux_layer = layer.Layer(
+            ...     [bar_layer, baz_layer],
+            ...     module='QuxModule', name='QuxLayer')
+        
+        Set up the layers.
+        
+            >>> runner.setup_layer(options, qux_layer, {})
+            Set up FooLayer running FooLayer.setUp
+            in ... seconds.
+            Set up BarLayer running BarLayer.setUp
+            in ... seconds.
+            Set up BazLayer running BazLayer.setUp
+            in ... seconds.
+            Set up QuxModule.QuxLayer in ... seconds.
+        
+        By default, layers have the same module and name as their class.  If
+        you want the layer to have a different module or name than the class,
+        then the both can be passed in as arguments.  This is useful in this
+        case and any time multiple instances of the same layer class will be
+        used as layers.
+        
+        Instantiating the Layer class directly without passing a name raises
+        an error.
+        
+            >>> layer.Layer([], module='QuxModule')
+            Traceback (most recent call last):
+            ValueError: The "name" argument is requied when instantiating
+            "Layer" directly
+        
+        If the Layer class is instantiated directly without passing a module,
+        the module name from the calling frame is used.
+        
+            >>> __name__ = 'BahModule'
+            >>> quux_layer = layer.Layer([], name='QuuxLayer')
+            >>> runner.setup_layer(options, quux_layer, {})
+            Set up BahModule.QuuxLayer in ... seconds.
+        
+        .. -*-doctest-*-
+        
+        collective.testcaselayer.sandbox
+        ================================
+        
+        Sandboxed layers commit the changes made on setup to a sandboxed
+        DemoStorage that uses the previous ZODB storage as a base storgae.  On
+        tear down, the layer will restore the base storage.  This allows the
+        layer to use and commit changes to a fully functional ZODB while
+        isolating the effects of the layer from any parent or sibling layers.
+        
+        As one would expect, layers that use the sandboxed layer as a base
+        layer will see the ZODB according the base layer.  Additionally,
+        sandboxed layers can use other sandboxed layers as base layers, thus
+        allowing for nested but isolated ZODB sandboxes.
+        
+        Create a sandboxed layer.  Layers that subclass Sandboxed should
+        implement an afterSetUp method to do any changes for the layer.
+        Additionally, such layers may also provide a beforeTearDown method to
+        tear down any changes made by the layer that won't be cleaned up by
+        restoring the ZODB.
+        
+            >>> from collective.testcaselayer import ztc
+            >>> class FooLayer(ztc.BaseZTCLayer):
+            ...     def afterSetUp(self):
+            ...         self.app.foo = 'foo'
+            >>> foo_layer = FooLayer()
+        
+        Before the layer is set up, the ZODB doesn't reflect the layer's
+        changes.
+        
+            >>> from Testing import ZopeTestCase
+            >>> app = ZopeTestCase.app()
+            >>> getattr(app, 'foo', None)
+            >>> ZopeTestCase.close(app)
+        
+        After the layer is set up, the changes have been committed to the
+        ZODB.
+        
+            >>> foo_layer.setUp()
+        
+            >>> app = ZopeTestCase.app()
+            >>> getattr(app, 'foo', None)
+            'foo'
+            >>> ZopeTestCase.close(app)
+        
+        Create a sandboxed layer that uses the first layer as a base layer.
+        
+            >>> class BarLayer(ztc.BaseZTCLayer):
+            ...     def afterSetUp(self):
+            ...         self.app.bar = 'bar'
+            >>> bar_layer = BarLayer([foo_layer])
+        
+        Before the sub-layer is set up, the ZODB still reflects the base
+        layer's changes but not the sub-layer's changes.
+        
+            >>> app = ZopeTestCase.app()
+            >>> getattr(app, 'foo', None)
+            'foo'
+            >>> getattr(app, 'bar', None)
+            >>> ZopeTestCase.close(app)
+        
+        After the sub-layer is set up, the ZODB reflects the changes from both
+        layers.
+        
+            >>> bar_layer.setUp()
+        
+            >>> app = ZopeTestCase.app()
+            >>> getattr(app, 'foo', None)
+            'foo'
+            >>> getattr(app, 'bar', None)
+            'bar'
+            >>> ZopeTestCase.close(app)
+        
+        Any test case using Testing.ZopeTestCase.sandbox.Sandboxed, such as
+        zope.testbrowser tests run against Zope2, calls the ZopeLite.sandbox()
+        function without any arguments.  In such cases, the resulting per-test
+        sandboxed ZODB will still be based on the layer sandboxed ZODB.
+        
+            >>> app = ZopeTestCase.Zope2.app(
+            ...     ZopeTestCase.Zope2.sandbox().open())
+            >>> getattr(app, 'foo', None)
+            'foo'
+            >>> getattr(app, 'bar', None)
+            'bar'
+            >>> app._p_jar.close()
+        
+        After the sub-layer is torn down, the ZODB reflects only the changes
+        from the base layer.
+        
+            >>> bar_layer.tearDown()
+        
+            >>> app = ZopeTestCase.app()
+            >>> getattr(app, 'foo', None)
+            'foo'
+            >>> getattr(app, 'bar', None)
+            >>> ZopeTestCase.close(app)
+        
+        After the base layer is torn down, the ZODB doesn't reflect the changes
+        from either layer.
+        
+            >>> foo_layer.tearDown()
+        
+            >>> app = ZopeTestCase.app()
+            >>> getattr(app, 'foo', None)
+            >>> getattr(app, 'bar', None)
+            >>> ZopeTestCase.close(app)
+        
+        .. -*-doctest-*-
+        
+        Functional and testbrowser testing patches
+        ==========================================
+        
+        To use these patches, include the collective.testcaselayer
+        configure.zcml.  The patches address some bugs in
+        Testing.ZopeTestCase.
+        
+        Data streamed to the response
+        -----------------------------
+        
+        Due to some behavior in Testing.ZopeTestCase.zopedoctest.functional,
+        the testbrowser.contents was empty when data had been streamed
+        directly into the response (as opposed to returning the data from the
+        callable published).  This made it difficult to do functional testing
+        for code that needed to stream data to the response for performance,
+        such as when the response data is very large and would consume too
+        much memory.
+        
+        Stream iterators
+        ----------------
+        
+        A patch taken from plone.app.blob is also included so that HTTP
+        responses in the test environment support stream iterators.  This
+        allows functional testing of code that makes use of stream iterators.
+        
+        HTTP_REFERRER
+        -------------
+        
+        Due to `bug #98437 <https://bugs.launchpad.net/bugs/98437>`_,
+        "TestBrowser Referer: header set to 'localhost'", some testbrowser
+        requests would raise NotFound.  Two examples would be visiting the
+        Plone login_form directly rather than following a link, or using the
+        Plone content_status_history form.    
+        
+        Test the Patches
+        ----------------
+        
+        Add a document which renders the referer.
+        
+            >>> folder.addDTMLDocument(
+            ...     'index_html', file='''\
+            ... <html><body>
+            ... <dtml-var "REQUEST['HTTP_REFERER']">
+            ... <form action="." method="post" id="post"></form>
+            ... <form action="." method="get" id="get"></form>
+            ... <a href=".">link</a>
+            ... </html></body>
+            ... ''')
+            ''
+        
+        Open a browser.
+        
+            >>> from Products.Five.testbrowser import Browser
+            >>> browser = Browser()
+            >>> browser.handleErrors = False
+        
+        Before patching, fresh requests have an invalid referer.
+        
+            >>> browser.open(folder.index_html.absolute_url())
+            >>> print browser.contents
+            <html><body>
+            localhost
+            <form action="." method="post" id="post"></form>
+            <form action="." method="get" id="get"></form>
+            <a href=".">link</a>
+            </html></body>
+        
+        Add a script that streams content to the response.
+        
+            >>> from Products.PythonScripts import PythonScript
+            >>> PythonScript.manage_addPythonScript(folder, 'foo.txt')
+            ''
+            >>> folder['foo.txt'].ZPythonScript_edit(params='', body='''\
+            ... context.REQUEST.response.setHeader('Content-Type', 'text/plain')
+            ... context.REQUEST.response.setHeader(
+            ...     'Content-Disposition',
+            ...     'attachment;filename=foo.txt')
+            ... context.REQUEST.response.write('foo')''')
+        
+        Before patching, data streamed to the response is not in the browser
+        contents.
+        
+            >>> browser.open(folder['foo.txt'].absolute_url())
+            >>> browser.isHtml
+            False
+            >>> print browser.contents
+        
+        Add a script that returns a stream iterator.
+        
+            >>> from Products.PythonScripts import PythonScript
+            >>> PythonScript.manage_addPythonScript(folder, 'bar.txt')
+            ''
+            >>> folder['bar.txt'].ZPythonScript_edit(params='', body='''\
+            ... from collective.testcaselayer.testing.iterator import (
+            ...     StreamIterator)
+            ... context.REQUEST.response.setHeader('Content-Type', 'text/plain')
+            ... context.REQUEST.response.setHeader(
+            ...     'Content-Disposition',
+            ...     'attachment;filename=bar.txt')
+            ... return StreamIterator(['bar', 'qux'])''')
+        
+            >>> from AccessControl import allow_module
+            >>> allow_module('collective.testcaselayer.testing.iterator')
+        
+        Stream iterators are not supported.
+        
+            >>> browser.open(folder['bar.txt'].absolute_url())
+            >>> browser.isHtml
+            False
+            >>> print browser.contents
+            ['bar', 'qux']
+        
+        Apply the patches.
+        
+            >>> from Products.Five import zcml
+            >>> from Products.Five import fiveconfigure
+            >>> from collective import testcaselayer
+            >>> fiveconfigure.debug_mode = True
+            >>> zcml.load_config('testing.zcml', package=testcaselayer)
+            >>> fiveconfigure.debug_mode = False
+        
+        A fresh request should have no referer.
+        
+            >>> browser.open(folder.index_html.absolute_url())
+            >>> print browser.contents
+            <html><body>
+            <form action="." method="post" id="post"></form>
+            <form action="." method="get" id="get"></form>
+            <a href=".">link</a>
+            </html></body>
+        
+        Submitting a form via post should have no referer.
+        
+            >>> browser.getForm('post').submit()
+            >>> print browser.contents
+            <html><body>
+            <form action="." method="post" id="post"></form>
+            <form action="." method="get" id="get"></form>
+            <a href=".">link</a>
+            </html></body>
+        
+        Submitting a form via get should have no referer.
+        
+            >>> browser.getForm('get').submit()
+            >>> print browser.contents
+            <html><body>
+            <form action="." method="post" id="post"></form>
+            <form action="." method="get" id="get"></form>
+            <a href=".">link</a>
+            </html></body>
+        
+        Clicking a link should set the referer.
+        
+            >>> browser.getLink('link').click()
+            >>> print browser.contents
+            <html><body>
+            http://nohost/test_folder_1_/...
+            <form action="." method="post" id="post"></form>
+            <form action="." method="get" id="get"></form>
+            <a href=".">link</a>
+            </html></body>
+        
+        Data streamed to the response is now in the browser contents.
+        
+            >>> browser.open(folder['foo.txt'].absolute_url())
+            >>> browser.isHtml
+            False
+            >>> print browser.contents
+            Status: 200 OK
+            X-Powered-By: Zope (www.zope.org), Python (www.python.org)
+            Content-Length: 0
+            Content-Type: text/plain
+            Content-Disposition: attachment;filename=foo.txt
+            foo
+        
+        Stream iterators are now in the browser contents.
+        
+            >>> browser.open(folder['bar.txt'].absolute_url())
+            >>> browser.isHtml
+            False
+            >>> print browser.contents
+            barqux
+        
+        Changelog
+        =========
+        
+        1.6 (2012-10-17)
+        ----------------
+        
+        * Don't break if the portal has no portal_kss tool.
+          [davisagli]
+        
+        1.5 - 2012-05-18
+        ----------------
+        
+        * Plone 4.1 compatibility.
+          [rossp]
+        
+        * Let layer tear down do cleanup.  Allows post_mortem debugging to see
+          the state in the TB before DB connections are closed or other
+          cleanup is done.
+          [rossp]
+        
+        1.4 - 2011-07-15
+        ----------------
+        
+        * Move the mock mail host to an actual GS profile so it won't be
+          replaced when dependent layers run their own profiles.  Also makes
+          the mock mail host usable outside of tests.
+          [rossp]
+        
+        * Add some utility methods for setting testbrowser AT calendar widgets
+          without end/beginning-of-month intermittent failures.
+          [rossp]
+        
+        * Avoid a version conflict between PloneTestCase and
+          zope.testing/testrunner.
+          [rossp]
+        
+        1.3 - 2010-02-09
+        ------------------
+        
+        * Add a loadZCML convenience method [rossp]
+        
+        * Add a common layer with some useful test setup [rossp]
+        
+        * Add a mock mail host layer [rossp]
+        
+        1.2.2 - 2009-11-14
+        ------------------
+        
+        * Add functional testing support for stream iterator responses.  Taken
+          from witsch's plone.app.blob testing patches.
+          [rossp]
+        
+        * Zope 2.10-2.12 compatibility
+          [rossp, witsch]
+        
+        * Fix `Sandboxed` replacement for Zope 2.12 / Plone 4.
+          [witsch]
+        
+        1.2.1 - 2009-10-11
+        ------------------
+        
+        * Move the ZTC functional doctest monkey patches to testing.zcml so
+          that they don't get picked up under auto-include.  optilude reported
+          this was breaking debug-mode.
+        
+        1.2 - 2009-08-21
+        ----------------
+        
+        * Add a patch so that data streamed to the response is available in
+          testbrowser.contents. [rossp]
+        * Add a patch for the HTTP_REFERER testbrowser bug.
+          https://bugs.launchpad.net/bugs/98437 [rossp]
+        
+        1.1 - 2009-07-29
+        ----------------
+        
+        * Fix release.  Files were missing due to the setuptools interaction
+          with SVN 1.6.
+        
+        1.0 - 2009-07-29
+        ----------------
+        
+        * Tested against Plone 3.3rc4
+        
+        * Add sample code for basic Plone test case layers
+        
+        * Deprecate zope.testing<3.6 support
+        
+        * The collective.testcaselayer.ptc module needs to call
+          ptc.setupPloneSite() in order to make sure the plone site exists
+        
+        0.2 - 2008-01-08
+        ----------------
+        
+        * Make the self.folder attribute available in PortalTestCase
+          sub-layers
+        * Make tests compatible with zope.testing.testrunner refactoring
+        
+        0.1 - 2008-05-23
+        ----------------
+        
+        * Initial release
+        
+        
+        TODO
+        ====
+        
+        * Add convenience method for loading ZCML. (witsch)
+        
+        * Factor out collective.testclasslayer.layer
+        
+        The collective.testclasslayer.layer module doesn't actually have
+        anything to do with test cases, but I didn't want to create a separate
+        package just for this one bit.  If someone wants to put this in
+        zope.testing or some other common testing dependency, that would be
+        great.
+        
+        * Factor unittest.TestCase out of Testing.ZopeTestCase.base.TestCase
+        
+        It might be appropriate to refactor out the ZTC specific pieces of the
+        test cases in the Testing.ZopeTestCase package such that there is a
+        common base class that doesn't subclass unittest.TestCase.  With this
+        in place we could do away with collective.testcaselayer.testcase and
+        have common base classes that could be used either as layers or as
+        test cases.
+        
+Platform: UNKNOWN
+Classifier: Programming Language :: Python
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
