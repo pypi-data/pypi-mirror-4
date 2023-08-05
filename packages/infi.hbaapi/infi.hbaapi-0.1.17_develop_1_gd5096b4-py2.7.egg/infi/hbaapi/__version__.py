@@ -1,0 +1,10 @@
+__version__ = "0.1.17-develop-1-gd5096b4"
+__git_commiter_name__ = "Arnon Yaari"
+__git_commiter_email__ = "arnony@infinidat.com"
+__git_branch__ = 'develop'
+__git_remote_tracking_branch__ = 'origin/develop'
+__git_remote_url__ = 'git@gitserver:/host/hbaapi.git'
+__git_head_hash__ = 'd5096b4b99a8bf4944c46bf0c0e4682dcc9c62f2'
+__git_head_subject__ = 'TRIVIAL update projector pypi configuration'
+__git_head_message__ = ''
+__git_dirty_diff__ = ''
