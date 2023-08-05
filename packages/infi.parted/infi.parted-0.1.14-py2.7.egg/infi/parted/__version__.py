@@ -1,0 +1,10 @@
+__version__ = "0.1.14"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '50e7fd5308e20de1957e4991dcb1ad703c90ca3c'
+__git_head_subject__ = 'Finished release v0.1.14.'
+__git_head_message__ = '# By Guy Rozendorn (2) and Arnon Yaari (1)\n* release/v0.1.14:\n  TRIVIAL skeleton update\n  HIP-489 retry mkfs several times\n  empty commit after version v0.1.13'
+__git_dirty_diff__ = ''
