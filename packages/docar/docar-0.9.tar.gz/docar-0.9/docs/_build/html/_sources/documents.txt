@@ -1,0 +1,142 @@
+Documents
+=========
+
+::
+
+                      +----------+
+                      | Backends | <- apply map fields
+                      +----------+ -+
+                           |        |   +------+
+                        - fetch     +-- | From | <- fetch/apply fetch fields
+                        - save      |   | Dict |
+                        - delete    |   +------+
+                           |        |
+    +--------+        +----------+  |   +------+
+    |fetch   |-+----> |          | -+-- |  To  | -> render/apply render fields
+    |update  |-+      | Document |      | Dict | -> save/apply save fields
+    |save    |-+      |          |      +------+
+    |delete  |-+      +----------+
+    |render  |-+
+    |validate|-+
+    |uri     |-+
+    +--------+
+
+.. py:class:: docar.Document
+
+All documents inherit from the :class:`docar.Document` class. A resource maps
+to a backend, see the section about `Backends`_ for more information. Each
+attribute of the document maps to a field of the resource in the backend. See
+the section about `Fields`_ for more informations
+
+Document methods
+----------------
+
+A document exposes a simple API:
+
+.. py:method:: Document.fetch(*args, **kwargs)
+
+Fetch the resource from the backend and bind the document to this resource.
+
+.. py:method:: Document.save(*args, **kwargs)
+
+If the document does not exist on the backend, create it. Otherwise update the
+existing backend with information stored in the current document.
+
+.. py:method:: Document.delete(*args, **kwargs)
+
+Delete the current resource from the backend.
+
+.. py:method:: Document.update(changes, *args, **kwargs)
+
+Update a document from a dictionary.
+
+.. py:method:: Document.uri()
+
+The :meth:`~Document.uri` method returns the resource identifier of this
+resource. This method needs to be implemented by the user. It is used to
+render the link to itself. The return value of this method should always be the
+full location of the resource as a string::
+
+    class Article(Document):
+        id = fields.NumberField()
+
+        def uri(self):
+            return "http://location/articles/%s/" % self.id
+
+.. py:method:: Document.validate()
+
+Validate the fields of the document. It validates the correct datatypes of the
+fields. You can also attach validator functions to a fields that can validate
+additional aspects of the field.
+
+``Meta``
+--------
+
+.. py:class:: Meta
+
+The behaviour of the document can be controlled by setting attributes on the
+document's :class:`Meta` class.
+
+.. code-block:: python
+
+    class Article(Document):
+        id = fields.NumberField()
+        name = fields.StringField()
+
+        class Meta:
+            identifier = 'id'
+
+There are only a few options available at the moment:
+
+.. py:attribute:: Meta.identifier
+
+Specify the field name, that serves as an unique identifier for this document.
+The field is specified as a simple string. If you want to use more than one
+field as identifiers, write them as a list of strings::
+
+    class Meta:
+        identifier = ['id', 'name']
+
+Every document needs to specify an identifer. Every resource should be uniquely
+selectable by the value of those fields. The default identifier is named ``id``.
+
+.. py:attribute:: Meta.backend_type
+
+Choose the backend this document should connect to. See the section about
+`Backends`_ below for details. The default backend is the `Django backend`_.
+
+.. py:attribute:: Meta.model
+
+This option is only useful for documents connecting to the `Django Backend`_.
+It takes a class as argument and specifies which django model use. The argument
+must be a class and **can't** be a string::
+
+    from djangoapp.models import ArticleModel
+
+    class Article(Document):
+        id = fields.NumberField()
+
+        class Meta:
+            model = ArticleModel
+
+.. py:attribute:: Meta.context
+
+A list of strings that specify which additional context variables are used by
+this document. See the sections about `Document Context`_ for more information.
+
+Collections
+===========
+
+::
+
+                                                 +-> Document
+                                                 |
+                             +--> collection_set +-> Document
+                             |    -------------- |
+                             |                   +-> Document
+                             |
+    +-------+      +------------+     +------+
+    |add    |-+--> |            | --> |  To  | -> render
+    |del    |-+    | Collection |     | Dict |
+    |render |-+    |            |     +------+
+    +-------+      +------------+
