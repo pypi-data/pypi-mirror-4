@@ -1,0 +1,342 @@
+======
+README
+======
+
+This package provides an elasticsearch client. Note we use a different port
+within our elasticsearch server stub (45299 instead of 9200). See
+elasticsearch/config for more info:
+
+  >>> from pprint import pprint
+  >>> from p01.elasticsearch import interfaces
+  >>> from p01.elasticsearch.pool import ServerPool
+  >>> from p01.elasticsearch.pool import ElasticSearchConnectionPool
+
+  >>> servers = ['localhost:45299']
+  >>> serverPool = ServerPool(servers, retryDelay=10, timeout=5)
+
+  >>> import p01.elasticsearch.testing
+  >>> statusRENormalizer = p01.elasticsearch.testing.statusRENormalizer
+
+ElasticSearchConnectionPool
+---------------------------
+
+We need to setup a elasticsearch connection pool:
+
+  >>> connectionPool = ElasticSearchConnectionPool(serverPool)
+
+The connection pool stores the connection in threading local. You can set the
+re-connection time which is by default set to 60 seconds:
+
+  >>> connectionPool
+  <ElasticSearchConnectionPool localhost:45299>
+
+  >>> connectionPool.reConnectIntervall
+  60
+
+  >>> connectionPool.reConnectIntervall = 30
+  >>> connectionPool.reConnectIntervall
+  30
+
+
+ElasticSearchConnection
+-----------------------
+
+Now we are able to get a connection which is persistent and observed by a 
+thread local from the pool:
+
+  >>> conn = connectionPool.connection
+  >>> conn
+  <ElasticSearchConnection localhost:45299>
+
+Such a connection provides a server pool which de connection can choose from.
+If a server goes down, another server get used. The Connection is also
+balancing http connections between all servers:
+
+  >>> conn.serverPool
+  <ServerPool retryDelay:10 localhost:45299>
+
+  >>> conn.serverPool.info
+  'localhost:45299'
+
+Also a maxRetries value is provided. If by default None is given the connection
+will choose a max retry of alive server e.g. len(self.serverPool.aliveServers):
+
+  >>> conn.maxRetries is None
+  True
+
+Another property called autoRefresh is responsible for call refresh implicit
+if a previous connection call changes the search index e.g. as the index call
+whould do:
+
+  >>> conn.autoRefresh
+  False
+
+And there is a marker for bulk size. This means if we use the bulk marker which
+some methods provide. The bulkMaxSize value makes sure that not more then the
+given amount of items get cached in the connection before sent to the server:
+
+  >>> conn.bulkMaxSize
+  400
+
+
+Mapping
+-------
+
+Our test setup uses a predefined mapping configuration. This, I guess, is the
+common use case in most projects. I'm not really a friend of dynamic mapping
+at least if compes to migration and legacy data handling. Bbut of corse for
+some use case dynamic mapping is a nice feature. At least if you have to index
+cawled data and offer a search over all (_all) fields. Let's test our
+predefined mappings:
+
+Up till Elasticsearch version 19.1, this would return {}, but now it returns
+status 404, so our code raises an exception. This will be fixed in
+elasticsearch 19.5.
+
+  >>> conn.getMapping()
+  {}
+
+As you can see, we don't get a default mapping yet. First we need to index at
+least one item. Let's index a fisrt job
+
+  >>> job = {'title': u'Wir suchen einen Marketingplaner',
+  ...        'description': u'Wir bieten eine gute Anstellung'}
+
+  >>> pprint(conn.index(job, 'testing', 'job', 1))
+  {u'_id': u'1',
+   u'_index': u'testing',
+   u'_type': u'job',
+   u'_version': 1,
+   u'ok': True}
+
+  >>> statusRENormalizer.pprint(conn.getMapping())
+  {u'testing': {u'job': {u'_all': {u'store': u'yes'},
+                         u'_id': {u'store': u'yes'},
+                         u'_index': {u'enabled': True},
+                         u'_type': {u'store': u'yes'},
+                         u'properties': {u'__name__': {u'boost': 2.0,
+                                                       u'include_in_all': False,
+                                                       u'null_value': u'na',
+                                                       u'type': u'string'},
+                                         u'contact': {u'include_in_all': False,
+                                                      u'properties': {u'firstname': {u'include_in_all': False,
+                                                                                     u'type': u'string'},
+                                                                      u'lastname': {u'include_in_all': False,
+                                                                                    u'type': u'string'}}},
+                                         u'description': {u'include_in_all': True,
+                                                          u'null_value': u'na',
+                                                          u'type': u'string'},
+                                         u'location': {u'geohash': True,
+                                                       u'lat_lon': True,
+                                                       u'type': u'geo_point'},
+                                         u'published': {u'format': u'date_optional_time',
+                                                        u'type': u'date'},
+                                         u'requirements': {u'properties': {u'description': {u'type': u'string'},
+                                                                           u'name': {u'type': u'string'}}},
+                                         u'tags': {u'index_name': u'tag',
+                                                   u'type': u'string'},
+                                         u'title': {u'boost': 2.0,
+                                                    u'include_in_all': True,
+                                                    u'null_value': u'na',
+                                                    u'type': u'string'}}}}}
+
+Let's define another item with more data and index them:
+
+  >>> import datetime
+  >>> job = {'title': u'Wir suchen einen Buchhalter',
+  ...        'description': u'Wir bieten Ihnen eine gute Anstellung',
+  ...        'requirements': [
+  ...            {'name': u'MBA', 'description': u'MBA Abschluss'}
+  ...        ],
+  ...        'tags': [u'MBA', u'certified'],
+  ...        'published': datetime.datetime(2011, 02, 24, 12, 0, 0),
+  ...        'contact': {
+  ...            'firstname': u'Jessy',
+  ...            'lastname': u'Ineichen',
+  ...        },
+  ...        'location':  [-71.34, 41.12]}
+  >>> pprint(conn.index(job, 'testing', 'job', 2))
+  {u'_id': u'2',
+   u'_index': u'testing',
+   u'_type': u'job',
+   u'_version': 1,
+   u'ok': True}
+
+
+  >>> import time
+  >>> time.sleep(1)
+
+get
+---
+
+Now let's get the job from our index by it's id. But first refresh our index:
+
+  >>> statusRENormalizer.pprint(conn.get(2, "testing", "job"))
+  {u'_id': u'2',
+   u'_index': u'testing',
+   u'_source': {u'contact': {u'firstname': u'Jessy', u'lastname': u'Ineichen'},
+                u'description': u'Wir bieten Ihnen eine gute Anstellung',
+                u'location': [..., ...],
+                u'published': datetime.datetime(2011, 2, 24, 12, 0),
+                u'requirements': [{u'description': u'MBA Abschluss',
+                                   u'name': u'MBA'}],
+                u'tags': [u'MBA', u'certified'],
+                u'title': u'Wir suchen einen Buchhalter'},
+   u'_type': u'job',
+   u'_version': 1,
+   u'exists': True}
+
+search
+------
+
+Now also let's try to search:
+
+  >>> response = conn.search("title:Buchhalter", 'testing', 'job')
+  >>> response
+  <SearchResponse testing/job/_search>
+
+  >>> statusRENormalizer.pprint(response.data)
+  {u'_shards': {u'failed': 0, u'successful': 5, u'total': 5},
+   u'hits': {u'hits': [{u'_id': u'2',
+                        u'_index': u'testing',
+                        u'_score': ...,
+                        u'_source': {u'contact': {u'firstname': u'Jessy',
+                                                  u'lastname': u'Ineichen'},
+                                     u'description': u'Wir bieten Ihnen eine gute Anstellung',
+                                     u'location': [..., ...],
+                                     u'published': datetime.datetime(2011, 2, 24, 12, 0),
+                                     u'requirements': [{u'description': u'MBA Abschluss',
+                                                        u'name': u'MBA'}],
+                                     u'tags': [u'MBA', u'certified'],
+                                     u'title': u'Wir suchen einen Buchhalter'},
+                        u'_type': u'job'}],
+             u'max_score': ...,
+             u'total': 1},
+   u'timed_out': False,
+   u'took': ...}
+
+As you can see, our search response wrapper knows about some important
+values:
+
+  >>> response.start
+  0
+
+  >>> response.size
+  0
+
+  >>> response.total
+  1
+
+  >>> response.pages
+  1
+
+  >>> pprint(response.hits)
+  [{u'_id': u'2',
+    u'_index': u'testing',
+    u'_score': ...,
+    u'_source': {u'contact': {u'firstname': u'Jessy',
+                              u'lastname': u'Ineichen'},
+                 u'description': u'Wir bieten Ihnen eine gute Anstellung',
+                 u'location': [..., ...],
+                 u'published': datetime.datetime(2011, 2, 24, 12, 0),
+                 u'requirements': [{u'description': u'MBA Abschluss',
+                                    u'name': u'MBA'}],
+                 u'tags': [u'MBA', u'certified'],
+                 u'title': u'Wir suchen einen Buchhalter'},
+    u'_type': u'job'}]
+
+Now let's search for more then one job:
+
+  >>> response = conn.search("Anstellung", 'testing', 'job')
+  >>> pprint(response.data)
+  {u'_shards': {u'failed': 0, u'successful': 5, u'total': 5},
+   u'hits': {u'hits': [{u'_id': u'1',
+                        u'_index': u'testing',
+                        u'_score': ...,
+                        u'_source': {u'description': u'Wir bieten eine gute Anstellung',
+                                     u'title': u'Wir suchen einen Marketingplaner'},
+                        u'_type': u'job'},
+                       {u'_id': u'2',
+                        u'_index': u'testing',
+                        u'_score': ...,
+                        u'_source': {u'contact': {u'firstname': u'Jessy',
+                                                  u'lastname': u'Ineichen'},
+                                     u'description': u'Wir bieten Ihnen eine gute Anstellung',
+                                     u'location': [..., ...],
+                                     u'published': datetime.datetime(2011, 2, 24, 12, 0),
+                                     u'requirements': [{u'description': u'MBA Abschluss',
+                                                        u'name': u'MBA'}],
+                                     u'tags': [u'MBA', u'certified'],
+                                     u'title': u'Wir suchen einen Buchhalter'},
+                        u'_type': u'job'}],
+             u'max_score': ...,
+             u'total': 2},
+   u'timed_out': False,
+   u'took': ...}
+
+Now try to limit the search result using form and size parameters:
+
+  >>> params = {'from': 0, 'size': 1}
+  >>> response = conn.search("Anstellung", 'testing', 'job', **params)
+  >>> pprint(response.data)
+  {u'_shards': {u'failed': 0, u'successful': 5, u'total': 5},
+   u'hits': {u'hits': [{u'_id': u'1',
+                        u'_index': u'testing',
+                        u'_score': ...,
+                        u'_source': {u'description': u'Wir bieten eine gute Anstellung',
+                                     u'title': u'Wir suchen einen Marketingplaner'},
+                        u'_type': u'job'}],
+             u'max_score': ...,
+             u'total': 2},
+   u'timed_out': False,
+   u'took': ...}
+
+  >>> response.start
+  0
+
+  >>> response.size
+  1
+
+  >>> response.total
+  2
+
+  >>> response.pages
+  2
+
+  >>> params = {'from': 1, 'size': 1}
+  >>> response = conn.search("Anstellung", 'testing', 'job', **params)
+  >>> pprint(response.data)
+  {u'_shards': {u'failed': 0, u'successful': 5, u'total': 5},
+   u'hits': {u'hits': [{u'_id': u'2',
+                        u'_index': u'testing',
+                        u'_score': ...,
+                        u'_source': {u'contact': {u'firstname': u'Jessy',
+                                                  u'lastname': u'Ineichen'},
+                                     u'description': u'Wir bieten Ihnen eine gute Anstellung',
+                                     u'location': [..., ...],
+                                     u'published': datetime.datetime(2011, 2, 24, 12, 0),
+                                     u'requirements': [{u'description': u'MBA Abschluss',
+                                                        u'name': u'MBA'}],
+                                     u'tags': [u'MBA', u'certified'],
+                                     u'title': u'Wir suchen einen Buchhalter'},
+                        u'_type': u'job'}],
+             u'max_score': ...,
+             u'total': 2},
+   u'timed_out': False,
+   u'took': ...}
+
+  >>> response.start
+  1
+
+  >>> response.size
+  1
+
+  >>> response.total
+  2
+
+  >>> response.pages
+  2
+
+As you can see in the above sample, we have got only one hit in each query 
+beacuse of our size=1 parameter and both search results show the total of 2
+which we could get from the server without using size and from.

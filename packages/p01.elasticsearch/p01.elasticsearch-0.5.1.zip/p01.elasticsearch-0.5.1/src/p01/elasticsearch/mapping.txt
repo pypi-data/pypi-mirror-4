@@ -1,0 +1,176 @@
+======
+README
+======
+
+Note: this test will start and run an elasticsearch server on port 45299!
+
+This test experiments with some mapping configurations. Since the elasitcsearch
+documentation is not very clear to me. I try to find out hot the mapping part
+has to be done here.
+
+  >>> from pprint import pprint
+  >>> from p01.elasticsearch import interfaces
+  >>> from p01.elasticsearch.pool import ServerPool
+  >>> from p01.elasticsearch.pool import ElasticSearchConnectionPool
+
+Setup a conncetion:
+
+  >>> servers = ['localhost:45299']
+  >>> serverPool = ServerPool(servers)
+  >>> connectionPool = ElasticSearchConnectionPool(serverPool)
+  >>> conn = connectionPool.connection
+
+Let's setup a mapping definition:
+
+  >>> mapping = {
+  ...     'item': {
+  ...         'properties': {
+  ...             'boolean': {
+  ...                 'type': 'boolean'
+  ...             },
+  ...             'date': {
+  ...                 'type': 'date'
+  ...             },
+  ...             'datetime': {
+  ...                 'type': 'date'
+  ...             },
+  ...             'double': {
+  ...                 'type': 'double'
+  ...             },
+  ...             'float': {
+  ...                 'type': 'float'
+  ...             },
+  ...             'integer': {
+  ...                 'type': 'integer'
+  ...             },
+  ...             'long': {
+  ...                 'type': 'long'
+  ...             },
+  ...             'string': {
+  ...                 'type': 'string',
+  ...                 'null_value' : 'nada'
+  ...             },
+  ...         }
+  ...     }
+  ... }
+
+No let's add the mapping using our putMapping method and call refresh: 
+
+  >>> conn.putMapping(mapping, 'test-mapping', 'item')
+  Traceback (most recent call last):
+  ...
+  IndexMissingException: [test-mapping] missing
+
+as you can see there was an exception because our index doesn't exist yet.
+Let's add our test-mapping index and try again:
+
+  >>> conn.createIndex('test-mapping')
+  {u'acknowledged': True, u'ok': True}
+
+  >>> pprint(conn.refresh('test-mapping', 4))
+  {u'_shards': {u'failed': 0, u'successful': ..., u'total': 10}, u'ok': True}
+
+  >>> conn.putMapping(mapping, 'test-mapping', 'item')
+  {u'acknowledged': True, u'ok': True}
+
+  >>> pprint(conn.refresh('test-mapping', 4))
+  {u'_shards': {u'failed': 0, u'successful': ..., u'total': 10}, u'ok': True}
+
+And get our mapping:
+
+  >>> pprint(conn.getMapping('test-mapping', 'item'), width=60)
+  {u'item': {u'properties': {u'boolean': {u'type': u'boolean'},
+                             u'date': {u'format': u'dateOptionalTime',
+                                       u'type': u'date'},
+                             u'datetime': {u'format': u'dateOptionalTime',
+                                           u'type': u'date'},
+                             u'double': {u'type': u'double'},
+                             u'float': {u'type': u'float'},
+                             u'integer': {u'type': u'integer'},
+                             u'long': {u'type': u'long'},
+                             u'string': {u'null_value': u'nada',
+                                         u'type': u'string'}}}}
+
+Now let's index a new item:
+
+  >>> import datetime
+  >>> doc = {'boolean': True,
+  ...        'datetime': datetime.datetime(2011, 02, 24, 12, 0, 0),
+  ...        'date': datetime.date(2011, 02, 24),
+  ...        'float': float(42),
+  ...        'integer': int(42),
+  ...        'long': long(42*10000000000000000),
+  ...        'string': 'string'}
+  >>> conn.index(doc, 'test-mapping', 'item', 1)
+  {u'_type': u'item', u'_id': u'1', u'ok': True, u'_version': 1, u'_index': u'test-mapping'}
+
+refresh index:
+
+  >>> pprint(conn.refresh('test-mapping', 4))
+  {u'_shards': {u'failed': 0, u'successful': 5, u'total': 10}, u'ok': True}
+
+and search for our index items:
+
+  >>> response = conn.search('string', 'test-mapping', 'item')
+  >>> data = response.data
+  >>> pprint(data)
+  {u'_shards': {u'failed': 0, u'successful': 5, u'total': 5},
+   u'hits': {u'hits': [{u'_id': u'1',
+                        u'_index': u'test-mapping',
+                        u'_score': ...,
+                        u'_source': {u'boolean': True,
+                                     u'date': datetime.datetime(2011, 2, 24, 0, 0),
+                                     u'datetime': datetime.datetime(2011, 2, 24, 12, 0),
+                                     u'float': 42.0,
+                                     u'integer': 42,
+                                     u'long': 420000000000000000L,
+                                     u'string': u'string'},
+                        u'_type': u'item'}],
+             u'max_score': ...,
+             u'total': 1},
+   u'timed_out': False,
+   u'took': ...}
+
+Now check our values:
+
+  >>> source = data['hits']['hits'][0]['_source']
+  >>> pprint(source)
+  {u'boolean': True,
+   u'date': datetime.datetime(2011, 2, 24, 0, 0),
+   u'datetime': datetime.datetime(2011, 2, 24, 12, 0),
+   u'float': 42.0,
+   u'integer': 42,
+   u'long': 420000000000000000L,
+   u'string': u'string'}
+
+  >>> isinstance(source['boolean'], bool)
+  True
+
+  >>> isinstance(source['datetime'], datetime.datetime)
+  True
+
+  >>> isinstance(source['date'], datetime.date)
+  True
+
+  >>> isinstance(source['float'], float)
+  True
+
+  >>> isinstance(source['integer'], int)
+  True
+
+  >>> isinstance(source['long'], long)
+  True
+
+  >>> isinstance(source['string'], basestring)
+  True
+
+  >>> isinstance(source['string'], unicode)
+  True
+
+Note, the datetime and date are also datetime and date items:
+
+  >>> isinstance(source['date'], datetime.datetime)
+  True
+
+  >>> isinstance(source['datetime'], datetime.date)
+  True

@@ -1,0 +1,224 @@
+======
+README
+======
+
+Note: this test will start and run an elasticsearch server on port 45299!
+
+This test shows how to index items using the bulk concept.
+
+  >>> from pprint import pprint
+  >>> from p01.elasticsearch import interfaces
+  >>> from p01.elasticsearch.pool import ServerPool
+  >>> from p01.elasticsearch.pool import ElasticSearchConnectionPool
+
+  >>> servers = ['localhost:45299']
+  >>> serverPool = ServerPool(servers)
+
+
+ElasticSearchConnection
+-----------------------
+
+Now we are able to get a connection which is persistent and observed by a 
+thread local from the pool:
+
+  >>> connectionPool = ElasticSearchConnectionPool(serverPool)
+  >>> conn = connectionPool.connection
+  >>> conn
+  <ElasticSearchConnection localhost:45299>
+
+Let's set the bulkMaxSize to 5. This means if we index 5 items the index method
+will implicit send a index request to the server
+
+  >>> conn.bulkMaxSize = 5
+
+  >>> conn.bulkMaxSize
+  5
+
+Let's bulk index some items:
+
+  >>> doc = {'title': u'Wir suchen einen Marketingplaner',
+  ...        'description': u'Wir bieten Ihnen eine gute Anstellung'}
+  >>> conn.bulkIndex(doc, 'testing', 'job', 1)
+
+  >>> doc = {'title': u'Wir suchen einen Buchhalter',
+  ...        'description': u'Wir bieten Ihnen eine gute Anstellung'}
+  >>> conn.bulkIndex(doc, 'testing', 'job', 2)
+
+Now commit our bulk data. even if we not indexed the full amount of bulkMaxSize:
+
+  >>> pprint(conn.bulkCommit())
+  {u'items': [{u'index': {u'_id': u'1',
+                          u'_index': u'testing',
+                          u'_type': u'job',
+                          u'_version': 1,
+                          u'ok': True}},
+              {u'index': {u'_id': u'2',
+                          u'_index': u'testing',
+                          u'_type': u'job',
+                          u'_version': 1,
+                          u'ok': True}}],
+   u'took': ...}
+
+  >>> conn.bulkCounter
+  0
+
+Now we search the items:
+
+  >>> response = conn.search("Anstellung", 'testing', 'job')
+  >>> pprint(response.data)
+  {u'_shards': {u'failed': 0, u'successful': 5, u'total': 5},
+   u'hits': {u'hits': [], u'max_score': None, u'total': 0},
+   u'timed_out': False,
+   u'took': ...}
+
+As you can see, we didn't comit the data because we didn't use the refresh
+parameter. Let's call refresh now:
+
+  >>> conn.refresh('testing')
+  {u'ok': True, u'_shards': {u'successful': 5, u'failed': 0, u'total': 10}}
+
+and search again:
+  >>> response = conn.search("Anstellung", 'testing', 'job')
+  >>> pprint(response.data)
+  {u'_shards': {u'failed': 0, u'successful': 5, u'total': 5},
+   u'hits': {u'hits': [{u'_id': u'1',
+                        u'_index': u'testing',
+                        u'_score': ...,
+                        u'_source': {u'description': u'Wir bieten Ihnen eine gute Anstellung',
+                                     u'title': u'Wir suchen einen Marketingplaner'},
+                        u'_type': u'job'},
+                       {u'_id': u'2',
+                        u'_index': u'testing',
+                        u'_score': ...,
+                        u'_source': {u'description': u'Wir bieten Ihnen eine gute Anstellung',
+                                     u'title': u'Wir suchen einen Buchhalter'},
+                        u'_type': u'job'}],
+             u'max_score': ...,
+             u'total': 2},
+   u'timed_out': False,
+   u'took': ...}
+
+Let's index more items till we reach the bulkMaxSize:
+
+  >>> len(conn.bulkItems)
+  0
+
+  >>> doc = {'title': u'Wir suchen einen Koch',
+  ...        'description': u'Wir bieten Ihnen eine gute Anstellung'}
+  >>> conn.bulkIndex(doc, 'testing', 'job', 3)
+
+  >>> conn.bulkCounter
+  1
+
+  >>> doc = {'title': u'Wir suchen einen Sachbearbeiter',
+  ...        'description': u'Wir bieten Ihnen eine gute Anstellung'}
+  >>> conn.bulkIndex(doc, 'testing', 'job', 4)
+
+  >>> conn.bulkCounter
+  2
+
+  >>> doc = {'title': u'Wir suchen einen Mechaniker',
+  ...        'description': u'Wir bieten Ihnen eine gute Anstellung'}
+  >>> conn.bulkIndex(doc, 'testing', 'job', 5)
+
+  >>> conn.bulkCounter
+  3
+
+  >>> doc = {'title': u'Wir suchen einen Exportfachmann',
+  ...        'description': u'Wir bieten Ihnen eine gute Anstellung'}
+  >>> conn.bulkIndex(doc, 'testing', 'job', 6)
+
+  >>> conn.bulkCounter
+  4
+
+Now, our bulkMaxSize forces to commit data:
+
+  >>> doc = {'title': u'Wir suchen einen Entwickler',
+  ...        'description': u'Wir bieten Ihnen eine gute Anstellung'}
+  >>> pprint(conn.bulkIndex(doc, 'testing', 'job', 7))
+  {u'items': [{u'index': {u'_id': u'3',
+                          u'_index': u'testing',
+                          u'_type': u'job',
+                          u'_version': 1,
+                          u'ok': True}},
+              {u'index': {u'_id': u'4',
+                          u'_index': u'testing',
+                          u'_type': u'job',
+                          u'_version': 1,
+                          u'ok': True}},
+              {u'index': {u'_id': u'5',
+                          u'_index': u'testing',
+                          u'_type': u'job',
+                          u'_version': 1,
+                          u'ok': True}},
+              {u'index': {u'_id': u'6',
+                          u'_index': u'testing',
+                          u'_type': u'job',
+                          u'_version': 1,
+                          u'ok': True}},
+              {u'index': {u'_id': u'7',
+                          u'_index': u'testing',
+                          u'_type': u'job',
+                          u'_version': 1,
+                          u'ok': True}}],
+   u'took': ...}
+
+just wait till the server calls refresh by itself every second by default:
+
+  >>> import time
+  >>> time.sleep(1)
+
+  >>> len(conn.bulkItems)
+  0
+
+As you can see, we have all 7 items indexed:
+
+  >>> response = conn.search("Anstellung", 'testing', 'job')
+  >>> pprint(response.data)
+  {u'_shards': {u'failed': 0, u'successful': 5, u'total': 5},
+   u'hits': {u'hits': [{u'_id': u'1',
+                        u'_index': u'testing',
+                        u'_score': ...,
+                        u'_source': {u'description': u'Wir bieten Ihnen eine gute Anstellung',
+                                     u'title': u'Wir suchen einen Marketingplaner'},
+                        u'_type': u'job'},
+                       {u'_id': u'6',
+                        u'_index': u'testing',
+                        u'_score': ...,
+                        u'_source': {u'description': u'Wir bieten Ihnen eine gute Anstellung',
+                                     u'title': u'Wir suchen einen Exportfachmann'},
+                        u'_type': u'job'},
+                       {u'_id': u'2',
+                        u'_index': u'testing',
+                        u'_score': ...,
+                        u'_source': {u'description': u'Wir bieten Ihnen eine gute Anstellung',
+                                     u'title': u'Wir suchen einen Buchhalter'},
+                        u'_type': u'job'},
+                       {u'_id': u'7',
+                        u'_index': u'testing',
+                        u'_score': ...,
+                        u'_source': {u'description': u'Wir bieten Ihnen eine gute Anstellung',
+                                     u'title': u'Wir suchen einen Entwickler'},
+                        u'_type': u'job'},
+                       {u'_id': u'4',
+                        u'_index': u'testing',
+                        u'_score': ...,
+                        u'_source': {u'description': u'Wir bieten Ihnen eine gute Anstellung',
+                                     u'title': u'Wir suchen einen Sachbearbeiter'},
+                        u'_type': u'job'},
+                       {u'_id': u'5',
+                        u'_index': u'testing',
+                        u'_score': ...,
+                        u'_source': {u'description': u'Wir bieten Ihnen eine gute Anstellung',
+                                     u'title': u'Wir suchen einen Mechaniker'},
+                        u'_type': u'job'},
+                       {u'_id': u'3',
+                        u'_index': u'testing',
+                        u'_score': ...,
+                        u'_source': {u'description': u'Wir bieten Ihnen eine gute Anstellung',
+                                     u'title': u'Wir suchen einen Koch'},
+                        u'_type': u'job'}],
+             u'max_score': ...,
+             u'total': 7},
+   u'timed_out': False,
+   u'took': ...}

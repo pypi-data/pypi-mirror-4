@@ -1,0 +1,376 @@
+==========================
+Simple indexing and search
+==========================
+
+Note: this test will start and run an elasticsearch server on port 45299!
+
+This test just uses non predefined mappings. Let's just do some simple tests
+without to use a connection pool.
+
+  >>> from pprint import pprint
+  >>> from p01.elasticsearch.connection import ElasticSearchConnection
+  >>> from p01.elasticsearch.exceptions import ElasticSearchServerException
+  >>> from p01.elasticsearch.pool import ServerPool
+
+  >>> import p01.elasticsearch.testing
+  >>> statusRENormalizer = p01.elasticsearch.testing.statusRENormalizer
+
+  >>> servers = ['localhost:45299']
+  >>> serverPool = ServerPool(servers)
+
+Now we are able to get a connection which is persistent and observed by a 
+thread local. 
+
+  >>> conn = ElasticSearchConnection(serverPool)
+
+Add a few documents:
+
+  >>> pprint(conn.index({"name":"Document One"}, "testdocs", "doc", 1))
+  {u'_id': u'1',
+   u'_index': u'testdocs',
+   u'_type': u'doc',
+   u'_version': 1,
+   u'ok': True}
+
+  >>> pprint(conn.index({"name":"Document Two"}, "testdocs", "doc", 2))
+  {u'_id': u'2',
+   u'_index': u'testdocs',
+   u'_type': u'doc',
+   u'_version': 1,
+   u'ok': True}
+
+Note, we call refresh here which will ensure that the document get indexed at
+the server side. Normaly this should not be dine explicit in a production
+setup. The elasticsearch server is by default configured that each second the
+refresh happens at the server side:
+
+  >>> pprint(conn.refresh("testdocs"))
+  {u'_shards': {u'failed': 0, u'successful': 5, u'total': 10}, u'ok': True}
+
+Get one:
+
+  >>> pprint(conn.get(1, "testdocs", "doc"))
+  {u'_id': u'1',
+   u'_index': u'testdocs',
+   u'_source': {u'name': u'Document One'},
+   u'_type': u'doc',
+   u'_version': 1,
+   u'exists': True}
+
+Count the documents:
+
+  >>> pprint(conn.count("name:Document One"))
+  {u'_shards': {u'failed': 0, u'successful': 5, u'total': 5}, u'count': 2}
+
+  >>> pprint(conn.count("name:Document"))
+  {u'_shards': {u'failed': 0, u'successful': 5, u'total': 5}, u'count': 2}
+
+Search a document:
+
+  >>> response = conn.search("name:Document One")
+  >>> pprint(response.data)
+  {u'_shards': {u'failed': 0, u'successful': 5, u'total': 5},
+   u'hits': {u'hits': [{u'_id': u'1',
+                        u'_index': u'testdocs',
+                        u'_score': 0.2712221,
+                        u'_source': {u'name': u'Document One'},
+                        u'_type': u'doc'},
+                       {u'_id': u'2',
+                        u'_index': u'testdocs',
+                        u'_score': 0.028130025,
+                        u'_source': {u'name': u'Document Two'},
+                        u'_type': u'doc'}],
+             u'max_score': 0.2712221,
+             u'total': 2},
+   u'timed_out': False,
+   u'took': ...}
+
+
+More like this:
+
+  >>> pprint(conn.index({"name":"Document Three"}, "testdocs", "doc", 3))
+  {u'_id': u'3',
+   u'_index': u'testdocs',
+   u'_type': u'doc',
+   u'_version': 1,
+   u'ok': True}
+
+  >>> pprint(conn.refresh("testdocs"))
+  {u'_shards': {u'failed': 0, u'successful': 5, u'total': 10}, u'ok': True}
+
+  >>> pprint(conn.moreLikeThis(1, "testdocs", "doc",
+  ...                          fields='name', min_term_freq=1, min_doc_freq=1))
+  {u'_shards': {u'failed': 0, u'successful': 5, u'total': 5},
+   u'hits': {u'hits': [{u'_id': u'2',
+                        u'_index': u'testdocs',
+                        u'_score': 0.19178301,
+                        u'_source': {u'name': u'Document Two'},
+                        u'_type': u'doc'},
+                       {u'_id': u'3',
+                        u'_index': u'testdocs',
+                        u'_score': 0.19178301,
+                        u'_source': {u'name': u'Document Three'},
+                        u'_type': u'doc'}],
+             u'max_score': 0.19178301,
+             u'total': 2},
+   u'timed_out': False,
+   u'took': ...}
+
+Delete Document Two:
+
+  >>> pprint(conn.delete('2', "testdocs", "doc"))
+  {u'_id': u'2',
+   u'_index': u'testdocs',
+   u'_type': u'doc',
+   u'_version': 2,
+   u'found': True,
+   u'ok': True}
+
+Delete Document Three:
+
+  >>> pprint(conn.delete('3', "testdocs", "doc"))
+  {u'_id': u'3',
+   u'_index': u'testdocs',
+   u'_type': u'doc',
+   u'_version': 2,
+   u'found': True,
+   u'ok': True}
+
+Delete the index:
+
+  >>> pprint(conn.deleteIndex("testdocs"))
+  {u'acknowledged': True, u'ok': True}
+
+Create the index a new index:
+
+  >>> pprint(conn.createIndex("testdocs"))
+  {u'acknowledged': True, u'ok': True}
+
+Try to create the index again which will fail:
+
+  >>> conn.createIndex("testdocs")
+  Traceback (most recent call last):
+  ...
+  IndexAlreadyExistsException: Already exists
+
+As you can see, the error provides an error message:
+
+  >>> try:
+  ...     conn.createIndex("testdocs")
+  ... except ElasticSearchServerException, e:
+  ...     e.args[0]
+  'Already exists'
+
+Add a new mapping:
+
+  >>> mapping = {"doc" : {"properties" :
+  ...           {"name" : {"type" : "string", "store" : "yes"}}}}
+  >>> pprint(conn.putMapping(mapping, 'testdocs', 'doc'))
+  {u'acknowledged': True, u'ok': True}
+
+Get the status:
+
+  >>> statusRENormalizer.pprint(conn.status("testdocs"))
+  {u'_shards': {u'failed': 0, u'successful': 5, u'total': 10},
+   u'indices': {u'testdocs': {u'docs': {u'deleted_docs': 0,
+                                        u'max_doc': ...,
+                                        u'num_docs': ...},
+                              u'flush': {u'total': 0,
+                                         u'total_time': u'...',
+                                         u'total_time_in_millis': ...},
+                              u'index': {u'primary_size': u'...',
+                                         u'primary_size_in_bytes': ...,
+                                         u'size': u'...',
+                                         u'size_in_bytes': ...},
+                              u'merges': {u'current': 0,
+                                          u'current_docs': 0,
+                                          u'current_size': u'0b',
+                                          u'current_size_in_bytes': 0,
+                                          u'total': 0,
+                                          u'total_docs': 0,
+                                          u'total_size': u'0b',
+                                          u'total_size_in_bytes': 0,
+                                          u'total_time': u'...',
+                                          u'total_time_in_millis': ...},
+                              u'refresh': {u'total': ...,
+                                           u'total_time': u'...',
+                                           u'total_time_in_millis': ...},
+                              u'shards': {u'0': [{u'docs': {u'deleted_docs': 0,
+                                                            u'max_doc': ...,
+                                                            u'num_docs': ...},
+                                                  u'flush': {u'total': 0,
+                                                             u'total_time': u'...',
+                                                             u'total_time_in_millis': ...},
+                                                  u'index': {u'size': u'...',
+                                                             u'size_in_bytes': ...},
+                                                  u'merges': {u'current': 0,
+                                                              u'current_docs': 0,
+                                                              u'current_size': u'0b',
+                                                              u'current_size_in_bytes': 0,
+                                                              u'total': 0,
+                                                              u'total_docs': 0,
+                                                              u'total_size': u'0b',
+                                                              u'total_size_in_bytes': 0,
+                                                              u'total_time': u'...',
+                                                              u'total_time_in_millis': ...},
+                                                  u'refresh': {u'total': ...,
+                                                               u'total_time': u'...',
+                                                               u'total_time_in_millis': ...},
+                                                  u'routing': {u'index': u'testdocs',
+                                                               u'node': u'...',
+                                                               u'primary': True,
+                                                               u'relocating_node': None,
+                                                               u'shard': 0,
+                                                               u'state': u'STARTED'},
+                                                  u'state': u'STARTED',
+                                                  u'translog': {u'id': ...,
+                                                                u'operations': 0}}],
+                                          u'1': [{u'docs': {u'deleted_docs': 0,
+                                                            u'max_doc': ...,
+                                                            u'num_docs': ...},
+                                                  u'flush': {u'total': 0,
+                                                             u'total_time': u'...',
+                                                             u'total_time_in_millis': ...},
+                                                  u'index': {u'size': u'...',
+                                                             u'size_in_bytes': ...},
+                                                  u'merges': {u'current': 0,
+                                                              u'current_docs': 0,
+                                                              u'current_size': u'0b',
+                                                              u'current_size_in_bytes': 0,
+                                                              u'total': 0,
+                                                              u'total_docs': 0,
+                                                              u'total_size': u'0b',
+                                                              u'total_size_in_bytes': 0,
+                                                              u'total_time': u'...',
+                                                              u'total_time_in_millis': ...},
+                                                  u'refresh': {u'total': ...,
+                                                               u'total_time': u'...',
+                                                               u'total_time_in_millis': ...},
+                                                  u'routing': {u'index': u'testdocs',
+                                                               u'node': u'...',
+                                                               u'primary': True,
+                                                               u'relocating_node': None,
+                                                               u'shard': 1,
+                                                               u'state': u'STARTED'},
+                                                  u'state': u'STARTED',
+                                                  u'translog': {u'id': ...,
+                                                                u'operations': 0}}],
+                                          u'2': [{u'docs': {u'deleted_docs': 0,
+                                                            u'max_doc': ...,
+                                                            u'num_docs': ...},
+                                                  u'flush': {u'total': 0,
+                                                             u'total_time': u'...',
+                                                             u'total_time_in_millis': ...},
+                                                  u'index': {u'size': u'...',
+                                                             u'size_in_bytes': ...},
+                                                  u'merges': {u'current': 0,
+                                                              u'current_docs': 0,
+                                                              u'current_size': u'0b',
+                                                              u'current_size_in_bytes': 0,
+                                                              u'total': 0,
+                                                              u'total_docs': 0,
+                                                              u'total_size': u'0b',
+                                                              u'total_size_in_bytes': 0,
+                                                              u'total_time': u'...',
+                                                              u'total_time_in_millis': ...},
+                                                  u'refresh': {u'total': ...,
+                                                               u'total_time': u'...',
+                                                               u'total_time_in_millis': ...},
+                                                  u'routing': {u'index': u'testdocs',
+                                                               u'node': u'...',
+                                                               u'primary': True,
+                                                               u'relocating_node': None,
+                                                               u'shard': 2,
+                                                               u'state': u'STARTED'},
+                                                  u'state': u'STARTED',
+                                                  u'translog': {u'id': ...,
+                                                                u'operations': 0}}],
+                                          u'3': [{u'docs': {u'deleted_docs': 0,
+                                                            u'max_doc': ...,
+                                                            u'num_docs': ...},
+                                                  u'flush': {u'total': 0,
+                                                             u'total_time': u'...',
+                                                             u'total_time_in_millis': ...},
+                                                  u'index': {u'size': u'...',
+                                                             u'size_in_bytes': ...},
+                                                  u'merges': {u'current': 0,
+                                                              u'current_docs': 0,
+                                                              u'current_size': u'0b',
+                                                              u'current_size_in_bytes': 0,
+                                                              u'total': 0,
+                                                              u'total_docs': 0,
+                                                              u'total_size': u'0b',
+                                                              u'total_size_in_bytes': 0,
+                                                              u'total_time': u'...',
+                                                              u'total_time_in_millis': ...},
+                                                  u'refresh': {u'total': ...,
+                                                               u'total_time': u'...',
+                                                               u'total_time_in_millis': ...},
+                                                  u'routing': {u'index': u'testdocs',
+                                                               u'node': u'...',
+                                                               u'primary': True,
+                                                               u'relocating_node': None,
+                                                               u'shard': 3,
+                                                               u'state': u'STARTED'},
+                                                  u'state': u'STARTED',
+                                                  u'translog': {u'id': ...,
+                                                                u'operations': 0}}],
+                                          u'4': [{u'docs': {u'deleted_docs': 0,
+                                                            u'max_doc': ...,
+                                                            u'num_docs': ...},
+                                                  u'flush': {u'total': 0,
+                                                             u'total_time': u'...',
+                                                             u'total_time_in_millis': ...},
+                                                  u'index': {u'size': u'...',
+                                                             u'size_in_bytes': ...},
+                                                  u'merges': {u'current': 0,
+                                                              u'current_docs': 0,
+                                                              u'current_size': u'0b',
+                                                              u'current_size_in_bytes': 0,
+                                                              u'total': 0,
+                                                              u'total_docs': 0,
+                                                              u'total_size': u'0b',
+                                                              u'total_size_in_bytes': 0,
+                                                              u'total_time': u'...',
+                                                              u'total_time_in_millis': ...},
+                                                  u'refresh': {u'total': ...,
+                                                               u'total_time': u'...',
+                                                               u'total_time_in_millis': ...},
+                                                  u'routing': {u'index': u'testdocs',
+                                                               u'node': u'...',
+                                                               u'primary': True,
+                                                               u'relocating_node': None,
+                                                               u'shard': 4,
+                                                               u'state': u'STARTED'},
+                                                  u'state': u'STARTED',
+                                                  u'translog': {u'id': ...,
+                                                                u'operations': 0}}]},
+                              u'translog': {u'operations': 0}}},
+   u'ok': True}
+
+Test adding with automatic id generation.
+
+  >>> pprint(conn.index({"name":"Document Four"}, "testdocs", "doc"))
+  Traceback (most recent call last):
+  ...
+  ValueError: You must explicit define id=None without doc['_id']
+
+As you can see, this requires that we set explicit id=None:
+
+  >>> pprint(conn.index({"name":"Document Four"}, "testdocs", "doc", id=None))
+  {u'_id': u'...',
+   u'_index': u'testdocs',
+   u'_type': u'doc',
+   u'_version': 1,
+   u'ok': True}
+
+
+The reason for setting explicit id=None is that we also support doc['_id']
+as id:
+
+  >>> pprint(conn.index({"name":"Document Five", "_id":"5"}, "testdocs", "doc"))
+  {u'_id': u'...',
+   u'_index': u'testdocs',
+   u'_type': u'doc',
+   u'_version': 1,
+   u'ok': True}
