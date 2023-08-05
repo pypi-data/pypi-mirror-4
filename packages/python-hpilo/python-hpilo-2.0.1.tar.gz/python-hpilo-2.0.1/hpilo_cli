@@ -1,0 +1,245 @@
+#!/usr/bin/python
+#
+# (c) 2011-2012 Dennis Kaarsemaker <dennis@kaarsemaker.net>
+# see COPYING for license details
+
+try:
+    import ConfigParser
+except ImportError:
+    import configparser as ConfigParser
+try:
+    basestring
+except NameError:
+    basestring = str
+import hpilo
+try:
+    input = raw_input
+except NameError:
+    pass
+import getpass
+import optparse
+import os
+from pprint import pprint
+import sys
+
+ilo_methods = sorted([x for x in dir(hpilo.Ilo) if not x.startswith('_') and x.islower()])
+
+def main():
+    usage = """%prog [options] hostname method [args...]"""
+
+    p = optparse.OptionParser(usage=usage, add_help_option=False)
+    p.add_option("-l", "--login", dest="login", default=None,
+                 help="Username to access the iLO")
+    p.add_option("-p", "--password", dest="password", default=None,
+                 help="Password to access the iLO")
+    p.add_option("-i", "--interactive", action="store_true", default=False,
+                 help="Prompt for username and/or password if they are not specified.")
+    p.add_option("-c", "--config", dest="config", default="~/.ilo.conf",
+                 help="File containing authentication and config details", metavar="FILE")
+    p.add_option("-t", "--timeout", dest="timeout", type="int", default=60,
+                 help="Timeout for iLO connections")
+    p.add_option("-j", "--json", dest="json", action="store_true", default=False,
+                 help="Output a json document instead of a python dict")
+    p.add_option("-P", "--protocol", dest="protocol", choices=("http","raw","local"), default=None,
+                 help="Use the specified protocol instead of autodetecting")
+    p.add_option("-d", "--debug", dest="debug", action="count", default=0,
+                 help="Output debug information, repeat to see all XML data")
+    p.add_option("-o", "--port", dest="port", type="int", default=443,
+                 help="SSL port to connect to")
+    p.add_option("--untested", dest="untested", action="store_true", default=False,
+                 help="Allow untested methods")
+    p.add_option("-h", "--help", action="callback", callback=hpilo_help,
+                 help="show this help message or help for a method")
+    p.add_option("-H", "--help-methods", action="callback", callback=hpilo_help_methods,
+                 help="show all supported methods")
+
+    opts, args = p.parse_args()
+
+    if opts.json:
+        import json
+
+    # Did we get correct arguments?
+    if len(args) < 2:
+        p.error("Not enough arguments")
+    if args[1] not in ilo_methods and args[1] != '_test':
+        p.error("Unknown method: %s" % args[1])
+
+    config = ConfigParser.ConfigParser()
+    if os.path.exists(os.path.expanduser(opts.config)):
+        config.read(os.path.expanduser(opts.config))
+
+    hostname = args.pop(0)
+
+    args_ = list_split(args, '+')
+    calls = []
+
+    for args in args_:
+        method = args.pop(0)
+
+        # Can we run untested methods
+        if method in hpilo._untested and not opts.untested:
+            p.error("Method %s has not been tested, pass --untested to execute" % method)
+
+        # Arguments must be passed as param=value pairs that are valid arguments to the methods
+        if sys.version_info[0] >= 3:
+            func = getattr(hpilo.Ilo, method)#.__func__
+            argnames = func.__code__.co_varnames[1:func.__code__.co_argcount]
+            args_with_defaults = []
+            if func.__defaults__:
+                args_with_defaults = argnames[-len(func.__defaults__):]
+        else:
+            func = getattr(hpilo.Ilo, method).im_func
+            argnames = func.func_code.co_varnames[1:func.func_code.co_argcount]
+            args_with_defaults = []
+            if func.func_defaults:
+                args_with_defaults = argnames[-len(func.func_defaults):]
+        params = {}
+        for arg in args:
+            if '=' not in arg:
+                hpilo_help(None, None, method, None)
+            param, val = arg.split('=', 1)
+            if param not in argnames:
+                hpilo_help(None, None, method, None)
+
+            # Optionally extract values from the config
+            if val.startswith('$') and '.' in val:
+                section, option = val[1:].split('.', 1)
+                if config.has_option(section, option):
+                    val = config.get(section, option)
+
+            # Do some type coercion for shell goodness
+            if val.isdigit():
+                val = int(val)
+            else:
+                val = {'true': True, 'false': False}.get(val.lower(), val)
+            params[param] = val
+
+        for name in argnames:
+            if name not in params and name not in args_with_defaults:
+                hpilo_help(None, None, method, sys)
+
+        calls.append((method, params))
+
+    # Do we have login information
+    login = None
+    password = None
+    if hostname == 'localhost':
+        opts.protocol = 'local'
+    if opts.protocol != 'local':
+        if config.has_option('ilo', 'login'):
+            login = config.get('ilo', 'login')
+        if config.has_option('ilo', 'password'):
+            password = config.get('ilo', 'password')
+        if opts.login:
+            login = opts.login
+        if opts.password:
+            password = opts.password
+        if not login or not password:
+            if opts.interactive:
+                while not login:
+                    login = input('Login for iLO at %s: ' % hostname)
+                while not password:
+                    password = getpass.getpass('Password for %s@%s:' % (login, hostname))
+            else:
+                p.error("No login details provided")
+
+    opts.protocol = {
+        'http':  hpilo.ILO_HTTP,
+        'raw':   hpilo.ILO_RAW,
+        'local': hpilo.ILO_LOCAL,
+    }.get(opts.protocol, None)
+    ilo = hpilo.Ilo(hostname, login, password, opts.timeout, opts.port, opts.protocol, len(calls) > 1)
+    ilo.debug = opts.debug
+    if config.has_option('ilo', 'hponcfg'):
+        ilo.hponcfg = config.get('ilo', 'hponcfg')
+
+    def _q(val):
+        if isinstance(val, basestring):
+            return '"%s"' % val.replace("\\","\\\\").replace('"','\\"')
+        else:
+            return str(val)
+
+    for method, params in calls:
+        if method == 'update_rib_firmware':
+            params['progress'] = print_progress
+        results = [getattr(ilo, method)(**params)]
+
+    if len(calls) > 1:
+        results = ilo.call_delayed()
+
+    if opts.json:
+        json.dump(result, sys.stdout)
+    else:
+        for method, params in calls:
+            param_str = ', '.join(["%s=%s" % (x[0], _q(x[1])) for x in params.items()])
+            if method.startswith('get') or method == 'certificate_signing_request' or len(calls) == 1:
+                result = results.pop(0)
+            else:
+                result = None
+            if isinstance(result, basestring):
+                print(">>> print(my_ilo.%s(%s))" % (method, param_str))
+                print(result)
+            elif result is None:
+                print(">>> my_ilo.%s(%s)" % (method, param_str))
+            else:
+                print(">>> pprint(my_ilo.%s(%s))" % (method, param_str))
+                pprint(result)
+
+def hpilo_help(option, opt_str, value, parser):
+    if not value:
+        if parser and parser.rargs and parser.rargs[0][0] != '-':
+            value = parser.rargs[0]
+            del parser.rargs[0]
+
+    if not value:
+        parser.print_help()
+    else:
+        if value in ilo_methods:
+            import re, textwrap
+            func = getattr(hpilo.Ilo, value).im_func
+            code = func.func_code
+            args = ''
+            if code.co_argcount > 1:
+                args = code.co_varnames[:code.co_argcount]
+                defaults = func.func_defaults or []
+                args = ["%s=%s" % (x, x.upper()) for x in args[:len(args)-len(defaults)]] + \
+                       ["[%s=%s]" % (x,str(y)) for x, y in zip(args[len(args)-len(defaults):], defaults)]
+                args = ' ' + ' '.join(args[1:])
+
+            print("Ilo.%s%s:" % (value, args))
+            doc = getattr(hpilo.Ilo, value).__doc__ or "No documentation"
+            doc = re.sub(r':[a-z]+:`(.*?)`', r'\1', doc)
+            print(textwrap.fill(doc, 80))
+        else:
+            print("No such method: %s" % value)
+    if parser:
+        parser.exit()
+    else:
+        sys.exit()
+
+def hpilo_help_methods(option, opt_str, value, parser):
+    print("""Supported methods:
+- %s""" % "\n- ".join(ilo_methods))
+    parser.exit()
+
+def print_progress(text):
+    if text.startswith('\r'):
+        sys.stdout.write(text)
+        sys.stdout.flush()
+    else:
+        print(text)
+
+def list_split(lst, sep):
+    ret = []
+    while True:
+        try:
+            pos = lst.index(sep)
+        except ValueError:
+            ret.append(lst)
+            break
+        ret.append(lst[:pos])
+        lst = lst[pos+1:]
+    return ret
+
+if __name__ == '__main__':
+    main()
