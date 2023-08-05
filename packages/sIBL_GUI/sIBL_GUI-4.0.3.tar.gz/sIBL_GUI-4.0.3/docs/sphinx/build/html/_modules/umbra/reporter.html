@@ -1,0 +1,867 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>umbra.reporter &mdash; sIBL_GUI 4.0.3 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '4.0.3',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <link rel="top" title="sIBL_GUI 4.0.3 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">sIBL_GUI 4.0.3 documentation</a> &raquo;</li>
+          <li><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for umbra.reporter</h1><div class="highlight"><pre>
+<span class="c">#!/usr/bin/env python</span>
+<span class="c"># -*- coding: utf-8 -*-</span>
+
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">**reporter.py**</span>
+
+<span class="sd">**Platform:**</span>
+<span class="sd">	Windows, Linux, Mac Os X.</span>
+
+<span class="sd">**Description:**</span>
+<span class="sd">	This module defines the :class:`Reporter` class and various others exceptions handling related objects.</span>
+
+<span class="sd">**Others:**</span>
+
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="c">#**********************************************************************************************************************</span>
+<span class="c">#***	External imports.</span>
+<span class="c">#**********************************************************************************************************************</span>
+<span class="kn">import</span> <span class="nn">functools</span>
+<span class="kn">import</span> <span class="nn">inspect</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">version_info</span><span class="p">[:</span><span class="mi">2</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">6</span><span class="p">):</span>
+	<span class="kn">from</span> <span class="nn">ordereddict</span> <span class="kn">import</span> <span class="n">OrderedDict</span>
+<span class="k">else</span><span class="p">:</span>
+	<span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">OrderedDict</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">import</span> <span class="nn">traceback</span>
+<span class="kn">from</span> <span class="nn">PyQt4.QtGui</span> <span class="kn">import</span> <span class="n">QApplication</span>
+
+<span class="c">#**********************************************************************************************************************</span>
+<span class="c">#***	Internal imports.</span>
+<span class="c">#**********************************************************************************************************************</span>
+<span class="kn">import</span> <span class="nn">foundations.core</span>
+<span class="kn">import</span> <span class="nn">foundations.exceptions</span>
+<span class="kn">import</span> <span class="nn">foundations.io</span>
+<span class="kn">import</span> <span class="nn">foundations.verbose</span>
+<span class="kn">import</span> <span class="nn">foundations.strings</span>
+<span class="kn">import</span> <span class="nn">foundations.ui.common</span>
+<span class="kn">import</span> <span class="nn">umbra.ui.common</span>
+<span class="kn">from</span> <span class="nn">umbra.globals.constants</span> <span class="kn">import</span> <span class="n">Constants</span>
+<span class="kn">from</span> <span class="nn">umbra.globals.uiConstants</span> <span class="kn">import</span> <span class="n">UiConstants</span>
+<span class="kn">from</span> <span class="nn">umbra.globals.runtimeGlobals</span> <span class="kn">import</span> <span class="n">RuntimeGlobals</span>
+
+<span class="c">#**********************************************************************************************************************</span>
+<span class="c">#***	Module attributes.</span>
+<span class="c">#**********************************************************************************************************************</span>
+<span class="n">__author__</span> <span class="o">=</span> <span class="s">&quot;Thomas Mansencal&quot;</span>
+<span class="n">__copyright__</span> <span class="o">=</span> <span class="s">&quot;Copyright (C) 2008 - 2012 - Thomas Mansencal&quot;</span>
+<span class="n">__license__</span> <span class="o">=</span> <span class="s">&quot;GPL V3.0 - http://www.gnu.org/licenses/&quot;</span>
+<span class="n">__maintainer__</span> <span class="o">=</span> <span class="s">&quot;Thomas Mansencal&quot;</span>
+<span class="n">__email__</span> <span class="o">=</span> <span class="s">&quot;thomas.mansencal@gmail.com&quot;</span>
+<span class="n">__status__</span> <span class="o">=</span> <span class="s">&quot;Production&quot;</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;LOGGER&quot;</span><span class="p">,</span>
+		<span class="s">&quot;UI_FILE&quot;</span><span class="p">,</span>
+		<span class="s">&quot;Reporter&quot;</span><span class="p">,</span>
+		<span class="s">&quot;baseExceptionHandler&quot;</span><span class="p">,</span>
+		<span class="s">&quot;systemExitExceptionHandler&quot;</span>
+		<span class="s">&quot;criticalExceptionHandler&quot;</span><span class="p">,</span>
+		<span class="s">&quot;installExceptionReporter&quot;</span><span class="p">,</span>
+		<span class="s">&quot;uninstallExceptionReporter&quot;</span><span class="p">,</span>
+		<span class="s">&quot;enableExceptionReporter&quot;</span><span class="p">,</span>
+		<span class="s">&quot;disableExceptionReporter&quot;</span><span class="p">]</span>
+
+<span class="n">LOGGER</span> <span class="o">=</span> <span class="n">foundations</span><span class="o">.</span><span class="n">verbose</span><span class="o">.</span><span class="n">installLogger</span><span class="p">()</span>
+
+<span class="n">UI_FILE</span> <span class="o">=</span> <span class="n">umbra</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">common</span><span class="o">.</span><span class="n">getResourcePath</span><span class="p">(</span><span class="n">UiConstants</span><span class="o">.</span><span class="n">reporterUiFile</span><span class="p">)</span>
+
+<span class="c">#**********************************************************************************************************************</span>
+<span class="c">#***	Module classes and definitions.</span>
+<span class="c">#**********************************************************************************************************************</span>
+<div class="viewcode-block" id="Reporter"><a class="viewcode-back" href="../../resources/pages/api/umbra.reporter.html#umbra.reporter.Reporter">[docs]</a><span class="k">class</span> <span class="nc">Reporter</span><span class="p">(</span><span class="n">foundations</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">common</span><span class="o">.</span><span class="n">QWidgetFactory</span><span class="p">(</span><span class="n">uiFile</span><span class="o">=</span><span class="n">UI_FILE</span><span class="p">)):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This class provides an exception reporting Widget.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="n">__instance</span> <span class="o">=</span> <span class="bp">None</span>
+	<span class="sd">&quot;&quot;&quot;Class instance. ( Reporter )&quot;&quot;&quot;</span>
+
+	<span class="k">def</span> <span class="nf">__new__</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the constructor of the class.</span>
+<span class="sd">		</span>
+<span class="sd">		:param \*args: Arguments. ( \* )</span>
+<span class="sd">		:param \*\*kwargs: Keywords arguments. ( \*\* )</span>
+<span class="sd">		:return: Class instance. ( Library )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="ow">not</span> <span class="n">cls</span><span class="o">.</span><span class="n">_Reporter__instance</span><span class="p">:</span>
+			<span class="n">cls</span><span class="o">.</span><span class="n">_Reporter__instance</span> <span class="o">=</span> <span class="nb">super</span><span class="p">(</span><span class="n">Reporter</span><span class="p">,</span> <span class="n">cls</span><span class="p">)</span><span class="o">.</span><span class="n">__new__</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+		<span class="k">return</span> <span class="n">cls</span><span class="o">.</span><span class="n">_Reporter__instance</span>
+
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parent</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">report</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">enabled</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		.. Sphinx: Statements updated for auto-documentation purpose.</span>
+
+<span class="sd">		:param parent: Object parent. ( QObject )</span>
+<span class="sd">		:param report: Report to Crittercism. ( Boolean )</span>
+<span class="sd">		:param enabled: Is reporter enabled. ( Boolean )</span>
+<span class="sd">		:param \*args: Arguments. ( \* )</span>
+<span class="sd">		:param \*\*kwargs: Keywords arguments. ( \*\* )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s">&quot;_Reporter__initialized&quot;</span><span class="p">):</span>
+			<span class="k">return</span>
+
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Initializing &#39;{0}()&#39; class.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">))</span>
+
+		<span class="nb">super</span><span class="p">(</span><span class="n">Reporter</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="n">parent</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+
+		<span class="c"># --- Setting class attributes. ---</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__initialized</span> <span class="o">=</span> <span class="bp">True</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">__report</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">report</span> <span class="o">=</span> <span class="n">report</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__enabled</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">enabled</span> <span class="o">=</span> <span class="n">enabled</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">__jqueryJavascriptPath</span> <span class="o">=</span> <span class="n">umbra</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">common</span><span class="o">.</span><span class="n">getResourcePath</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="s">&quot;javascripts&quot;</span><span class="p">,</span> <span class="s">&quot;jquery.js&quot;</span><span class="p">))</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__crittercismJavascriptPath</span> <span class="o">=</span> <span class="n">umbra</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">common</span><span class="o">.</span><span class="n">getResourcePath</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="s">&quot;javascripts&quot;</span><span class="p">,</span> <span class="s">&quot;crittercism.js&quot;</span><span class="p">))</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__reporterJavascriptPath</span> <span class="o">=</span> <span class="n">umbra</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">common</span><span class="o">.</span><span class="n">getResourcePath</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="s">&quot;javascripts&quot;</span><span class="p">,</span> <span class="s">&quot;reporter.js&quot;</span><span class="p">))</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__jqueryJavascript</span> <span class="o">=</span> <span class="n">foundations</span><span class="o">.</span><span class="n">io</span><span class="o">.</span><span class="n">File</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__jqueryJavascriptPath</span><span class="p">)</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__crittercismJavascript</span> <span class="o">=</span> <span class="n">foundations</span><span class="o">.</span><span class="n">io</span><span class="o">.</span><span class="n">File</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__crittercismJavascriptPath</span><span class="p">)</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__reporterJavascript</span> <span class="o">=</span> <span class="n">foundations</span><span class="o">.</span><span class="n">io</span><span class="o">.</span><span class="n">File</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__reporterJavascriptPath</span><span class="p">)</span><span class="o">.</span><span class="n">read</span><span class="p">()</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+		<span class="n">UiConstants</span><span class="o">.</span><span class="n">crittercismId</span><span class="p">,</span> <span class="n">Constants</span><span class="o">.</span><span class="n">releaseVersion</span><span class="p">)</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">__style</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;* {</span>
+<span class="s">							margin: 0;</span>
+<span class="s">							padding: 0;</span>
+<span class="s">						}</span>
+
+<span class="s">						::-webkit-scrollbar {</span>
+<span class="s">							height: 12px;</span>
+<span class="s">							width: 12px;</span>
+<span class="s">						}</span>
+
+<span class="s">						::-webkit-scrollbar-track-piece  {</span>
+<span class="s">							background-color: rgb(48, 48, 48);</span>
+<span class="s">						}</span>
+
+<span class="s">						::-webkit-scrollbar-thumb:horizontal, ::-webkit-scrollbar-thumb:vertical {</span>
+<span class="s">							background-color: rgb(96, 96, 96);</span>
+<span class="s">						}</span>
+
+<span class="s">						::-webkit-scrollbar-thumb:horizontal:hover, ::-webkit-scrollbar-thumb:vertical:hover {</span>
+<span class="s">							background-color: rgb(128, 128, 128);</span>
+<span class="s">						}</span>
+
+<span class="s">						::-webkit-scrollbar-thumb:horizontal {</span>
+<span class="s">							width: 50px;</span>
+<span class="s">						}</span>
+
+<span class="s">						::-webkit-scrollbar-thumb:vertical {</span>
+<span class="s">							height: 50px;</span>
+<span class="s">						}</span>
+
+<span class="s">						body {</span>
+<span class="s">							background-color: rgb(32, 32, 32);</span>
+<span class="s">							color: rgb(192, 192, 192);</span>
+<span class="s">							font-size: 12pt;</span>
+<span class="s">							margin: 16px;</span>
+<span class="s">							overflow-y: scroll;</span>
+<span class="s">						}</span>
+
+<span class="s">						A:link {</span>
+<span class="s">							color: rgb(160, 96, 64);</span>
+<span class="s">							text-decoration: none;</span>
+<span class="s">						}</span>
+
+<span class="s">						A:visited {</span>
+<span class="s">							text-decoration: none;</span>
+<span class="s">							color: rgb(160, 96, 64);</span>
+<span class="s">						}</span>
+
+<span class="s">						A:active {</span>
+<span class="s">							text-decoration: none;</span>
+<span class="s">							color: rgb(160, 96, 64);</span>
+<span class="s">						}</span>
+
+<span class="s">						A:hover {</span>
+<span class="s">							text-decoration: underline;</span>
+<span class="s">							color: rgb(160, 96, 64);</span>
+<span class="s">						}</span>
+<span class="s">						</span>
+<span class="s">						.floatRight {</span>
+<span class="s">						    float: right;</span>
+<span class="s">						}</span>
+
+<span class="s">						.textAlignRight {</span>
+<span class="s">						    text-align: right;</span>
+<span class="s">						}</span>
+
+<span class="s">						div {</span>
+<span class="s">							overflow:hidden;</span>
+<span class="s">							margin: auto;</span>
+<span class="s">							text-overflow: ellipsis;</span>
+<span class="s">							word-wrap: break-word;</span>
+<span class="s">						}</span>
+
+<span class="s">						div.header {</span>
+<span class="s">							background-color: rgb(210, 64, 32);</span>
+<span class="s">							color: rgb(32, 32, 32);</span>
+<span class="s">							padding: 24px;</span>
+<span class="s">						}</span>
+
+<span class="s">						div.traceback {</span>
+<span class="s">							background-color: rgb(210, 64, 32);</span>
+<span class="s">							color: rgb(32, 32, 32);</span>
+<span class="s">							font-size: 16px;</span>
+<span class="s">							padding: 16px;</span>
+<span class="s">						}</span>
+
+<span class="s">						div.content {</span>
+<span class="s">							padding: 16px;</span>
+<span class="s">						}</span>
+
+<span class="s">						div.stack {</span>
+<span class="s">						}</span>
+
+<span class="s">						div.location {</span>
+<span class="s">							background-color: rgb(48, 48, 48);</span>
+<span class="s">							font-size: 16px;</span>
+<span class="s">							padding: 8px;</span>
+<span class="s">						}</span>
+
+<span class="s">						div.context {</span>
+<span class="s">							background-color: rgb(48, 48, 48);</span>
+<span class="s">							color: rgb(160, 160, 160);</span>
+<span class="s">							font-family: &quot;Courier New&quot;;</span>
+<span class="s">							font-size: 14px;</span>
+<span class="s">							padding: 32px;</span>
+<span class="s">							</span>
+<span class="s">						}</span>
+
+<span class="s">						span.highlight {</span>
+<span class="s">							background-color: rgb(160, 96, 64);</span>
+<span class="s">							color: rgb(32, 32, 32);</span>
+<span class="s">							display: block;</span>
+<span class="s">							font-weight: bold;</span>
+<span class="s">						}</span>
+
+<span class="s">						div.exception {</span>
+<span class="s">							background-color: rgb(210, 64, 32);</span>
+<span class="s">							color: rgb(32, 32, 32);</span>
+<span class="s">							font-size: 16px;</span>
+<span class="s">							padding: 16px;</span>
+<span class="s">						}</span>
+<span class="s">				</span>
+<span class="s">						div.debug {</span>
+<span class="s">							padding: 16px;</span>
+<span class="s">						}</span>
+
+<span class="s">						div.frame {</span>
+<span class="s">							background-color: rgb(48, 48, 48);</span>
+<span class="s">							padding: 8px;</span>
+<span class="s">						}</span>
+
+<span class="s">						div.type {</span>
+<span class="s">							font-size: 16px;</span>
+<span class="s">						}</span>
+
+<span class="s">						div.locals {</span>
+<span class="s">							background-color: rgb(48, 48, 48);</span>
+<span class="s">							color: rgb(160, 160, 160);</span>
+<span class="s">							line-height: 150%;</span>
+<span class="s">							padding: 32px;</span>
+<span class="s">						}&quot;&quot;&quot;</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__html</span> <span class="o">=</span> <span class="bp">None</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">__onlineText</span> <span class="o">=</span> <span class="s">&quot;An &lt;b&gt;unhandled&lt;/b&gt; exception occured, </span><span class="se">\</span>
+<span class="s">this report has been sent to &lt;b&gt;HDRLabs&lt;/b&gt; development team!&quot;</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__offlineText</span> <span class="o">=</span> <span class="s">&quot;An &lt;b&gt;unhandled&lt;/b&gt; exception occured, </span><span class="se">\</span>
+<span class="s">mailing this report to &lt;b&gt;{0}&lt;/b&gt; would help improving &lt;b&gt;{1}&lt;/b&gt;!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">__email__</span><span class="p">,</span> <span class="n">Constants</span><span class="o">.</span><span class="n">applicationName</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__footerText</span> <span class="o">=</span> \
+		<span class="s">&quot;The severity of this exception is not critical and &lt;b&gt;{0}&lt;/b&gt; will resume!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">Constants</span><span class="o">.</span><span class="n">applicationName</span><span class="p">)</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">__initializeUi</span><span class="p">()</span>
+
+	<span class="c">#******************************************************************************************************************</span>
+	<span class="c">#***	Attributes properties.</span>
+	<span class="c">#******************************************************************************************************************</span>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">report</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__report** attribute.</span>
+
+<span class="sd">		:return: self.__report. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__report</span>
+
+	<span class="nd">@report.setter</span>
+	<span class="nd">@foundations.exceptions.handleExceptions</span><span class="p">(</span><span class="ne">AssertionError</span><span class="p">)</span>
+	<span class="k">def</span> <span class="nf">report</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__report** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">bool</span><span class="p">,</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; type is not &#39;bool&#39;!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;report&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__report</span> <span class="o">=</span> <span class="n">value</span>
+
+	<span class="nd">@report.deleter</span>
+	<span class="nd">@foundations.exceptions.handleExceptions</span><span class="p">(</span><span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">)</span>
+<div class="viewcode-block" id="Reporter.report"><a class="viewcode-back" href="../../resources/pages/api/umbra.reporter.html#umbra.reporter.Reporter.report">[docs]</a>	<span class="k">def</span> <span class="nf">report</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__report** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;report&quot;</span><span class="p">))</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__enabled** attribute.</span>
+
+<span class="sd">		:return: self.__enabled. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__enabled</span>
+
+	<span class="nd">@enabled.setter</span>
+	<span class="nd">@foundations.exceptions.handleExceptions</span><span class="p">(</span><span class="ne">AssertionError</span><span class="p">)</span>
+	<span class="k">def</span> <span class="nf">enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__enabled** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">bool</span><span class="p">,</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; type is not &#39;bool&#39;!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;enabled&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__enabled</span> <span class="o">=</span> <span class="n">value</span>
+
+	<span class="nd">@enabled.deleter</span>
+	<span class="nd">@foundations.exceptions.handleExceptions</span><span class="p">(</span><span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">)</span>
+<div class="viewcode-block" id="Reporter.enabled"><a class="viewcode-back" href="../../resources/pages/api/umbra.reporter.html#umbra.reporter.Reporter.enabled">[docs]</a>	<span class="k">def</span> <span class="nf">enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__enabled** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;enabled&quot;</span><span class="p">))</span>
+
+	<span class="c">#******************************************************************************************************************</span>
+	<span class="c">#***	Class methods.</span>
+	<span class="c">#******************************************************************************************************************</span></div>
+	<span class="k">def</span> <span class="nf">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the caller of the class.</span>
+<span class="sd">		</span>
+<span class="sd">		:param \*args: Arguments. ( \* )</span>
+<span class="sd">		:param \*\*kwargs: Keywords arguments. ( \*\* )</span>
+<span class="sd">		:return: Class instance. ( Library )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">handleException</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span>
+
+<div class="viewcode-block" id="Reporter.show"><a class="viewcode-back" href="../../resources/pages/api/umbra.reporter.html#umbra.reporter.Reporter.show">[docs]</a>	<span class="k">def</span> <span class="nf">show</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method reimplements the :meth:`QWidget.show` method.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">RuntimeGlobals</span><span class="o">.</span><span class="n">splashscreen</span> <span class="ow">and</span> <span class="n">RuntimeGlobals</span><span class="o">.</span><span class="n">splashscreen</span><span class="o">.</span><span class="n">hide</span><span class="p">()</span>
+
+		<span class="nb">super</span><span class="p">(</span><span class="n">Reporter</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">raise_</span><span class="p">()</span>
+</div>
+	<span class="k">def</span> <span class="nf">__initializeUi</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method initializes the Widget ui.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Initializing &#39;{0}&#39; Widget ui.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">))</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">__view</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">Reporter_webView</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">setWindowTitle</span><span class="p">(</span><span class="s">&quot;{0} - Reporter&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">Constants</span><span class="o">.</span><span class="n">applicationName</span><span class="p">))</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">Footer_label</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__footerText</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__initializeContextUi</span><span class="p">()</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">__setHtml</span><span class="p">()</span>
+
+		<span class="c"># Signals / Slots.</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">Copy_Report_pushButton</span><span class="o">.</span><span class="n">clicked</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__Copy_Report_pushButton__clicked</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">Disable_Reporter_pushButton</span><span class="o">.</span><span class="n">clicked</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__Disable_Reporter_pushButton__clicked</span><span class="p">)</span>
+
+	<span class="k">def</span> <span class="nf">__initializeContextUi</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method sets the context Widget ui.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="n">foundations</span><span class="o">.</span><span class="n">common</span><span class="o">.</span><span class="n">isInternetAvailable</span><span class="p">():</span>
+			<span class="n">text</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__onlineText</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="n">text</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__offlineText</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">Header_label</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
+
+	<span class="k">def</span> <span class="nf">__Copy_Report_pushButton__clicked</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">checked</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is triggered when **Copy_Report_pushButton** Widget is clicked.</span>
+
+<span class="sd">		:param checked: Checked state. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">clipboard</span> <span class="o">=</span> <span class="n">QApplication</span><span class="o">.</span><span class="n">clipboard</span><span class="p">()</span>
+		<span class="n">clipboard</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__view</span><span class="o">.</span><span class="n">page</span><span class="p">()</span><span class="o">.</span><span class="n">mainFrame</span><span class="p">()</span><span class="o">.</span><span class="n">toPlainText</span><span class="p">())</span>
+
+	<span class="k">def</span> <span class="nf">__Disable_Reporter_pushButton__clicked</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">checked</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is triggered when **Disable_Reporter_pushButton** Widget is clicked.</span>
+
+<span class="sd">		:param checked: Checked state. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">uninstallExceptionReporter</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__enabled</span> <span class="o">=</span> <span class="bp">False</span>
+
+	<span class="k">def</span> <span class="nf">__getHtml</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">body</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method returns the html content with given body tag content.</span>
+
+<span class="sd">		:param body: Body tag content. ( String )</span>
+<span class="sd">		:return: Html. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">output</span> <span class="o">=</span> <span class="p">[]</span>
+		<span class="n">output</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;html&gt;&quot;</span><span class="p">)</span>
+		<span class="n">output</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;head&gt;&quot;</span><span class="p">)</span>
+		<span class="k">for</span> <span class="n">javascript</span> <span class="ow">in</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__jqueryJavascript</span><span class="p">,</span>
+						<span class="bp">self</span><span class="o">.</span><span class="n">__crittercismJavascript</span><span class="p">,</span>
+						<span class="bp">self</span><span class="o">.</span><span class="n">__reporterJavascript</span><span class="p">):</span>
+			<span class="n">output</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;script type=</span><span class="se">\&quot;</span><span class="s">text/javascript</span><span class="se">\&quot;</span><span class="s">&gt;&quot;</span><span class="p">)</span>
+			<span class="n">output</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">javascript</span><span class="p">)</span>
+			<span class="n">output</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;/script&gt;&quot;</span><span class="p">)</span>
+		<span class="n">output</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;style type=</span><span class="se">\&quot;</span><span class="s">text/css</span><span class="se">\&quot;</span><span class="s">&gt;&quot;</span><span class="p">)</span>
+		<span class="n">output</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__style</span><span class="p">)</span>
+		<span class="n">output</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;/style&gt;&quot;</span><span class="p">)</span>
+		<span class="n">output</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;/head&gt;&quot;</span><span class="p">)</span>
+		<span class="k">if</span> <span class="n">body</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="n">output</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">body</span><span class="p">)</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="n">output</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;body&gt;&quot;</span><span class="p">)</span>
+			<span class="n">output</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;/body&gt;&quot;</span><span class="p">)</span>
+		<span class="n">output</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;/html&gt;&quot;</span><span class="p">)</span>
+		<span class="k">return</span> <span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+
+	<span class="k">def</span> <span class="nf">__setHtml</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">body</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method sets the html content in the View using given body.</span>
+
+<span class="sd">		:param body: Body tag content. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">__html</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__getHtml</span><span class="p">(</span><span class="n">body</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__view</span><span class="o">.</span><span class="n">setHtml</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__html</span><span class="p">)</span>
+
+	<span class="k">def</span> <span class="nf">__evaluateJavascript</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">javascript</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method evaluates given javascript content in the View.</span>
+
+<span class="sd">		:param javascript: Javascript. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">__view</span><span class="o">.</span><span class="n">page</span><span class="p">()</span><span class="o">.</span><span class="n">mainFrame</span><span class="p">()</span><span class="o">.</span><span class="n">evaluateJavaScript</span><span class="p">(</span><span class="n">javascript</span><span class="p">)</span>
+
+<div class="viewcode-block" id="Reporter.handleException"><a class="viewcode-back" href="../../resources/pages/api/umbra.reporter.html#umbra.reporter.Reporter.handleException">[docs]</a>	<span class="k">def</span> <span class="nf">handleException</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method handles given exception.</span>
+
+<span class="sd">		:param \*args: Arguments. ( \* )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">__enabled</span><span class="p">:</span>
+			<span class="k">return</span>
+
+		<span class="n">cls</span><span class="p">,</span> <span class="n">instance</span><span class="p">,</span> <span class="n">trcback</span> <span class="o">=</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">extractException</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span>
+
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;{0} | Handling &#39;{1}&#39; exception!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">cls</span><span class="p">)))</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">__initializeContextUi</span><span class="p">()</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">__setHtml</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">formatHtmlException</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="n">instance</span><span class="p">,</span> <span class="n">trcback</span><span class="p">))</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__report</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">reportExceptionToCrittercism</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="n">instance</span><span class="p">,</span> <span class="n">trcback</span><span class="p">)</span>
+		<span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">baseExceptionHandler</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="n">instance</span><span class="p">,</span> <span class="n">trcback</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">exec_</span><span class="p">()</span>
+</div>
+	<span class="nd">@staticmethod</span>
+<div class="viewcode-block" id="Reporter.formatHtmlException"><a class="viewcode-back" href="../../resources/pages/api/umbra.reporter.html#umbra.reporter.Reporter.formatHtmlException">[docs]</a>	<span class="k">def</span> <span class="nf">formatHtmlException</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method formats given exception as an html text.</span>
+
+<span class="sd">		:param \*args: Arguments. ( \* )</span>
+<span class="sd">		:return: Exception html text. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">escape</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">foundations</span><span class="o">.</span><span class="n">strings</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">x</span><span class="p">,</span>
+		<span class="n">OrderedDict</span><span class="p">([(</span><span class="s">&quot;&amp;&quot;</span><span class="p">,</span> <span class="s">&quot;&amp;amp;&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s">&quot;&lt;&quot;</span><span class="p">,</span> <span class="s">&quot;&amp;lt;&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s">&quot;&gt;&quot;</span><span class="p">,</span> <span class="s">&quot;&amp;gt;&quot;</span><span class="p">)]))</span>
+		<span class="n">format</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">foundations</span><span class="o">.</span><span class="n">strings</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">expandtabs</span><span class="p">(</span><span class="mi">8</span><span class="p">),</span>
+		<span class="n">OrderedDict</span><span class="p">([(</span><span class="s">&quot;</span><span class="se">\n\n</span><span class="s">&quot;</span><span class="p">,</span> <span class="s">&quot;</span><span class="se">\n</span><span class="s"> </span><span class="se">\n</span><span class="s">&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s">&quot;</span><span class="se">\n\n</span><span class="s">&quot;</span><span class="p">,</span> <span class="s">&quot;</span><span class="se">\n</span><span class="s"> </span><span class="se">\n</span><span class="s">&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s">&quot; &quot;</span><span class="p">,</span> <span class="s">&quot;&amp;nbsp;&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">,</span> <span class="s">&quot;&lt;br&gt;</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">)]))</span>
+
+		<span class="n">verbose</span> <span class="o">=</span> <span class="mi">10</span>
+		<span class="n">cls</span><span class="p">,</span> <span class="n">instance</span><span class="p">,</span> <span class="n">trcback</span> <span class="o">=</span> <span class="n">args</span>
+		<span class="n">stack</span> <span class="o">=</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">extractStack</span><span class="p">(</span><span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">getInnerMostFrame</span><span class="p">(</span><span class="n">trcback</span><span class="p">),</span> <span class="n">verbose</span><span class="p">)</span>
+
+		<span class="n">python</span> <span class="o">=</span> <span class="s">&quot;Python {0}: {1}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">version</span><span class="o">.</span><span class="n">split</span><span class="p">()[</span><span class="mi">0</span><span class="p">],</span> <span class="n">sys</span><span class="o">.</span><span class="n">executable</span><span class="p">)</span>
+		<span class="n">date</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">ctime</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">())</span>
+
+		<span class="n">html</span> <span class="o">=</span> <span class="p">[]</span>
+		<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+		<span class="s">&quot;&lt;div class=</span><span class="se">\&quot;</span><span class="s">header</span><span class="se">\&quot;</span><span class="s">&gt;&lt;span class=</span><span class="se">\&quot;</span><span class="s">floatRight textAlignRight</span><span class="se">\&quot;</span><span class="s">&gt;&lt;h4&gt;{0}&lt;br/&gt;{1}&lt;/h4&gt;&lt;/span&gt;&lt;h2&gt;{2}&lt;/h2&gt;&lt;/div&gt;&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+		<span class="n">python</span><span class="p">,</span> <span class="n">date</span><span class="p">,</span> <span class="n">escape</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">cls</span><span class="p">))))</span>
+
+		<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;div class=</span><span class="se">\&quot;</span><span class="s">traceback</span><span class="se">\&quot;</span><span class="s">&gt;&quot;</span><span class="p">)</span>
+		<span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">formatException</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="n">instance</span><span class="p">,</span> <span class="n">trcback</span><span class="p">):</span>
+			<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;{0}&lt;br/&gt;&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">format</span><span class="p">(</span><span class="n">line</span><span class="p">)))</span>
+		<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;/div&gt;&quot;</span><span class="p">)</span>
+
+		<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;div class=</span><span class="se">\&quot;</span><span class="s">content</span><span class="se">\&quot;</span><span class="s">&gt;&quot;</span><span class="p">)</span>
+		<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;p&gt;An unhandled exception occured in &lt;b&gt;{0} {1}&lt;/b&gt;! </span><span class="se">\</span>
+<span class="s">				Sequence of calls leading up to the exception, in their occurring order:&lt;/p&gt;&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+				<span class="n">Constants</span><span class="o">.</span><span class="n">applicationName</span><span class="p">,</span> <span class="n">Constants</span><span class="o">.</span><span class="n">releaseVersion</span><span class="p">))</span>
+		<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;br/&gt;&quot;</span><span class="p">)</span>
+		<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;div class=</span><span class="se">\&quot;</span><span class="s">stack</span><span class="se">\&quot;</span><span class="s">&gt;&quot;</span><span class="p">)</span>
+		<span class="k">for</span> <span class="n">frame</span><span class="p">,</span> <span class="n">fileName</span><span class="p">,</span> <span class="n">lineNumber</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">index</span> <span class="ow">in</span> <span class="n">stack</span><span class="p">:</span>
+			<span class="n">location</span> <span class="o">=</span> <span class="s">&quot;&lt;b&gt;{0}{1}&lt;/b&gt;&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">escape</span><span class="p">(</span><span class="n">name</span><span class="p">)</span> <span class="k">if</span> <span class="n">name</span> <span class="o">!=</span> <span class="s">&quot;&lt;module&gt;&quot;</span> <span class="k">else</span> <span class="nb">str</span><span class="p">(),</span>
+											<span class="n">inspect</span><span class="o">.</span><span class="n">formatargvalues</span><span class="p">(</span><span class="o">*</span><span class="n">inspect</span><span class="o">.</span><span class="n">getargvalues</span><span class="p">(</span><span class="n">frame</span><span class="p">)))</span>
+			<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+			<span class="s">&quot;&lt;div class=</span><span class="se">\&quot;</span><span class="s">location</span><span class="se">\&quot;</span><span class="s">&gt;File &lt;a href=file://{0}&gt;</span><span class="se">\&quot;</span><span class="s">{0}</span><span class="se">\&quot;</span><span class="s">&lt;/a&gt;, line &lt;b&gt;{1}&lt;/b&gt;, in {2}&lt;/div&gt;&lt;br&gt;&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+			<span class="n">fileName</span><span class="p">,</span> <span class="n">lineNumber</span><span class="p">,</span> <span class="n">location</span><span class="p">))</span>
+			<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;div class=</span><span class="se">\&quot;</span><span class="s">context</span><span class="se">\&quot;</span><span class="s">&gt;&quot;</span><span class="p">)</span>
+			<span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">line</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">context</span><span class="p">):</span>
+				<span class="k">if</span> <span class="n">i</span> <span class="o">==</span> <span class="n">index</span><span class="p">:</span>
+					<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;span class=</span><span class="se">\&quot;</span><span class="s">highlight</span><span class="se">\&quot;</span><span class="s">&gt;{0}&amp;nbsp;{1}&lt;/span&gt;&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+					<span class="n">lineNumber</span> <span class="o">-</span> <span class="n">index</span> <span class="o">+</span> <span class="n">i</span><span class="p">,</span> <span class="n">format</span><span class="p">(</span><span class="n">line</span><span class="p">)))</span>
+				<span class="k">else</span><span class="p">:</span>
+					<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;{0}&amp;nbsp;{1}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">lineNumber</span> <span class="o">-</span> <span class="n">index</span> <span class="o">+</span> <span class="n">i</span><span class="p">,</span> <span class="n">format</span><span class="p">(</span><span class="n">line</span><span class="p">)))</span>
+			<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;/div&gt;&quot;</span><span class="p">)</span>
+			<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;br/&gt;&quot;</span><span class="p">)</span>
+		<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;/div&gt;&quot;</span><span class="p">)</span>
+		<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;/div&gt;&quot;</span><span class="p">)</span>
+		<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;div class=</span><span class="se">\&quot;</span><span class="s">exception</span><span class="se">\&quot;</span><span class="s">&gt;&quot;</span><span class="p">)</span>
+		<span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">traceback</span><span class="o">.</span><span class="n">format_exception_only</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="n">instance</span><span class="p">):</span>
+			<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;b&gt;{0}&lt;/b&gt;&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">format</span><span class="p">(</span><span class="n">line</span><span class="p">)))</span>
+		<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;/div&gt;&quot;</span><span class="p">)</span>
+
+		<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;div class=</span><span class="se">\&quot;</span><span class="s">debug</span><span class="se">\&quot;</span><span class="s">&gt;&quot;</span><span class="p">)</span>
+		<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;p&gt;Frames locals by stack ordering, innermost last:&lt;/p&gt;&quot;</span><span class="p">)</span>
+		<span class="k">for</span> <span class="n">frame</span><span class="p">,</span> <span class="nb">locals</span> <span class="ow">in</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">extractLocals</span><span class="p">(</span><span class="n">trcback</span><span class="p">):</span>
+			<span class="n">name</span><span class="p">,</span> <span class="n">fileName</span><span class="p">,</span> <span class="n">lineNumber</span> <span class="o">=</span> <span class="n">frame</span>
+			<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+			<span class="s">&quot;&lt;div class=</span><span class="se">\&quot;</span><span class="s">frame</span><span class="se">\&quot;</span><span class="s">&gt;Frame </span><span class="se">\&quot;</span><span class="s">{0}</span><span class="se">\&quot;</span><span class="s"> in &lt;a href=file://{1}&gt;</span><span class="se">\&quot;</span><span class="s">{1}</span><span class="se">\&quot;</span><span class="s">&lt;/a&gt; file, line &lt;b&gt;{2}&lt;/b&gt;:&lt;/div&gt;&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+			<span class="n">escape</span><span class="p">(</span><span class="n">name</span><span class="p">),</span> <span class="n">fileName</span><span class="p">,</span> <span class="n">lineNumber</span><span class="p">))</span>
+			<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;br/&gt;&quot;</span><span class="p">)</span>
+			<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;div class=</span><span class="se">\&quot;</span><span class="s">locals</span><span class="se">\&quot;</span><span class="s">&gt;&quot;</span><span class="p">)</span>
+			<span class="n">arguments</span><span class="p">,</span> <span class="n">namelessArgs</span><span class="p">,</span> <span class="n">keywordArgs</span><span class="p">,</span> <span class="nb">locals</span> <span class="o">=</span> <span class="nb">locals</span>
+			<span class="n">hasArguments</span><span class="p">,</span> <span class="n">hasLocals</span> <span class="o">=</span> <span class="nb">any</span><span class="p">((</span><span class="n">arguments</span><span class="p">,</span> <span class="n">namelessArgs</span><span class="p">,</span> <span class="n">keywordArgs</span><span class="p">)),</span> <span class="nb">any</span><span class="p">(</span><span class="nb">locals</span><span class="p">)</span>
+			<span class="n">hasArguments</span> <span class="ow">and</span> <span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;div class=</span><span class="se">\&quot;</span><span class="s">cls</span><span class="se">\&quot;</span><span class="s">&gt;&lt;b&gt;{0}&lt;/b&gt;&lt;/div&gt;&lt;ul&gt;&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;Arguments:&quot;</span><span class="p">))</span>
+			<span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">arguments</span><span class="o">.</span><span class="n">iteritems</span><span class="p">():</span>
+				<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;li&gt;&lt;b&gt;{0}&lt;/b&gt; = {1}&lt;/li&gt;&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">escape</span><span class="p">(</span><span class="n">value</span><span class="p">)))</span>
+			<span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">namelessArgs</span><span class="p">:</span>
+				<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;li&gt;&lt;b&gt;{0}&lt;/b&gt;&lt;/li&gt;&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">escape</span><span class="p">(</span><span class="n">value</span><span class="p">)))</span>
+			<span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">keywordArgs</span><span class="o">.</span><span class="n">iteritems</span><span class="p">()):</span>
+				<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;li&gt;&lt;b&gt;{0}&lt;/b&gt; = {1}&lt;/li&gt;&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">escape</span><span class="p">(</span><span class="n">value</span><span class="p">)))</span>
+			<span class="n">hasArguments</span> <span class="ow">and</span> <span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;/ul&gt;&quot;</span><span class="p">)</span>
+			<span class="n">hasLocals</span> <span class="ow">and</span> <span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;div class=</span><span class="se">\&quot;</span><span class="s">cls</span><span class="se">\&quot;</span><span class="s">&gt;&lt;b&gt;{0}&lt;/b&gt;&lt;/div&gt;&lt;ul&gt;&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;Locals:&quot;</span><span class="p">))</span>
+			<span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="nb">locals</span><span class="o">.</span><span class="n">iteritems</span><span class="p">()):</span>
+				<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;li&gt;&lt;b&gt;{0}&lt;/b&gt; = {1}&lt;/li&gt;&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">escape</span><span class="p">(</span><span class="n">value</span><span class="p">)))</span>
+			<span class="n">hasLocals</span> <span class="ow">and</span> <span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;/ul&gt;&quot;</span><span class="p">)</span>
+			<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;/div&gt;&quot;</span><span class="p">)</span>
+			<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;br/&gt;&quot;</span><span class="p">)</span>
+		<span class="n">html</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&lt;/div&gt;&quot;</span><span class="p">)</span>
+
+		<span class="k">return</span> <span class="s">&quot;&lt;body&gt;{0}&lt;/body&gt;&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="nb">str</span><span class="p">()</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">html</span><span class="p">))</span>
+</div>
+	<span class="nd">@staticmethod</span>
+<div class="viewcode-block" id="Reporter.formatTextException"><a class="viewcode-back" href="../../resources/pages/api/umbra.reporter.html#umbra.reporter.Reporter.formatTextException">[docs]</a>	<span class="k">def</span> <span class="nf">formatTextException</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method formats given exception as a text.</span>
+
+<span class="sd">		:param \*args: Arguments. ( \* )</span>
+<span class="sd">		:return: Exception text. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">format</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="s">r&quot;^(\s+)&quot;</span><span class="p">,</span> <span class="k">lambda</span> <span class="n">y</span><span class="p">:</span> <span class="s">&quot;{0} &quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;.&quot;</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">y</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">0</span><span class="p">))),</span> <span class="n">x</span><span class="o">.</span><span class="n">rstrip</span><span class="p">()</span><span class="o">.</span><span class="n">expandtabs</span><span class="p">(</span><span class="mi">4</span><span class="p">))</span>
+
+		<span class="n">verbose</span> <span class="o">=</span> <span class="mi">10</span>
+		<span class="n">cls</span><span class="p">,</span> <span class="n">instance</span><span class="p">,</span> <span class="n">trcback</span> <span class="o">=</span> <span class="n">args</span>
+		<span class="n">stack</span> <span class="o">=</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">extractStack</span><span class="p">(</span><span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">getInnerMostFrame</span><span class="p">(</span><span class="n">trcback</span><span class="p">),</span> <span class="n">verbose</span><span class="p">)</span>
+
+		<span class="n">text</span> <span class="o">=</span> <span class="p">[]</span>
+		<span class="n">text</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">cls</span><span class="p">))</span>
+		<span class="n">text</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">str</span><span class="p">())</span>
+
+		<span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">formatException</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="n">instance</span><span class="p">,</span> <span class="n">trcback</span><span class="p">):</span>
+			<span class="n">text</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;{0}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">format</span><span class="p">(</span><span class="n">line</span><span class="p">))))</span>
+		<span class="n">text</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">str</span><span class="p">())</span>
+
+		<span class="n">text</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;An unhandled exception occured in {0} {1}!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">Constants</span><span class="o">.</span><span class="n">applicationName</span><span class="p">,</span>
+																		<span class="n">Constants</span><span class="o">.</span><span class="n">releaseVersion</span><span class="p">))</span>
+		<span class="n">text</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;Sequence of calls leading up to the exception, in their occurring order:&quot;</span><span class="p">)</span>
+		<span class="n">text</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">str</span><span class="p">())</span>
+
+		<span class="k">for</span> <span class="n">frame</span><span class="p">,</span> <span class="n">fileName</span><span class="p">,</span> <span class="n">lineNumber</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">index</span> <span class="ow">in</span> <span class="n">stack</span><span class="p">:</span>
+			<span class="n">location</span> <span class="o">=</span> <span class="s">&quot;{0}{1}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">name</span> <span class="k">if</span> <span class="n">name</span> <span class="o">!=</span> <span class="s">&quot;&lt;module&gt;&quot;</span> <span class="k">else</span> <span class="nb">str</span><span class="p">(),</span>
+											<span class="n">inspect</span><span class="o">.</span><span class="n">formatargvalues</span><span class="p">(</span><span class="o">*</span><span class="n">inspect</span><span class="o">.</span><span class="n">getargvalues</span><span class="p">(</span><span class="n">frame</span><span class="p">)))</span>
+			<span class="n">text</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;File </span><span class="se">\&quot;</span><span class="s">{0}</span><span class="se">\&quot;</span><span class="s">, line {1}, in {2}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">fileName</span><span class="p">,</span> <span class="n">lineNumber</span><span class="p">,</span> <span class="n">location</span><span class="p">))</span>
+			<span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">line</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">context</span><span class="p">):</span>
+				<span class="k">if</span> <span class="n">i</span> <span class="o">==</span> <span class="n">index</span><span class="p">:</span>
+					<span class="n">text</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;</span><span class="se">\t</span><span class="s">{0} {1} &lt;===&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">lineNumber</span> <span class="o">-</span> <span class="n">index</span> <span class="o">+</span> <span class="n">i</span><span class="p">,</span> <span class="n">format</span><span class="p">(</span><span class="n">format</span><span class="p">(</span><span class="n">line</span><span class="p">)))))</span>
+				<span class="k">else</span><span class="p">:</span>
+					<span class="n">text</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;</span><span class="se">\t</span><span class="s">{0} {1}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">lineNumber</span> <span class="o">-</span> <span class="n">index</span> <span class="o">+</span> <span class="n">i</span><span class="p">,</span> <span class="n">format</span><span class="p">(</span><span class="n">format</span><span class="p">(</span><span class="n">line</span><span class="p">)))))</span>
+			<span class="n">text</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">str</span><span class="p">())</span>
+		<span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">traceback</span><span class="o">.</span><span class="n">format_exception_only</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="n">instance</span><span class="p">):</span>
+			<span class="n">text</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;{0}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">format</span><span class="p">(</span><span class="n">line</span><span class="p">)))</span>
+		<span class="n">text</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">str</span><span class="p">())</span>
+
+		<span class="n">text</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;Frames locals by stack ordering, innermost last:&quot;</span><span class="p">)</span>
+		<span class="n">text</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">str</span><span class="p">())</span>
+		<span class="k">for</span> <span class="n">frame</span><span class="p">,</span> <span class="nb">locals</span> <span class="ow">in</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">extractLocals</span><span class="p">(</span><span class="n">trcback</span><span class="p">):</span>
+			<span class="n">name</span><span class="p">,</span> <span class="n">fileName</span><span class="p">,</span> <span class="n">lineNumber</span> <span class="o">=</span> <span class="n">frame</span>
+			<span class="n">text</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;Frame </span><span class="se">\&quot;</span><span class="s">{0}</span><span class="se">\&quot;</span><span class="s"> in </span><span class="se">\&quot;</span><span class="s">{1}</span><span class="se">\&quot;</span><span class="s"> file, line {2}:&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">fileName</span><span class="p">,</span> <span class="n">lineNumber</span><span class="p">))</span>
+			<span class="n">arguments</span><span class="p">,</span> <span class="n">namelessArgs</span><span class="p">,</span> <span class="n">keywordArgs</span><span class="p">,</span> <span class="nb">locals</span> <span class="o">=</span> <span class="nb">locals</span>
+			<span class="n">hasArguments</span><span class="p">,</span> <span class="n">hasLocals</span> <span class="o">=</span> <span class="nb">any</span><span class="p">((</span><span class="n">arguments</span><span class="p">,</span> <span class="n">namelessArgs</span><span class="p">,</span> <span class="n">keywordArgs</span><span class="p">)),</span> <span class="nb">any</span><span class="p">(</span><span class="nb">locals</span><span class="p">)</span>
+			<span class="n">hasArguments</span> <span class="ow">and</span> <span class="n">text</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;</span><span class="se">\t</span><span class="s">Arguments:&quot;</span><span class="p">))</span>
+			<span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">arguments</span><span class="o">.</span><span class="n">iteritems</span><span class="p">():</span>
+				<span class="n">text</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;</span><span class="se">\t\t</span><span class="s">{0} = {1}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">)))</span>
+			<span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">namelessArgs</span><span class="p">:</span>
+				<span class="n">text</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;</span><span class="se">\t\t</span><span class="s">{0}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">value</span><span class="p">)))</span>
+			<span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">keywordArgs</span><span class="o">.</span><span class="n">iteritems</span><span class="p">()):</span>
+				<span class="n">text</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;</span><span class="se">\\</span><span class="s">tt{0} = {1}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">)))</span>
+			<span class="n">hasLocals</span> <span class="ow">and</span> <span class="n">text</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;</span><span class="se">\t</span><span class="s">Locals:&quot;</span><span class="p">))</span>
+			<span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="nb">locals</span><span class="o">.</span><span class="n">iteritems</span><span class="p">()):</span>
+				<span class="n">text</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;</span><span class="se">\t\t</span><span class="s">{0} = {1}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">)))</span>
+			<span class="n">text</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">str</span><span class="p">())</span>
+
+		<span class="k">return</span> <span class="n">text</span>
+</div>
+<div class="viewcode-block" id="Reporter.reportExceptionToCrittercism"><a class="viewcode-back" href="../../resources/pages/api/umbra.reporter.html#umbra.reporter.Reporter.reportExceptionToCrittercism">[docs]</a>	<span class="k">def</span> <span class="nf">reportExceptionToCrittercism</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method reports given exception to Crittercism.</span>
+
+<span class="sd">		:param \*args: Arguments. ( \* )</span>
+<span class="sd">		:return: Method success. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="n">foundations</span><span class="o">.</span><span class="n">common</span><span class="o">.</span><span class="n">isInternetAvailable</span><span class="p">():</span>
+			<span class="n">cls</span><span class="p">,</span> <span class="n">instance</span><span class="p">,</span> <span class="n">trcback</span> <span class="o">=</span> <span class="n">args</span>
+
+			<span class="n">title</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">escape</span><span class="p">(</span><span class="nb">str</span><span class="p">()</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">map</span><span class="p">(</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="o">.</span><span class="n">strip</span><span class="p">(),</span> <span class="n">traceback</span><span class="o">.</span><span class="n">format_exception_only</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="n">instance</span><span class="p">))))</span>
+			<span class="nb">file</span> <span class="o">=</span> <span class="n">trcback</span><span class="o">.</span><span class="n">tb_frame</span><span class="o">.</span><span class="n">f_code</span><span class="o">.</span><span class="n">co_filename</span>
+			<span class="n">lineNumber</span> <span class="o">=</span> <span class="n">trcback</span><span class="o">.</span><span class="n">tb_lineno</span>
+			<span class="n">stack</span> <span class="o">=</span> <span class="nb">repr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">formatTextException</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="n">instance</span><span class="p">,</span> <span class="n">trcback</span><span class="p">))</span>
+
+			<span class="n">javascript</span> <span class="o">=</span> <span class="s">&quot;Crittercism.logExternalException(</span><span class="se">\&quot;</span><span class="s">{0}</span><span class="se">\&quot;</span><span class="s">, </span><span class="se">\&quot;</span><span class="s">{1}</span><span class="se">\&quot;</span><span class="s">, {2}, {3});&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+			<span class="n">title</span><span class="p">,</span> <span class="nb">file</span><span class="p">,</span> <span class="n">lineNumber</span><span class="p">,</span> <span class="n">stack</span><span class="p">)</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">__evaluateJavascript</span><span class="p">(</span><span class="n">javascript</span><span class="p">)</span>
+			<span class="n">LOGGER</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;{0} | Exception report sent to Crittercism!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">))</span>
+			<span class="k">return</span> <span class="bp">True</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="n">LOGGER</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&quot;!&gt; {0} | Failed sending exception report to Crittercism!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">))</span>
+			<span class="k">return</span> <span class="bp">False</span>
+</div></div>
+<div class="viewcode-block" id="baseExceptionHandler"><a class="viewcode-back" href="../../resources/pages/api/umbra.reporter.html#umbra.reporter.baseExceptionHandler">[docs]</a><span class="k">def</span> <span class="nf">baseExceptionHandler</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This definition provides a base exception handler.</span>
+
+<span class="sd">	:param \*args: Arguments. ( \* )</span>
+<span class="sd">	:return: Definition success. ( Boolean )</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="n">Reporter</span><span class="p">()</span><span class="o">.</span><span class="n">handleException</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span>
+
+	<span class="k">return</span> <span class="bp">True</span>
+</div>
+<div class="viewcode-block" id="systemExitExceptionHandler"><a class="viewcode-back" href="../../resources/pages/api/umbra.reporter.html#umbra.reporter.systemExitExceptionHandler">[docs]</a><span class="k">def</span> <span class="nf">systemExitExceptionHandler</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This definition provides a system exit exception handler.</span>
+
+<span class="sd">	:param \*args: Arguments. ( \* )</span>
+<span class="sd">	:return: Definition success. ( Boolean )</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="n">reporter</span> <span class="o">=</span> <span class="n">Reporter</span><span class="p">()</span>
+	<span class="n">reporter</span><span class="o">.</span><span class="n">Footer_label</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span>
+	<span class="s">&quot;The severity of this exception is critical, &lt;b&gt;{0}&lt;/b&gt; cannot continue and will now close!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+	<span class="n">Constants</span><span class="o">.</span><span class="n">applicationName</span><span class="p">))</span>
+
+	<span class="n">baseExceptionHandler</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span>
+
+	<span class="n">foundations</span><span class="o">.</span><span class="n">core</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+
+	<span class="k">return</span> <span class="bp">True</span>
+</div>
+<div class="viewcode-block" id="criticalExceptionHandler"><a class="viewcode-back" href="../../resources/pages/api/umbra.reporter.html#umbra.reporter.criticalExceptionHandler">[docs]</a><span class="k">def</span> <span class="nf">criticalExceptionHandler</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This decorator is used to mark an object that would system exit in case of critical exception.</span>
+
+<span class="sd">	:param object: Object to decorate. ( Object )</span>
+<span class="sd">	:return: Object. ( Object )</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="nd">@functools.wraps</span><span class="p">(</span><span class="nb">object</span><span class="p">)</span>
+	<span class="k">def</span> <span class="nf">criticalExceptionHandlerWrapper</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This decorator is used to mark an object that would system exit in case of critical exception.</span>
+
+<span class="sd">		:param \*args: Arguments. ( \* )</span>
+<span class="sd">		:param \*\*kwargs: Keywords arguments. ( \*\* )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">_exceptions__frame__</span> <span class="o">=</span> <span class="bp">True</span>
+
+		<span class="k">try</span><span class="p">:</span>
+			<span class="k">return</span> <span class="nb">object</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+		<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">error</span><span class="p">:</span>
+			<span class="n">systemExitExceptionHandler</span><span class="p">(</span><span class="n">error</span><span class="p">)</span>
+
+	<span class="k">return</span> <span class="n">criticalExceptionHandlerWrapper</span>
+</div>
+<div class="viewcode-block" id="installExceptionReporter"><a class="viewcode-back" href="../../resources/pages/api/umbra.reporter.html#umbra.reporter.installExceptionReporter">[docs]</a><span class="k">def</span> <span class="nf">installExceptionReporter</span><span class="p">(</span><span class="n">report</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This definition installs the exceptions reporter.</span>
+<span class="sd">	</span>
+<span class="sd">	:param report: Report to Crittercism. ( Boolean )</span>
+<span class="sd">	:return: Reporter instance. ( Reporter )</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="n">reporter</span> <span class="o">=</span> <span class="n">Reporter</span><span class="p">(</span><span class="n">report</span><span class="o">=</span><span class="n">report</span><span class="p">)</span>
+	<span class="n">sys</span><span class="o">.</span><span class="n">excepthook</span> <span class="o">=</span> <span class="n">reporter</span>
+	<span class="k">return</span> <span class="n">reporter</span>
+</div>
+<div class="viewcode-block" id="uninstallExceptionReporter"><a class="viewcode-back" href="../../resources/pages/api/umbra.reporter.html#umbra.reporter.uninstallExceptionReporter">[docs]</a><span class="k">def</span> <span class="nf">uninstallExceptionReporter</span><span class="p">():</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This definition uninstalls the exceptions reporter.</span>
+<span class="sd">	</span>
+<span class="sd">	:return: Definition success. ( Boolean )</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="k">return</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">installExceptionHandler</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="enableExceptionReporter"><a class="viewcode-back" href="../../resources/pages/api/umbra.reporter.html#umbra.reporter.enableExceptionReporter">[docs]</a><span class="k">def</span> <span class="nf">enableExceptionReporter</span><span class="p">():</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This definition enables the exceptions reporter.</span>
+<span class="sd">	</span>
+<span class="sd">	:return: Definition success. ( Boolean )</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="n">reporter</span> <span class="o">=</span> <span class="n">Reporter</span><span class="p">()</span><span class="o">.</span><span class="n">enabled</span> <span class="o">=</span> <span class="bp">True</span>
+	<span class="k">return</span> <span class="bp">True</span>
+</div>
+<div class="viewcode-block" id="disableExceptionReporter"><a class="viewcode-back" href="../../resources/pages/api/umbra.reporter.html#umbra.reporter.disableExceptionReporter">[docs]</a><span class="k">def</span> <span class="nf">disableExceptionReporter</span><span class="p">():</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This definition disables the exceptions reporter.</span>
+<span class="sd">	</span>
+<span class="sd">	:return: Definition success. ( Boolean )</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="n">reporter</span> <span class="o">=</span> <span class="n">Reporter</span><span class="p">()</span><span class="o">.</span><span class="n">enabled</span> <span class="o">=</span> <span class="bp">False</span>
+	<span class="k">return</span> <span class="bp">True</span>
+
+<span class="c">#**********************************************************************************************************************</span>
+<span class="c">#***	Sphinx: Statements updated for auto-documentation purpose.</span>
+<span class="c">#**********************************************************************************************************************</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">sIBL_GUI 4.0.3 documentation</a> &raquo;</li>
+          <li><a href="../index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2011, Thomas Mansencal.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>
