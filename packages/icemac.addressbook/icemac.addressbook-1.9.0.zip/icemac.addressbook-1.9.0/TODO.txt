@@ -1,0 +1,39 @@
+=======
+ To do
+=======
+
+Next major version
+==================
+
+- Probably: Full text search.
+
+Longer term
+===========
+
+The following features might be implemented over the next months:
+
+- person data
+
+  * store picture per person
+
+- company as entity
+
+- import
+
+  * vCard
+
+  * SQLite (Apple's Addressbook.app)
+
+- export
+
+  * custom XLS export
+
+  * LDAP export
+
+- more search abilities
+
+  * full text search
+
+  * combined search
+
+  * wildcard search

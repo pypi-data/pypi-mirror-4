@@ -1,0 +1,33 @@
+# -*- coding: utf-8 -*-
+# Copyright (c) 2010-2012 Michael Howitz
+# See also LICENSE.txt
+
+import icemac.addressbook.browser.interfaces
+import js.jquery
+import z3c.flashmessage.receiver
+import zope.component
+import zope.contentprovider.provider
+import zope.interface
+
+
+class MessagesContentProvider(
+    zope.contentprovider.provider.ContentProviderBase,
+    z3c.flashmessage.receiver.GlobalMessageReceiver):
+    """Content provider displaying flash messages."""
+
+    zope.component.adapts(
+        zope.interface.Interface,
+        icemac.addressbook.browser.interfaces.IAddressBookLayer,
+        zope.interface.Interface)
+
+    template = zope.browserpage.viewpagetemplatefile.ViewPageTemplateFile(
+        'messages.pt')
+
+    def update(self):
+        js.jquery.jquery.need()
+        self.messages = list(self.receive())
+
+    def render(self):
+        if self.messages:
+            return self.template(self)
+        return ''
