@@ -1,0 +1,77 @@
+### run
+
+DEBUG=
+
+echo "Generate soap config file"
+echo 'max_rd_len=150' > soap.config
+{% for l in fq_forward %}
+echo '[LIB]' >> soap.config
+echo 'avg_ins={{avg_insert}}' >> soap.config
+echo 'rank=1' >> soap.config
+echo 'reverse_seq=0' >> soap.config
+echo 'asm_flags=3' >> soap.config
+echo 'q1={{ l }}' >> soap.config
+echo 'q2={{ fq_reverse[loop.index0] }}' >> soap.config
+{% endfor %}
+
+echo "generate sspace config file"
+echo "" > sspace.config
+{% for l in fq_forward %}
+echo 'LIB_{{loop.index}} {{l}} {{ fq_reverse[loop.index0] }} {{ avg_insert }} 0.25 FR' \
+    >> sspace.config
+{% endfor %}
+
+echo "Start iterating"
+
+lastScaff={{ input[0] }}
+
+$DEBUG fastaInfo -O -s -i $lastScaff length ncount scaf1 scaf10 scaf100 \
+    > 0.before.stats
+
+counter=0
+for x in `seq 1 {{ noruns }}`; do
+    let counter+=1
+
+    newScaff="$x.scafSeq.gap"
+
+    echo "GapCloser run $x"
+    if [[ -f $newScaff ]]
+    then
+	echo "Skipping $newScaff - file exists"
+    else
+	$DEBUG time GapCloser -a $lastScaff \
+            -b  soap.config -t {{ threads }} \
+            -o $newScaff || true
+    fi
+
+    lastScaff=$newScaff
+    {% if run_sspace %}
+    newScaff="$x.scafSeq.scaf.final.scaffolds.fasta"
+ 
+    echo "Scaffolder run $x"
+    if [[ -f "$newScaff" ]]
+    then
+	echo "Skipping $newScaff - file exists"
+    else
+	$DEBUG time {{ sspace_executable }} \
+	    -l sspace.config -s ${lastScaff} \
+	    -b $x.scafSeq.scaf {{ sspace_extra_variables }} \
+	    -x 1 -T {{ threads }} -p 1 || true
+	$DEBUG fastaInfo -O -s -i $newScaff length ncount scaf1 scaf10 scaf100 \
+	    > $newScaff.stats
+    fi
+    lastScaff=$newScaff
+    {% endif %}
+done
+
+echo "Run gapcloser one last time"
+echo "on $lastScaff"
+
+$DEBUG time GapCloser -a $lastScaff \
+    -b  soap.config -t {{ threads }} \
+    -o {{ output }} || true
+
+$DEBUG fastaInfo -O -s -i {{ output }} length ncount scaf1 scaf10 scaf100 \
+    > 9.final.stats
+
+
