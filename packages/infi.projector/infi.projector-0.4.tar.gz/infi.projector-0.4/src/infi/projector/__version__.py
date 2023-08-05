@@ -1,0 +1,10 @@
+__version__ = "0.4"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '7185b5f0401296eacb53e7f8f78cbe5bf8c06d48'
+__git_head_subject__ = 'Finished release v0.4.'
+__git_head_message__ = '# By Guy Rozendorn (20) and Arnon Yaari (1)\n* release/v0.4: (21 commits)\n  TRIVIAL fixed freeze --newest\n  Freezing dependencies\n  Freezing dependencies\n  TRIVIAL added test\n  Freezing dependencies\n  TRIVIAL homepage\n  TRIVIAL fix --no-push-changes\n  TRIVIAL revert_if_failed fix\n  HOSTDEV-494 added homepage support now that the recipe supports it\n  TRIVIAL execute_assert_success: yet another fix\n  TRIVIAL execute_assert_success: fix previous commit\n  HOSTDEV-490 PrettyExecutionError\n  TRIVIAL description\n  HOSTDEV-447 graceful clone of remote w/o develop branch\n  HOSTDEV-493  fix previous commit\n  HOSTDEV-493  freeze revisited, now implemented as a seprate command\n  HOSTDEV-502 gui-scripts support for projector\n  HOSTDEV-494 added new homepage directive to setup.in in skeleton\n  HOSTDEV-492\n  TRIVIAL Fixing first_run/*_environment_python.py to work with Python 2.6\n  ...'
+__git_dirty_diff__ = ''
