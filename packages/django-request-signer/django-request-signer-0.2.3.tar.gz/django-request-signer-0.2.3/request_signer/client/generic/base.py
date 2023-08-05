@@ -1,0 +1,1 @@
+from generic_request_signer.backend import BasicSettingsApiCredentialsBackend
