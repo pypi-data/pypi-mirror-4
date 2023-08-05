@@ -1,0 +1,205 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Understanding how commands are imported &mdash; huey 0.2.2 documentation</title>
+    
+    <link rel="stylesheet" href="_static/nature.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     '0.2.2',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="huey 0.2.2 documentation" href="index.html" />
+    <link rel="next" title="Troubleshooting and Common Pitfalls" href="troubleshooting.html" />
+    <link rel="prev" title="Getting Started" href="getting-started.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="troubleshooting.html" title="Troubleshooting and Common Pitfalls"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="getting-started.html" title="Getting Started"
+             accesskey="P">previous</a> |</li>
+        <li><a href="index.html">huey 0.2.2 documentation</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="understanding-how-commands-are-imported">
+<span id="imports"></span><h1>Understanding how commands are imported<a class="headerlink" href="#understanding-how-commands-are-imported" title="Permalink to this headline">¶</a></h1>
+<div class="admonition note">
+<p class="first admonition-title">Note</p>
+<p class="last">If using django, commands are auto-discovered in a manner similar to
+that used by the admin &#8211; the consumer finds modules named <tt class="docutils literal"><span class="pre">commands.py</span></tt>
+in <tt class="docutils literal"><span class="pre">INSTALLED_APPS</span></tt> and imports them automatically.</p>
+</div>
+<p>Behind-the-scenes when you decorate a function with <tt class="xref py py-func docutils literal"><span class="pre">queue_command()</span></tt> or
+<tt class="xref py py-func docutils literal"><span class="pre">periodic_command()</span></tt>, the function registers itself with a centralized
+in-memory registry.  When that function is called, a reference is put into the
+queue (among other things), and when that message is consumed
+the function is then looked-up in the consumer&#8217;s registry.  Because of the way this
+works, it is strongly recommended that <strong>all decorated functions be imported when
+the consumer starts up</strong>.</p>
+<div class="admonition note">
+<p class="first admonition-title">Note</p>
+<p class="last">If a command is not recognized, the consumer will throw a <tt class="xref py py-class docutils literal"><span class="pre">QueueException</span></tt></p>
+</div>
+<p>The consumer is executed with a single parameter &#8211; a module to load that contains a subclass
+of <tt class="xref py py-class docutils literal"><span class="pre">BaseConfiguration</span></tt>.  It will import the class along with anything
+else in the module &#8211; thus you must be sure <strong>imports of your commands
+should also occur with the import of the configuration object</strong>.</p>
+<div class="section" id="suggested-organization-of-code">
+<h2>Suggested organization of code<a class="headerlink" href="#suggested-organization-of-code" title="Permalink to this headline">¶</a></h2>
+<p>Generally, I structure things like this, which makes it very easy to avoid
+circular imports.  If it looks familiar, that&#8217;s because it is exactly the way
+the project is laid out in the <a class="reference internal" href="getting-started.html#getting-started"><em>getting started</em></a> guide.</p>
+<ul>
+<li><p class="first"><tt class="docutils literal"><span class="pre">config.py</span></tt>, the module containing the configuration &#8211; also a good place
+to instantiate the <tt class="xref py py-class docutils literal"><span class="pre">Invoker</span></tt> object:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="c"># config.py</span>
+<span class="kn">from</span> <span class="nn">huey.backends.redis_backend</span> <span class="kn">import</span> <span class="n">RedisBlockingQueue</span>
+<span class="kn">from</span> <span class="nn">huey.bin.config</span> <span class="kn">import</span> <span class="n">BaseConfiguration</span>
+<span class="kn">from</span> <span class="nn">huey.queue</span> <span class="kn">import</span> <span class="n">Invoker</span>
+
+
+<span class="n">queue</span> <span class="o">=</span> <span class="n">RedisBlockingQueue</span><span class="p">(</span><span class="s">&#39;test-queue&#39;</span><span class="p">,</span> <span class="n">host</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">port</span><span class="o">=</span><span class="mi">6379</span><span class="p">)</span>
+<span class="n">invoker</span> <span class="o">=</span> <span class="n">Invoker</span><span class="p">(</span><span class="n">queue</span><span class="p">)</span>
+
+
+<span class="k">class</span> <span class="nc">Configuration</span><span class="p">(</span><span class="n">BaseConfiguration</span><span class="p">):</span>
+    <span class="n">QUEUE</span> <span class="o">=</span> <span class="n">queue</span>
+</pre></div>
+</div>
+</li>
+<li><p class="first"><tt class="docutils literal"><span class="pre">commands.py</span></tt>, the module containing any decorated functions.  Imports the
+<tt class="docutils literal"><span class="pre">invoker</span></tt> object from the <tt class="docutils literal"><span class="pre">config.py</span></tt> module:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="c"># commands.py</span>
+<span class="kn">from</span> <span class="nn">huey.decorators</span> <span class="kn">import</span> <span class="n">queue_command</span>
+
+<span class="kn">from</span> <span class="nn">config</span> <span class="kn">import</span> <span class="n">invoker</span> <span class="c"># import the invoker we instantiated in config.py</span>
+
+<span class="nd">@queue_command</span><span class="p">(</span><span class="n">invoker</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">count_beans</span><span class="p">(</span><span class="n">num</span><span class="p">):</span>
+    <span class="k">print</span> <span class="s">&#39;Counted </span><span class="si">%s</span><span class="s"> beans&#39;</span> <span class="o">%</span> <span class="n">num</span>
+</pre></div>
+</div>
+</li>
+<li><p class="first"><tt class="docutils literal"><span class="pre">main.py</span></tt> / <tt class="docutils literal"><span class="pre">app.py</span></tt> / <tt class="docutils literal"><span class="pre">whatever.py</span></tt>, the &#8220;main&#8221; module.  Imports both the
+<tt class="docutils literal"><span class="pre">config.py</span></tt> module <strong>and</strong> the <tt class="docutils literal"><span class="pre">commands.py</span></tt> module.  The key here is that
+when starting up the consumer, we point it at the <tt class="docutils literal"><span class="pre">Configuration</span></tt> class we
+imported from the config module:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="c"># main.py</span>
+<span class="kn">from</span> <span class="nn">config</span> <span class="kn">import</span> <span class="n">Configuration</span> <span class="c"># import the configuration class</span>
+<span class="kn">from</span> <span class="nn">commands</span> <span class="kn">import</span> <span class="n">count_beans</span> <span class="c"># import any commands</span>
+
+
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&#39;__main__&#39;</span><span class="p">:</span>
+    <span class="n">beans</span> <span class="o">=</span> <span class="nb">raw_input</span><span class="p">(</span><span class="s">&#39;How many beans? &#39;</span><span class="p">)</span>
+    <span class="n">count_beans</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">beans</span><span class="p">))</span>
+    <span class="k">print</span> <span class="s">&#39;Enqueued job to count </span><span class="si">%s</span><span class="s"> beans&#39;</span> <span class="o">%</span> <span class="n">beans</span>
+</pre></div>
+</div>
+</li>
+</ul>
+<p>To run the consumer, point it at <tt class="docutils literal"><span class="pre">main.Configuration</span></tt>, in this way everything
+gets imported correctly:</p>
+<div class="highlight-console"><div class="highlight"><pre><span class="gp">$</span> huey_consumer.py main.Configuration
+</pre></div>
+</div>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Understanding how commands are imported</a><ul>
+<li><a class="reference internal" href="#suggested-organization-of-code">Suggested organization of code</a></li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="getting-started.html"
+                        title="previous chapter">Getting Started</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="troubleshooting.html"
+                        title="next chapter">Troubleshooting and Common Pitfalls</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/imports.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="troubleshooting.html" title="Troubleshooting and Common Pitfalls"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="getting-started.html" title="Getting Started"
+             >previous</a> |</li>
+        <li><a href="index.html">huey 0.2.2 documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2012, charles leifer.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>
