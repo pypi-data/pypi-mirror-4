@@ -1,0 +1,725 @@
+ZODB Distributed GC
+===================
+
+This package provides a script for performing distributed garbage
+collection for a collection of ZODB storages, which will typically be
+ZEO clients.
+
+Here, we'll test the underlying script.
+
+We'll need to control time.
+
+    >>> now = 1241458549.614022
+    >>> def faux_time():
+    ...     global now
+    ...     now += 1
+    ...     return now
+    >>> import time
+    >>> time_time = time.time
+    >>> time.time = faux_time
+
+Let's define some storages::
+
+    >>> open('config', 'w').write("""
+    ... <zodb db1>
+    ...     <filestorage>
+    ...         pack-gc false
+    ...         pack-keep-old false
+    ...         path 1.fs
+    ...         blob-dir 1.blobs
+    ...     </filestorage>
+    ... </zodb>
+    ... <zodb db2>
+    ...     <filestorage>
+    ...         pack-gc false
+    ...         pack-keep-old false
+    ...         path 2.fs
+    ...     </filestorage>
+    ... </zodb>
+    ... <zodb db3>
+    ...     <filestorage>
+    ...         pack-gc false
+    ...         pack-keep-old false
+    ...         path 3.fs
+    ...     </filestorage>
+    ... </zodb>
+    ... """)
+
+    >>> import ZODB.blob, ZODB.config, transaction
+    >>> db = ZODB.config.databaseFromFile(open('config'))
+
+And perform some updates:
+
+    >>> conn1 = db.open()
+    >>> conn2 = conn1.get_connection('db2')
+    >>> conn3 = conn1.get_connection('db3')
+
+    >>> import persistent.mapping
+    >>> C = persistent.mapping.PersistentMapping
+
+    >>> conn1.root.x = C()
+    >>> conn2.root.x = C()
+    >>> conn3.root.x = C()
+    >>> transaction.commit()
+    >>> conn1.root.i = C()
+    >>> transaction.commit()
+    >>> conn1.root.j = C()
+    >>> transaction.commit()
+    >>> conn1.root.lots = [C({'x': C()}) for i in range(1100)]
+    >>> transaction.commit()
+    >>> conn2.root.y = C()
+    >>> conn3.root.x = C()
+    >>> conn1.root.j.i = conn1.root.i
+    >>> transaction.commit()
+    >>> conn3.root.z = C()
+    >>> del conn1.root.i
+    >>> transaction.commit()
+
+    >>> conn1.root.x.y = conn2.root.y
+    >>> del conn2.root.y # conn2.root.y is now only referenced from db 1
+    >>> conn1.root.x.y.z = conn3.root.z
+    >>> del conn3.root.z # conn3.root.z is now only referenced from db 2
+
+In db loops:
+
+    >>> conn1.root.a = C()
+    >>> transaction.commit()
+    >>> conn1.root.b = C()
+    >>> transaction.commit()
+    >>> conn1.root.a.b = conn1.root.b
+    >>> conn1.root.b.a = conn1.root.a
+
+cross db loops
+
+    >>> conn2.root.x.x = conn3.root.x
+    >>> conn3.root.x.x = conn2.root.x
+
+    >>> transaction.commit()
+
+
+No garbage yet, because everything's reachable.
+
+    >>> from ZODB.utils import u64, p64
+    >>> print u64(conn1.root.a._p_oid), u64(conn1.root.b._p_oid)
+    2204 2205
+    >>> print u64(conn2.root.x._p_oid), u64(conn3.root.x._p_oid)
+    1 2
+    >>> del conn1.root.a
+    >>> del conn1.root.b
+    >>> del conn2.root.x
+    >>> del conn3.root.x
+
+    >>> transaction.commit()
+
+Must have more garbage!
+
+    >>> for i in range(10):
+    ...     conn1.root()[i] = C()
+    >>> transaction.commit()
+    >>> for i in range(10):
+    ...     del conn1.root()[i]
+    >>> transaction.commit()
+
+The objects we just deleted are now garbage.
+
+Time passes. :)
+
+    >>> now += 7 * 86400        # 7 days
+
+We'll create some more garbage:
+
+    >>> conn2.root.a = C()
+    >>> transaction.commit()
+    >>> conn2.root.b = C()
+    >>> transaction.commit()
+    >>> conn2.root.a.b = conn2.root.b
+    >>> conn2.root.b.a = conn2.root.a
+
+    >>> transaction.commit()
+
+    >>> print u64(conn2.root.a._p_oid), u64(conn2.root.b._p_oid)
+    3 4
+    >>> del conn2.root.a
+    >>> del conn2.root.b
+    >>> transaction.commit()
+
+Let's add a blob.  We'll use it later:
+
+    >>> conn1.root.blob = ZODB.blob.Blob('some data')
+    >>> transaction.commit()
+    >>> blob_path = conn1.root.blob.committed()
+
+
+Save databases for later:
+
+    >>> import shutil
+    >>> for n in range(1, 4):
+    ...     shutil.copyfile('%s.fs' % n, '%s.fs-save' %n)
+
+More time passes.
+
+    >>> now += 1
+
+The number of objects in the databases now:
+
+    >>> len(conn1._storage), len(conn2._storage), len(conn3._storage)
+    (2217, 5, 4)
+
+    >>> for d in db.databases.values():
+    ...     d.pack()
+
+Packing doesn't change it:
+
+    >>> len(conn1._storage), len(conn2._storage), len(conn3._storage)
+    (2217, 5, 4)
+
+    >>> _ = conn1._storage.load(p64(2))
+    >>> _ = conn1._storage.load(p64(3))
+    >>> _ = conn2._storage.load(p64(1))
+    >>> _ = conn3._storage.load(p64(1))
+    >>> _ = conn3._storage.load(p64(2))
+
+    >>> _ = [d.close() for d in db.databases.values()]
+
+Save databases for later:
+
+    >>> for n in range(1, 4):
+    ...     shutil.copyfile('%s.fs' % n, '%s.fs-2' %n)
+    >>> shutil.copytree('1.blobs', '1.blobs-2')
+    >>> shutil.copymode('1.blobs', '1.blobs-2')
+
+Now let's perform gc.
+
+    >>> import zc.zodbdgc
+    >>> bad = zc.zodbdgc.gc('config', days=2)
+
+    >>> for name, oid in sorted(bad.iterator()):
+    ...     print name, u64(oid)
+    db1 2204
+    db1 2205
+    db1 2206
+    db1 2207
+    db1 2208
+    db1 2209
+    db1 2210
+    db1 2211
+    db1 2212
+    db1 2213
+    db1 2214
+    db1 2215
+    db2 1
+    db3 1
+    db3 2
+
+    >>> db = ZODB.config.databaseFromFile(open('config'))
+    >>> conn1 = db.open()
+    >>> conn2 = conn1.get_connection('db2')
+    >>> conn3 = conn1.get_connection('db3')
+
+Note that we still have the same number of objects, because we
+haven't packed yet.
+
+    >>> len(conn1._storage), len(conn2._storage), len(conn3._storage)
+    (2217, 5, 4)
+
+    >>> now += 1
+
+    >>> for d in db.databases.values():
+    ...     d.pack()
+
+    >>> len(conn1._storage), len(conn2._storage), len(conn3._storage)
+    (2205, 4, 2)
+
+    >>> import ZODB.POSException
+    >>> for name, oid in bad.iterator():
+    ...     try:
+    ...         conn1.get_connection(name)._storage.load(oid)
+    ...     except ZODB.POSException.POSKeyError:
+    ...         pass
+    ...     else:
+    ...         print 'waaa', name, u64(oid)
+
+Make sure we have no broken refs:
+
+    >>> _ = [d.close() for d in db.databases.values()]
+    >>> zc.zodbdgc.check('config')
+
+We can use separate databases for the analysis and update.
+First restore the databases.
+
+    >>> import os
+    >>> for n in range(1, 4):
+    ...     shutil.copyfile('%s.fs-2' % n, '%s.fs' % n)
+    ...     os.remove('%s.fs.index' % n)
+
+Make a secondary config:
+
+    >>> open('config2', 'w').write("""
+    ... <zodb db1>
+    ...     <filestorage>
+    ...         path 1.fs-2
+    ...         blob-dir 1.blobs-2
+    ...     </filestorage>
+    ... </zodb>
+    ... <zodb db2>
+    ...     <filestorage>
+    ...         path 2.fs-2
+    ...     </filestorage>
+    ... </zodb>
+    ... <zodb db3>
+    ...     <filestorage>
+    ...         path 3.fs-2
+    ...     </filestorage>
+    ... </zodb>
+    ... """)
+
+
+This time we'll use the command-line interface:
+
+    >>> import logging, sys
+    >>> handler = logging.StreamHandler(sys.stdout)
+    >>> old_level = logging.getLogger().getEffectiveLevel()
+    >>> logging.getLogger().setLevel(logging.INFO)
+    >>> logging.getLogger().addHandler(handler)
+
+    >>> import os
+    >>> old_columns = os.environ.get('COLUMNS')
+    >>> os.environ['COLUMNS'] = '70'
+    >>> old_prog = sys.argv[0]
+    >>> sys.argv[0] = 'multi-zodb-gc'
+    >>> try: zc.zodbdgc.gc_command([])
+    ... except SystemExit: pass
+    Usage: multi-zodb-gc [Options] config1 [config2]
+    <BLANKLINE>
+    Options:
+      -h, --help            show this help message and exit
+      -d DAYS, --days=DAYS  Number of trailing days (defaults to 1) to
+                            treat as non-garbage
+      -f FS, --file-storage=FS
+                            name=path, use the given file storage path
+                            for analysis of the.named database
+      -i IGNORE, --ignore-database=IGNORE
+                            Ignore references to the given database
+                            name.
+      -l LEVEL, --log-level=LEVEL
+                            The logging level. The default is WARNING.
+      -u UNTRANSFORM, --untransform=UNTRANSFORM
+                            Function (module:expr) used to untransform
+                            data records in files identified using the
+                            -file-storage/-f option
+
+    >>> bad2 = zc.zodbdgc.gc_command(['-d2', 'config', 'config2'])
+    Using secondary configuration, config2, for analysis
+    db1: roots
+    db1: recent
+    db2: roots
+    db2: recent
+    db3: roots
+    db3: recent
+    db1: remove garbage
+    Removed 12 objects from db1
+    db2: remove garbage
+    Removed 1 objects from db2
+    db3: remove garbage
+    Removed 2 objects from db3
+
+    >>> sorted(bad2.iterator()) == sorted(bad.iterator())
+    True
+
+We can gc again, even with deleted records:
+
+    >>> sorted(zc.zodbdgc.gc_command(['-d2', 'config']).iterator())
+    db1: roots
+    db1: recent
+    db2: roots
+    db2: recent
+    db3: roots
+    db3: recent
+    db1: remove garbage
+    Removed 0 objects from db1
+    db2: remove garbage
+    Removed 0 objects from db2
+    db3: remove garbage
+    Removed 0 objects from db3
+    []
+
+    >>> db = ZODB.config.databaseFromFile(open('config'))
+    >>> conn1 = db.open()
+    >>> conn2 = conn1.get_connection('db2')
+    >>> conn3 = conn1.get_connection('db3')
+
+    >>> for d in db.databases.values():
+    ...     d.pack()
+
+    >>> len(conn1._storage), len(conn2._storage), len(conn3._storage)
+    (2205, 4, 2)
+
+    >>> _ = [d.close() for d in db.databases.values()]
+
+Check getting args from sys.argv, which sets a default level of
+logging:
+
+    >>> old_argv = sys.argv[:]
+    >>> old_basicConfig = logging.basicConfig
+    >>> def faux_basicConfig(level=None, format=None):
+    ...     print 'basicConfig', (), dict(level=level)
+    >>> logging.basicConfig = faux_basicConfig
+
+    >>> sys.argv[:] = ['-d2', 'config']
+    >>> sorted(zc.zodbdgc.gc_command().iterator())
+    basicConfig () {'level': 30}
+    db1: roots
+    db1: recent
+    db2: roots
+    db2: recent
+    db3: roots
+    db3: recent
+    db1: remove garbage
+    Removed 0 objects from db1
+    db2: remove garbage
+    Removed 0 objects from db2
+    db3: remove garbage
+    Removed 0 objects from db3
+    []
+
+and check -l option handling:
+
+    >>> sys.argv[:] = ['-d2', '-l10', 'config']
+    >>> sorted(zc.zodbdgc.gc_command().iterator())
+    basicConfig () {'level': 10}
+    db1: roots
+    db1: recent
+    db2: roots
+    db2: recent
+    db3: roots
+    db3: recent
+    db1: remove garbage
+    Removed 0 objects from db1
+    db2: remove garbage
+    Removed 0 objects from db2
+    db3: remove garbage
+    Removed 0 objects from db3
+    []
+
+    >>> sys.argv[:] = ['-d2', '-lINFO', 'config']
+    >>> sorted(zc.zodbdgc.gc_command().iterator())
+    basicConfig () {'level': 20}
+    db1: roots
+    db1: recent
+    db2: roots
+    db2: recent
+    db3: roots
+    db3: recent
+    db1: remove garbage
+    Removed 0 objects from db1
+    db2: remove garbage
+    Removed 0 objects from db2
+    db3: remove garbage
+    Removed 0 objects from db3
+    []
+
+
+    >>> logging.basicConfig = old_basicConfig
+    >>> sys.argv[:] = old_argv
+
+    >>> try: zc.zodbdgc.check_command([])
+    ... except SystemExit: pass
+    Usage: multi-zodb-gc [Options] config
+    <BLANKLINE>
+    Options:
+      -h, --help            show this help message and exit
+      -r REFDB, --references-filestorage=REFDB
+                            The name of a file-storage to save reference
+                            info in.
+
+    >>> zc.zodbdgc.check_command(['config'])
+
+Make sure we can omit days on the command line:
+
+    >>> for n in range(1, 4):
+    ...     shutil.copyfile('%s.fs' % n, '%s.fs-2' %n)
+    ...     os.remove('%s.fs-2.index' % n)
+
+    >>> sorted(zc.zodbdgc.gc_command(['config', 'config2']).iterator())
+    Using secondary configuration, config2, for analysis
+    db1: roots
+    db1: recent
+    db2: roots
+    db2: recent
+    db3: roots
+    db3: recent
+    db1: remove garbage
+    Removed 0 objects from db1
+    db2: remove garbage
+    Removed 0 objects from db2
+    db3: remove garbage
+    Removed 0 objects from db3
+    []
+
+Try with 0 days:
+
+    >>> sorted((name, long(u64(oid))) for (name, oid) in
+    ...        zc.zodbdgc.gc_command(['-d0', 'config', 'config2']).iterator())
+    Using secondary configuration, config2, for analysis
+    db1: roots
+    db2: roots
+    db3: roots
+    db1: remove garbage
+    Removed 0 objects from db1
+    db2: remove garbage
+    Removed 2 objects from db2
+    db3: remove garbage
+    Removed 0 objects from db3
+    [('db2', 3L), ('db2', 4L)]
+
+Test the check command
+----------------------
+
+    If we pack the original files with gc enabled, we'll create
+    a missing link.  We'll also remove the blob file, to make sure we
+    catch that too.
+
+    >>> import os
+    >>> os.remove(blob_path.replace('1.blobs', '1.blobs-2'))
+
+    >>> for n in range(1, 4):
+    ...     shutil.copyfile('%s.fs-save' % n, '%s.fs-2' %n)
+    ...     os.remove('%s.fs-2.index' % n)
+    >>> db = ZODB.config.databaseFromFile(open('config2'))
+
+    >>> for d in db.databases.values():
+    ...     d.pack()
+    >>> for d in db.databases.values():
+    ...     d.close()
+
+    >>> zc.zodbdgc.check_command(['config2'])
+    !!! db1 2216 ?
+    POSKeyError: 'No blob file'
+    !!! db2 2 ?
+    POSKeyError: 0x02
+
+We get a list of missing objects.  We don't get the referring objects.
+To get the, we have to use the -r option to specify the name of a
+database to use.
+
+    >>> zc.zodbdgc.check_command(['-rrefs.fs', 'config2'])
+    !!! db1 2216 db1 0
+    POSKeyError: 'No blob file'
+    !!! db2 2 db1 1
+    POSKeyError: 0x02
+
+Note that now we get information about what was referencing the
+missing object. Not just that, we also get a database we can use to
+query about any references:
+
+    >>> refs = zc.zodbdgc.References('refs.fs')
+    >>> list(refs['db2', 2])
+    [('db1', 1)]
+    >>> list(refs['db2', '\0'*7+'\2'])
+    [('db1', 1)]
+    >>> list(refs['db1', 1])
+    [('db1', 0)]
+
+
+
+Note that we see the missing link from db1 to db2.  There is not
+missing link from db1 to db3 because the referencing object was
+incorrectly removed as garbage.
+
+
+If we see references to databases we haven't heard of, we just report them:
+
+    >>> open('config2', 'w').write("""
+    ... <zodb db1>
+    ...     <filestorage>
+    ...         path 1.fs-2
+    ...         blob-dir 1.blobs-2
+    ...     </filestorage>
+    ... </zodb>
+    ... """)
+
+    >>> zc.zodbdgc.check_command(['config2'])
+    !!! db1 2216 ?
+    POSKeyError: 'No blob file'
+    !!! db2 2 db1 1
+    bad db
+
+(Note that we get the referring object info here because it is readily
+available at the time the bad reference is detected.)
+
+If a database is configured to not allow cross references, we complain
+about cross references that we see:
+
+    >>> open('config2', 'w').write("""
+    ... <zodb db1>
+    ...     allow-implicit-cross-references false
+    ...     <filestorage>
+    ...         path 1.fs-2
+    ...         blob-dir 1.blobs-2
+    ...     </filestorage>
+    ... </zodb>
+    ... <zodb db2>
+    ...     allow-implicit-cross-references false
+    ...     <filestorage>
+    ...         path 2.fs-2
+    ...     </filestorage>
+    ... </zodb>
+    ... <zodb db3>
+    ...     allow-implicit-cross-references false
+    ...     <filestorage>
+    ...         path 3.fs-2
+    ...     </filestorage>
+    ... </zodb>
+    ... """)
+
+    >>> zc.zodbdgc.check_command(['config2'])
+    !!! db1 2216 ?
+    POSKeyError: 'No blob file'
+    bad xref db2 2 db1 1
+    !!! db2 2 ?
+    POSKeyError: 0x02
+
+
+Ignoring databases
+------------------
+
+Sometimes, when doing garbage collection, you want to ignore some
+databases.
+
+    >>> db = ZODB.config.databaseFromString("""
+    ... <zodb db1>
+    ...     <filestorage>
+    ...         path one.fs
+    ...         pack-gc false
+    ...     </filestorage>
+    ... </zodb>
+    ... <zodb db2>
+    ...     <filestorage>
+    ...         path two.fs
+    ...         pack-gc false
+    ...     </filestorage>
+    ... </zodb>
+    ... """)
+
+    >>> conn = db.open()
+    >>> conn.get_connection('db2').root.x = C()
+    >>> transaction.commit()
+    >>> conn.root.x = C()
+    >>> conn.root.x.x = conn.get_connection('db2').root.x
+    >>> transaction.commit()
+    >>> conn.root.a = C()
+    >>> transaction.commit()
+    >>> conn.root.b = C()
+    >>> conn.root.a.b = conn.root.b
+    >>> conn.root.b.a = conn.root.a
+    >>> transaction.commit()
+    >>> del conn.root.a
+    >>> del conn.root.b
+    >>> transaction.commit()
+
+    >>> now += 2*86400
+
+    >>> db.pack()
+
+    >>> _ = [db.close() for db in db.databases.itervalues()]
+
+    >>> open('config', 'w').write("""
+    ... <zodb db1>
+    ...     <filestorage>
+    ...         path one.fs
+    ...     </filestorage>
+    ... </zodb>
+    ... """)
+
+    >>> sorted(zc.zodbdgc.gc_command(['config']).iterator())
+    Traceback (most recent call last):
+    ...
+    KeyError: 'db2'
+
+    >>> sorted(zc.zodbdgc.gc_command(['-idb2', 'config']).iterator())
+    ... # doctest: +NORMALIZE_WHITESPACE
+    db1: roots
+    db1: recent
+    db1: remove garbage
+    Removed 2 objects from db1
+    [('db1', '\x00\x00\x00\x00\x00\x00\x00\x02'),
+     ('db1', '\x00\x00\x00\x00\x00\x00\x00\x03')]
+
+    >>> os.remove('one.fs')
+    >>> os.remove('two.fs')
+    >>> os.remove('one.fs.index')
+    >>> os.remove('two.fs.index')
+
+Using file-storage iterators directly
+-------------------------------------
+
+If the database under analysis is a file-storage, we can access the
+files directly:
+
+
+    >>> open('config', 'w').write("""
+    ... <zodb db1>
+    ...     <filestorage>
+    ...         path one.fs
+    ...         pack-gc false
+    ...     </filestorage>
+    ... </zodb>
+    ... <zodb db2>
+    ...     <filestorage>
+    ...         path two.fs
+    ...         pack-gc false
+    ...     </filestorage>
+    ... </zodb>
+    ... """)
+    >>> db = ZODB.config.databaseFromFile(open('config'))
+    >>> conn = db.open()
+    >>> conn.get_connection('db2').root.x = C()
+    >>> transaction.commit()
+    >>> conn.root.x = C()
+    >>> conn.root.x.x = conn.get_connection('db2').root.x
+    >>> transaction.commit()
+    >>> conn.root.a = C()
+    >>> transaction.commit()
+    >>> conn.root.b = C()
+    >>> conn.root.a.b = conn.root.b
+    >>> conn.root.b.a = conn.root.a
+    >>> transaction.commit()
+    >>> del conn.root.a
+    >>> del conn.root.b
+    >>> transaction.commit()
+
+    >>> now += 2*86400
+
+    >>> db.pack()
+
+    >>> _ = [db.close() for db in db.databases.itervalues()]
+
+
+    >>> sorted(zc.zodbdgc.gc_command(['-fdb1=one.fs', '-fdb2=two.fs', 'config']
+    ... ).iterator())
+    ... # doctest: +NORMALIZE_WHITESPACE
+    db1: roots
+    db1: recent
+    db2: roots
+    db2: recent
+    db1: remove garbage
+    Removed 2 objects from db1
+    db2: remove garbage
+    Removed 0 objects from db2
+    [('db1', '\x00\x00\x00\x00\x00\x00\x00\x02'),
+     ('db1', '\x00\x00\x00\x00\x00\x00\x00\x03')]
+
+    >>> os.remove('one.fs')
+    >>> os.remove('two.fs')
+
+.. cleanup
+
+    >>> logging.getLogger().setLevel(old_level)
+    >>> logging.getLogger().removeHandler(handler)
+    >>> time.time = time_time
+    >>> sys.argv[0] = old_prog
+
+    >>> if old_columns is None:
+    ...     del os.environ['COLUMNS']
+    ... else:
+    ...     os.environ['COLUMNS'] = old_columns
