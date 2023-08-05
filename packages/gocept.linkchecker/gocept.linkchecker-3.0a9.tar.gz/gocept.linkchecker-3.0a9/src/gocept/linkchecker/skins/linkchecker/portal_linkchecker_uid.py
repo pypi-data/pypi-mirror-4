@@ -1,0 +1,1 @@
+return context.portal_linkchecker.getUIDForObject(context)
