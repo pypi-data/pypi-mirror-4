@@ -1,0 +1,10 @@
+__version__ = "0.1.3"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '76afc5cc5c44d78b43fa342a651b66b9e3913734'
+__git_head_subject__ = 'Finished release v0.1.3.'
+__git_head_message__ = '# By Guy Rozendorn (4) and Arnon Yaari (1)\n* release/v0.1.3:\n  TRIVIAL skeleton update\n  TRIVIAL fixing mocks\n  HIP-484 waiting for yum/rpm to query for 120 seconds, 300 for install/remove\n  TRIVIAL updated README.md\n  empty commit after version v0.1.2'
+__git_dirty_diff__ = ''
