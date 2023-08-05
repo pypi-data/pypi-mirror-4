@@ -1,0 +1,78 @@
+#This file is part of Ant Backup. The COPYRIGHT file at the top level of
+#this repository contains the full copyright notices and license terms.
+import os
+import sys
+import optparse
+import ConfigParser
+import logging
+
+import antbkp
+
+from antbkp.version import VERSION
+from antbkp.rotate import *
+from antbkp.home import *
+from antbkp.psql import *
+from antbkp.mysql import *
+
+def antbkp(configuration):
+    config = ConfigParser.ConfigParser()
+    config.read(configuration)
+
+    results = {}
+    for section in config.sections():
+        results[section] = {}
+        for option in config.options(section):
+            results[section][option] = config.get(section, option)
+
+    options = {}
+    options['backdir'] = results['global']['backdir']
+    smtp = {}
+    smtp['smtp_server'] = results['global']['smtp_server']
+    smtp['smtp_port'] = results['global']['smtp_port']
+    smtp['smtp_ssl'] = results['global']['smtp_ssl']
+    smtp['smtp_tls'] = results['global']['smtp_tls']
+    smtp['smtp_user'] = results['global']['smtp_user']
+    smtp['smtp_password'] = results['global']['smtp_password']
+    options['smtp'] = smtp
+    options['log'] = results['global']['log']
+
+    logging.basicConfig(filename=options.get('log'), level=logging.INFO)
+
+    backdir = options.get('backdir')
+    if not os.path.exists(backdir):
+        os.makedirs(backdir)
+        os.makedirs('%s/backup' % backdir)
+
+    precommand = results['global']['precommand']
+    postcommand = results['global']['postcommand']
+
+    if precommand:
+        os.system(precommand)
+
+    for key, vals in results.iteritems():
+        logging.info('Run: %s' % key)
+        if vals.get('backup'):
+            eval(key.capitalize()).run(vals, options)
+
+    if postcommand:
+        os.system(postcommand)
+
+def parse_arguments(arguments):
+    parser = optparse.OptionParser(usage='antbkp.py [options]', version=VERSION)
+    parser.add_option("-c", "--config", dest="config",
+        help="Specify config file")
+    (opt, _) = parser.parse_args(arguments)
+
+    if not opt.config:
+        print "antbkp.py  -c Specify config file"
+        exit()
+
+    if not os.path.exists(opt.config):
+        print "File not exists: %s" % opt.config
+        exit()
+
+    return opt
+
+if __name__ == "__main__":
+    options = parse_arguments(sys.argv)
+    antbkp(options.config)
