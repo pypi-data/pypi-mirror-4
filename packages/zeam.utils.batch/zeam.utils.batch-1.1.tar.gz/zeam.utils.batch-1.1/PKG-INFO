@@ -1,0 +1,211 @@
+Metadata-Version: 1.0
+Name: zeam.utils.batch
+Version: 1.1
+Summary: Generic Batch support for Zope
+Home-page: http://github.com/thefunny42/Zeam-Utils-Batch
+Author: Sylvain Viollon
+Author-email: thefunny@gmail.com
+License: BSD
+Description: ================
+        zeam.utils.batch
+        ================
+        
+        This package provides a batch functionality for Zope 2, Zope 3 and Grok.
+        
+        .. contents::
+        
+        Example
+        =======
+        
+        A very straightforward example. We need to define a context to work
+        on::
+        
+          >>> import grokcore.view as grok
+          >>> from persistent import Persistent
+          >>> from zope.component import queryMultiAdapter
+          >>> from zeam.utils.batch import Batch
+          >>> from zeam.utils.batch.interfaces import IBatching
+        
+          >>> class Content(Persistent):
+          ...     pass
+        
+        
+        And now, you can define a view which use a batch, and render it::
+        
+          >>> class MyViewClass(grok.View):
+          ...     grok.context(Content)
+          ...
+          ...     def update(self):
+          ...          fulllist = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+          ...          self.myitems = Batch(
+          ...                 fulllist , count=3, name='nbs', request=self.request,
+          ...                 factory=lambda x: str(x))
+          ...
+          ...          self.batch = queryMultiAdapter(
+          ...                 (self, self.myitems, self.request),
+          ...                     IBatching)()
+          ...
+          ...     template = grok.PageTemplate('''
+          ...     <tal:navigation tal:replace="structure view/batch" />
+          ...     <span tal:content="item" tal:repeat="item view/myitems" />
+          ...     <tal:navigation tal:replace="structure view/batch" />
+          ...     ''')
+        
+        And this work::
+        
+          >>> from grokcore.component import testing
+          >>> testing.grok_component("view", MyViewClass)
+          True
+        
+          >>> from zope.publisher.browser import TestRequest
+          >>> request = TestRequest()
+        
+          >>> root = getRootFolder()
+          >>> root['myObject'] = Content()
+          >>> myobj = root['myObject']
+        
+          >>> view = queryMultiAdapter((myobj, request), name="myviewclass")
+          >>> "batchNav" in view()
+          True
+        
+        
+        API
+        ===
+        
+        ``Batch``
+           This object implements the batch.
+        
+           The batch object is instanciated with the following arguments:
+        
+           - a list of the objects to batch
+        
+           - the request
+        
+           - the number of items per page (as count, default to 10)
+        
+           - a name (optional)
+        
+           - a factory that will be passed each item before each iteration (optional)
+        
+           The batch is an iterable object behaving like a list.
+           It only gives access to the set of objects for the current page.
+        
+           It provides the number of pages generated and the current position.
+           Please refer to the interface, for more information.
+        
+           A multi adapter providing ``IBatching`` can render the batch.
+           It adapts the context, the batch object and the request. The __call__
+           method of this component will return a snippet of HTML containing
+           basic controls for your batch: a next and previous link and a direct
+           access to the other pages.
+        
+        ``DateBatch``
+           This object implements a batch for date range. It follows the same
+           API than the regular batch, except:
+        
+           - the list of objects is replaced by a callable that takes a
+             datetime value has parameter and return a list of objects for the
+             given periode
+        
+           - the count option is changed to use either the ``BATCH_DAY`` or
+             ``BATCH_MONTH`` marker object.
+        
+        
+        Changelog
+        =========
+        
+        1.1 (2012-09-24)
+        ----------------
+        
+        * Add a new type of batch, AlphabeticalBatch, that like the DateBatch,
+          and can be used to iterate through a fixed set of items like letters
+          or digits.
+        
+        * Fix a bug when the ``start`` value is higher than the number of
+          element in the batch in the regular batch.
+        
+        * Add two options ``min`` and ``max`` to the date batch in order to
+          define possible limits for it.
+        
+        1.0 (2011-11-07)
+        ----------------
+        
+        * Add a new batch component, ``DateBatch``, which is able to browser
+          period of years or months.
+        
+        * ``batch`` is renamed into ``Batch``. Methods have been renamed to
+          follow pep8 recommandations (i.e. ``batchLen`` into ``batch_length``).
+        
+        * Template have been reviewed: values are accessible via the template
+          variable ``batch`` insted of directly. This fix an issue of
+          compatiblity with Chameleon, where ``next`` could not be defined
+          (that's a Python built-in).
+        
+        0.7 (2010-10-05)
+        ----------------
+        
+        * Add a __len__ method do a batch object, which returns the number of
+          objects viewable via this current batch. Like this, it can be used
+          with tal:condition in templates.
+        
+        * An option keep_form_data on the view prevent to include posted form
+          data in generated links (sometime you want them, some other you
+          don't).
+        
+        0.6 (2010-07-15)
+        ----------------
+        
+        * Generated batch links can include other parameters in the link. That
+          let you batch form results for instance.
+        
+        
+        0.5 (2009-11-17)
+        ----------------
+        
+        * Batching views have two new properties: ``first`` and ``last`` which
+          gives links to the first and last batch.
+        
+        0.4.1 (2009-10-16)
+        ------------------
+        
+        * Corrected the broken distribution that was missing the i18n folder.
+        
+        0.4 (2009-10-16)
+        ----------------
+        
+        .. note::
+        
+           This release is incompatible with previous ones. You are recomanded
+           to review and adapt your code in order to use it.
+        
+        * Added README.txt as a doctest [trollfot]
+        * The rendering is made by a IPageTemplate component, not longer by
+          the Batching itself. [trollfot]
+        * We no longer use the IBatchedContent. It has been removed. [trollfot]
+        * `zeam.utils.batch` is now fully grokked. [trollfot]
+        * batchView has been renamed Batching. [trollfot]
+        * You adapt the batch with the view on which you display the batch:
+          its name will keep when generating links,
+        * Batch can be *disabled* with a count of 0,
+        * Add translations for french, english and dutch.
+        
+        0.3 (2008-10-18)
+        ----------------
+        
+        * Fix and add tests,
+        * Don't display batch navigation if everything fits on one page,
+        * No more special links are generated for the first page of the batch.
+        
+        0.2
+        ---
+        
+        * Initial release
+        
+        
+Keywords: batch zope
+Platform: UNKNOWN
+Classifier: Framework :: Zope2
+Classifier: Framework :: Zope3
+Classifier: Programming Language :: Python
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
+Classifier: License :: OSI Approved :: BSD License
