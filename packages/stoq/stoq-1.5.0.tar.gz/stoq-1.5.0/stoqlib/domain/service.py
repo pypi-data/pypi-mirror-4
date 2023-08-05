@@ -1,0 +1,159 @@
+# -*- coding: utf-8 -*-
+# vi:si:et:sw=4:sts=4:ts=4
+
+##
+## Copyright (C) 2005-2007 Async Open Source <http://www.async.com.br>
+## All rights reserved
+##
+## This program is free software; you can redistribute it and/or modify
+## it under the terms of the GNU Lesser General Public License as published by
+## the Free Software Foundation; either version 2 of the License, or
+## (at your option) any later version.
+##
+## This program is distributed in the hope that it will be useful,
+## but WITHOUT ANY WARRANTY; without even the implied warranty of
+## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+## GNU Lesser General Public License for more details.
+##
+## You should have received a copy of the GNU Lesser General Public License
+## along with this program; if not, write to the Free Software
+## Foundation, Inc., or visit: http://www.gnu.org/.
+##
+## Author(s): Stoq Team <stoq-devel@async.com.br>
+##
+""" Base classes to manage services informations """
+
+from zope.interface import implements
+
+from stoqlib.database.orm import ForeignKey
+from stoqlib.database.orm import Join, LeftJoin
+from stoqlib.database.orm import Viewable
+from stoqlib.domain.base import Domain
+from stoqlib.domain.events import (ServiceCreateEvent, ServiceEditEvent,
+                                   ServiceRemoveEvent)
+from stoqlib.domain.interfaces import IDescribable
+from stoqlib.domain.sellable import (Sellable,
+                                     SellableUnit, SellableCategory)
+from stoqlib.domain.production import ProductionService
+from stoqlib.lib.parameters import sysparam
+from stoqlib.lib.translation import stoqlib_gettext
+
+_ = stoqlib_gettext
+
+#
+# Base Domain Classes
+#
+
+
+class Service(Domain):
+    """Class responsible to store basic service informations."""
+
+    implements(IDescribable)
+
+    #: The |sellable| for this service
+    sellable = ForeignKey('Sellable')
+
+    def remove(self):
+        """Removes this service from the database."""
+        self.delete(self.id, self.get_connection())
+
+    #
+    # Sellable helpers
+    #
+
+    def can_remove(self):
+        if self == sysparam(self.get_connection()).DELIVERY_SERVICE:
+            # The delivery item cannot be deleted as it's important
+            # for creating deliveries.
+            return False
+
+        # False if the service is used in a production.
+        if ProductionService.selectBy(connection=self.get_connection(),
+                                      service=self).count():
+            return False
+
+        return True
+
+    def can_close(self):
+        # The delivery item cannot be closed as it will be
+        # used for deliveries.
+        return self != sysparam(self.get_connection()).DELIVERY_SERVICE
+
+    #
+    # IDescribable implementation
+    #
+
+    def get_description(self):
+        return self.sellable.get_description()
+
+    #
+    # Domain hooks
+    #
+
+    def on_create(self):
+        ServiceCreateEvent.emit(self)
+
+    def on_delete(self):
+        ServiceRemoveEvent.emit(self)
+
+    def on_update(self):
+        trans = self.get_connection()
+        emitted_trans_list = getattr(self, '_emitted_trans_list', set())
+
+        # Since other classes can propagate this event (like Sellable),
+        # emit the event only once for each transaction.
+        if not trans in emitted_trans_list:
+            ServiceEditEvent.emit(self)
+            emitted_trans_list.add(trans)
+
+        self._emitted_trans_list = emitted_trans_list
+
+
+#
+# Views
+#
+
+
+class ServiceView(Viewable):
+    """Stores information about services
+
+    :attribute id: the id of the asellable table
+    :attribute barcode: the sellable barcode
+    :attribute status:  the sellable status
+    :attribute cost: the sellable cost
+    :attribute price: the sellable price
+    :attribute description: the sellable description
+    :attribute unit: the unit in case the sellable is not a product
+    :attribute service_id: the id of the service table
+    """
+
+    columns = dict(
+        id=Sellable.q.id,
+        code=Sellable.q.code,
+        barcode=Sellable.q.barcode,
+        status=Sellable.q.status,
+        cost=Sellable.q.cost,
+        price=Sellable.q.base_price,
+        description=Sellable.q.description,
+        category_description=SellableCategory.q.description,
+        unit=SellableUnit.q.description,
+        service_id=Service.q.id
+        )
+
+    joins = [
+        Join(Service,
+                    Service.q.sellable_id == Sellable.q.id),
+        LeftJoin(SellableUnit,
+                   Sellable.q.unit_id == SellableUnit.q.id),
+        # Category
+        LeftJoin(SellableCategory,
+                   SellableCategory.q.id == Sellable.q.category_id),
+
+        ]
+
+    def get_unit(self):
+        return self.unit or u""
+
+    @property
+    def sellable(self):
+        return Sellable.get(self.id, connection=self.get_connection())
