@@ -1,0 +1,6 @@
+ADDR = ''
+PORT = 5000
+STATIC_URL = '/static/'
+BASE_CONTEXT = {
+    'STATIC_URL': STATIC_URL,
+}
