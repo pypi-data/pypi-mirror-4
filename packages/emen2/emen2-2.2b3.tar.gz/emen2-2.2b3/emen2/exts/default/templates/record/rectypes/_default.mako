@@ -1,0 +1,2 @@
+## Main rendered record
+${rendered}
