@@ -1,0 +1,1 @@
+define(["jquery","backbone"],function(e,t){return e(window).on("beforeunload",function(){if(t.ajax.pending)return App.stats.ajaxAttempts===App.ajax.maxAttempts?"Unfortunately, your data hasn't been saved. The server                    or your Internet connection is acting up. Sorry!":"Wow, you're quick! Your stuff is being saved.                It will only take a moment."})});
