@@ -1,0 +1,103 @@
+Overview
+========
+
+Datasets provide a versioning system based on a version ID to group certains
+objects and effectiveDate to determine version number.
+
+Lets use the sandbox.
+
+    >>> self.loginAsPortalOwner()
+    >>> _ = self.portal.invokeFactory('Folder', 'sandbox')
+    >>> sandbox = portal._getOb('sandbox')
+
+Lets add a Sample Data.
+
+    >>> _ = sandbox.invokeFactory('Sample Data', 'data1')
+    >>> data1 = sandbox.data1
+    >>> form = {
+    ...   'title': 'Dataset',
+    ...   'description': 'Organisation description 1',
+    ...	  'somedata':'Some Data 1',
+    ... }
+    >>> data1.processForm(values=form, data=1, metadata=1)
+
+Now lets create a new version of the above dataset.
+
+    >>> createVersionView = data1.unrestrictedTraverse('@@createVersion')
+    >>> vertmp = createVersionView()
+    >>> id = vertmp[vertmp.rfind('/')+1:]
+    >>> dataVer = sandbox._getOb(id)
+
+Verify if properties were copyed on the new version.
+
+    >>> dataVer.Title() == data1.Title()
+    True
+    >>> dataVer.getSomedata() == data1.getSomedata()
+    True
+
+Effective dates of both objects should be set to None (according to ticket $4000)
+
+    >>> dataVer.getEffectiveDate() == data1.getEffectiveDate() == None
+    True
+
+Both objects should have the same version ID.
+
+    >>> from eea.versions.interfaces import IVersionControl
+    >>> IVersionControl(dataVer).getVersionId() == IVersionControl(data1).getVersionId()
+    True
+
+To check if "link to latest version" works, we will create a new dataset and verify the versionId.
+
+    >>> _ = sandbox.invokeFactory('Sample Data', 'data2')
+    >>> data2 = sandbox.data2
+    >>> getLatestVersionLink = data2.unrestrictedTraverse('@@getLatestVersionLink')
+    >>> verId = getLatestVersionLink()
+
+TODO: The below test should be fixed, as len(verId) > 0 should return True
+
+    >>> len(verId) > 0
+    False
+
+
+Talkbacks
+---------
+When versioning, the discussion items should be removed and unindexed:
+
+    >>> from Products.CMFCore.utils import getToolByName
+    >>> hasNewDiscussion = True
+    >>> try:
+    ...     from plone.app.discussion.interfaces import IConversation
+    ...     from zope.component import createObject
+    ... except:
+    ...     hasNewDiscussion = False
+    >>> catalog = getToolByName(data1, "portal_catalog")
+    >>> dtool = getToolByName(data1, "portal_discussion")
+    >>> data1.allow_discussion = True
+    >>> if hasNewDiscussion:
+    ...     conversation = IConversation(data1)
+    ...     comment = createObject('plone.Comment')
+    ...     comment.title = 'title'
+    ...     comment.text = 'text'
+    ...     comment_id = conversation.addComment(comment)
+    ...     print len(catalog.searchResults(path="/".join(data1.getPhysicalPath()) + "/++conversation++default/"))
+    ... else:
+    ...     tb = dtool.getDiscussionFor(data1)
+    ...     id = tb.createReply('title', 'text')
+    ...     print len(catalog.searchResults(path="/".join(data1.getPhysicalPath()) + "/talkback/")) 
+    1
+    >>> createVersionView = data1.unrestrictedTraverse('@@createVersion')
+    >>> vertmp = createVersionView()
+    >>> id = vertmp[vertmp.rfind('/')+1:]
+    >>> dataVer = sandbox._getOb(id)
+    >>> if hasNewDiscussion:
+    ...     conversationVer = IConversation(dataVer)
+    ...     print conversationVer.total_comments
+    ... else:
+    ...     tb = dtool.getDiscussionFor(dataVer)
+    ...     print tb.replyCount(dataVer) 
+    0
+    >>> if hasNewDiscussion:
+    ...     print len(dataVer.portal_catalog.searchResults(path="/".join(dataVer.getPhysicalPath()) + "/++conversation++default/"))
+    ... else:
+    ...     print len(dataVer.portal_catalog.searchResults(path="/".join(dataVer.getPhysicalPath()) + "/talkback/"))
+    0
