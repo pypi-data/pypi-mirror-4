@@ -1,0 +1,311 @@
+{% load i18n %}
+<script type="text/javascript">//<![CDATA[
+(function ($) {
+    var RETRY = 500,
+        ERROR_RETRY = 3000;
+
+    var config,
+        resources,
+        watch_request,
+        initial_timestamp = new Date().getTime() / 1000,
+        template_resources = [{% for template in templates %}
+            "{{ template|escapejs }}"{% if not forloop.last %},{% endif %}
+        {% endfor %}];
+
+    var Config = function (opts) {
+        $.extend(this, opts);
+        this.global_checkbox = $('#djDebugAutoreload-enabled');
+        this.template = $('#djDebugAutoreload-template-enabled');
+        this.css = $('#djDebugAutoreload-css-enabled');
+        this.js = $('#djDebugAutoreload-js-enabled');
+        var that = this;
+        $(
+            '#djDebugAutoreload-enabled, ' +
+            '#djDebugAutoreload-template-enabled, ' +
+            '#djDebugAutoreload-css-enabled, ' +
+            '#djDebugAutoreload-js-enabled').bind('click change', function () { that.update() });
+        var match = document.cookie.match(/djdt-autoreload=([^;]+);/);
+        if (match) {
+            var types = match[1].split(',');
+            this.global_checkbox.attr('checked', $.inArray('global', types) !== -1);
+            this.template.attr('checked', $.inArray('template', types) !== -1);
+            this.css.attr('checked', $.inArray('css', types) !== -1);
+            this.js.attr('checked', $.inArray('js', types) !== -1);
+        }
+        this.update();
+    };
+    Config.prototype.enable = function (type, enable) {
+        if (type === undefined) { type = '__all__'; }
+        if (enable === undefined) { enable = true; }
+        switch (type) {
+            case "__all__":
+                this.global_checkbox.attr('checked', enable);
+                break;
+            case "template":
+                this.template.attr('checked', enable);
+                break;
+            case "css":
+                this.css.attr('checked', enable);
+                break;
+            case "js":
+                this.js.attr('checked', enable);
+                break;
+            default: break;
+        }
+        this.update();
+    };
+    Config.prototype.disable = function (type) {
+        this.enable(type, false);
+    };
+    Config.prototype.is_enabled = function (type) {
+        if (!this.global_checkbox.attr('checked')) {
+            return false;
+        }
+        /* argument was a resource instance */
+        if (typeof type === "object") {
+            return this.is_enabled(type.type);
+        }
+        switch (type) {
+            case "template": return this.template.attr('checked');
+            case "css": return this.css.attr('checked');
+            case "js": return this.js.attr('checked');
+            default: return this.global_checkbox.attr('checked');
+        }
+    };
+    Config.prototype.update = function () {
+        $(
+            '#djDebugAutoreload-template-enabled, ' +
+            '#djDebugAutoreload-css-enabled, ' +
+            '#djDebugAutoreload-js-enabled').attr('disabled', !this.global_checkbox.attr('checked'));
+        resources.findAll();
+        showMonitoringList(this, resources);
+
+        var cookie_config = [];
+        if (this.global_checkbox.attr('checked')) { cookie_config.push('global'); }
+        if (this.template.attr('checked')) { cookie_config.push('template'); }
+        if (this.css.attr('checked')) { cookie_config.push('css'); }
+        if (this.js.attr('checked')) { cookie_config.push('js'); }
+        document.cookie = 'djdt-autoreload=' + cookie_config.join(',');
+
+        var nav_subtitle = (this.global_checkbox.attr('checked') ? 'enabled' : 'disabled');
+        $('.djDebugPanelButton .djDebugAutoreloadPanel small').text(nav_subtitle);
+    };
+
+    var Resource = function (obj) {
+        /* defaults */
+        this.mtime = initial_timestamp;
+
+        /* Init */
+        this.update(obj);
+    };
+    Resource.prototype = new Object();
+    Resource.prototype.constructor = Resource;
+    Resource.prototype.equals = function (obj) {
+        return this.src == obj.src;
+    };
+    Resource.prototype.update = function (obj) {
+        $.extend(this, obj);
+    };
+    Resource.prototype.reload = function () {
+        /* we don't need to reload the whole page if a css file changed */
+        if (this.type === 'css') {
+            var timestamp = new Date().getTime(),
+                href = $(this.element).attr('href');
+            href = href.replace(/([&?]__djdtAutoreload=)(\d+)(&|$)/, '$1' + timestamp + '$3');
+            if (href.match(/__djdtAutoreload=\d+/) === null) {
+                href += (href.match(/\?/) ? '&': '?') + '__djdtAutoreload=' + timestamp;
+            }
+            $(this.element).attr('href', href);
+            this.src = href;
+        } else {
+            reload();
+        }
+    };
+
+    var ResourceCollection = function () {};
+    ResourceCollection.prototype = new Array();
+    ResourceCollection.prototype._parent = Array;
+    ResourceCollection.prototype.get = function (obj) {
+        var found = null;
+        $.each(this, function (i, item) {
+            if (item.equals(obj)) {
+                found = item;
+                return false;
+            }
+        });
+        return found;
+    };
+    ResourceCollection.prototype.push = function (obj) {
+        var found = this.get(obj);
+        if (found !== null) {
+            found.update(obj);
+        } else {
+            found = new Resource(obj);
+            this._parent.prototype.push.call(this, found);
+        }
+        return found;
+    };
+    ResourceCollection.prototype.all = function () {
+        return $.grep(this, function (obj) { return true; });
+    };
+    ResourceCollection.prototype.active = function () {
+        return $.grep(this, function (obj) { return config.is_enabled(obj); });
+    };
+    ResourceCollection.prototype.findAll = function () {
+        var that = this;
+        /* Templates */
+        $.each(template_resources, function (i, filename) {
+            that.push({
+                type: 'template',
+                src: filename
+            });
+        });
+        /* Find CSS files */
+        $('link[rel=stylesheet]').each(function () {
+            var url = $(this).attr('href');
+            if (!url.match(/^data:/)) {
+                that.push({
+                    type: 'css',
+                    src: $(this).attr('href'),
+                    element: this
+                });
+            }
+        });
+        /* Find JS files */
+        $('script[src]').each(function () {
+            var url = $(this).attr('src');
+            if (!url.match(/^data:/)) {
+                that.push({
+                    type: 'js',
+                    src: $(this).attr('src'),
+                    element: this
+                });
+            }
+        });
+    };
+
+    var showMonitoringList = function (config, resources) {
+        var table = $('#djDebugAutoreloadPanel .djDebugAutoreload-monitor table tbody');
+        table.empty();
+        $.each(resources, function (i, resource) {
+            var monitor = true;
+            var disabled = !config.is_enabled(resource.type);
+            var row = $(
+                '<tr class="djDebug' + ((i+1) % 2 == 0 ? 'Even' : 'Odd') + (disabled ? ' djDebugMonitorDisabled ' : '') + '">' +
+                    '<td>' + resource.type + '</td>' +
+                    '<td><code>' + resource.src + '</code></td>' +
+                '</tr>');
+            table.append(row);
+        });
+    };
+
+    var reload = function () {
+        window.location.reload(true);
+    };
+
+    var listenForChanges = function () {
+        resources.findAll();
+
+        var data = [];
+        $.each(resources.all(), function (i, resource) {
+            var query_type = (resource.type == 'template' ? 'template' : 'media');
+            data.push(
+                query_type + '=' +
+                encodeURIComponent(resource.src) + ':' +
+                resource.mtime);
+        });
+        data = data.join('&');
+        watch_request = $.ajax({
+            url: "{{ AUTORELOAD_URL|escapejs }}",
+            type: 'POST',
+            data: data,
+            dataType: 'json',
+            success: function (data, textStatus, jqXHR) {
+                data = data || [];
+                data = $.map(data, function (obj) {
+                    var resource = new Resource(obj);
+                    return resources.push(resource);
+                });
+                switch (jqXHR.status) {
+                    case 200:
+                        $.each(data, function (i, resource) {
+                            if (config.is_enabled(resource)) {
+                                resource.reload();
+                            }
+                        });
+                        setTimeout(listenForChanges, RETRY);
+                        break;
+                    case 0:
+                        setTimeout(listenForChanges, ERROR_RETRY);
+                        break;
+                    case 204:
+                        setTimeout(listenForChanges, RETRY);
+                        break;
+                    default:
+                        console.error('Debugtoolbar, Autoreload: unhandled status code by notify view', jqXHR.status);
+                        setTimeout(listenForChanges, ERROR_RETRY);
+                        break;
+                }
+            },
+            error: function () {
+                setTimeout(listenForChanges, ERROR_RETRY);
+            }
+        });
+
+        showMonitoringList(config, resources);
+    };
+
+    $(document).ready(function () {
+        resources = new ResourceCollection();
+        config = new Config({resources: resources});
+        listenForChanges();
+        $('.djDebugAutoreload-reload').click(reload);
+    });
+})(djdt.jQuery);
+//]]></script>
+<style type="text/css">
+    #djDebugAutoreloadPanel .djDebugAutoreload-reload {
+        float: right;
+    }
+    #djDebugAutoreloadPanel .djDebugAutoreload-config-type {
+        padding: .5em 0 0 2em;
+    }
+    #djDebugAutoreloadPanel .djDebugAutoreload-monitor {
+        clear: both;
+        margin-top: 1em;
+    }
+    #djDebugAutoreloadPanel .djDebugMonitorDisabled td,
+    #djDebugAutoreloadPanel .djDebugMonitorDisabled td code {
+        color: #888888;
+    }
+</style>
+
+<button class="djDebugAutoreload-reload">Reload page</button>
+
+<p class="djDebugAutoreload-config-global">
+    <input type="checkbox" id="djDebugAutoreload-enabled"{% if AUTORELOAD_ENABLED %} checked{% endif %} />
+    <label for="djDebugAutoreload-enabled">{% trans "Automatically reload the page if a file was changed." %}</label>
+</p>
+<p class="djDebugAutoreload-config-type">
+    <input type="checkbox" id="djDebugAutoreload-template-enabled"{% if "template" in AUTORELOAD_FILETYPES %} checked{% endif %} />
+    <label for="djDebugAutoreload-template-enabled">{% trans "Automatically reload the page if a template was changed." %}</label>
+    <br />
+    <input type="checkbox" id="djDebugAutoreload-css-enabled"{% if "css" in AUTORELOAD_FILETYPES %} checked{% endif %} />
+    <label for="djDebugAutoreload-css-enabled">{% trans "Automatically reload the page if an included css file was changed." %}</label>
+    <br />
+    <input type="checkbox" id="djDebugAutoreload-js-enabled"{% if "js" in AUTORELOAD_FILETYPES %} checked{% endif %} />
+    <label for="djDebugAutoreload-js-enabled">{% trans "Automatically reload the page if an included javascript file was changed." %}</label>
+</p>
+
+<div class="djDebugAutoreload-monitor">
+    <h2>Monitored files</h2>
+    <table>
+        <thead>
+            <th>Type</th>
+            <th>Filename</th>
+        </thead>
+        <tbody>
+        
+        </tbody>
+    </table>
+</div>
