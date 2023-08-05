@@ -1,0 +1,927 @@
+Metadata-Version: 1.1
+Name: Beaver
+Version: 19
+Summary: python daemon that munches on logs and sends their contents to logstash
+Home-page: http://github.com/josegonzalez/beaver
+Author: Jose Diaz-Gonzalez
+Author-email: support@savant.be
+License: Copyright (c) 2012 Jose Diaz-Gonzalez
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+Description: ======
+        Beaver
+        ======
+        
+        python daemon that munches on logs and sends their contents to logstash
+        
+        Requirements
+        ============
+        
+        * Python 2.7 (untested on other versions)
+        * Optional zeromq support: install libzmq (``brew install zmq`` or ``apt-get install libzmq-dev``) and pyzmq (``pip install pyzmq==2.1.11``)
+        
+        Installation
+        ============
+        
+        Using PIP:
+        
+        From Github::
+        
+            pip install git+git://github.com/josegonzalez/beaver.git#egg=beaver
+        
+        From PyPI::
+        
+            pip install beaver==19
+        
+        Usage
+        =====
+        
+        usage::
+        
+            beaver [-h] [-c CONFIG] [-d] [-D] [-f FILES [FILES ...]]
+                   [-F {json,msgpack,string}] [-H HOSTNAME] [-m {bind,connect}]
+                   [-o OUTPUT] [-p PATH] [-P PID]
+                   [-t {rabbitmq,redis,stdout,zmq,udp}] [-v] [--fqdn]
+        
+        optional arguments::
+        
+            -h, --help            show this help message and exit
+            -c CONFIG, --configfile CONFIG
+                                  ini config file path
+            -d, --debug           enable debug mode
+            -D, --daemonize       daemonize in the background
+            -f FILES [FILES ...], --files FILES [FILES ...]
+                                  space-separated filelist to watch, can include globs
+                                  (*.log). Overrides --path argument
+            -F {json,msgpack,string}, --format {json,msgpack,string}
+                                  format to use when sending to transport
+            -H HOSTNAME, --hostname HOSTNAME
+                                  manual hostname override for source_host
+            -m {bind,connect}, --mode {bind,connect}
+                                  bind or connect mode
+            -o OUTPUT, --output OUTPUT
+                                  file to pipe output to (in addition to stdout)
+            -p PATH, --path PATH  path to log files
+            -P PID, --pid PID     path to pid file
+            -t {rabbitmq,redis,stdout,zmq,udp}, --transport {rabbitmq,redis,stdout,zmq,udp}
+                                  log transport method
+            -v, --version         output version and quit
+            --fqdn                use the machine's FQDN for source_host
+        
+        Background
+        ==========
+        
+        Beaver provides an lightweight method for shipping local log files to Logstash. It does this using either redis, stdin, zeromq as the transport. This means you'll need a redis, stdin, zeromq input somewhere down the road to get the events.
+        
+        Events are sent in logstash's ``json_event`` format. Options can also be set as environment variables.
+        
+        NOTE: the redis transport uses a namespace of ``logstash:beaver`` by default.  You will need to update your logstash indexer to match this, or you may configure beaver to do otherwise.
+        
+        Configuration File Options
+        --------------------------
+        
+        Beaver can optionally get data from a ``configfile`` using the ``-c`` flag. This file is in ``ini`` format. Global configuration will be under the ``beaver`` stanza. The following are global beaver configuration keys with their respective meanings:
+        
+        * rabbitmq_host: Defaults ``localhost``. Host for RabbitMQ.
+        * rabbitmq_port: Defaults ``5672``. Port for RabbitMQ.
+        * rabbitmq_vhost: Default ``/``
+        * rabbitmq_username: Default ``guest``
+        * rabbitmq_password: Default ``guest``
+        * rabbitmq_queue: Default ``logstash-queue``.
+        * rabbitmq_exchange: Default ``direct``.
+        * rabbitmq_exchange_durable: Default ``0``.
+        * rabbitmq_key: Default ``logstash-key``.
+        * rabbitmq_exchange: Default ``logstash-exchange``.
+        * redis_url: Default ``redis://localhost:6379/0``. Redis URL
+        * redis_namespace: Default ``logstash:beaver``. Redis key namespace
+        * udp_host: Default ``127.0.0.1``. UDP Host
+        * udp_port: Default ``9999``. UDP Port
+        * zeromq_address: Default ``tcp://localhost:2120``. Zeromq URL
+        * zeromq_bind: Default ``bind``. Whether to bind to zeromq host or simply connect
+        
+        The following are used for instances when a TransportException is thrown - Transport dependent
+        
+        * respawn_delay: Default ``3``. Initial respawn delay for exponential backoff
+        * max_failure: Default ``7``. Max failures before exponential backoff terminates
+        
+        The following configuration keys are for building an SSH Tunnel that can be used to proxy from the current host to a desired server. This proxy is torn down when Beaver halts in all cases.
+        
+        * ssh_key_file: Default ``None``. Full path to ``id_rsa`` key file
+        * ssh_tunnel: Default ``None``. SSH Tunnel in the format ``user@host:port``
+        * ssh_tunnel_port: Default ``None``. Local port for SSH Tunnel
+        * ssh_remote_host: Default ``None``. Remote host to connect to within SSH Tunnel
+        * ssh_remote_port: Default ``None``. Remote port to connect to within SSH Tunnel
+        
+        The following can also be passed via argparse. Argparse will override all options in the configfile, when specified.
+        
+        * format: Default ``json``. Options ``[ json, msgpack, string ]``. Format to use when sending to transport
+        * files: Default ``files``. Space-separated list of files to tail.
+        * path: Default ``/var/log``. Path glob to tail.
+        * transport: Default ``stdout``. Transport to use when log changes are detected
+        * fqdn: Default ``False``. Whether to use the machine's FQDN in transport output
+        * hostname: Default ``None``. Manually specified hostname
+        
+        Examples
+        --------
+        
+        
+        Example 1: Listen to all files in the default path of /var/log on standard out as json::
+        
+            beaver
+        
+        Example 2: Listen to all files in the default path of /var/log on standard out with msgpack::
+        
+            beaver --format msgpack
+        
+        Example 3: Listen to all files in the default path of /var/log on standard out as a string::
+        
+            beaver --format string
+        
+        Example 4: Sending logs from /var/log files to a redis list::
+        
+            # /etc/beaver.conf
+            [beaver]
+            redis_url: redis://localhost:6379/0
+        
+            # From the commandline
+            beaver  -c /etc/beaver.conf -t redis
+        
+        Example 5: Use environment variables to send logs from /var/log files to a redis list::
+        
+            # /etc/beaver.conf
+            [beaver]
+            redis_url: redis://localhost:6379/0
+        
+            # From the commandline
+            beaver  -c /etc/beaver.conf -p '/var/log' -t redis
+        
+        Example 6: Zeromq listening on port 5556 (all interfaces)::
+        
+            # /etc/beaver.conf
+            [beaver]
+            zeromq_address: tcp://*:5556
+        
+            # logstash indexer config:
+            input {
+              zeromq {
+                type => 'shipper-input'
+                mode => 'client'
+                topology => 'pushpull'
+                address => 'tcp://shipperhost:5556'
+              }
+            }
+            output { stdout { debug => true } }
+        
+            # From the commandline
+            beaver  -c /etc/beaver.conf -m bind -t zmq
+        
+        
+        Example 7: Zeromq connecting to remote port 5556 on indexer::
+        
+            # /etc/beaver.conf
+            [beaver]
+            zeromq_address: tcp://indexer:5556
+        
+            # logstash indexer config:
+            input {
+              zeromq {
+                type => 'shipper-input'
+                mode => 'server'
+                topology => 'pushpull'
+                address => 'tcp://*:5556'
+              }
+            }
+            output { stdout { debug => true } }
+        
+            # on the commandline
+            beaver -c /etc/beaver.conf -m connect -t zmq
+        
+        Example 8: Real-world usage of Redis as a transport::
+        
+            # in /etc/hosts
+            192.168.0.10 redis-internal
+        
+            # /etc/beaver.conf
+            [beaver]
+            redis_url: redis://redis-internal:6379/0
+            redis_namespace: app:unmappable
+        
+            # logstash indexer config:
+            input {
+              redis {
+                host => 'redis-internal'
+                data_type => 'list'
+                key => 'app:unmappable'
+                type => 'app:unmappable'
+              }
+            }
+            output { stdout { debug => true } }
+        
+            # From the commandline
+            beaver -c /etc/beaver.conf -f /var/log/unmappable.log -t redis
+        
+        As you can see, ``beaver`` is pretty flexible as to how you can use/abuse it in production.
+        
+        Example 9: RabbitMQ connecting to defaults on remote broker::
+        
+            # /etc/beaver.conf
+            [beaver]
+            rabbitmq_host: 10.0.0.1
+        
+            # logstash indexer config:
+            input { amqp {
+                name => 'logstash-queue'
+                type => 'direct'
+                host => '10.0.0.1'
+                exchange => 'logstash-exchange'
+                key => 'logstash-key'
+                exclusive => false
+                durable => false
+                auto_delete => false
+              }
+            }
+            output { stdout { debug => true } }
+        
+            # From the commandline
+            beaver -c /etc/beaver.conf -t rabbitmq
+        
+        Example 10: Read config from config.ini and put to stdout::
+        
+            # /etc/beaver.conf:
+            [/tmp/somefile]
+            type: mytype
+            tags: tag1,tag2
+            add_field: fieldname1,fieldvalue1[,fieldname2,fieldvalue2, ...]
+        
+            [/var/log/*log]
+            type: syslog
+            tags: sys
+        
+            [/var/log/{secure,messages}.log]
+            type: syslog
+            tags: sys
+        
+            # From the commandline
+            beaver -c /etc/beaver.conf -t stdout
+        
+        Example 11: UDP transport::
+        
+            # /etc/beaver.conf
+            [beaver]
+            udp_host: 127.0.0.1
+            udp_port: 9999
+        
+            # logstash indexer config:
+            input {
+              udp {
+                type => 'shipper-input'
+                host => '127.0.0.1'
+                port => '9999'
+              }
+            }
+            output { stdout { debug => true } }
+        
+            # From the commandline
+            beaver -c /etc/beaver.conf -t udp
+        
+        Todo
+        ====
+        
+        * More documentation
+        * Use python threading + subprocess in order to support usage of ``yield`` across all operating systems
+        * ~~Fix usage on non-linux platforms - file.readline() does not work as expected on OS X. See above for potential solution~~
+        * More transports
+        * ~~Ability to specify files, tags, and other metadata within a configuration file~~
+        
+        Caveats
+        =======
+        
+        When using ``copytruncate`` style log rotation, two race conditions can occur:
+        
+        1. Any log data written prior to truncation which beaver has not yet
+           read and processed is lost. Nothing we can do about that.
+        
+        2. Should the file be truncated, rewritten, and end up being larger than
+           the original file during the sleep interval, beaver won't detect
+           this. After some experimentation, this behavior also exists in GNU
+           tail, so I'm going to call this a "don't do that then" bug :)
+        
+           Additionally, the files beaver will most likely be called upon to
+           watch which may be truncated are generally going to be large enough
+           and slow-filling enough that this won't crop up in the wild.
+        
+        
+        Credits
+        =======
+        
+        Based on work from Giampaolo and Lusis::
+        
+            Real time log files watcher supporting log rotation.
+        
+            Original Author: Giampaolo Rodola' <g.rodola [AT] gmail [DOT] com>
+            http://code.activestate.com/recipes/577968-log-watcher-tail-f-log/
+        
+            License: MIT
+        
+            Other hacks (ZMQ, JSON, optparse, ...): lusis
+        
+        
+        Changelog
+        =========
+        
+        19 (2012-12-31)
+        ---------------
+        
+        - Fix issue with supporting command line args. [Jose Diaz-Gonzalez]
+        
+        18 (2012-12-31)
+        ---------------
+        
+        - Add timing debug information to the worker loop. [Jose Diaz-Gonzalez]
+        
+        - Use redis pipelining when sending events. [Jose Diaz-Gonzalez]
+        
+        - Formatting. [Jose Diaz-Gonzalez]
+        
+        - Do not output debug statement for file_config.get call. [Jose Diaz-
+          Gonzalez]
+        
+        - Pass in logger object to create_ssh_tunnel() [Jose Diaz-Gonzalez]
+        
+        - Added missing python-daemon requirement. [Jose Diaz-Gonzalez]
+        
+        16 (2012-12-27)
+        ---------------
+        
+        - Specify a max queue size of 100 to limit overrunning memory. [Jose
+          Diaz-Gonzalez]
+        
+        - Use multiprocessing for handling larger queue sizes. [Jose Diaz-
+          Gonzalez]
+        
+          Previously there were issues where files that were updated frequently
+          such as varnish or server logs
+          would overwhelm the naive implementation of file.readlines() within
+          Beaver. This would cause Beaver to slowly read larger and larger
+          portions of a file before processing any of the lines, eventually
+          causing Beaver to take forever to process log lines.
+          
+          This patch adds the ability to use an internal work queue for log
+          lines. Whenever file.readlines() is called, the lines are placed in
+          the queue, which is shared with a child process. The child process
+          creates its own transport, allowing us to potentially create a Process
+          Pool in the future to handle a larger queue size.
+          
+          Note that the limitation of file.readlines() reading in too many lines
+          is still in existence, and may continue to cause issues for certain
+          log files.
+        
+        - Add default redis_password to BeaverConfig class. [Jose Diaz-Gonzalez]
+        
+        - Fix missing underscore causing transport to break. [Norman Joyner]
+        
+        - Implement redis auth support. [Norman Joyner]
+        
+        - Add beaver init script for daemonization mode. [Jose Diaz-Gonzalez]
+        
+        - Use python logger when using StdoutTransport. [Jose Diaz-Gonzalez]
+        
+        - Add short arg flags for hostname and format. [Jose Diaz-Gonzalez]
+        
+        - Add the ability to daemonize. Closes #79. [Jose Diaz-Gonzalez]
+        
+        - Pass around a logger instance to all transports. [Jose Diaz-Gonzalez]
+        
+        - Revert "Added a lightweight Event class" [Jose Diaz-Gonzalez]
+        
+          After deliberation, beaver is meant to be "light
+          weight". Lets leave
+          the heavy
+          hitting to the big
+          boys.
+          
+          This reverts commit 1619d33ef4803c3fe910cf4ff197d0dd0039d2eb.
+        
+        - Added a lightweight Event class. [Jose Diaz-Gonzalez]
+        
+          This class's sole responsibility will be the processing of a given
+          line as an event.
+          It's future goal will be to act as a lightweight implementation of the
+          filter system within Logstash
+        
+        - Remove argparse requirement for python 2.7 and above. [Jose Diaz-
+          Gonzalez]
+        
+        15 (2012-12-25)
+        ---------------
+        
+        - Pull argument parsing out of beaver __init__.py. [Jose Diaz-Gonzalez]
+        
+        - Move app-running into __init__.py. [Jose Diaz-Gonzalez]
+        
+        - Standardize on _parse() as method for parsing config. [Jose Diaz-
+          Gonzalez]
+        
+        - Automatically parse the path config option. [Jose Diaz-Gonzalez]
+        
+        - Remove extensions argument on Worker class. [Jose Diaz-Gonzalez]
+        
+          This argument was only used when no globs were specified in a config
+          file.
+          Since it is not configurable, there is no sense leaving around the
+          extra logic.
+        
+        - Remove extra callback invocation on readlines. [Jose Diaz-Gonzalez]
+        
+        - Remove extra file_config module. [Jose Diaz-Gonzalez]
+        
+        - General code reorganization. [Jose Diaz-Gonzalez]
+        
+          Move both BeaverConfig and FileConfig into a single class
+          
+          Consolidated run_worker code with code in beaver binary file. This
+          will create a clearer path for Exception handling, as it is now the
+          responsibility of the calling class, allowing us to remove duplicative
+          exception handling code.
+          
+          Added docstrings to many fuctions and methods
+          
+          Moved extra configuration and setup code to beaver.utils module. In
+          many cases, code was added hastily before.
+          
+          Made many logger calls debug as opposed to info. The info level should
+          be generally reserved for instances where files are watched,
+          unwatched, or some change in the file state has occurred.
+        
+        - Remove duplicative and old beaver instructions from binary. [Jose
+          Diaz-Gonzalez]
+        
+        - Remove unnecessary passing of ssh_tunnel subprocess. [Jose Diaz-
+          Gonzalez]
+        
+        - Added docstrings to ssh_tunnel module. [Jose Diaz-Gonzalez]
+        
+        - Follow convention of underscore for object properties. [Jose Diaz-
+          Gonzalez]
+        
+        - Follow convention of underscore for object properties. [Jose Diaz-
+          Gonzalez]
+        
+        - Added a NullFormatter. [Jose Diaz-Gonzalez]
+        
+          Useful for cases where we do not want any extra overhead on message
+          formatting
+        
+        - Refactored message formatting in base Transport class. [Jose Diaz-
+          Gonzalez]
+        
+          We now use a `_formatter` property on the Transport class which
+          will properly process the message for output as the user expects.
+          
+          In the case of string output, we define a custom formatter using an
+          anonymous function and specify that as the formatter.
+        
+        - Moved create_transport to transport module. [Jose Diaz-Gonzalez]
+        
+        - Moved create_ssh_tunnel to ssh_tunnel module. [Jose Diaz-Gonzalez]
+        
+        - Fixed order of beaver_config and file_config in args. [Jose Diaz-
+          Gonzalez]
+        
+        - Reduce overhead of parsing configuration for globs and files. [Jose
+          Diaz-Gonzalez]
+        
+        - Removed ordereddict dependency. [Jose Diaz-Gonzalez]
+        
+        - Do not output info level when outputing version. [Jose Diaz-Gonzalez]
+        
+        - Allow usage of ujson >= 1.19. Closes #76. [Jose Diaz-Gonzalez]
+        
+        14 (2012-12-18)
+        ---------------
+        
+        - Removed erroneous redundant code. [Jose Diaz-Gonzalez]
+        
+        - Workaround for differing iteration implementation in Python 2.6. [Jose
+          Diaz-Gonzalez]
+        
+        - Properly detect non-linux platforms. [Jose Diaz-Gonzalez]
+        
+        - Improve Python 2.6 support. [Jose Diaz-Gonzalez]
+        
+        - Fix broken python readme. [Jose Diaz-Gonzalez]
+        
+        13 (2012-12-17)
+        ---------------
+        
+        - Fixed certain environment variables. [Jose Diaz-Gonzalez]
+        
+        - SSH Tunnel Support. [Jose Diaz-Gonzalez]
+        
+          This code should allow us to create an ssh tunnel between two distinct
+          servers for the purposes of sending and receiving data.
+          
+          This is useful in certain cases where you would otherwise need to
+          whitelist in your Firewall or iptables setup, such as when running in
+          two different regions on AWS.
+        
+        - Allow for initial connection lag. Helpful when waiting for an SSH
+          proxy to connect. [Jose Diaz-Gonzalez]
+        
+        - Fix issue where certain config defaults were of an improper value.
+          [Jose Diaz-Gonzalez]
+        
+        - Allow specifying host via flag. Closes #70. [Jose Diaz-Gonzalez]
+        
+        12 (2012-12-17)
+        ---------------
+        
+        - Reload tailed files on non-linux platforms. [Jose Diaz-Gonzalez]
+        
+          Python has an issue on OS X were the underlying C implementation of
+          `file.read()` caches the EOF, therefore causing `readlines()` to only
+          work once. This happens to also fail miserably when you are seeking to
+          the end before calling readlines.
+          
+          This fix solves the issue by constantly re
+          reading the files changed.
+          
+          Note that this also causes debug mode to be very noisy on OS X. We all
+          have to make sacrifices...
+        
+        - Deprecate all environment variables. [Jose Diaz-Gonzalez]
+        
+          This shifts configuration management into the BeaverConfig class.
+          Note that we currently throw a warning if you are using environment
+          variables.
+          
+          Refs #72
+          Closes #60
+        
+        - Warn when using deprecated ENV variables for configuration. Refs #72.
+          [Jose Diaz-Gonzalez]
+        
+        - Minor changes for PEP8 conformance. [Jose Diaz-Gonzalez]
+        
+        11 (2012-12-16)
+        ---------------
+        
+        - Add optional support for socket.getfqdn. [Jeremy Kitchen]
+        
+          For my setup I need to have the fqdn used at all times since my
+          hostnames are the same but the environment (among other things) is
+          found in the rest of the FQDN.
+          
+          Since just changing socket.gethostname to socket.getfqdn has lots of
+          potential for breakage, and socket.gethostname doesn't always return
+          an
+          FQDN, it's now an option to explicitly always use the fqdn.
+          
+          Fixes #68
+        
+        - Check for log file truncation fixes #55. [Jeremy Kitchen]
+        
+          This adds a simple check for log file truncation and resets the watch
+          when detected.
+          
+          There do exist 2 race conditions here:
+          1. Any log data written prior to truncation which beaver has not yet
+          read and processed is lost. Nothing we can do about that.
+          2. Should the file be truncated, rewritten, and end up being larger
+          than
+          the original file during the sleep interval, beaver won't detect
+          this. After some experimentation, this behavior also exists in GNU
+          tail, so I'm going to call this a "don't do that then" bug :)
+          
+          Additionally, the files beaver will most likely be called upon to
+          watch which may be truncated are generally going to be large enough
+          and slow
+          filling enough that this won't crop up in the wild.
+        
+        - Add a version number to beaver. [Jose Diaz-Gonzalez]
+        
+        10 (2012-12-15)
+        ---------------
+        
+        - Fixed package name. [Jose Diaz-Gonzalez]
+        
+        - Regenerate CHANGES.rst on release. [Jose Diaz-Gonzalez]
+        
+        - Adding support for /path/{foo,bar}.log. [Josh Braegger]
+        
+        - Ignore file errors in unwatch method -- the file might not exists.
+          [Josh Braegger]
+        
+        - Unwatch file when encountering a stale NFS handle. When an NFS file
+          handle becomes stale (ie, file was removed), it was crashing beaver.
+          Need to just unwatch file. [Josh Braegger]
+        
+        - Consistency. [Chris Faulkner]
+        
+        - Pull install requirements from requirements/base.txt so they don't get
+          out of sync. [Chris Faulkner]
+        
+        - Include changelog in setup. [Chris Faulkner]
+        
+        - Convert changelog to RST. [Chris Faulkner]
+        
+        - Actually show the license. [Chris Faulkner]
+        
+        - Consistent casing. [Chris Faulkner]
+        
+        - Consistency. [Chris Faulkner]
+        
+        - Stating the obvious. [Chris Faulkner]
+        
+        - Grist for the mill. [Chris Faulkner]
+        
+        - Drop redundant README.txt. [Chris Faulkner]
+        
+        - Don't use empty string for tag when no tags configured in config file.
+          [Stylianos Modes]
+        
+        - Making 'mode' option work for zmqtransport.  Adding setuptools and
+          tests (use ./setup.py nosetests).  Adding .gitignore. [Josh Braegger]
+        
+        9 (2012-11-28)
+        --------------
+        
+        - More release changes. [Jose Diaz-Gonzalez]
+        
+        - Fixed deprecated warning when declaring exchange type. [Rafael
+          Fonseca]
+        
+        7 (2012-11-28)
+        --------------
+        
+        - Added a helper script for creating releases. [Jose Diaz-Gonzalez]
+        
+        - Partial fix for crashes caused by globbed files. [Jose Diaz-Gonzalez]
+        
+        - Removed deprecated usage of e.message. [Rafael Fonseca]
+        
+        - Fixed exception trapping code. [Rafael Fonseca]
+        
+        - Added some resiliency code to rabbitmq transport. [Rafael Fonseca]
+        
+        6 (2012-11-26)
+        --------------
+        
+        - Fix issue where polling for files was done incorrectly. [Jose Diaz-
+          Gonzalez]
+        
+        - Added ubuntu init.d example config. [Jose Diaz-Gonzalez]
+        
+        5 (2012-11-26)
+        --------------
+        
+        - Try to poll for files on startup instead of throwing exceptions.
+          Closes #45. [Jose Diaz-Gonzalez]
+        
+        - Added python 2.6 to classifiers. [Jose Diaz-Gonzalez]
+        
+        4 (2012-11-26)
+        --------------
+        
+        - Remove unused local vars. [Jose Diaz-Gonzalez]
+        
+        - Allow rabbitmq exchange type and durability to be configured. [Jose
+          Diaz-Gonzalez]
+        
+        - Remove unused import. [Jose Diaz-Gonzalez]
+        
+        - Formatted code to fix PEP8 violations. [Jose Diaz-Gonzalez]
+        
+        - Use alternate dict syntax for Python 2.6 support. Closes #43. [Jose
+          Diaz-Gonzalez]
+        
+        - Fixed release date for version 3. [Jose Diaz-Gonzalez]
+        
+        3 (2012-11-25)
+        --------------
+        
+        - Added requirements files to manifest. [Jose Diaz-Gonzalez]
+        
+        - Include all contrib files in release. [Jose Diaz-Gonzalez]
+        
+        - Revert "removed redundant README.txt" to follow pypi standards. [Jose
+          Diaz-Gonzalez]
+        
+          This reverts commit e667f63706e0af8bc82c0eac6eac43318144e107.
+        
+        - Added bash startup script. Closes #35. [Jose Diaz-Gonzalez]
+        
+        - Added an example supervisor config for redis. closes #34. [Jose Diaz-
+          Gonzalez]
+        
+        - Removed redundant README.txt. [Jose Diaz-Gonzalez]
+        
+        - Added classifiers to package. [Jose Diaz-Gonzalez]
+        
+        - Re-order workers. [Jose Diaz-Gonzalez]
+        
+        - Re-require pika. [Jose Diaz-Gonzalez]
+        
+        - Make zeromq installation optional. [Morgan Delagrange]
+        
+        - Formatting. [Jose Diaz-Gonzalez]
+        
+        - Added changes to changelog for version 3. [Jose Diaz-Gonzalez]
+        
+        - Timestamp in ISO 8601 format with the "Z" sufix to express UTC.
+          [Xabier de Zuazo]
+        
+        - Adding udp support. [Morgan Delagrange]
+        
+        - Lpush changed to rpush on redis transport. This is required to always
+          read the events in the correct order on the logstash side. See: https:
+          //github.com/logstash/logstash/blob/6f745110671b5d9d66bf082fbfed99d145
+          af4620/lib/logstash/outputs/redis.rb#L4. [Xabier de Zuazo]
+        
+        2 (2012-10-25)
+        --------------
+        
+        - Example upstart script. [Michael D'Auria]
+        
+        - Fixed a few more import statements. [Jose Diaz-Gonzalez]
+        
+        - Fixed binary call. [Jose Diaz-Gonzalez]
+        
+        - Refactored logging. [Jose Diaz-Gonzalez]
+        
+        - Improve logging. [Michael D'Auria]
+        
+        - Removed unnecessary print statements. [Jose Diaz-Gonzalez]
+        
+        - Add default stream handler when transport is stdout. Closes #26. [bear
+          (Mike Taylor)]
+        
+        - Handle the case where the config file is not present. [Michael
+          D'Auria]
+        
+        - Better exception handling for unhandled exceptions. [Michael D'Auria]
+        
+        - Fix wrong addfield values. [Alexander Fortin]
+        
+        - Add add_field to config example. [Alexander Fortin]
+        
+        - Add support for add_field into config file. [Alexander Fortin]
+        
+        - Minor readme updates. [Jose Diaz-Gonzalez]
+        
+        - Add support for type reading from INI config file. [Alexander Fortin]
+        
+          Add support for symlinks in config file
+          
+          Add support for file globbing in config file
+          
+          Add support for tags
+          
+          
+          a little bit of refactoring, move type and tags check down into
+          transport class
+          
+          create config object (reading /dev/null) even if no config file
+          has been given via cli
+          
+          Add documentation for INI file to readme
+          
+          Remove unused json library
+          
+          Conflicts:
+          README.rst
+        
+        - When sending data over the wire, use UTC timestamps. [Darren Worrall]
+        
+        - Support globs in file paths. [Darren Worrall]
+        
+        - Added msgpack support. [Jose Diaz-Gonzalez]
+        
+        - Use the python logging framework. [Jose Diaz-Gonzalez]
+        
+        - Fixed Transport.format() method. [Jose Diaz-Gonzalez]
+        
+        - Properly parse BEAVER_FILES env var. [Jose Diaz-Gonzalez]
+        
+        - Refactor transports. [Jose Diaz-Gonzalez]
+        
+          Fix the json import to use the fastest json module available
+          
+          Move formatting into Transport class
+        
+        - Attempt to fix defaults from env variables. [Jose Diaz-Gonzalez]
+        
+        - Fix README and beaver CLI help to reference correct RABBITMQ_HOST
+          environment variable. [jdutton]
+        
+        - Add RabbitMQ support. [Alexander Fortin]
+        
+        - Added real-world example of beaver usage for tailing a file. [Jose
+          Diaz-Gonzalez]
+        
+        - Removed unused argument. [Jose Diaz-Gonzalez]
+        
+        - Ensure that python-compatible readme is included in package. [Jose
+          Diaz-Gonzalez]
+        
+        - Fix variable naming and timeout for redis transport. [Jose Diaz-
+          Gonzalez]
+        
+        - Installation instructions. [Jose Diaz-Gonzalez]
+        
+        - Use restructured text for readme instead of markdown. [Jose Diaz-
+          Gonzalez]
+        
+        - Removed unnecessary .gitignore. [Jose Diaz-Gonzalez]
+        
+        1 (2012-08-06)
+        --------------
+        
+        - Moved app into python package format. [Jose Diaz-Gonzalez]
+        
+        - Moved binary beaver.py to bin/beaver, as per python packaging. [Jose
+          Diaz-Gonzalez]
+        
+        - Moved around transports to be independent of each other. [Jose Diaz-
+          Gonzalez]
+        
+        - Reorder transports. [Jose Diaz-Gonzalez]
+        
+        - Rewrote run_worker to throw exception if all transport options have
+          been exhausted. [Jose Diaz-Gonzalez]
+        
+        - Rename Amqp -> Zmq to avoid confusion with RabbitMQ. [Alexander
+          Fortin]
+        
+        - Added choices to the --transport argument. [Jose Diaz-Gonzalez]
+        
+        - Fixed derpy formatting. [Jose Diaz-Gonzalez]
+        
+        - Added usage to the readme. [Jose Diaz-Gonzalez]
+        
+        - Support usage of environment variables instead of arguments. [Jose
+          Diaz-Gonzalez]
+        
+        - Fixed files argument parsing. [Jose Diaz-Gonzalez]
+        
+        - One does not simply license all the things. [Jose Diaz-Gonzalez]
+        
+        - Add todo to readme. [Jose Diaz-Gonzalez]
+        
+        - Added version to pyzmq. [Jose Diaz-Gonzalez]
+        
+        - Added license. [Jose Diaz-Gonzalez]
+        
+        - Reordered imports. [Jose Diaz-Gonzalez]
+        
+        - Moved all transports to beaver/transports.py. [Jose Diaz-Gonzalez]
+        
+        - Calculate current timestamp at most once per callback fired. [Jose
+          Diaz-Gonzalez]
+        
+        - Modified transports to include proper information for ingestion in
+          logstash. [Jose Diaz-Gonzalez]
+        
+        - Fixed package imports. [Jose Diaz-Gonzalez]
+        
+        - Removed another compiled python file. [Jose Diaz-Gonzalez]
+        
+        - Use ujson instead of simplejson. [Jose Diaz-Gonzalez]
+        
+        - Ignore compiled python files. [Jose Diaz-Gonzalez]
+        
+        - Fixed imports. [Jose Diaz-Gonzalez]
+        
+        - Fixed up readme instructions. [Jose Diaz-Gonzalez]
+        
+        - Refactor transports so that connections are no longer global. [Jose
+          Diaz-Gonzalez]
+        
+        - Readme and License. [Jose Diaz-Gonzalez]
+        
+        
+        
+Platform: UNKNOWN
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Intended Audience :: System Administrators
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 2.6
+Classifier: Programming Language :: Python :: 2.7
+Classifier: Topic :: System :: Logging
