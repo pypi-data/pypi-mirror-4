@@ -1,0 +1,262 @@
+"""
+.. :doctest:
+
+Detailed tests for dependencychecker:
+
+    >>> from z3c.dependencychecker import dependencychecker
+
+
+Filtering out missing requirements
+----------------------------------
+
+Empty lists, no problems:
+
+    >>> dependencychecker.filter_missing([], [])
+    []
+
+Exact matching lists result in an empty list:
+
+    >>> dependencychecker.filter_missing(['a'], ['a'])
+    []
+
+A missing import is reported:
+
+    >>> imports = ['flup']
+    >>> required = []
+    >>> dependencychecker.filter_missing(imports, required)
+    ['flup']
+
+Everything is reported just once:
+
+    >>> imports = ['flup', 'flup']
+    >>> required = []
+    >>> dependencychecker.filter_missing(imports, required)
+    ['flup']
+
+And it sorted for reproducible display:
+
+    >>> imports = ['a', 'c', 'b']
+    >>> required = []
+    >>> dependencychecker.filter_missing(imports, required)
+    ['a', 'b', 'c']
+
+A requirement for some.thing is assumed to be enough for some.thing.else:
+
+    >>> imports = ['some.thing.else']
+    >>> required = ['some.thing']
+    >>> dependencychecker.filter_missing(imports, required)
+    []
+    >>> required = ['Some.Thing'] # case insensitive
+    >>> dependencychecker.filter_missing(imports, required)
+    []
+    >>> required = ['Some']
+    >>> dependencychecker.filter_missing(imports, required)
+    []
+
+But a requirement that is more specific than the import fails:
+
+    >>> imports = ['some.thing']
+    >>> required = ['some.thing.else']
+    >>> dependencychecker.filter_missing(imports, required)
+    ['some.thing']
+
+Watch out with similar names:
+
+    >>> imports = ['zope.app.securitypolicy']
+    >>> required = ['zope.app.security']
+    >>> dependencychecker.filter_missing(imports, required)
+    ['zope.app.securitypolicy']
+
+An oft-occurring example is a an import like ``from zope import interface``,
+and a requirement for ``zope.interface``.  zope is picked up by the
+importchecker mechanism (not zope.interface!), so we get the following problem:
+
+    >>> imports = ['zope']
+    >>> required = ['zope.interface']
+    >>> dependencychecker.filter_missing(imports, required)
+    ['zope']
+
+
+Filter out unneeded requirements
+--------------------------------
+
+Empty lists, no problems:
+
+    >>> dependencychecker.filter_unneeded([], [])
+    []
+
+Exact matches are fine:
+
+    >>> imports = ['zope.interface']
+    >>> required = ['zope.interface']
+    >>> dependencychecker.filter_unneeded(imports, required)
+    []
+
+Too-specific requirements are reported:
+
+    >>> imports = ['zope']
+    >>> required = ['zope.interface']
+    >>> dependencychecker.filter_unneeded(imports, required)
+    ['zope.interface']
+
+There are no duplicates in the output:
+
+    >>> imports = []
+    >>> required = ['a', 'a']
+    >>> dependencychecker.filter_unneeded(imports, required)
+    ['a']
+
+And the output is sorted:
+
+    >>> imports = []
+    >>> required = ['a', 'c', 'b']
+    >>> dependencychecker.filter_unneeded(imports, required)
+    ['a', 'b', 'c']
+
+
+Testing the regexes
+-------------------
+
+Finding package="" in zcml files:
+
+    >>> import re
+    >>> input = ''
+    >>> re.findall(dependencychecker.ZCML_PACKAGE_PATTERN, input)
+    []
+    >>> input = '<bla\npackage="zope.interface"/>'
+    >>> re.findall(dependencychecker.ZCML_PACKAGE_PATTERN, input)
+    ['zope.interface']
+
+Finding imports in doctests:
+
+    >>> input = ''
+    >>> re.findall(dependencychecker.DOCTEST_IMPORT, input)
+    []
+    >>> input = '    >>> print 7'
+    >>> re.findall(dependencychecker.DOCTEST_IMPORT, input)
+    []
+    >>> input = '    >>> import zope.interface'
+    >>> re.findall(dependencychecker.DOCTEST_IMPORT, input)
+    ['zope.interface']
+    >>> input = '    >>> #import zope.interface'
+    >>> re.findall(dependencychecker.DOCTEST_IMPORT, input)
+    []
+
+Finding from-imports in doctests:
+
+    >>> input = ''
+    >>> re.findall(dependencychecker.DOCTEST_FROM_IMPORT, input)
+    []
+    >>> input = '    >>> print 7'
+    >>> re.findall(dependencychecker.DOCTEST_FROM_IMPORT, input)
+    []
+    >>> input = '    >>> from zope import interface'
+    >>> re.findall(dependencychecker.DOCTEST_FROM_IMPORT, input)
+    [('zope', 'interface')]
+    >>> input = '    >>> from zope import interface, component'
+    >>> re.findall(dependencychecker.DOCTEST_FROM_IMPORT, input)
+    [('zope', 'interface, component')]
+    >>> input = '    >>> #from zope import interface'
+    >>> re.findall(dependencychecker.DOCTEST_FROM_IMPORT, input)
+    []
+
+
+Grabbing the name from setup.py
+-------------------------------
+
+Mock that we print our name (provided that we're called with ``--name`` of
+course):
+
+    >>> import os
+    >>> import sys
+    >>> import tempfile
+    >>> newtempdir = tempfile.mkdtemp(prefix='depcheck')
+    >>> setup_py = os.path.join(newtempdir, 'setup.py')
+    >>> open(setup_py, 'w').write('\n'.join([
+    ...     "import sys",
+    ...     "assert '--name' in sys.argv",
+    ...     "print 'my_name'"]))
+    >>> os.chdir(newtempdir)
+
+Grab the name:
+
+    >>> dependencychecker.name_from_setup()
+    'my_name'
+
+Mock that something goes wrong:
+
+    >>> open(setup_py, 'w').write("raise UserError('raargh')")
+
+Grab the name, which results in a (mocked) sys.exit():
+
+    >>> dependencychecker.name_from_setup()
+    Traceback (most recent call last):
+    ...
+    MockExitException: 1
+
+
+Corner case: egg info contents and location
+-------------------------------------------
+
+We're in a temp dir.  First restore the setup.py:
+
+    >>> open(setup_py, 'w').write('\n'.join([
+    ...     "import sys",
+    ...     "assert '--name' in sys.argv",
+    ...     "print 'my_name'"]))
+
+The normal ``src/xyz.egg-info`` case is already handled by the main example.
+Here we create the egg info dir directly in the directory itself.  Not the
+common case, but we support the lack of ``src/`` dir.
+
+    >>> os.mkdir('my_name.egg-info')
+
+If we grab the requirements now, we hit two corner cases:
+
+- The egg-info dir is here, not in src.
+
+- The requires.txt file is missing.
+
+Grab it and watch the fireworks:
+
+    >>> dependencychecker.existing_requirements()
+    Traceback (most recent call last):
+    ...
+    MockExitException: 1
+
+
+Determining the path
+--------------------
+
+The default case ("just pick src/ in the current dir") is tested by the main
+flow.  Here we test corner cases.
+
+Pass the path on the command line:
+
+    >>> args = [newtempdir]
+    >>> dependencychecker.determine_path(args) == newtempdir
+    True
+
+Pass a non-existing path:
+
+    >>> args = ['/does/not/exist']
+    >>> dependencychecker.determine_path(args)
+    Traceback (most recent call last):
+    ...
+    MockExitException: 1
+
+Pass a file instead of a directory:
+
+    >>> args = [setup_py]
+    >>> dependencychecker.determine_path(args)
+    Traceback (most recent call last):
+    ...
+    MockExitException: 1
+
+
+Clean up the tempdir, btw:
+
+    >>> import shutil
+    >>> shutil.rmtree(newtempdir)
+
+"""
