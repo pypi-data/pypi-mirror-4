@@ -1,0 +1,94 @@
+Introduction
+---------------
+
+Launchy Tomboy Plugin
+
+Requirements
+------------
+
+I have tested this setup with:
+
+- Windows 7
+- Python 2.7
+- `Launchy <http://www.launchy.net/>`_: 2.6 Beta 2
+- `Tomboy <http://projects.gnome.org/tomboy/>`_: 1.11.2
+- `PyLaunchy <http://pylaunchy.sourceforge.net/docs/>`_: 0.9
+
+Installation
+------------
+
+- Make sure the above requirements are met
+- install this package using pip, easy_install, or the .exe installer
+- create a file like the one below::
+
+    # this file should reside at
+    # <Launchy program dir>\plugins\python\pytomboy.py
+    from os import environ as ose
+    import launchy
+
+    # uncomment this line if you want debug messages from LaunchyTomboyPlugin
+    # to go to <Launch program dir>\plugins\python\stdout.txt
+    #ose['LAUNCHY_TOMBOY_DEBUG'] = '1'
+
+    from launchytomboyplugin import Tomboy
+
+    launchy.registerPlugin(Tomboy)
+    print 'Tomboy plugin registered'
+
+- start or restart Launchy
+
+Environment Variables
+---------------------
+
+- LAUNCHY_TOMBOY_DEBUG: set to enable debug info in the stdout.txt (see below)
+- TOMBOY_PROGRAM_PATH: set to the full path to Tomboy.exe if your Tomboy install
+  is in a non-standard location.
+
+Log Files
+---------
+
+Keep theses files in mind when trying to troubleshoot problems:
+
+- <Launchy program dir>\\plugins\\python\\stdout.txt
+- <Launchy program dir>\\plugins\\python\\stderr.txt
+
+Using the Plugin
+----------------
+
+This plugin inserts two static items into the Launchy catalog:
+
+- Tomboy New Note
+- Tomboy Search Notes
+
+It will also index the title of every Tomboy note and make it available as an
+item in the Launchy catalog.  So if you have a note with a title of "ToDo List"
+typing "ToDo List" in Launchy should bring up that item.  Hitting enter will
+open the corresponding Tomboy note.
+
+Note: the plugin rebuilds the list of note titles whenever Launchy rebuilds its
+catalog.  The auto-refresh time period can be set in Launchy options.  A manual
+refresh of the catalog can also be triggered, see Launchy docs for more info.
+
+Known Issues
+------------
+
+If Tomboy is not running and two Tomboy related commands are issued quickly
+in succession, its possible the second Tomboy instance will crash.  Once Tomboy
+is up and running, this is no longer an issue.
+
+Workaround: be patient the first time you use a Tomboy related item with Launchy
+to give the Tomboy process that is started time to fully initialize.
+
+Questions & Comments
+---------------------
+
+Please visit: http://groups.google.com/group/blazelibs
+
+Source Code
+-----------
+
+http://bitbucket.org/rsyring/launchytomboyplugin
+
+The `Launch Tomboy Plugin HG tip <http://bitbucket.org/rsyring/launchytomboyplugin/get/tip.zip#egg=LaunchyTomboyPlugin-dev>`_
+is installable via `easy_install` with ``easy_install LaunchyTomboyPlugin==dev``
+or pip with ``pip install LaunchyTomboyPlugin==dev``.
