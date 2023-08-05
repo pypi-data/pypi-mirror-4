@@ -1,0 +1,324 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Upgrading peewee &mdash; peewee 2.0.4 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '2.0.4',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <link rel="top" title="peewee 2.0.4 documentation" href="../index.html" />
+    <link rel="prev" title="Playhouse, a collection of addons" href="playhouse.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="playhouse.html" title="Playhouse, a collection of addons"
+             accesskey="P">previous</a> |</li>
+        <li><a href="../index.html">peewee 2.0.4 documentation</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="upgrading-peewee">
+<span id="upgrading"></span><h1>Upgrading peewee<a class="headerlink" href="#upgrading-peewee" title="Permalink to this headline">¶</a></h1>
+<p>Peewee went from 2319 source lines of code to ~1600 between 1.0 and 2.0.</p>
+<div class="section" id="goals-for-the-new-api">
+<h2>Goals for the new API<a class="headerlink" href="#goals-for-the-new-api" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li>consistent: there is one way of doing things</li>
+<li>expressive: things can be done that I never thought of</li>
+</ul>
+</div>
+<div class="section" id="changes-from-version-1-0">
+<span id="changes"></span><h2>Changes from version 1.0<a class="headerlink" href="#changes-from-version-1-0" title="Permalink to this headline">¶</a></h2>
+<p>The biggest changes between 1.0 and 2.0 are in the syntax used for
+constructing queries.  The first iteration of peewee I threw up on github
+was about 600 lines.  I was passing around strings and dictionaries and
+as time went on and I added features, those strings turned into tuples and
+objects.  This meant, though, that I needed code to handle all the possible
+ways of expressing something.  Look at the code for <a class="reference external" href="https://gist.github.com/a957dbbff0310fd88d5c">parse_select</a>.</p>
+<p>I learned a valuable lesson:  keep data in datastructures until the
+<em>absolute</em> last second.</p>
+<p>With the benefit of hindsight and experience, I decided to rewrite and unify
+the API a bit.  The result is a tradeoff.  The newer syntax may be a bit more
+verbose at times, but at least it will be consistent.</p>
+<p>Since seeing is believing, I will show some side-by-side comparisons.  Let&#8217;s
+pretend we&#8217;re using the models from the cookbook, good ol&#8217; user and tweet:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="k">class</span> <span class="nc">User</span><span class="p">(</span><span class="n">Model</span><span class="p">):</span>
+    <span class="n">username</span> <span class="o">=</span> <span class="n">CharField</span><span class="p">()</span>
+
+<span class="k">class</span> <span class="nc">Tweet</span><span class="p">(</span><span class="n">Model</span><span class="p">):</span>
+    <span class="n">user</span> <span class="o">=</span> <span class="n">ForeignKeyField</span><span class="p">(</span><span class="n">User</span><span class="p">,</span> <span class="n">related_name</span><span class="o">=</span><span class="s">&#39;tweets&#39;</span><span class="p">)</span>
+    <span class="n">message</span> <span class="o">=</span> <span class="n">TextField</span><span class="p">()</span>
+    <span class="n">created_date</span> <span class="o">=</span> <span class="n">DateTimeField</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">)</span>
+    <span class="n">is_published</span> <span class="o">=</span> <span class="n">BooleanField</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Get me a list of all tweets by a user named &#8220;charlie&#8221;:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="c"># 1.0</span>
+<span class="n">Tweet</span><span class="o">.</span><span class="n">select</span><span class="p">()</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">User</span><span class="p">)</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">username</span><span class="o">=</span><span class="s">&#39;charlie&#39;</span><span class="p">)</span>
+
+<span class="c"># 2.0</span>
+<span class="n">Tweet</span><span class="o">.</span><span class="n">select</span><span class="p">()</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">User</span><span class="p">)</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">User</span><span class="o">.</span><span class="n">username</span> <span class="o">==</span> <span class="s">&#39;charlie&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Get me a list of tweets ordered by the authors username, then newest to oldest:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="c"># 1.0 -- this is one where there are like 10 ways to express it</span>
+<span class="n">Tweet</span><span class="o">.</span><span class="n">select</span><span class="p">()</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">User</span><span class="p">)</span><span class="o">.</span><span class="n">order_by</span><span class="p">(</span><span class="s">&#39;username&#39;</span><span class="p">,</span> <span class="p">(</span><span class="n">Tweet</span><span class="p">,</span> <span class="s">&#39;created_date&#39;</span><span class="p">,</span> <span class="s">&#39;desc&#39;</span><span class="p">))</span>
+
+<span class="c"># 2.0</span>
+<span class="n">Tweet</span><span class="o">.</span><span class="n">select</span><span class="p">()</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">User</span><span class="p">)</span><span class="o">.</span><span class="n">order_by</span><span class="p">(</span><span class="n">User</span><span class="o">.</span><span class="n">username</span><span class="p">,</span> <span class="n">Tweet</span><span class="o">.</span><span class="n">created_date</span><span class="o">.</span><span class="n">desc</span><span class="p">())</span>
+</pre></div>
+</div>
+<p>Get me a list of tweets created by users named &#8220;charlie&#8221; or &#8220;peewee herman&#8221;, and
+which were created in the last week.</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="n">last_week</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span> <span class="o">-</span> <span class="n">datetime</span><span class="o">.</span><span class="n">timedelta</span><span class="p">(</span><span class="n">days</span><span class="o">=</span><span class="mi">7</span><span class="p">)</span>
+
+<span class="c"># 1.0</span>
+<span class="n">Tweet</span><span class="o">.</span><span class="n">select</span><span class="p">()</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">created_date__gt</span><span class="o">=</span><span class="n">last_week</span><span class="p">)</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">User</span><span class="p">)</span><span class="o">.</span><span class="n">where</span><span class="p">(</span>
+    <span class="n">Q</span><span class="p">(</span><span class="n">username</span><span class="o">=</span><span class="s">&#39;charlie&#39;</span><span class="p">)</span> <span class="o">|</span> <span class="n">Q</span><span class="p">(</span><span class="n">username</span><span class="o">=</span><span class="s">&#39;peewee herman&#39;</span><span class="p">)</span>
+<span class="p">)</span>
+
+<span class="c"># 2.0</span>
+<span class="n">Tweet</span><span class="o">.</span><span class="n">select</span><span class="p">()</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">User</span><span class="p">)</span><span class="o">.</span><span class="n">where</span><span class="p">((</span><span class="n">Tweet</span><span class="o">.</span><span class="n">created_date</span> <span class="o">&gt;</span> <span class="n">last_week</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span>
+    <span class="p">(</span><span class="n">User</span><span class="o">.</span><span class="n">username</span> <span class="o">==</span> <span class="s">&#39;charlie&#39;</span><span class="p">)</span> <span class="o">|</span> <span class="p">(</span><span class="n">User</span><span class="o">.</span><span class="n">username</span> <span class="o">==</span> <span class="s">&#39;peewee herman&#39;</span><span class="p">)</span>
+<span class="p">))</span>
+</pre></div>
+</div>
+<p>Get me a list of users and when they last tweeted (if ever):</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="c"># 1.0</span>
+<span class="n">User</span><span class="o">.</span><span class="n">select</span><span class="p">({</span>
+    <span class="n">User</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;*&#39;</span><span class="p">],</span>
+    <span class="n">Tweet</span><span class="p">:</span> <span class="p">[</span><span class="n">Max</span><span class="p">(</span><span class="s">&#39;created_date&#39;</span><span class="p">,</span> <span class="s">&#39;last_date&#39;</span><span class="p">)]</span>
+<span class="p">})</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">Tweet</span><span class="p">,</span> <span class="s">&#39;LEFT OUTER&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">group_by</span><span class="p">(</span><span class="n">User</span><span class="p">)</span>
+
+<span class="c"># 2.0</span>
+<span class="n">User</span><span class="o">.</span><span class="n">select</span><span class="p">(</span>
+    <span class="n">User</span><span class="p">,</span> <span class="n">fn</span><span class="o">.</span><span class="n">Max</span><span class="p">(</span><span class="n">Tweet</span><span class="o">.</span><span class="n">created_date</span><span class="p">)</span><span class="o">.</span><span class="n">alias</span><span class="p">(</span><span class="s">&#39;last_date&#39;</span><span class="p">)</span>
+<span class="p">)</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">Tweet</span><span class="p">,</span> <span class="n">JOIN_LEFT_OUTER</span><span class="p">)</span><span class="o">.</span><span class="n">group_by</span><span class="p">(</span><span class="n">User</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Let&#8217;s do an atomic update on a counter model (you&#8217;ll have to use your imagination):</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="c"># 1.0</span>
+<span class="n">Counter</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">count</span><span class="o">=</span><span class="n">F</span><span class="p">(</span><span class="s">&#39;count&#39;</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">url</span><span class="o">=</span><span class="n">request</span><span class="o">.</span><span class="n">url</span><span class="p">)</span>
+
+<span class="c"># 2.0</span>
+<span class="n">Counter</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">count</span><span class="o">=</span><span class="n">Counter</span><span class="o">.</span><span class="n">count</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">Counter</span><span class="o">.</span><span class="n">url</span> <span class="o">==</span> <span class="n">request</span><span class="o">.</span><span class="n">url</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Let&#8217;s find all the users whose username starts with &#8216;a&#8217; or &#8216;A&#8217;:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="c"># 1.0</span>
+<span class="n">User</span><span class="o">.</span><span class="n">select</span><span class="p">()</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">R</span><span class="p">(</span><span class="s">&#39;LOWER(SUBSTR(username, 1, 1)) = </span><span class="si">%s</span><span class="s">&#39;</span><span class="p">,</span> <span class="s">&#39;a&#39;</span><span class="p">))</span>
+
+<span class="c"># 2.0</span>
+<span class="n">User</span><span class="o">.</span><span class="n">select</span><span class="p">()</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">fn</span><span class="o">.</span><span class="n">Lower</span><span class="p">(</span><span class="n">fn</span><span class="o">.</span><span class="n">Substr</span><span class="p">(</span><span class="n">User</span><span class="o">.</span><span class="n">username</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span> <span class="o">==</span> <span class="s">&#39;a&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>I hope a couple things jump out at you from these examples.  What I see is
+that the 1.0 API is sometimes a bit less verbose, but it relies on strings in
+many places (which may be fields, aliases, selections, join types, functions, etc).  In the
+where clause stuff gets crazy as there are args being combined with bitwise
+operators (&#8220;Q&#8221; expressions) and also kwargs being used with django-style &#8220;double-underscore&#8221;
+lookups. The crazy thing is, there are so many different ways I could have expressed
+some of the above queries using peewee 1.0 that I had a hard time deciding which
+to even write.</p>
+<p>The 2.0 API is hopefully more consistent.  Selections, groupings, functions, joins
+and orderings all pretty much conform to the same API.  Likewise, where and having
+clauses are handled the same way (in 1.0 the having clause is simply a raw string).
+The new <a class="reference internal" href="api.html#fn" title="fn"><tt class="xref py py-class docutils literal"><span class="pre">fn</span></tt></a> object actually is a wrapper &#8211; whatever appears to the right of the
+dot (i.e. fn.*Lower*) &#8211; is treated as a function that can take any arbitrary
+parameters.</p>
+<p>If you&#8217;re feeling froggy and want to get coding, you might want to check out:</p>
+<ul class="simple">
+<li><a class="reference internal" href="cookbook.html#cookbook"><em>the cookbook</em></a>, which contains many practical examples</li>
+<li><a class="reference internal" href="example.html#example-app"><em>the example app documentation</em></a>, which shows how to build a simple twitter-like site</li>
+<li><a class="reference internal" href="querying.html#fn-examples"><em>using &#8220;fn&#8221;</em></a></li>
+<li><a class="reference internal" href="querying.html#querying"><em>the querying docs</em></a>, which contain an in-depth overview of the query apis</li>
+</ul>
+</div>
+<div class="section" id="changes-in-fields-and-columns">
+<h2>Changes in fields and columns<a class="headerlink" href="#changes-in-fields-and-columns" title="Permalink to this headline">¶</a></h2>
+<p>Well, for one, columns are gone.  They were a shim that I used to hack in non-integer
+primary keys.  I always thought the field SQL generation was one of the grosser
+parts of the module and even worse was the back-and-forth that happened between the
+field and column classes.  So, columns are gone - its just fields - and they&#8217;re
+hopefully a bit smaller and saner.  I also cleaned up the primary key business.
+Basically it works like this:</p>
+<ul class="simple">
+<li>if you don&#8217;t specify a primary key, one will be created named &#8220;id&#8221;</li>
+<li>if you do specify a primary key and it is a PrimaryKeyField (or subclass),
+it will be an automatically incrementing integer</li>
+<li>if you specify a primary key and it is anything else peewee assumes you are
+in control and will stay out of the way.</li>
+</ul>
+<p>The API for specifying a non-auto-incrementing primary key changed:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="c"># 1.0</span>
+<span class="k">class</span> <span class="nc">OldSchool</span><span class="p">(</span><span class="n">Model</span><span class="p">):</span>
+    <span class="n">uuid</span> <span class="o">=</span> <span class="n">PrimaryKeyField</span><span class="p">(</span><span class="n">column_class</span><span class="o">=</span><span class="n">VarCharColumn</span><span class="p">)</span>
+
+<span class="c"># 2.0</span>
+<span class="k">class</span> <span class="nc">NewSchool</span><span class="p">(</span><span class="n">Model</span><span class="p">):</span>
+    <span class="n">uuid</span> <span class="o">=</span> <span class="n">CharField</span><span class="p">(</span><span class="n">primary_key</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The kwargs for the Field constructor changed slightly, the biggest probably
+being that <tt class="docutils literal"><span class="pre">db_index</span></tt> was renamed to <tt class="docutils literal"><span class="pre">index</span></tt>.</p>
+</div>
+<div class="section" id="changes-in-model-definitions">
+<h2>Changes in model definitions<a class="headerlink" href="#changes-in-model-definitions" title="Permalink to this headline">¶</a></h2>
+<p>When specifying a default ordering for a model:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="c"># 1.0</span>
+<span class="k">class</span> <span class="nc">Old</span><span class="p">(</span><span class="n">Model</span><span class="p">):</span>
+    <span class="k">class</span> <span class="nc">Meta</span><span class="p">:</span>
+        <span class="n">ordering</span> <span class="o">=</span> <span class="p">((</span><span class="s">&#39;field1&#39;</span><span class="p">,</span> <span class="s">&#39;desc&#39;</span><span class="p">),</span> <span class="p">(</span><span class="s">&#39;field2&#39;</span><span class="p">,</span> <span class="s">&#39;asc&#39;</span><span class="p">))</span>
+
+<span class="c"># 2.0</span>
+<span class="k">class</span> <span class="nc">New</span><span class="p">(</span><span class="n">Model</span><span class="p">):</span>
+    <span class="k">class</span> <span class="nc">Meta</span><span class="p">:</span>
+        <span class="n">order_by</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;-field1&#39;</span><span class="p">,</span> <span class="s">&#39;field2&#39;</span><span class="p">)</span> <span class="c"># note it is &quot;order_by&quot;</span>
+</pre></div>
+</div>
+</div>
+<div class="section" id="changes-in-database-and-adapter">
+<h2>Changes in database and adapter<a class="headerlink" href="#changes-in-database-and-adapter" title="Permalink to this headline">¶</a></h2>
+<p>In peewee 1.0 there were two classes that controlled access to the database &#8211;
+the Database subclass and an Adapter.  The adapter&#8217;s job was to say what features
+a database backend provided, what operations were valid, what column types were
+supported, and how to open a connection.  The database was a bit higher-level and
+its main job was to execute queries and provide metadata about the database, like
+lists of tables, last insert id, etc.</p>
+<p>I chose to consolidate these two classes, since inevitably they always went in
+pairs (e.g. SqliteDatabase/SqliteAdapter).  The database class now encapsulates
+all this functionality.</p>
+</div>
+<div class="section" id="how-the-sql-gets-made">
+<h2>How the SQL gets made<a class="headerlink" href="#how-the-sql-gets-made" title="Permalink to this headline">¶</a></h2>
+<p>The first thing I started with is the QueryCompiler and the data structures it
+uses.  You can see it start to take shape in my <a class="reference external" href="https://github.com/coleifer/peewee/blob/3cc1799b707e41183e2afb237b9e61c6e760d3a7/p2.py">first commit</a>.
+It takes the data structures from peewee and spits out SQL.  It works recursively and knows
+about a few types of expressions:</p>
+<ul class="simple">
+<li>the query tree</li>
+<li>comparison statements like &#8216;==&#8217;, &#8216;IN&#8217;, &#8216;LIKE&#8217; which comprise the leaves of the tree</li>
+<li>expressions like addition, substraction, bitwise operations</li>
+<li>sql functions like <tt class="docutils literal"><span class="pre">substr</span></tt> and <tt class="docutils literal"><span class="pre">lower</span></tt></li>
+<li>aggregate functions like <tt class="docutils literal"><span class="pre">count</span></tt> and <tt class="docutils literal"><span class="pre">max</span></tt></li>
+<li>columns, which may be selected, joined on, grouped by, ordered by, used as parameters
+for functions and aggregates, etc.</li>
+<li>python objects to use as query parameters</li>
+</ul>
+<p>At the heart of it is the <tt class="docutils literal"><span class="pre">Expr</span></tt> object, which is for &#8220;expression&#8221;.  It
+can be anything that can validly be translated into part of a SQL query.</p>
+<p>Expressions can be nested, giving way to interesting possibilities like
+the following example I love which selects users whose username starts with &#8220;a&#8221;:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="n">User</span><span class="o">.</span><span class="n">select</span><span class="p">()</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">fn</span><span class="o">.</span><span class="n">Substr</span><span class="p">(</span><span class="n">fn</span><span class="o">.</span><span class="n">Lower</span><span class="p">(</span><span class="n">User</span><span class="o">.</span><span class="n">username</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span> <span class="o">==</span> <span class="s">&#39;a&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The &#8220;where&#8221; clause now contains a tree with one leaf.  The leaf represents the
+nested function expression on the left-hand-side and the scalar value &#8216;a&#8217; on the
+right hand side.  Peewee will recursively evaluate the expressions on either side
+of the operation and generate the correct SQL.</p>
+<p>Another aspect is that <a class="reference internal" href="api.html#Field" title="Field"><tt class="xref py py-class docutils literal"><span class="pre">Field</span></tt></a> objects are also expressions, which
+makes it possible to write things like:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="n">Employee</span><span class="o">.</span><span class="n">select</span><span class="p">()</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">Employee</span><span class="o">.</span><span class="n">salary</span> <span class="o">&lt;</span> <span class="p">(</span><span class="n">Employee</span><span class="o">.</span><span class="n">tenure</span> <span class="o">*</span> <span class="mi">1000</span><span class="p">)</span> <span class="o">+</span> <span class="mi">40000</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="first admonition-title">Note</p>
+<p class="last">I totally went crazy with operator overloading.</p>
+</div>
+<p>If you&#8217;re interested in looking, the <tt class="docutils literal"><span class="pre">QueryCompiler.parse_expr</span></tt> method is where
+the bulk of the code lives.</p>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="../index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Upgrading peewee</a><ul>
+<li><a class="reference internal" href="#goals-for-the-new-api">Goals for the new API</a></li>
+<li><a class="reference internal" href="#changes-from-version-1-0">Changes from version 1.0</a></li>
+<li><a class="reference internal" href="#changes-in-fields-and-columns">Changes in fields and columns</a></li>
+<li><a class="reference internal" href="#changes-in-model-definitions">Changes in model definitions</a></li>
+<li><a class="reference internal" href="#changes-in-database-and-adapter">Changes in database and adapter</a></li>
+<li><a class="reference internal" href="#how-the-sql-gets-made">How the SQL gets made</a></li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="playhouse.html"
+                        title="previous chapter">Playhouse, a collection of addons</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="../_sources/peewee/upgrading.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="playhouse.html" title="Playhouse, a collection of addons"
+             >previous</a> |</li>
+        <li><a href="../index.html">peewee 2.0.4 documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright charles leifer.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>
