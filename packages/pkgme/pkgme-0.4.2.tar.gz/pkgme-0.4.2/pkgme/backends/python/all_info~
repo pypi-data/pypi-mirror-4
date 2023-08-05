@@ -1,0 +1,52 @@
+#!/usr/bin/env python
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+
+
+def _run_command(cmd, env):
+    proc = subprocess.Popen(
+        cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, env=env)
+    out, ignore = proc.communicate()
+    if proc.returncode != 0:
+        print out
+        sys.exit(proc.returncode)
+
+
+def main():
+    wanted = json.load(sys.stdin)
+    info_arg = "--pkgmeinfo=" + ",".join(wanted)
+    tempdir = tempfile.mkdtemp()
+    try:
+        out_f = os.path.join(tempdir, "output")
+        out_f_arg = "--pkgmefile=" + out_f
+        root_dir = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            os.pardir, os.pardir, os.pardir)
+        env = {}
+        if os.path.isfile(os.path.join(root_dir, "setup.py")):
+            env["PYTHONPATH"] = root_dir
+        _run_command(
+            [sys.executable, '-c', 'from pkgme import distutils_command'], env)
+        cmd = [
+            sys.executable,
+            "setup.py",
+            "--command-packages", "pkgme.distutils_command",
+            "pkgme_info",
+            info_arg,
+            out_f_arg,
+            ]
+        _run_command(cmd, env)
+        with open(out_f) as f:
+            print f.read()
+    finally:
+        shutil.rmtree(tempdir)
+
+
+if __name__ == '__main__':
+    main()

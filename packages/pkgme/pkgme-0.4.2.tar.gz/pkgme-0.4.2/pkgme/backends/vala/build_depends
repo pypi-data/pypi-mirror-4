@@ -1,0 +1,53 @@
+#!/bin/sh
+# -*- Mode: sh; indent-tabs-mode: nil; tab-width: 2 -*-
+#
+# © 2010 Canonical Ltd
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; version 3 of the License.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+# Authors: Michael Terry <michael.terry@canonical.com>
+# =====================================================================
+
+# The idea here is to gather all .vala files we find and pass them to
+# vala-dep-scanner.
+
+# Check version of vala-dep-scanner
+scanner_version=$(vala-dep-scanner --version | sed 's/^.* \([^ ]*\)$/\1/')
+scanner_major_version=$(echo "$scanner_version" | cut -d. -f1)
+if [ "$scanner_major_version" -lt "2" ]; then
+  # Doesn't support gir mode
+  exit 0
+fi
+
+files=$(find . -maxdepth 2 -name '*.vala' 2>/dev/null)
+if [ -z "$files" ]; then
+  exit 0
+fi
+
+vapinames=$(vala-dep-scanner --mode=gir $files 2>/dev/null)
+if [ -z "$vapinames" ]; then
+  exit 0
+fi
+
+# Now for each gir, determine which package owns it
+pkgs="valac"
+for name in $vapinames; do
+  pkg=$(dpkg-query -S "$name.gir" | cut -d: -f1 | head -n 1)
+  if [ -n "$pkg" ]; then
+    pkgs="$pkgs\n$pkg"
+  fi
+done
+
+echo $pkgs | sort | uniq | tr '\n' ' ' | sed 's/ $//' | sed 's/ /, /'
+echo
+exit 0
