@@ -1,0 +1,558 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>umbra.ui.highlighters &mdash; Umbra 1.0.2 documentation</title>
+    
+    <link rel="stylesheet" href="../../../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../../',
+        VERSION:     '1.0.2',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../../_static/doctools.js"></script>
+    <link rel="top" title="Umbra 1.0.2 documentation" href="../../../index.html" />
+    <link rel="up" title="Module code" href="../../index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../../index.html">Umbra 1.0.2 documentation</a> &raquo;</li>
+          <li><a href="../../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for umbra.ui.highlighters</h1><div class="highlight"><pre>
+<span class="c">#!/usr/bin/env python</span>
+<span class="c"># -*- coding: utf-8 -*-</span>
+
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">**highlighters.py**</span>
+
+<span class="sd">**Platform:**</span>
+<span class="sd">	Windows, Linux, Mac Os X.</span>
+
+<span class="sd">**Description:**</span>
+<span class="sd">	This module defines the Application highlighters classes.</span>
+
+<span class="sd">**Others:**</span>
+<span class="sd">	Portions of the code from PyQtWiki: http://diotavelli.net/PyQtWiki/Python%20syntax%20highlighting</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="c">#**********************************************************************************************************************</span>
+<span class="c">#***	External imports.</span>
+<span class="c">#**********************************************************************************************************************</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">from</span> <span class="nn">PyQt4.QtGui</span> <span class="kn">import</span> <span class="n">QSyntaxHighlighter</span>
+<span class="kn">from</span> <span class="nn">PyQt4.QtGui</span> <span class="kn">import</span> <span class="n">QTextCharFormat</span>
+
+<span class="c">#**********************************************************************************************************************</span>
+<span class="c">#***	Internal imports.</span>
+<span class="c">#**********************************************************************************************************************</span>
+<span class="kn">import</span> <span class="nn">foundations.common</span>
+<span class="kn">import</span> <span class="nn">foundations.core</span> <span class="kn">as</span> <span class="nn">core</span>
+<span class="kn">import</span> <span class="nn">foundations.dataStructures</span>
+<span class="kn">import</span> <span class="nn">foundations.exceptions</span>
+<span class="kn">from</span> <span class="nn">foundations.nodes</span> <span class="kn">import</span> <span class="n">AbstractCompositeNode</span>
+<span class="kn">from</span> <span class="nn">umbra.globals.constants</span> <span class="kn">import</span> <span class="n">Constants</span>
+<span class="kn">from</span> <span class="nn">umbra.ui.nodes</span> <span class="kn">import</span> <span class="n">DefaultNode</span>
+<span class="kn">from</span> <span class="nn">umbra.ui.nodes</span> <span class="kn">import</span> <span class="n">FormatNode</span>
+<span class="kn">from</span> <span class="nn">umbra.ui.themes</span> <span class="kn">import</span> <span class="n">DEFAULT_THEME</span>
+
+<span class="c">#**********************************************************************************************************************</span>
+<span class="c">#***	Module attributes.</span>
+<span class="c">#**********************************************************************************************************************</span>
+<span class="n">__author__</span> <span class="o">=</span> <span class="s">&quot;Thomas Mansencal&quot;</span>
+<span class="n">__copyright__</span> <span class="o">=</span> <span class="s">&quot;Copyright (C) 2008 - 2012 - Thomas Mansencal&quot;</span>
+<span class="n">__license__</span> <span class="o">=</span> <span class="s">&quot;GPL V3.0 - http://www.gnu.org/licenses/&quot;</span>
+<span class="n">__maintainer__</span> <span class="o">=</span> <span class="s">&quot;Thomas Mansencal&quot;</span>
+<span class="n">__email__</span> <span class="o">=</span> <span class="s">&quot;thomas.mansencal@gmail.com&quot;</span>
+<span class="n">__status__</span> <span class="o">=</span> <span class="s">&quot;Production&quot;</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;LOGGER&quot;</span><span class="p">,</span>
+			<span class="s">&quot;Rule&quot;</span><span class="p">,</span>
+			<span class="s">&quot;FormatsTree&quot;</span><span class="p">,</span>
+			<span class="s">&quot;AbstractHighlighter&quot;</span><span class="p">,</span>
+			<span class="s">&quot;DefaultHighlighter&quot;</span><span class="p">]</span>
+
+<span class="n">LOGGER</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="n">Constants</span><span class="o">.</span><span class="n">logger</span><span class="p">)</span>
+
+<span class="c">#**********************************************************************************************************************</span>
+<span class="c">#***	Module classes and definitions.</span>
+<span class="c">#**********************************************************************************************************************</span>
+<div class="viewcode-block" id="Rule"><a class="viewcode-back" href="../../../resources/pages/api/umbra.ui.highlighters.html#umbra.ui.highlighters.Rule">[docs]</a><span class="k">class</span> <span class="nc">Rule</span><span class="p">(</span><span class="n">foundations</span><span class="o">.</span><span class="n">dataStructures</span><span class="o">.</span><span class="n">Structure</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This class represents a storage object for highlighters rule. </span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@core.executionTrace</span>
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		.. Sphinx: Statements updated for auto-documentation purpose.</span>
+
+<span class="sd">		:param \*\*kwargs: pattern, format. ( Key / Value pairs )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Initializing &#39;{0}()&#39; class.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">))</span>
+
+		<span class="n">foundations</span><span class="o">.</span><span class="n">dataStructures</span><span class="o">.</span><span class="n">Structure</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FormatsTree"><a class="viewcode-back" href="../../../resources/pages/api/umbra.ui.highlighters.html#umbra.ui.highlighters.FormatsTree">[docs]</a><span class="k">class</span> <span class="nc">FormatsTree</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This class defines the formats tree object representing higlighters theme.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@core.executionTrace</span>
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">theme</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		.. Sphinx: Statements updated for auto-documentation purpose.</span>
+
+<span class="sd">		:param theme: Theme. ( Dictionary )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Initializing &#39;{0}()&#39; class.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">))</span>
+
+		<span class="c"># --- Setting class attributes. ---</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__rootNode</span> <span class="o">=</span> <span class="n">DefaultNode</span><span class="p">(</span><span class="s">&quot;Formats Tree&quot;</span><span class="p">)</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">_FormatsTree__initializeTree</span><span class="p">(</span><span class="n">theme</span> <span class="ow">or</span> <span class="n">DEFAULT_THEME</span><span class="p">)</span>
+
+	<span class="c">#******************************************************************************************************************</span>
+	<span class="c">#***	Attributes properties.</span>
+	<span class="c">#******************************************************************************************************************</span>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">rootNode</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__rootNode** attribute.</span>
+
+<span class="sd">		:return: self.__rootNode. ( AbstractCompositeNode )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__rootNode</span>
+
+	<span class="nd">@rootNode.setter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, AssertionError)</span>
+	<span class="k">def</span> <span class="nf">rootNode</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__rootNode** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( AbstractCompositeNode )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">assert</span> <span class="nb">issubclass</span><span class="p">(</span><span class="n">value</span><span class="o">.</span><span class="n">__class__</span><span class="p">,</span> <span class="n">AbstractCompositeNode</span><span class="p">),</span> \
+			<span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; is not a &#39;{2}&#39; subclass!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;rootNode&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">AbstractCompositeNode</span><span class="o">.</span><span class="n">__name__</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__rootNode</span> <span class="o">=</span> <span class="n">value</span>
+
+	<span class="nd">@rootNode.deleter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, foundations.exceptions.ProgrammingError)</span>
+<div class="viewcode-block" id="FormatsTree.rootNode"><a class="viewcode-back" href="../../../resources/pages/api/umbra.ui.highlighters.html#umbra.ui.highlighters.FormatsTree.rootNode">[docs]</a>	<span class="k">def</span> <span class="nf">rootNode</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__rootNode** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">rootNode</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;rootNode&quot;</span><span class="p">))</span>
+
+	<span class="c">#******************************************************************************************************************</span>
+	<span class="c">#***	Class methods.</span>
+	<span class="c">#******************************************************************************************************************</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@core.executionTrace</span></div>
+	<span class="k">def</span> <span class="nf">__initializeTree</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">theme</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method initializes the object formats tree.</span>
+<span class="sd">		</span>
+<span class="sd">		:param theme: Theme. ( Dictionary )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">theme</span><span class="p">):</span>
+			<span class="n">currentNode</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__rootNode</span>
+			<span class="k">for</span> <span class="n">format</span> <span class="ow">in</span> <span class="n">item</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;.&quot;</span><span class="p">):</span>
+				<span class="n">nodes</span> <span class="o">=</span> <span class="p">[</span><span class="n">node</span> <span class="k">for</span> <span class="n">node</span> <span class="ow">in</span> <span class="n">currentNode</span><span class="o">.</span><span class="n">children</span> <span class="k">if</span> <span class="n">node</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="n">format</span><span class="p">]</span>
+				<span class="n">formatNode</span> <span class="o">=</span> <span class="n">foundations</span><span class="o">.</span><span class="n">common</span><span class="o">.</span><span class="n">getFirstItem</span><span class="p">(</span><span class="n">nodes</span><span class="p">)</span>
+				<span class="k">if</span> <span class="ow">not</span> <span class="n">formatNode</span><span class="p">:</span>
+					<span class="n">formatNode</span> <span class="o">=</span> <span class="n">FormatNode</span><span class="p">(</span><span class="n">format</span><span class="p">,</span> <span class="n">format</span><span class="o">=</span><span class="n">theme</span><span class="p">[</span><span class="n">item</span><span class="p">])</span>
+					<span class="n">currentNode</span><span class="o">.</span><span class="n">addChild</span><span class="p">(</span><span class="n">formatNode</span><span class="p">)</span>
+				<span class="n">currentNode</span> <span class="o">=</span> <span class="n">formatNode</span>
+
+	<span class="c"># @core.executionTrace</span>
+	<span class="c"># @foundations.exceptions.exceptionsHandler(None, False, Exception)</span>
+<div class="viewcode-block" id="FormatsTree.listFormats"><a class="viewcode-back" href="../../../resources/pages/api/umbra.ui.highlighters.html#umbra.ui.highlighters.FormatsTree.listFormats">[docs]</a>	<span class="k">def</span> <span class="nf">listFormats</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">node</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="p">(),</span> <span class="n">formats</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method lists the object formats in sorted order.</span>
+<span class="sd">		</span>
+<span class="sd">		:param node: Root node to start listing the formats from. ( AbstractCompositeNode )</span>
+<span class="sd">		:param path: Walked paths. ( Tuple )</span>
+<span class="sd">		:param formats: Formats. ( List )</span>
+<span class="sd">		:return: Formats. ( List )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="n">formats</span> <span class="o">==</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="n">formats</span> <span class="o">=</span> <span class="p">[]</span>
+
+		<span class="k">for</span> <span class="n">child</span> <span class="ow">in</span> <span class="n">node</span><span class="o">.</span><span class="n">children</span><span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">listFormats</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">path</span> <span class="o">+</span> <span class="p">(</span><span class="n">child</span><span class="o">.</span><span class="n">name</span><span class="p">,),</span> <span class="n">formats</span><span class="p">)</span>
+		<span class="n">path</span> <span class="ow">and</span> <span class="n">formats</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;.&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">path</span><span class="p">))</span>
+		<span class="k">return</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">formats</span><span class="p">)</span>
+
+	<span class="c"># @core.executionTrace</span>
+	<span class="c"># @foundations.exceptions.exceptionsHandler(None, False, Exception)</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@core.memoize(None)</span></div>
+<div class="viewcode-block" id="FormatsTree.getFormat"><a class="viewcode-back" href="../../../resources/pages/api/umbra.ui.highlighters.html#umbra.ui.highlighters.FormatsTree.getFormat">[docs]</a>	<span class="k">def</span> <span class="nf">getFormat</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method returns the closest format or closest parent format associated to given name.</span>
+<span class="sd">		</span>
+<span class="sd">		:param name: Format name. ( String)</span>
+<span class="sd">		:return: Format. ( QTextCharFormat )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">formats</span> <span class="o">=</span> <span class="p">[</span><span class="n">format</span> <span class="k">for</span> <span class="n">format</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">listFormats</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__rootNode</span><span class="p">)</span> <span class="k">if</span> <span class="n">format</span> <span class="ow">in</span> <span class="n">name</span><span class="p">]</span>
+		<span class="k">if</span> <span class="ow">not</span> <span class="n">formats</span><span class="p">:</span>
+			<span class="k">return</span> <span class="n">QTextCharFormat</span><span class="p">()</span>
+
+		<span class="n">name</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">formats</span><span class="p">)</span>
+
+		<span class="n">format</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="n">currentNode</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__rootNode</span>
+		<span class="k">for</span> <span class="n">selector</span> <span class="ow">in</span> <span class="n">name</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;.&quot;</span><span class="p">):</span>
+			<span class="n">nodes</span> <span class="o">=</span> <span class="p">[</span><span class="n">node</span> <span class="k">for</span> <span class="n">node</span> <span class="ow">in</span> <span class="n">currentNode</span><span class="o">.</span><span class="n">children</span> <span class="k">if</span> <span class="n">node</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="n">selector</span><span class="p">]</span>
+			<span class="n">formatNode</span> <span class="o">=</span> <span class="n">nodes</span> <span class="ow">and</span> <span class="n">nodes</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">or</span> <span class="bp">None</span>
+			<span class="k">if</span> <span class="ow">not</span> <span class="n">formatNode</span><span class="p">:</span>
+				<span class="k">break</span>
+
+			<span class="n">currentNode</span> <span class="o">=</span> <span class="n">formatNode</span>
+
+			<span class="k">if</span> <span class="ow">not</span> <span class="n">formatNode</span><span class="o">.</span><span class="n">format</span><span class="p">:</span>
+				<span class="k">continue</span>
+
+			<span class="n">format</span> <span class="o">=</span> <span class="n">formatNode</span><span class="o">.</span><span class="n">format</span>
+		<span class="k">return</span> <span class="n">format</span>
+</div></div>
+<div class="viewcode-block" id="AbstractHighlighter"><a class="viewcode-back" href="../../../resources/pages/api/umbra.ui.highlighters.html#umbra.ui.highlighters.AbstractHighlighter">[docs]</a><span class="k">class</span> <span class="nc">AbstractHighlighter</span><span class="p">(</span><span class="n">QSyntaxHighlighter</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This class is a `QSyntaxHighlighter &lt;http://doc.qt.nokia.com/qsyntaxhighlighter.html&gt;`_ subclass used</span>
+<span class="sd">	as a base for highlighters classes.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@core.executionTrace</span>
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parent</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		.. Sphinx: Statements updated for auto-documentation purpose.</span>
+
+<span class="sd">		:param parent: Widget parent. ( QObject )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Initializing &#39;{0}()&#39; class.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">))</span>
+
+		<span class="n">QSyntaxHighlighter</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parent</span><span class="p">)</span>
+
+		<span class="c"># --- Setting class attributes. ---</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__formats</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__rules</span> <span class="o">=</span> <span class="bp">None</span>
+
+	<span class="c">#******************************************************************************************************************</span>
+	<span class="c">#***	Attributes properties.</span>
+	<span class="c">#******************************************************************************************************************</span>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">formats</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__formats** attribute.</span>
+
+<span class="sd">		:return: self.__formats. ( FormatsTree )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__formats</span>
+
+	<span class="nd">@formats.setter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, AssertionError)</span>
+	<span class="k">def</span> <span class="nf">formats</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__formats** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( FormatsTree )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">is</span> <span class="n">FormatsTree</span><span class="p">,</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; type is not &#39;FormatsTree&#39;!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;formats&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__formats</span> <span class="o">=</span> <span class="n">value</span>
+
+	<span class="nd">@formats.deleter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, foundations.exceptions.ProgrammingError)</span>
+<div class="viewcode-block" id="AbstractHighlighter.formats"><a class="viewcode-back" href="../../../resources/pages/api/umbra.ui.highlighters.html#umbra.ui.highlighters.AbstractHighlighter.formats">[docs]</a>	<span class="k">def</span> <span class="nf">formats</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__formats** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;formats&quot;</span><span class="p">))</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">rules</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__rules** attribute.</span>
+
+<span class="sd">		:return: self.__rules. ( Tuple / List )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__rules</span>
+
+	<span class="nd">@rules.setter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, AssertionError)</span>
+	<span class="k">def</span> <span class="nf">rules</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__rules** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( Tuple / List )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="nb">tuple</span><span class="p">,</span> <span class="nb">list</span><span class="p">),</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; type is not &#39;tuple&#39; or &#39;list&#39;!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+			<span class="s">&quot;rules&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__rules</span> <span class="o">=</span> <span class="n">value</span>
+
+	<span class="nd">@rules.deleter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, foundations.exceptions.ProgrammingError)</span>
+<div class="viewcode-block" id="AbstractHighlighter.rules"><a class="viewcode-back" href="../../../resources/pages/api/umbra.ui.highlighters.html#umbra.ui.highlighters.AbstractHighlighter.rules">[docs]</a>	<span class="k">def</span> <span class="nf">rules</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__rules** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;rules&quot;</span><span class="p">))</span>
+
+	<span class="c">#******************************************************************************************************************</span>
+	<span class="c">#***	Class methods.</span>
+	<span class="c">#******************************************************************************************************************</span>
+	<span class="c"># @core.executionTrace</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, NotImplementedError)</span></div>
+<div class="viewcode-block" id="AbstractHighlighter.highlightBlock"><a class="viewcode-back" href="../../../resources/pages/api/umbra.ui.highlighters.html#umbra.ui.highlighters.AbstractHighlighter.highlightBlock">[docs]</a>	<span class="k">def</span> <span class="nf">highlightBlock</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">block</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method reimplements the :meth:`QSyntaxHighlighter.highlightBlock` method.</span>
+
+<span class="sd">		:param block: Text block. ( QString )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s">&quot;{0} | &#39;{1}&#39; must be implemented by &#39;{2}&#39; subclasses!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span>
+		 																					<span class="bp">self</span><span class="o">.</span><span class="n">highlightBlock</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span>
+																							<span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">))</span>
+
+	<span class="c"># @core.executionTrace</span>
+	<span class="c"># @foundations.exceptions.exceptionsHandler(None, False, Exception)</span></div>
+<div class="viewcode-block" id="AbstractHighlighter.highlightText"><a class="viewcode-back" href="../../../resources/pages/api/umbra.ui.highlighters.html#umbra.ui.highlighters.AbstractHighlighter.highlightText">[docs]</a>	<span class="k">def</span> <span class="nf">highlightText</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method highlights given text.</span>
+
+<span class="sd">		:param text: Text. ( QString )</span>
+<span class="sd">		:param start: Text start index. ( Integer )</span>
+<span class="sd">		:param end: Text end index. ( Integer )</span>
+<span class="sd">		:return: Method success. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">for</span> <span class="n">rule</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">__rules</span><span class="p">:</span>
+			<span class="n">index</span> <span class="o">=</span> <span class="n">rule</span><span class="o">.</span><span class="n">pattern</span><span class="o">.</span><span class="n">indexIn</span><span class="p">(</span><span class="n">text</span><span class="p">,</span> <span class="n">start</span><span class="p">)</span>
+			<span class="k">while</span> <span class="n">index</span> <span class="o">&gt;=</span> <span class="n">start</span> <span class="ow">and</span> <span class="n">index</span> <span class="o">&lt;</span> <span class="n">end</span><span class="p">:</span>
+				<span class="n">length</span> <span class="o">=</span> <span class="n">rule</span><span class="o">.</span><span class="n">pattern</span><span class="o">.</span><span class="n">matchedLength</span><span class="p">()</span>
+				<span class="n">format</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">getFormat</span><span class="p">(</span><span class="n">rule</span><span class="o">.</span><span class="n">name</span><span class="p">)</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">getFormat</span><span class="p">(</span><span class="s">&quot;default&quot;</span><span class="p">)</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">setFormat</span><span class="p">(</span><span class="n">index</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">length</span><span class="p">,</span> <span class="n">end</span> <span class="o">-</span> <span class="n">index</span><span class="p">),</span> <span class="n">format</span><span class="p">)</span>
+				<span class="n">index</span> <span class="o">=</span> <span class="n">rule</span><span class="o">.</span><span class="n">pattern</span><span class="o">.</span><span class="n">indexIn</span><span class="p">(</span><span class="n">text</span><span class="p">,</span> <span class="n">index</span> <span class="o">+</span> <span class="n">length</span><span class="p">)</span>
+		<span class="k">return</span> <span class="bp">True</span>
+</div></div>
+<div class="viewcode-block" id="DefaultHighlighter"><a class="viewcode-back" href="../../../resources/pages/api/umbra.ui.highlighters.html#umbra.ui.highlighters.DefaultHighlighter">[docs]</a><span class="k">class</span> <span class="nc">DefaultHighlighter</span><span class="p">(</span><span class="n">AbstractHighlighter</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This class is a :class:`AbstractHighlighter` subclass providing syntax highlighting for documents.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@core.executionTrace</span>
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parent</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">rules</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">theme</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		.. Sphinx: Statements updated for auto-documentation purpose.</span>
+
+<span class="sd">		:param parent: Widget parent. ( QObject )</span>
+<span class="sd">		:param rules: Rules. ( Tuple / List )</span>
+<span class="sd">		:param theme: Theme. ( Dictionary )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Initializing &#39;{0}()&#39; class.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">))</span>
+
+		<span class="n">AbstractHighlighter</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parent</span><span class="p">)</span>
+
+		<span class="c"># --- Setting class attributes. ---</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">rules</span> <span class="o">=</span> <span class="n">rules</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__theme</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">theme</span> <span class="o">=</span> <span class="n">theme</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">__setFormats</span><span class="p">()</span>
+
+	<span class="c">#******************************************************************************************************************</span>
+	<span class="c">#***	Attributes properties.</span>
+	<span class="c">#******************************************************************************************************************</span>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">theme</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__theme** attribute.</span>
+
+<span class="sd">		:return: self.__theme. ( Dictionary )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__theme</span>
+
+	<span class="nd">@theme.setter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, AssertionError)</span>
+	<span class="k">def</span> <span class="nf">theme</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__theme** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( Dictionary )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">dict</span><span class="p">,</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; type is not &#39;dict&#39;!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;theme&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__theme</span> <span class="o">=</span> <span class="n">value</span>
+
+	<span class="nd">@theme.deleter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, foundations.exceptions.ProgrammingError)</span>
+<div class="viewcode-block" id="DefaultHighlighter.theme"><a class="viewcode-back" href="../../../resources/pages/api/umbra.ui.highlighters.html#umbra.ui.highlighters.DefaultHighlighter.theme">[docs]</a>	<span class="k">def</span> <span class="nf">theme</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__theme** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;theme&quot;</span><span class="p">))</span>
+
+	<span class="c">#******************************************************************************************************************</span>
+	<span class="c">#***	Class methods.</span>
+	<span class="c">#******************************************************************************************************************</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@core.executionTrace</span></div>
+	<span class="k">def</span> <span class="nf">__setFormats</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method sets the highlighting formats.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="n">FormatsTree</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__theme</span><span class="p">)</span>
+
+	<span class="c"># @core.executionTrace</span>
+<div class="viewcode-block" id="DefaultHighlighter.highlightBlock"><a class="viewcode-back" href="../../../resources/pages/api/umbra.ui.highlighters.html#umbra.ui.highlighters.DefaultHighlighter.highlightBlock">[docs]</a>	<span class="k">def</span> <span class="nf">highlightBlock</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">block</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method reimplements the :meth:`AbstractHighlighter.highlightBlock` method.</span>
+
+<span class="sd">		:param block: Text block. ( QString )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">highlightText</span><span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">block</span><span class="p">))</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">setCurrentBlockState</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+		<span class="n">state</span> <span class="o">=</span> <span class="mi">1</span>
+		<span class="k">for</span> <span class="n">rule</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">rules</span><span class="p">:</span>
+			<span class="k">if</span> <span class="n">re</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="s">&quot;comment\.block\.[\w\.]*start&quot;</span><span class="p">,</span> <span class="n">rule</span><span class="o">.</span><span class="n">name</span><span class="p">):</span>
+				<span class="n">format</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">getFormat</span><span class="p">(</span><span class="n">rule</span><span class="o">.</span><span class="n">name</span><span class="p">)</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">formats</span><span class="o">.</span><span class="n">getFormat</span><span class="p">(</span><span class="s">&quot;default&quot;</span><span class="p">)</span>
+				<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">highlightMultilineBlock</span><span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="n">rule</span><span class="o">.</span><span class="n">pattern</span><span class="p">,</span> <span class="n">foundations</span><span class="o">.</span><span class="n">common</span><span class="o">.</span><span class="n">getFirstItem</span><span class="p">([</span><span class="n">item</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">rules</span>
+										<span class="k">if</span> <span class="n">item</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="n">rule</span><span class="o">.</span><span class="n">name</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&quot;start&quot;</span><span class="p">,</span> <span class="s">&quot;end&quot;</span><span class="p">)])</span><span class="o">.</span><span class="n">pattern</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">format</span><span class="p">):</span>
+					<span class="k">break</span>
+				<span class="n">state</span> <span class="o">+=</span> <span class="mi">1</span>
+
+	<span class="c"># @core.executionTrace</span>
+	<span class="c"># @foundations.exceptions.exceptionsHandler(None, False, Exception)</span></div>
+<div class="viewcode-block" id="DefaultHighlighter.highlightMultilineBlock"><a class="viewcode-back" href="../../../resources/pages/api/umbra.ui.highlighters.html#umbra.ui.highlighters.DefaultHighlighter.highlightMultilineBlock">[docs]</a>	<span class="k">def</span> <span class="nf">highlightMultilineBlock</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">block</span><span class="p">,</span> <span class="n">startPattern</span><span class="p">,</span> <span class="n">endPattern</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">format</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method highlights given multiline text block.</span>
+
+<span class="sd">		:param block: Text block. ( QString )</span>
+<span class="sd">		:param pattern: Start regex pattern. ( QRegExp )</span>
+<span class="sd">		:param pattern: End regex pattern. ( QRegExp )</span>
+<span class="sd">		:param format: Format. ( QTextCharFormat )</span>
+<span class="sd">		:param state: Block state. ( Integer )</span>
+<span class="sd">		:return: Current block matching state. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">previousBlockState</span><span class="p">()</span> <span class="o">==</span> <span class="n">state</span><span class="p">:</span>
+			<span class="n">start</span> <span class="o">=</span> <span class="mi">0</span>
+			<span class="n">extend</span> <span class="o">=</span> <span class="mi">0</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="n">start</span> <span class="o">=</span> <span class="n">startPattern</span><span class="o">.</span><span class="n">indexIn</span><span class="p">(</span><span class="n">block</span><span class="p">)</span>
+			<span class="n">extend</span> <span class="o">=</span> <span class="n">startPattern</span><span class="o">.</span><span class="n">matchedLength</span><span class="p">()</span>
+
+		<span class="k">while</span> <span class="n">start</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">:</span>
+			<span class="n">end</span> <span class="o">=</span> <span class="n">endPattern</span><span class="o">.</span><span class="n">indexIn</span><span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="n">start</span> <span class="o">+</span> <span class="n">extend</span><span class="p">)</span>
+			<span class="k">if</span> <span class="n">end</span> <span class="o">&gt;=</span> <span class="n">extend</span><span class="p">:</span>
+				<span class="n">length</span> <span class="o">=</span> <span class="n">end</span> <span class="o">-</span> <span class="n">start</span> <span class="o">+</span> <span class="n">extend</span> <span class="o">+</span> <span class="n">endPattern</span><span class="o">.</span><span class="n">matchedLength</span><span class="p">()</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">setCurrentBlockState</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+			<span class="k">else</span><span class="p">:</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">setCurrentBlockState</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+				<span class="n">length</span> <span class="o">=</span> <span class="n">block</span><span class="o">.</span><span class="n">length</span><span class="p">()</span> <span class="o">-</span> <span class="n">start</span> <span class="o">+</span> <span class="n">extend</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">setFormat</span><span class="p">(</span><span class="n">start</span><span class="p">,</span> <span class="n">length</span><span class="p">,</span> <span class="n">format</span><span class="p">)</span>
+			<span class="n">start</span> <span class="o">=</span> <span class="n">startPattern</span><span class="o">.</span><span class="n">indexIn</span><span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="n">start</span> <span class="o">+</span> <span class="n">length</span><span class="p">)</span>
+
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">currentBlockState</span><span class="p">()</span> <span class="o">==</span> <span class="n">state</span><span class="p">:</span>
+			<span class="k">return</span> <span class="bp">True</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="k">return</span> <span class="bp">False</span></div></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../../index.html">Umbra 1.0.2 documentation</a> &raquo;</li>
+          <li><a href="../../index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2012, Thomas Mansencal.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

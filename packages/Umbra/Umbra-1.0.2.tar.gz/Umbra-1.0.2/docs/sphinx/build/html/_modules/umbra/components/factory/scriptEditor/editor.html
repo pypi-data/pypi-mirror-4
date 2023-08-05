@@ -1,0 +1,1084 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>umbra.components.factory.scriptEditor.editor &mdash; Umbra 1.0.2 documentation</title>
+    
+    <link rel="stylesheet" href="../../../../../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../../../../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../../../../',
+        VERSION:     '1.0.2',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../../../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../../../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../../../../_static/doctools.js"></script>
+    <link rel="top" title="Umbra 1.0.2 documentation" href="../../../../../index.html" />
+    <link rel="up" title="Module code" href="../../../../index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../../../../index.html">Umbra 1.0.2 documentation</a> &raquo;</li>
+          <li><a href="../../../../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for umbra.components.factory.scriptEditor.editor</h1><div class="highlight"><pre>
+<span class="c">#!/usr/bin/env python</span>
+<span class="c"># -*- coding: utf-8 -*-</span>
+
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">**editor.py**</span>
+
+<span class="sd">**Platform:**</span>
+<span class="sd">	Windows, Linux, Mac Os X.</span>
+
+<span class="sd">**Description:**</span>
+<span class="sd">	This module defines the :class:`Editor` class and others editing helper objects.</span>
+
+<span class="sd">**Others:**</span>
+
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="c">#**********************************************************************************************************************</span>
+<span class="c">#***	External imports.</span>
+<span class="c">#**********************************************************************************************************************</span>
+<span class="kn">import</span> <span class="nn">inspect</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">platform</span>
+<span class="kn">from</span> <span class="nn">PyQt4.QtCore</span> <span class="kn">import</span> <span class="n">QRegExp</span>
+<span class="kn">from</span> <span class="nn">PyQt4.QtCore</span> <span class="kn">import</span> <span class="n">Qt</span>
+<span class="kn">from</span> <span class="nn">PyQt4.QtCore</span> <span class="kn">import</span> <span class="n">pyqtSignal</span>
+<span class="kn">from</span> <span class="nn">PyQt4.QtGui</span> <span class="kn">import</span> <span class="n">QFileDialog</span>
+<span class="kn">from</span> <span class="nn">PyQt4.QtGui</span> <span class="kn">import</span> <span class="n">QFont</span>
+<span class="kn">from</span> <span class="nn">PyQt4.QtGui</span> <span class="kn">import</span> <span class="n">QMessageBox</span>
+<span class="kn">from</span> <span class="nn">PyQt4.QtGui</span> <span class="kn">import</span> <span class="n">QPlainTextDocumentLayout</span>
+<span class="kn">from</span> <span class="nn">PyQt4.QtGui</span> <span class="kn">import</span> <span class="n">QTextOption</span>
+
+<span class="c">#**********************************************************************************************************************</span>
+<span class="c">#***	Internal imports.</span>
+<span class="c">#**********************************************************************************************************************</span>
+<span class="kn">import</span> <span class="nn">foundations.core</span> <span class="kn">as</span> <span class="nn">core</span>
+<span class="kn">import</span> <span class="nn">foundations.dataStructures</span>
+<span class="kn">import</span> <span class="nn">foundations.exceptions</span>
+<span class="kn">import</span> <span class="nn">foundations.io</span> <span class="kn">as</span> <span class="nn">io</span>
+<span class="kn">import</span> <span class="nn">foundations.parsers</span>
+<span class="kn">import</span> <span class="nn">foundations.strings</span> <span class="kn">as</span> <span class="nn">strings</span>
+<span class="kn">import</span> <span class="nn">umbra.ui.common</span>
+<span class="kn">import</span> <span class="nn">umbra.ui.completers</span>
+<span class="kn">import</span> <span class="nn">umbra.ui.highlighters</span>
+<span class="kn">import</span> <span class="nn">umbra.ui.inputAccelerators</span>
+<span class="kn">import</span> <span class="nn">umbra.ui.themes</span>
+<span class="kn">import</span> <span class="nn">umbra.ui.visualAccelerators</span>
+<span class="kn">import</span> <span class="nn">umbra.ui.widgets.messageBox</span> <span class="kn">as</span> <span class="nn">messageBox</span>
+<span class="kn">from</span> <span class="nn">umbra.components.factory.scriptEditor.exceptions</span> <span class="kn">import</span> <span class="n">LanguageGrammarError</span>
+<span class="kn">from</span> <span class="nn">umbra.globals.constants</span> <span class="kn">import</span> <span class="n">Constants</span>
+<span class="kn">from</span> <span class="nn">umbra.globals.uiConstants</span> <span class="kn">import</span> <span class="n">UiConstants</span>
+<span class="kn">from</span> <span class="nn">umbra.ui.widgets.codeEditor_QPlainTextEdit</span> <span class="kn">import</span> <span class="n">CodeEditor_QPlainTextEdit</span>
+
+<span class="c">#**********************************************************************************************************************</span>
+<span class="c">#***	Module attributes.</span>
+<span class="c">#**********************************************************************************************************************</span>
+<span class="n">__author__</span> <span class="o">=</span> <span class="s">&quot;Thomas Mansencal&quot;</span>
+<span class="n">__copyright__</span> <span class="o">=</span> <span class="s">&quot;Copyright (C) 2008 - 2012 - Thomas Mansencal&quot;</span>
+<span class="n">__license__</span> <span class="o">=</span> <span class="s">&quot;GPL V3.0 - http://www.gnu.org/licenses/&quot;</span>
+<span class="n">__maintainer__</span> <span class="o">=</span> <span class="s">&quot;Thomas Mansencal&quot;</span>
+<span class="n">__email__</span> <span class="o">=</span> <span class="s">&quot;thomas.mansencal@gmail.com&quot;</span>
+<span class="n">__status__</span> <span class="o">=</span> <span class="s">&quot;Production&quot;</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;LOGGER&quot;</span><span class="p">,</span>
+		<span class="s">&quot;PYTHON_GRAMMAR_FILE&quot;</span><span class="p">,</span>
+		<span class="s">&quot;LOGGING_GRAMMAR_FILE&quot;</span><span class="p">,</span>
+		<span class="s">&quot;TEXT_GRAMMAR_FILE&quot;</span><span class="p">,</span>
+		<span class="s">&quot;LANGUAGES_ACCELERATORS&quot;</span><span class="p">,</span>
+		<span class="s">&quot;DEFAULT_INDENT_MARKER&quot;</span><span class="p">,</span>
+		<span class="s">&quot;Language&quot;</span><span class="p">,</span>
+		<span class="s">&quot;getObjectFromLanguageAccelerators&quot;</span><span class="p">,</span>
+		<span class="s">&quot;getLanguageDescription&quot;</span><span class="p">,</span>
+		<span class="s">&quot;getPythonLanguage&quot;</span><span class="p">,</span>
+		<span class="s">&quot;getLoggingLanguage&quot;</span><span class="p">,</span>
+		<span class="s">&quot;PYTHON_LANGUAGE&quot;</span><span class="p">,</span>
+		<span class="s">&quot;LOGGING_LANGUAGE&quot;</span><span class="p">,</span>
+		<span class="s">&quot;TEXT_LANGUAGE&quot;</span><span class="p">,</span>
+		<span class="s">&quot;Editor&quot;</span><span class="p">]</span>
+
+<span class="n">LOGGER</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="n">Constants</span><span class="o">.</span><span class="n">logger</span><span class="p">)</span>
+
+<span class="n">PYTHON_GRAMMAR_FILE</span> <span class="o">=</span> <span class="n">umbra</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">common</span><span class="o">.</span><span class="n">getResourcePath</span><span class="p">(</span><span class="n">UiConstants</span><span class="o">.</span><span class="n">pythonGrammarFile</span><span class="p">)</span>
+<span class="n">LOGGING_GRAMMAR_FILE</span> <span class="o">=</span> <span class="n">umbra</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">common</span><span class="o">.</span><span class="n">getResourcePath</span><span class="p">(</span><span class="n">UiConstants</span><span class="o">.</span><span class="n">loggingGrammarFile</span><span class="p">)</span>
+<span class="n">TEXT_GRAMMAR_FILE</span> <span class="o">=</span> <span class="n">umbra</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">common</span><span class="o">.</span><span class="n">getResourcePath</span><span class="p">(</span><span class="n">UiConstants</span><span class="o">.</span><span class="n">textGrammarFile</span><span class="p">)</span>
+
+<span class="n">LANGUAGES_ACCELERATORS</span> <span class="o">=</span> <span class="p">{</span><span class="s">&quot;DefaultHighlighter&quot;</span> <span class="p">:</span> <span class="n">umbra</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">highlighters</span><span class="o">.</span><span class="n">DefaultHighlighter</span><span class="p">,</span>
+						<span class="s">&quot;DefaultCompleter&quot;</span> <span class="p">:</span> <span class="n">umbra</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">completers</span><span class="o">.</span><span class="n">DefaultCompleter</span><span class="p">,</span>
+						<span class="s">&quot;indentationPreEventInputAccelerators&quot;</span> <span class="p">:</span>
+						<span class="n">umbra</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">inputAccelerators</span><span class="o">.</span><span class="n">indentationPreEventInputAccelerators</span><span class="p">,</span>
+						<span class="s">&quot;indentationPostEventInputAccelerators&quot;</span> <span class="p">:</span>
+						<span class="n">umbra</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">inputAccelerators</span><span class="o">.</span><span class="n">indentationPostEventInputAccelerators</span><span class="p">,</span>
+						<span class="s">&quot;completionPreEventInputAccelerators&quot;</span> <span class="p">:</span>
+						<span class="n">umbra</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">inputAccelerators</span><span class="o">.</span><span class="n">completionPreEventInputAccelerators</span><span class="p">,</span>
+						<span class="s">&quot;completionPostEventInputAccelerators&quot;</span> <span class="p">:</span>
+						<span class="n">umbra</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">inputAccelerators</span><span class="o">.</span><span class="n">completionPostEventInputAccelerators</span><span class="p">,</span>
+						<span class="s">&quot;symbolsExpandingPreEventInputAccelerators&quot;</span> <span class="p">:</span>
+						<span class="n">umbra</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">inputAccelerators</span><span class="o">.</span><span class="n">symbolsExpandingPreEventInputAccelerators</span><span class="p">,</span>
+						<span class="s">&quot;highlightCurrentLine&quot;</span> <span class="p">:</span>
+						<span class="n">umbra</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">visualAccelerators</span><span class="o">.</span><span class="n">highlightCurrentLine</span><span class="p">,</span>
+						<span class="s">&quot;highlightOccurences&quot;</span> <span class="p">:</span>
+						<span class="n">umbra</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">visualAccelerators</span><span class="o">.</span><span class="n">highlightOccurences</span><span class="p">,</span>
+						<span class="s">&quot;highlightMatchingSymbolsPairs&quot;</span> <span class="p">:</span>
+						<span class="n">umbra</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">visualAccelerators</span><span class="o">.</span><span class="n">highlightMatchingSymbolsPairs</span><span class="p">,</span>
+						<span class="s">&quot;DefaultTheme&quot;</span> <span class="p">:</span> <span class="n">umbra</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">themes</span><span class="o">.</span><span class="n">DEFAULT_THEME</span><span class="p">,</span>
+						<span class="s">&quot;LoggingTheme&quot;</span> <span class="p">:</span> <span class="n">umbra</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">themes</span><span class="o">.</span><span class="n">LOGGING_THEME</span><span class="p">}</span>
+
+<span class="n">DEFAULT_INDENT_MARKER</span> <span class="o">=</span> <span class="s">&quot;</span><span class="se">\t</span><span class="s">&quot;</span>
+
+<span class="c">#**********************************************************************************************************************</span>
+<span class="c">#***	Module classes and definitions.</span>
+<span class="c">#**********************************************************************************************************************</span>
+<div class="viewcode-block" id="Language"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.Language">[docs]</a><span class="k">class</span> <span class="nc">Language</span><span class="p">(</span><span class="n">foundations</span><span class="o">.</span><span class="n">dataStructures</span><span class="o">.</span><span class="n">Structure</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This class represents a storage object for the :class:`Editor` class language description. </span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@core.executionTrace</span>
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		.. Sphinx: Statements updated for auto-documentation purpose.</span>
+
+<span class="sd">		:param \*\*kwargs: name, file, parser,	extensions, highlighter, completer,	preInputAccelerators,</span>
+<span class="sd">			postInputAccelerators, visualAccelerators, indentMarker, commentMarker, commentBlockMarkerStart, commentBlockMarkerEnd,</span>
+<span class="sd">			symbolsPairs, indentationSymbols, rules, tokens, theme. ( Key / Value pairs )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Initializing &#39;{0}()&#39; class.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">))</span>
+
+		<span class="n">foundations</span><span class="o">.</span><span class="n">dataStructures</span><span class="o">.</span><span class="n">Structure</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+
+<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. @core.executionTrace</span></div>
+<div class="viewcode-block" id="getObjectFromLanguageAccelerators"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.getObjectFromLanguageAccelerators">[docs]</a><span class="k">def</span> <span class="nf">getObjectFromLanguageAccelerators</span><span class="p">(</span><span class="n">accelerator</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This definition returns the object associated to given accelerator.</span>
+
+<span class="sd">	:param accelerator: Accelerator. ( String )</span>
+<span class="sd">	:return: Object. ( Object )</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="k">return</span> <span class="n">LANGUAGES_ACCELERATORS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">accelerator</span><span class="p">)</span>
+
+<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. @core.executionTrace</span>
+<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. @foundations.exceptions.exceptionsHandler(None, False, LanguageGrammarError)</span></div>
+<div class="viewcode-block" id="getLanguageDescription"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.getLanguageDescription">[docs]</a><span class="k">def</span> <span class="nf">getLanguageDescription</span><span class="p">(</span><span class="n">grammarfile</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This definition gets the language description from given language grammar file.</span>
+
+<span class="sd">	:param grammarfile: Language grammar. ( String )</span>
+<span class="sd">	:return: Language description. ( Language )</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Processing &#39;{0}&#39; grammar file.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">grammarfile</span><span class="p">))</span>
+
+	<span class="n">sectionsParser</span> <span class="o">=</span> <span class="n">foundations</span><span class="o">.</span><span class="n">parsers</span><span class="o">.</span><span class="n">SectionsFileParser</span><span class="p">(</span><span class="n">grammarfile</span><span class="p">)</span>
+	<span class="n">sectionsParser</span><span class="o">.</span><span class="n">read</span><span class="p">()</span> <span class="ow">and</span> <span class="n">sectionsParser</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="n">stripQuotationMarkers</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+
+	<span class="n">name</span> <span class="o">=</span> <span class="n">sectionsParser</span><span class="o">.</span><span class="n">getValue</span><span class="p">(</span><span class="s">&quot;Name&quot;</span><span class="p">,</span> <span class="s">&quot;Language&quot;</span><span class="p">)</span>
+	<span class="k">if</span> <span class="ow">not</span> <span class="n">name</span><span class="p">:</span>
+		<span class="k">raise</span> <span class="n">LanguageGrammarError</span><span class="p">(</span><span class="s">&quot;{0} | &#39;{1}&#39; attribute not found in &#39;{2}&#39; file!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+			<span class="n">inspect</span><span class="o">.</span><span class="n">getmodulename</span><span class="p">(</span><span class="n">__file__</span><span class="p">),</span> <span class="s">&quot;Language|Name&quot;</span><span class="p">,</span> <span class="n">grammarfile</span><span class="p">))</span>
+
+	<span class="n">extensions</span> <span class="o">=</span> <span class="n">sectionsParser</span><span class="o">.</span><span class="n">getValue</span><span class="p">(</span><span class="s">&quot;Extensions&quot;</span><span class="p">,</span> <span class="s">&quot;Language&quot;</span><span class="p">)</span>
+	<span class="k">if</span> <span class="ow">not</span> <span class="n">extensions</span><span class="p">:</span>
+		<span class="k">raise</span> <span class="n">LanguageGrammarError</span><span class="p">(</span><span class="s">&quot;{0} | &#39;{1}&#39; attribute not found in &#39;{2}&#39; file!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+			<span class="n">inspect</span><span class="o">.</span><span class="n">getmodulename</span><span class="p">(</span><span class="n">__file__</span><span class="p">),</span> <span class="s">&quot;Language|Extensions&quot;</span><span class="p">,</span> <span class="n">grammarfile</span><span class="p">))</span>
+
+	<span class="n">highlighter</span> <span class="o">=</span> <span class="n">getObjectFromLanguageAccelerators</span><span class="p">(</span><span class="n">sectionsParser</span><span class="o">.</span><span class="n">getValue</span><span class="p">(</span><span class="s">&quot;Highlighter&quot;</span><span class="p">,</span> <span class="s">&quot;Accelerators&quot;</span><span class="p">))</span>
+	<span class="n">completer</span> <span class="o">=</span> <span class="n">getObjectFromLanguageAccelerators</span><span class="p">(</span><span class="n">sectionsParser</span><span class="o">.</span><span class="n">getValue</span><span class="p">(</span><span class="s">&quot;Completer&quot;</span><span class="p">,</span> <span class="s">&quot;Accelerators&quot;</span><span class="p">))</span>
+	<span class="n">preInputAccelerators</span> <span class="o">=</span> <span class="n">sectionsParser</span><span class="o">.</span><span class="n">getValue</span><span class="p">(</span><span class="s">&quot;PreInputAccelerators&quot;</span><span class="p">,</span> <span class="s">&quot;Accelerators&quot;</span><span class="p">)</span>
+	<span class="n">preInputAccelerators</span> <span class="o">=</span> <span class="n">preInputAccelerators</span> <span class="ow">and</span> <span class="p">[</span><span class="n">getObjectFromLanguageAccelerators</span><span class="p">(</span><span class="n">accelerator</span><span class="p">)</span>
+													<span class="k">for</span> <span class="n">accelerator</span> <span class="ow">in</span> <span class="n">preInputAccelerators</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;|&quot;</span><span class="p">)]</span> <span class="ow">or</span> <span class="p">()</span>
+	<span class="n">postInputAccelerators</span> <span class="o">=</span> <span class="n">sectionsParser</span><span class="o">.</span><span class="n">getValue</span><span class="p">(</span><span class="s">&quot;PostInputAccelerators&quot;</span><span class="p">,</span> <span class="s">&quot;Accelerators&quot;</span><span class="p">)</span>
+	<span class="n">postInputAccelerators</span> <span class="o">=</span> <span class="n">postInputAccelerators</span> <span class="ow">and</span> <span class="p">[</span><span class="n">getObjectFromLanguageAccelerators</span><span class="p">(</span><span class="n">accelerator</span><span class="p">)</span>
+													<span class="k">for</span> <span class="n">accelerator</span> <span class="ow">in</span> <span class="n">postInputAccelerators</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;|&quot;</span><span class="p">)]</span> <span class="ow">or</span> <span class="p">()</span>
+
+	<span class="n">visualAccelerators</span> <span class="o">=</span> <span class="n">sectionsParser</span><span class="o">.</span><span class="n">getValue</span><span class="p">(</span><span class="s">&quot;VisualAccelerators&quot;</span><span class="p">,</span> <span class="s">&quot;Accelerators&quot;</span><span class="p">)</span>
+	<span class="n">visualAccelerators</span> <span class="o">=</span> <span class="n">visualAccelerators</span> <span class="ow">and</span> <span class="p">[</span><span class="n">getObjectFromLanguageAccelerators</span><span class="p">(</span><span class="n">accelerator</span><span class="p">)</span>
+													<span class="k">for</span> <span class="n">accelerator</span> <span class="ow">in</span> <span class="n">visualAccelerators</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;|&quot;</span><span class="p">)]</span> <span class="ow">or</span> <span class="p">()</span>
+
+	<span class="n">indentMarker</span> <span class="o">=</span> <span class="n">sectionsParser</span><span class="o">.</span><span class="n">sectionExists</span><span class="p">(</span><span class="s">&quot;Syntax&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">sectionsParser</span><span class="o">.</span><span class="n">getValue</span><span class="p">(</span><span class="s">&quot;IndentMarker&quot;</span><span class="p">,</span> <span class="s">&quot;Syntax&quot;</span><span class="p">)</span> <span class="ow">or</span> \
+					<span class="n">DEFAULT_INDENT_MARKER</span>
+	<span class="n">commentMarker</span> <span class="o">=</span> <span class="n">sectionsParser</span><span class="o">.</span><span class="n">sectionExists</span><span class="p">(</span><span class="s">&quot;Syntax&quot;</span><span class="p">)</span> <span class="ow">and</span> \
+					<span class="n">sectionsParser</span><span class="o">.</span><span class="n">getValue</span><span class="p">(</span><span class="s">&quot;CommentMarker&quot;</span><span class="p">,</span> <span class="s">&quot;Syntax&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">unicode</span><span class="p">()</span>
+	<span class="n">commentBlockMarkerStart</span> <span class="o">=</span> <span class="n">sectionsParser</span><span class="o">.</span><span class="n">sectionExists</span><span class="p">(</span><span class="s">&quot;Syntax&quot;</span><span class="p">)</span> <span class="ow">and</span> \
+							<span class="n">sectionsParser</span><span class="o">.</span><span class="n">getValue</span><span class="p">(</span><span class="s">&quot;CommentBlockMarkerStart&quot;</span><span class="p">,</span> <span class="s">&quot;Syntax&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">unicode</span><span class="p">()</span>
+	<span class="n">commentBlockMarkerEnd</span> <span class="o">=</span> <span class="n">sectionsParser</span><span class="o">.</span><span class="n">sectionExists</span><span class="p">(</span><span class="s">&quot;Syntax&quot;</span><span class="p">)</span> <span class="ow">and</span> \
+							<span class="n">sectionsParser</span><span class="o">.</span><span class="n">getValue</span><span class="p">(</span><span class="s">&quot;CommentBlockMarkerEnd&quot;</span><span class="p">,</span> <span class="s">&quot;Syntax&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">unicode</span><span class="p">()</span>
+	<span class="n">symbolsPairs</span> <span class="o">=</span> <span class="n">sectionsParser</span><span class="o">.</span><span class="n">sectionExists</span><span class="p">(</span><span class="s">&quot;Syntax&quot;</span><span class="p">)</span> <span class="ow">and</span> \
+							<span class="n">sectionsParser</span><span class="o">.</span><span class="n">getValue</span><span class="p">(</span><span class="s">&quot;SymbolsPairs&quot;</span><span class="p">,</span> <span class="s">&quot;Syntax&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{}</span>
+
+	<span class="k">if</span> <span class="n">symbolsPairs</span><span class="p">:</span>
+		<span class="n">associatedPairs</span> <span class="o">=</span> <span class="n">foundations</span><span class="o">.</span><span class="n">dataStructures</span><span class="o">.</span><span class="n">Lookup</span><span class="p">()</span>
+		<span class="k">for</span> <span class="n">pair</span> <span class="ow">in</span> <span class="n">symbolsPairs</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;|&quot;</span><span class="p">):</span>
+			<span class="n">associatedPairs</span><span class="p">[</span><span class="n">pair</span><span class="p">[</span><span class="mi">0</span><span class="p">]]</span> <span class="o">=</span> <span class="n">pair</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+		<span class="n">symbolsPairs</span> <span class="o">=</span> <span class="n">associatedPairs</span>
+
+	<span class="n">indentationSymbols</span> <span class="o">=</span> <span class="n">sectionsParser</span><span class="o">.</span><span class="n">sectionExists</span><span class="p">(</span><span class="s">&quot;Syntax&quot;</span><span class="p">)</span> <span class="ow">and</span> \
+						<span class="n">sectionsParser</span><span class="o">.</span><span class="n">getValue</span><span class="p">(</span><span class="s">&quot;IndentationSymbols&quot;</span><span class="p">,</span> <span class="s">&quot;Syntax&quot;</span><span class="p">)</span>
+	<span class="n">indentationSymbols</span> <span class="o">=</span> <span class="n">indentationSymbols</span> <span class="ow">and</span> <span class="n">indentationSymbols</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;|&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">()</span>
+
+	<span class="n">rules</span> <span class="o">=</span> <span class="p">[]</span>
+	<span class="n">attributes</span> <span class="o">=</span> <span class="n">sectionsParser</span><span class="o">.</span><span class="n">sections</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;Rules&quot;</span><span class="p">)</span>
+	<span class="k">if</span> <span class="n">attributes</span><span class="p">:</span>
+		<span class="k">for</span> <span class="n">attribute</span> <span class="ow">in</span> <span class="n">sectionsParser</span><span class="o">.</span><span class="n">sections</span><span class="p">[</span><span class="s">&quot;Rules&quot;</span><span class="p">]:</span>
+			<span class="n">pattern</span> <span class="o">=</span> <span class="n">sectionsParser</span><span class="o">.</span><span class="n">getValue</span><span class="p">(</span><span class="n">attribute</span><span class="p">,</span> <span class="s">&quot;Rules&quot;</span><span class="p">)</span>
+			<span class="n">rules</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">umbra</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">highlighters</span><span class="o">.</span><span class="n">Rule</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">foundations</span><span class="o">.</span><span class="n">namespace</span><span class="o">.</span><span class="n">removeNamespace</span><span class="p">(</span><span class="n">attribute</span><span class="p">),</span>
+								<span class="n">pattern</span><span class="o">=</span><span class="n">QRegExp</span><span class="p">(</span><span class="n">pattern</span><span class="p">)))</span>
+
+	<span class="n">tokens</span> <span class="o">=</span> <span class="p">[]</span>
+	<span class="n">dictionary</span> <span class="o">=</span> <span class="n">sectionsParser</span><span class="o">.</span><span class="n">getValue</span><span class="p">(</span><span class="s">&quot;Dictionary&quot;</span><span class="p">,</span> <span class="s">&quot;Accelerators&quot;</span><span class="p">)</span>
+	<span class="k">if</span> <span class="n">dictionary</span><span class="p">:</span>
+		<span class="n">dictionaryFile</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">grammarfile</span><span class="p">),</span> <span class="n">dictionary</span><span class="p">)</span>
+		<span class="k">if</span> <span class="n">foundations</span><span class="o">.</span><span class="n">common</span><span class="o">.</span><span class="n">pathExists</span><span class="p">(</span><span class="n">dictionaryFile</span><span class="p">):</span>
+			<span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">dictionaryFile</span><span class="p">,</span> <span class="s">&quot;r&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="nb">file</span><span class="p">:</span>
+				<span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="nb">iter</span><span class="p">(</span><span class="nb">file</span><span class="p">):</span>
+					<span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+					<span class="n">line</span> <span class="ow">and</span> <span class="n">tokens</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="n">LOGGER</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&quot;!&gt; {0} | &#39;{1}&#39; language dictionary file doesn&#39;t exists and will be skipped!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+				<span class="n">inspect</span><span class="o">.</span><span class="n">getmodulename</span><span class="p">(</span><span class="n">__file__</span><span class="p">),</span> <span class="n">dictionaryFile</span><span class="p">))</span>
+
+	<span class="n">theme</span> <span class="o">=</span> <span class="n">getObjectFromLanguageAccelerators</span><span class="p">(</span><span class="n">sectionsParser</span><span class="o">.</span><span class="n">getValue</span><span class="p">(</span><span class="s">&quot;Theme&quot;</span><span class="p">,</span> <span class="s">&quot;Accelerators&quot;</span><span class="p">))</span> <span class="ow">or</span> \
+			<span class="n">umbra</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">highlighters</span><span class="o">.</span><span class="n">DEFAULT_THEME</span>
+
+	<span class="n">attributes</span> <span class="o">=</span> <span class="p">{</span><span class="s">&quot;name&quot;</span> <span class="p">:</span> <span class="n">name</span><span class="p">,</span>
+				<span class="s">&quot;file&quot;</span> <span class="p">:</span> <span class="n">grammarfile</span><span class="p">,</span>
+				<span class="s">&quot;parser&quot;</span> <span class="p">:</span> <span class="n">sectionsParser</span><span class="p">,</span>
+				<span class="s">&quot;extensions&quot;</span> <span class="p">:</span> <span class="n">extensions</span><span class="p">,</span>
+				<span class="s">&quot;highlighter&quot;</span> <span class="p">:</span> <span class="n">highlighter</span><span class="p">,</span>
+				<span class="s">&quot;completer&quot;</span> <span class="p">:</span> <span class="n">completer</span><span class="p">,</span>
+				<span class="s">&quot;preInputAccelerators&quot;</span> <span class="p">:</span> <span class="n">preInputAccelerators</span><span class="p">,</span>
+				<span class="s">&quot;postInputAccelerators&quot;</span> <span class="p">:</span> <span class="n">postInputAccelerators</span><span class="p">,</span>
+				<span class="s">&quot;visualAccelerators&quot;</span> <span class="p">:</span> <span class="n">visualAccelerators</span><span class="p">,</span>
+				<span class="s">&quot;indentMarker&quot;</span> <span class="p">:</span> <span class="n">indentMarker</span><span class="p">,</span>
+				<span class="s">&quot;commentMarker&quot;</span> <span class="p">:</span> <span class="n">commentMarker</span><span class="p">,</span>
+				<span class="s">&quot;commentBlockMarkerStart&quot;</span> <span class="p">:</span> <span class="n">commentBlockMarkerStart</span><span class="p">,</span>
+				<span class="s">&quot;commentBlockMarkerEnd&quot;</span> <span class="p">:</span> <span class="n">commentBlockMarkerEnd</span><span class="p">,</span>
+				<span class="s">&quot;symbolsPairs&quot;</span> <span class="p">:</span> <span class="n">symbolsPairs</span><span class="p">,</span>
+				<span class="s">&quot;indentationSymbols&quot;</span> <span class="p">:</span> <span class="n">indentationSymbols</span><span class="p">,</span>
+				<span class="s">&quot;rules&quot;</span> <span class="p">:</span> <span class="n">rules</span><span class="p">,</span>
+				<span class="s">&quot;tokens&quot;</span> <span class="p">:</span> <span class="n">tokens</span><span class="p">,</span>
+				<span class="s">&quot;theme&quot;</span> <span class="p">:</span> <span class="n">theme</span><span class="p">}</span>
+
+	<span class="k">for</span> <span class="n">attribute</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">attributes</span><span class="o">.</span><span class="n">iteritems</span><span class="p">()):</span>
+		<span class="k">if</span> <span class="n">attribute</span> <span class="o">==</span> <span class="s">&quot;rules&quot;</span><span class="p">:</span>
+			<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Registered &#39;{0}&#39; syntax rules.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">value</span><span class="p">)))</span>
+		<span class="k">elif</span> <span class="n">attribute</span> <span class="o">==</span> <span class="s">&quot;tokens&quot;</span><span class="p">:</span>
+			<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Registered &#39;{0}&#39; completion tokens.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">value</span><span class="p">)))</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Attribute: &#39;{0}&#39;, Value: &#39;{1}&#39;.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">attribute</span><span class="p">,</span> <span class="n">value</span><span class="p">))</span>
+
+	<span class="k">return</span> <span class="n">Language</span><span class="p">(</span><span class="o">**</span><span class="n">attributes</span><span class="p">)</span>
+
+<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. @core.executionTrace</span></div>
+<div class="viewcode-block" id="getPythonLanguage"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.getPythonLanguage">[docs]</a><span class="k">def</span> <span class="nf">getPythonLanguage</span><span class="p">():</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This definition returns the Python language description.</span>
+
+<span class="sd">	:return: Python language description. ( Language )</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="k">return</span> <span class="n">getLanguageDescription</span><span class="p">(</span><span class="n">PYTHON_GRAMMAR_FILE</span><span class="p">)</span>
+
+<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. @core.executionTrace</span></div>
+<div class="viewcode-block" id="getLoggingLanguage"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.getLoggingLanguage">[docs]</a><span class="k">def</span> <span class="nf">getLoggingLanguage</span><span class="p">():</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This definition returns the Logging language description.</span>
+
+<span class="sd">	:return: Logging language description. ( Language )</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="k">return</span> <span class="n">getLanguageDescription</span><span class="p">(</span><span class="n">LOGGING_GRAMMAR_FILE</span><span class="p">)</span>
+
+<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. @core.executionTrace</span></div>
+<div class="viewcode-block" id="getTextLanguage"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.getTextLanguage">[docs]</a><span class="k">def</span> <span class="nf">getTextLanguage</span><span class="p">():</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This definition returns the Text language description.</span>
+
+<span class="sd">	:return: Text language description. ( Language )</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="k">return</span> <span class="n">getLanguageDescription</span><span class="p">(</span><span class="n">TEXT_GRAMMAR_FILE</span><span class="p">)</span>
+
+<span class="c">#**********************************************************************************************************************</span>
+<span class="c">#***	Module attributes.</span>
+<span class="c">#**********************************************************************************************************************</span>
+<span class="c">#**********************************************************************************************************************</span>
+<span class="c">#***	Sphinx: Statements updated for auto-documentation purpose.</span>
+<span class="c">#**********************************************************************************************************************</span></div>
+<span class="n">PYTHON_LANGUAGE</span> <span class="o">=</span> <span class="bp">None</span>
+<span class="c">#**********************************************************************************************************************</span>
+<span class="c">#***	Sphinx: Statements updated for auto-documentation purpose.</span>
+<span class="c">#**********************************************************************************************************************</span>
+<span class="n">LOGGING_LANGUAGE</span> <span class="o">=</span> <span class="bp">None</span>
+<span class="c">#**********************************************************************************************************************</span>
+<span class="c">#***	Sphinx: Statements updated for auto-documentation purpose.</span>
+<span class="c">#**********************************************************************************************************************</span>
+<span class="n">TEXT_LANGUAGE</span> <span class="o">=</span> <span class="bp">None</span>
+
+<span class="c">#**********************************************************************************************************************</span>
+<span class="c">#***	Module classes and definitions.</span>
+<span class="c">#**********************************************************************************************************************</span>
+<div class="viewcode-block" id="Editor"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.Editor">[docs]</a><span class="k">class</span> <span class="nc">Editor</span><span class="p">(</span><span class="n">CodeEditor_QPlainTextEdit</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This class defines the default editor used by</span>
+<span class="sd">	the :class:`umbra.components.factory.scriptEditor.scriptEditor.ScriptEditor` Component Interface class. </span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="n">__untitledNameId</span> <span class="o">=</span> <span class="mi">1</span>
+	<span class="sd">&quot;&quot;&quot;Editor untitled name id. ( Integer )&quot;&quot;&quot;</span>
+
+	<span class="c"># Custom signals definitions.</span>
+	<span class="n">languageChanged</span> <span class="o">=</span> <span class="n">pyqtSignal</span><span class="p">()</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This signal is emited by the :class:`Editor` class when :obj:`ComponentsManagerUi.language` class property language</span>
+<span class="sd">	is changed. ( pyqtSignal )</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="n">titleChanged</span> <span class="o">=</span> <span class="n">pyqtSignal</span><span class="p">()</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This signal is emited by the :class:`Editor` class when the current title is changed. ( pyqtSignal )</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="n">fileLoaded</span> <span class="o">=</span> <span class="n">pyqtSignal</span><span class="p">()</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This signal is emited by the :class:`Editor` class when the current file is loaded. ( pyqtSignal )</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="n">fileSaved</span> <span class="o">=</span> <span class="n">pyqtSignal</span><span class="p">()</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This signal is emited by the :class:`Editor` class when the current file is saved. ( pyqtSignal )</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="n">fileReloaded</span> <span class="o">=</span> <span class="n">pyqtSignal</span><span class="p">()</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This signal is emited by the :class:`Editor` class when the current file is reloaded. ( pyqtSignal )</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="n">fileClosed</span> <span class="o">=</span> <span class="n">pyqtSignal</span><span class="p">()</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This signal is emited by the :class:`Editor` class when the current file is closed. ( pyqtSignal )</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="n">contentsChanged</span> <span class="o">=</span> <span class="n">pyqtSignal</span><span class="p">()</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This signal is emited by the :class:`Editor` class when the current editor document content has changed. ( pyqtSignal )</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="n">modificationChanged</span> <span class="o">=</span> <span class="n">pyqtSignal</span><span class="p">(</span><span class="nb">bool</span><span class="p">)</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This signal is emited by the :class:`Editor` class when the current editor doucment content has been modified. ( pyqtSignal )</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="nd">@core.executionTrace</span>
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parent</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">language</span><span class="o">=</span><span class="n">PYTHON_LANGUAGE</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		.. Sphinx: Statements updated for auto-documentation purpose.</span>
+
+<span class="sd">		:param parent: Object parent. ( QObject )</span>
+<span class="sd">		:param file: File path. ( String )</span>
+<span class="sd">		:param language: Editor language. ( Language )</span>
+<span class="sd">		:param \*args: Arguments. ( \* )</span>
+<span class="sd">		:param \*\*kwargs: Keywords arguments. ( \*\* )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Initializing &#39;{0}()&#39; class.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">))</span>
+
+		<span class="n">CodeEditor_QPlainTextEdit</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parent</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+
+		<span class="c"># --- Setting class attributes. ---</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__file</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">file</span> <span class="o">=</span> <span class="nb">file</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__language</span> <span class="o">=</span> <span class="n">language</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">__defaultFontsSettings</span> <span class="o">=</span> <span class="p">{</span><span class="s">&quot;Windows&quot;</span> <span class="p">:</span> <span class="p">(</span><span class="s">&quot;Consolas&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">),</span>
+										<span class="s">&quot;Darwin&quot;</span> <span class="p">:</span> <span class="p">(</span><span class="s">&quot;Monaco&quot;</span><span class="p">,</span> <span class="mi">12</span><span class="p">),</span>
+										<span class="s">&quot;Linux&quot;</span> <span class="p">:</span> <span class="p">(</span><span class="s">&quot;Monospace&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">)}</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__tabWidth</span> <span class="o">=</span> <span class="bp">None</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">__title</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__isUntitled</span> <span class="o">=</span> <span class="bp">True</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__defaultFileName</span> <span class="o">=</span> <span class="s">&quot;Untitled&quot;</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__defaultFileExtension</span> <span class="o">=</span> <span class="s">&quot;py&quot;</span>
+
+		<span class="n">Editor</span><span class="o">.</span><span class="n">__initializeUi</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+
+		<span class="nb">file</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">loadFile</span><span class="p">(</span><span class="nb">file</span><span class="p">)</span>
+
+	<span class="c">#******************************************************************************************************************</span>
+	<span class="c">#***	Attributes properties.</span>
+	<span class="c">#******************************************************************************************************************</span>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">file</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__file** attribute.</span>
+
+<span class="sd">		:return: self.__file. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__file</span>
+
+	<span class="nd">@file.setter</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="ne">AssertionError</span><span class="p">)</span>
+	<span class="k">def</span> <span class="nf">file</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__file** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="nb">unicode</span><span class="p">),</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; type is not &#39;str&#39; or &#39;unicode&#39;!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;file&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__file</span> <span class="o">=</span> <span class="n">value</span>
+
+	<span class="nd">@file.deleter</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">)</span>
+<div class="viewcode-block" id="Editor.file"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.Editor.file">[docs]</a>	<span class="k">def</span> <span class="nf">file</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__file** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;file&quot;</span><span class="p">))</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">language</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__language** attribute.</span>
+
+<span class="sd">		:return: self.__language. ( Language )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__language</span>
+
+	<span class="nd">@language.setter</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">)</span>
+	<span class="k">def</span> <span class="nf">language</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__language** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( Language )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is read only!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;language&quot;</span><span class="p">))</span>
+
+	<span class="nd">@language.deleter</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">)</span>
+<div class="viewcode-block" id="Editor.language"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.Editor.language">[docs]</a>	<span class="k">def</span> <span class="nf">language</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__language** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;language&quot;</span><span class="p">))</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">defaultFontsSettings</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__defaultFontsSettings** attribute.</span>
+
+<span class="sd">		:return: self.__defaultFontsSettings. ( Dictionary )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__defaultFontsSettings</span>
+
+	<span class="nd">@defaultFontsSettings.setter</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">)</span>
+	<span class="k">def</span> <span class="nf">defaultFontsSettings</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__defaultFontsSettings** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( Dictionary )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is read only!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;defaultFontsSettings&quot;</span><span class="p">))</span>
+
+	<span class="nd">@defaultFontsSettings.deleter</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">)</span>
+<div class="viewcode-block" id="Editor.defaultFontsSettings"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.Editor.defaultFontsSettings">[docs]</a>	<span class="k">def</span> <span class="nf">defaultFontsSettings</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__defaultFontsSettings** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;defaultFontsSettings&quot;</span><span class="p">))</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">tabWidth</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__tabWidth** attribute.</span>
+
+<span class="sd">		:return: self.__tabWidth. ( Integer )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__tabWidth</span>
+
+	<span class="nd">@tabWidth.setter</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">)</span>
+	<span class="k">def</span> <span class="nf">tabWidth</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__tabWidth** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( Integer )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is read only!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;tabWidth&quot;</span><span class="p">))</span>
+
+	<span class="nd">@tabWidth.deleter</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">)</span>
+<div class="viewcode-block" id="Editor.tabWidth"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.Editor.tabWidth">[docs]</a>	<span class="k">def</span> <span class="nf">tabWidth</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__tabWidth** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;tabWidth&quot;</span><span class="p">))</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">title</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__title** attribute.</span>
+
+<span class="sd">		:return: self.__title. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__title</span>
+
+	<span class="nd">@title.setter</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">)</span>
+	<span class="k">def</span> <span class="nf">title</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__title** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is read only!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;title&quot;</span><span class="p">))</span>
+
+	<span class="nd">@title.deleter</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">)</span>
+<div class="viewcode-block" id="Editor.title"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.Editor.title">[docs]</a>	<span class="k">def</span> <span class="nf">title</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__title** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;title&quot;</span><span class="p">))</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">isUntitled</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__isUntitled** attribute.</span>
+
+<span class="sd">		:return: self.__isUntitled. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__isUntitled</span>
+
+	<span class="nd">@isUntitled.setter</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">)</span>
+	<span class="k">def</span> <span class="nf">isUntitled</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__isUntitled** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is read only!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;isUntitled&quot;</span><span class="p">))</span>
+
+	<span class="nd">@isUntitled.deleter</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">)</span>
+<div class="viewcode-block" id="Editor.isUntitled"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.Editor.isUntitled">[docs]</a>	<span class="k">def</span> <span class="nf">isUntitled</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__isUntitled** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;isUntitled&quot;</span><span class="p">))</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">defaultFileName</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__defaultFileName** attribute.</span>
+
+<span class="sd">		:return: self.__defaultFileName. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__defaultFileName</span>
+
+	<span class="nd">@defaultFileName.setter</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">)</span>
+	<span class="k">def</span> <span class="nf">defaultFileName</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__defaultFileName** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is read only!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;defaultFileName&quot;</span><span class="p">))</span>
+
+	<span class="nd">@defaultFileName.deleter</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">)</span>
+<div class="viewcode-block" id="Editor.defaultFileName"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.Editor.defaultFileName">[docs]</a>	<span class="k">def</span> <span class="nf">defaultFileName</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__defaultFileName** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;defaultFileName&quot;</span><span class="p">))</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">defaultFileExtension</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__defaultFileExtension** attribute.</span>
+
+<span class="sd">		:return: self.__defaultFileExtension. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__defaultFileExtension</span>
+
+	<span class="nd">@defaultFileExtension.setter</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">)</span>
+	<span class="k">def</span> <span class="nf">defaultFileExtension</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__defaultFileExtension** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is read only!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;defaultFileExtension&quot;</span><span class="p">))</span>
+
+	<span class="nd">@defaultFileExtension.deleter</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">)</span>
+<div class="viewcode-block" id="Editor.defaultFileExtension"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.Editor.defaultFileExtension">[docs]</a>	<span class="k">def</span> <span class="nf">defaultFileExtension</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__defaultFileExtension** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;defaultFileExtension&quot;</span><span class="p">))</span>
+
+	<span class="c">#******************************************************************************************************************</span>
+	<span class="c">#***	Class methods.</span>
+	<span class="c">#******************************************************************************************************************</span></div>
+	<span class="nd">@core.executionTrace</span>
+	<span class="k">def</span> <span class="nf">__initializeUi</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method initializes the Widget ui.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">setAttribute</span><span class="p">(</span><span class="n">Qt</span><span class="o">.</span><span class="n">WA_DeleteOnClose</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">setWordWrapMode</span><span class="p">(</span><span class="n">QTextOption</span><span class="o">.</span><span class="n">NoWrap</span><span class="p">)</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">setAcceptDrops</span><span class="p">(</span><span class="bp">True</span><span class="p">)</span>
+
+		<span class="k">if</span> <span class="n">platform</span><span class="o">.</span><span class="n">system</span><span class="p">()</span> <span class="o">==</span> <span class="s">&quot;Windows&quot;</span> <span class="ow">or</span> <span class="n">platform</span><span class="o">.</span><span class="n">system</span><span class="p">()</span> <span class="o">==</span> <span class="s">&quot;Microsoft&quot;</span><span class="p">:</span>
+			<span class="n">fontFamily</span><span class="p">,</span> <span class="n">fontSize</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__defaultFontsSettings</span><span class="p">[</span><span class="s">&quot;Windows&quot;</span><span class="p">]</span>
+		<span class="k">elif</span> <span class="n">platform</span><span class="o">.</span><span class="n">system</span><span class="p">()</span> <span class="o">==</span> <span class="s">&quot;Darwin&quot;</span><span class="p">:</span>
+			<span class="n">fontFamily</span><span class="p">,</span> <span class="n">fontSize</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__defaultFontsSettings</span><span class="p">[</span><span class="s">&quot;Darwin&quot;</span><span class="p">]</span>
+		<span class="k">elif</span> <span class="n">platform</span><span class="o">.</span><span class="n">system</span><span class="p">()</span> <span class="o">==</span> <span class="s">&quot;Linux&quot;</span><span class="p">:</span>
+			<span class="n">fontFamily</span><span class="p">,</span> <span class="n">fontSize</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__defaultFontsSettings</span><span class="p">[</span><span class="s">&quot;Linux&quot;</span><span class="p">]</span>
+		<span class="n">font</span> <span class="o">=</span> <span class="n">QFont</span><span class="p">(</span><span class="n">fontFamily</span><span class="p">)</span>
+		<span class="n">font</span><span class="o">.</span><span class="n">setPointSize</span><span class="p">(</span><span class="n">fontSize</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">setFont</span><span class="p">(</span><span class="n">font</span><span class="p">)</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">__setLanguageDescription</span><span class="p">()</span>
+
+	<span class="nd">@core.executionTrace</span>
+	<span class="k">def</span> <span class="nf">__document__contentsChanged</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is triggered when the editor document content changes.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">setTitle</span><span class="p">()</span>
+
+	<span class="nd">@core.executionTrace</span>
+	<span class="k">def</span> <span class="nf">__document__modificationChanged</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">changed</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is triggered when the editor document is modified.</span>
+<span class="sd">		</span>
+<span class="sd">		:param changed: File modification state. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">setTitle</span><span class="p">()</span>
+
+	<span class="nd">@core.executionTrace</span>
+	<span class="k">def</span> <span class="nf">__setLanguageDescription</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method sets the editor language accelerators.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Setting editor language description.&quot;</span><span class="p">)</span>
+
+		<span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">__language</span><span class="p">:</span>
+			<span class="k">return</span>
+
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">__language</span><span class="o">.</span><span class="n">highlighter</span><span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">setHighlighter</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__language</span><span class="o">.</span><span class="n">highlighter</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">(),</span>
+															<span class="bp">self</span><span class="o">.</span><span class="n">__language</span><span class="o">.</span><span class="n">rules</span><span class="p">,</span>
+															<span class="bp">self</span><span class="o">.</span><span class="n">__language</span><span class="o">.</span><span class="n">theme</span><span class="p">))</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">highlighter</span><span class="o">.</span><span class="n">rehighlight</span><span class="p">()</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">removeHighlighter</span><span class="p">()</span>
+
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">__language</span><span class="o">.</span><span class="n">completer</span><span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">setCompleter</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__language</span><span class="o">.</span><span class="n">completer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">parent</span><span class="p">(),</span> <span class="bp">self</span><span class="o">.</span><span class="n">__language</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">__language</span><span class="o">.</span><span class="n">tokens</span><span class="p">))</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">removeCompleter</span><span class="p">()</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">indentMarker</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__language</span><span class="o">.</span><span class="n">indentMarker</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">commentMarker</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__language</span><span class="o">.</span><span class="n">commentMarker</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">preInputAccelerators</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__language</span><span class="o">.</span><span class="n">preInputAccelerators</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">postInputAccelerators</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__language</span><span class="o">.</span><span class="n">postInputAccelerators</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">visualAccelerators</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__language</span><span class="o">.</span><span class="n">visualAccelerators</span>
+
+		<span class="n">color</span> <span class="o">=</span> <span class="s">&quot;rgb({0}, {1}, {2})&quot;</span>
+		<span class="n">background</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__language</span><span class="o">.</span><span class="n">theme</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;default&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">background</span><span class="p">()</span>
+		<span class="n">foreground</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__language</span><span class="o">.</span><span class="n">theme</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;default&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">foreground</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">setStyleSheet</span><span class="p">(</span>
+		<span class="s">&quot;QPlainTextEdit{{ background-color: {0}; color: {1}; }}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">color</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">background</span><span class="o">.</span><span class="n">color</span><span class="p">()</span><span class="o">.</span><span class="n">red</span><span class="p">(),</span>
+																								<span class="n">background</span><span class="o">.</span><span class="n">color</span><span class="p">()</span><span class="o">.</span><span class="n">green</span><span class="p">(),</span>
+																								<span class="n">background</span><span class="o">.</span><span class="n">color</span><span class="p">()</span><span class="o">.</span><span class="n">blue</span><span class="p">()),</span>
+																				<span class="n">color</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">foreground</span><span class="o">.</span><span class="n">color</span><span class="p">()</span><span class="o">.</span><span class="n">red</span><span class="p">(),</span>
+																							<span class="n">foreground</span><span class="o">.</span><span class="n">color</span><span class="p">()</span><span class="o">.</span><span class="n">green</span><span class="p">(),</span>
+																							<span class="n">foreground</span><span class="o">.</span><span class="n">color</span><span class="p">()</span><span class="o">.</span><span class="n">blue</span><span class="p">())))</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">__tabWidth</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fontMetrics</span><span class="p">()</span><span class="o">.</span><span class="n">width</span><span class="p">(</span><span class="s">&quot; &quot;</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">indentWidth</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">setTabStopWidth</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__tabWidth</span><span class="p">)</span>
+
+	<span class="nd">@core.executionTrace</span>
+	<span class="k">def</span> <span class="nf">__setDocumentSignals</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method connects the editor document signals.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="c"># Signals / Slots.</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">()</span><span class="o">.</span><span class="n">contentsChanged</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">contentsChanged</span><span class="o">.</span><span class="n">emit</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">()</span><span class="o">.</span><span class="n">contentsChanged</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__document__contentsChanged</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">()</span><span class="o">.</span><span class="n">modificationChanged</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">modificationChanged</span><span class="o">.</span><span class="n">emit</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">()</span><span class="o">.</span><span class="n">modificationChanged</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__document__modificationChanged</span><span class="p">)</span>
+
+	<span class="nd">@core.executionTrace</span>
+<div class="viewcode-block" id="Editor.setTitle"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.Editor.setTitle">[docs]</a>	<span class="k">def</span> <span class="nf">setTitle</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method sets the editor title.</span>
+
+<span class="sd">		:param title: Editor title. ( String )</span>
+<span class="sd">		:return: Method success. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="ow">not</span> <span class="n">title</span><span class="p">:</span>
+			<span class="c"># TODO: https://bugreports.qt-project.org/browse/QTBUG-27084</span>
+			<span class="c"># titleTemplate = self.isModified() and &quot;{0} *&quot; or &quot;{0}&quot;</span>
+			<span class="c"># title = titleTemplate.format(self.getFileShortName())</span>
+			<span class="n">title</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">getFileShortName</span><span class="p">()</span>
+
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Setting editor title to &#39;{0}&#39;.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">title</span><span class="p">))</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__title</span> <span class="o">=</span> <span class="n">title</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">setWindowTitle</span><span class="p">(</span><span class="n">title</span><span class="p">)</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">titleChanged</span><span class="o">.</span><span class="n">emit</span><span class="p">()</span>
+		<span class="k">return</span> <span class="bp">True</span>
+</div>
+	<span class="nd">@core.executionTrace</span>
+<div class="viewcode-block" id="Editor.setFile"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.Editor.setFile">[docs]</a>	<span class="k">def</span> <span class="nf">setFile</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">isModified</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">isUntitled</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method sets the editor file.</span>
+
+<span class="sd">		:param File: File to set. ( String )</span>
+<span class="sd">		:param isModified: File modified state. ( Boolean )</span>
+<span class="sd">		:param isUntitled: File untitled state. ( Boolean )</span>
+<span class="sd">		:return: Method success. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Setting &#39;{0}&#39; editor file.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="nb">file</span><span class="p">))</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__file</span> <span class="o">=</span> <span class="nb">file</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__isUntitled</span> <span class="o">=</span> <span class="n">isUntitled</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">setModified</span><span class="p">(</span><span class="n">isModified</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">setTitle</span><span class="p">()</span>
+		<span class="k">return</span> <span class="bp">True</span>
+</div>
+	<span class="nd">@core.executionTrace</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">)</span>
+<div class="viewcode-block" id="Editor.setLanguage"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.Editor.setLanguage">[docs]</a>	<span class="k">def</span> <span class="nf">setLanguage</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">language</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method sets the editor language.</span>
+
+<span class="sd">		:param language: Language to set. ( Language )</span>
+<span class="sd">		:return: Method success. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Setting editor language to &#39;{0}&#39;.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">language</span><span class="o">.</span><span class="n">name</span><span class="p">))</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__language</span> <span class="o">=</span> <span class="n">language</span> <span class="ow">or</span> <span class="n">PYTHON_LANGUAGE</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__setLanguageDescription</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">languageChanged</span><span class="o">.</span><span class="n">emit</span><span class="p">()</span>
+		<span class="k">return</span> <span class="bp">True</span>
+</div>
+	<span class="nd">@core.executionTrace</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">)</span>
+<div class="viewcode-block" id="Editor.getFileShortName"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.Editor.getFileShortName">[docs]</a>	<span class="k">def</span> <span class="nf">getFileShortName</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method returns the current editor file short name.</span>
+
+<span class="sd">		:return: File short name. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">__file</span><span class="p">:</span>
+			<span class="k">return</span> <span class="nb">str</span><span class="p">()</span>
+
+		<span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">basename</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__file</span><span class="p">)</span>
+</div>
+	<span class="nd">@core.executionTrace</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">)</span>
+<div class="viewcode-block" id="Editor.getUntitledFileName"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.Editor.getUntitledFileName">[docs]</a>	<span class="k">def</span> <span class="nf">getUntitledFileName</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method returns an untitled editor file name.</span>
+
+<span class="sd">		:return: Untitled file name. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">name</span> <span class="o">=</span> <span class="s">&quot;{0} {1}.{2}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__defaultFileName</span><span class="p">,</span> <span class="n">Editor</span><span class="o">.</span><span class="n">_Editor__untitledNameId</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">defaultFileExtension</span><span class="p">)</span>
+		<span class="n">Editor</span><span class="o">.</span><span class="n">_Editor__untitledNameId</span> <span class="o">+=</span> <span class="mi">1</span>
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Next untitled file name: &#39;{0}&#39;.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">name</span><span class="p">))</span>
+		<span class="k">return</span> <span class="n">name</span>
+</div>
+	<span class="nd">@core.executionTrace</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">)</span>
+<div class="viewcode-block" id="Editor.loadDocument"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.Editor.loadDocument">[docs]</a>	<span class="k">def</span> <span class="nf">loadDocument</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">document</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">language</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method loads given document into the editor.</span>
+
+<span class="sd">		:param document: Document to load. ( QTextDocument )</span>
+<span class="sd">		:param file: File. ( String )</span>
+<span class="sd">		:param language: Editor language. ( String )</span>
+<span class="sd">		:return: Method success. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">document</span><span class="o">.</span><span class="n">setDocumentLayout</span><span class="p">(</span><span class="n">QPlainTextDocumentLayout</span><span class="p">(</span><span class="n">document</span><span class="p">))</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">setDocument</span><span class="p">(</span><span class="n">document</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">setFile</span><span class="p">(</span><span class="nb">file</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">setLanguage</span><span class="p">(</span><span class="n">language</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__setDocumentSignals</span><span class="p">()</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">fileLoaded</span><span class="o">.</span><span class="n">emit</span><span class="p">()</span>
+		<span class="k">return</span> <span class="bp">True</span>
+</div>
+	<span class="nd">@core.executionTrace</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">)</span>
+<div class="viewcode-block" id="Editor.newFile"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.Editor.newFile">[docs]</a>	<span class="k">def</span> <span class="nf">newFile</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method creates a new editor file.</span>
+
+<span class="sd">		:return: File name. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="nb">file</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">getUntitledFileName</span><span class="p">()</span>
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Creating &#39;{0}&#39; file.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="nb">file</span><span class="p">))</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">setFile</span><span class="p">(</span><span class="nb">file</span><span class="p">,</span> <span class="n">isModified</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">isUntitled</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__setDocumentSignals</span><span class="p">()</span>
+		<span class="k">return</span> <span class="nb">file</span>
+</div>
+	<span class="nd">@core.executionTrace</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">FileExistsError</span><span class="p">)</span>
+<div class="viewcode-block" id="Editor.loadFile"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.Editor.loadFile">[docs]</a>	<span class="k">def</span> <span class="nf">loadFile</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">file</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method reads and loads given file into the editor.</span>
+
+<span class="sd">		:param File: File to load. ( String )</span>
+<span class="sd">		:return: Method success. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="ow">not</span> <span class="n">foundations</span><span class="o">.</span><span class="n">common</span><span class="o">.</span><span class="n">pathExists</span><span class="p">(</span><span class="nb">file</span><span class="p">):</span>
+			<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">FileExistsError</span><span class="p">(</span><span class="s">&quot;{0} | &#39;{1}&#39; file doesn&#39;t exists!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span>
+																									<span class="nb">file</span><span class="p">))</span>
+
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Loading &#39;{0}&#39; file.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="nb">file</span><span class="p">))</span>
+		<span class="n">reader</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">File</span><span class="p">(</span><span class="nb">file</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">setPlainText</span><span class="p">(</span><span class="n">reader</span><span class="o">.</span><span class="n">readAll</span><span class="p">())</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">setFile</span><span class="p">(</span><span class="nb">file</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__setDocumentSignals</span><span class="p">()</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">fileLoaded</span><span class="o">.</span><span class="n">emit</span><span class="p">()</span>
+		<span class="k">return</span> <span class="bp">True</span>
+</div>
+	<span class="nd">@core.executionTrace</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">FileExistsError</span><span class="p">)</span>
+<div class="viewcode-block" id="Editor.reloadFile"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.Editor.reloadFile">[docs]</a>	<span class="k">def</span> <span class="nf">reloadFile</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">isModified</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method reloads the current editor file.</span>
+
+<span class="sd">		:param isModified: File modified state. ( Boolean )</span>
+<span class="sd">		:return: Method success. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="ow">not</span> <span class="n">foundations</span><span class="o">.</span><span class="n">common</span><span class="o">.</span><span class="n">pathExists</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__file</span><span class="p">):</span>
+			<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">FileExistsError</span><span class="p">(</span><span class="s">&quot;{0} | &#39;{1}&#39; file doesn&#39;t exists!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">__file</span><span class="p">))</span>
+
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Reloading &#39;{0}&#39; file.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__file</span><span class="p">))</span>
+		<span class="n">reader</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">File</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__file</span><span class="p">)</span>
+		<span class="k">if</span> <span class="n">reader</span><span class="o">.</span><span class="n">read</span><span class="p">():</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">setContent</span><span class="p">(</span><span class="n">reader</span><span class="o">.</span><span class="n">content</span><span class="p">)</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">setFile</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__file</span><span class="p">,</span> <span class="n">isModified</span><span class="o">=</span><span class="n">isModified</span><span class="p">)</span>
+
+			<span class="bp">self</span><span class="o">.</span><span class="n">fileReloaded</span><span class="o">.</span><span class="n">emit</span><span class="p">()</span>
+			<span class="k">return</span> <span class="bp">True</span>
+</div>
+	<span class="nd">@core.executionTrace</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">)</span>
+<div class="viewcode-block" id="Editor.saveFile"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.Editor.saveFile">[docs]</a>	<span class="k">def</span> <span class="nf">saveFile</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method saves the editor file content.</span>
+
+<span class="sd">		:return: Method success. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">__isUntitled</span> <span class="ow">and</span> <span class="n">foundations</span><span class="o">.</span><span class="n">common</span><span class="o">.</span><span class="n">pathExists</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__file</span><span class="p">):</span>
+			<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">writeFile</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__file</span><span class="p">)</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">saveFileAs</span><span class="p">()</span>
+</div>
+	<span class="nd">@core.executionTrace</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="n">umbra</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">common</span><span class="o">.</span><span class="n">notifyExceptionHandler</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">)</span>
+<div class="viewcode-block" id="Editor.saveFileAs"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.Editor.saveFileAs">[docs]</a>	<span class="k">def</span> <span class="nf">saveFileAs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method saves the editor file content either using given file or user chosen file.</span>
+
+<span class="sd">		:return: Method success. ( Boolean )</span>
+<span class="sd">		</span>
+<span class="sd">		:note: This method may require user interaction.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="nb">file</span> <span class="o">=</span> <span class="nb">file</span> <span class="ow">or</span> <span class="n">umbra</span><span class="o">.</span><span class="n">ui</span><span class="o">.</span><span class="n">common</span><span class="o">.</span><span class="n">storeLastBrowsedPath</span><span class="p">(</span><span class="n">QFileDialog</span><span class="o">.</span><span class="n">getSaveFileName</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s">&quot;Save As:&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">__file</span><span class="p">))</span>
+		<span class="k">if</span> <span class="ow">not</span> <span class="nb">file</span><span class="p">:</span>
+			<span class="k">return</span> <span class="bp">False</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">writeFile</span><span class="p">(</span><span class="n">strings</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="nb">file</span><span class="p">))</span>
+</div>
+	<span class="nd">@core.executionTrace</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">)</span>
+<div class="viewcode-block" id="Editor.writeFile"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.Editor.writeFile">[docs]</a>	<span class="k">def</span> <span class="nf">writeFile</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">file</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method writes the editor file content into given file.</span>
+
+<span class="sd">		:param file: File to write. ( String )</span>
+<span class="sd">		:return: Method success. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Writing &#39;{0}&#39; file.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="nb">file</span><span class="p">))</span>
+		<span class="n">writer</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">File</span><span class="p">(</span><span class="nb">file</span><span class="p">)</span>
+		<span class="n">writer</span><span class="o">.</span><span class="n">content</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">toPlainText</span><span class="p">()]</span>
+		<span class="k">if</span> <span class="n">writer</span><span class="o">.</span><span class="n">write</span><span class="p">():</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">setFile</span><span class="p">(</span><span class="nb">file</span><span class="p">)</span>
+
+			<span class="bp">self</span><span class="o">.</span><span class="n">fileSaved</span><span class="o">.</span><span class="n">emit</span><span class="p">()</span>
+			<span class="k">return</span> <span class="bp">True</span>
+</div>
+	<span class="nd">@core.executionTrace</span>
+	<span class="nd">@foundations.exceptions.exceptionsHandler</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">)</span>
+<div class="viewcode-block" id="Editor.closeFile"><a class="viewcode-back" href="../../../../../resources/pages/api/umbra.components.factory.scriptEditor.editor.html#umbra.components.factory.scriptEditor.editor.Editor.closeFile">[docs]</a>	<span class="k">def</span> <span class="nf">closeFile</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method closes the editor file.</span>
+
+<span class="sd">		:return: Method success. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">isModified</span><span class="p">():</span>
+			<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Closing &#39;{0}&#39; file.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__file</span><span class="p">))</span>
+
+			<span class="bp">self</span><span class="o">.</span><span class="n">fileClosed</span><span class="o">.</span><span class="n">emit</span><span class="p">()</span>
+			<span class="k">return</span> <span class="bp">True</span>
+
+		<span class="n">choice</span> <span class="o">=</span> <span class="n">messageBox</span><span class="o">.</span><span class="n">messageBox</span><span class="p">(</span><span class="s">&quot;Warning&quot;</span><span class="p">,</span> <span class="s">&quot;Warning&quot;</span><span class="p">,</span>
+		<span class="s">&quot;&#39;{0}&#39; document has been modified!</span><span class="se">\n</span><span class="s">Would you like to save your changes?&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">getFileShortName</span><span class="p">()),</span>
+		<span class="n">buttons</span><span class="o">=</span><span class="n">QMessageBox</span><span class="o">.</span><span class="n">Save</span> <span class="o">|</span> <span class="n">QMessageBox</span><span class="o">.</span><span class="n">Discard</span> <span class="o">|</span> <span class="n">QMessageBox</span><span class="o">.</span><span class="n">Cancel</span><span class="p">)</span>
+		<span class="k">if</span> <span class="n">choice</span> <span class="o">==</span> <span class="n">QMessageBox</span><span class="o">.</span><span class="n">Save</span><span class="p">:</span>
+			<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">saveFile</span><span class="p">():</span>
+				<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Closing &#39;{0}&#39; file.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__file</span><span class="p">))</span>
+				<span class="k">return</span> <span class="bp">True</span>
+		<span class="k">elif</span> <span class="n">choice</span> <span class="o">==</span> <span class="n">QMessageBox</span><span class="o">.</span><span class="n">Discard</span><span class="p">:</span>
+			<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Discarding &#39;{0}&#39; file.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__file</span><span class="p">))</span>
+
+			<span class="bp">self</span><span class="o">.</span><span class="n">fileClosed</span><span class="o">.</span><span class="n">emit</span><span class="p">()</span>
+			<span class="k">return</span> <span class="bp">True</span></div></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../../../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../../../../index.html">Umbra 1.0.2 documentation</a> &raquo;</li>
+          <li><a href="../../../../index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2012, Thomas Mansencal.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>
