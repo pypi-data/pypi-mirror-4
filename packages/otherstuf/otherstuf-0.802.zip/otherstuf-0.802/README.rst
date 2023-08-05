@@ -1,0 +1,80 @@
+Attribute-accesible collections inspired by `stuf
+<http://pypi.python.org/pypi/stuf>`_. Implements ``chainstuf`` and
+``counterstuf``: versions of ``ChainMap`` and ``Counter`` that expose their keys as
+attributes.
+
+The ultimate goal of this module is to have these functions available in the
+``stuf`` module, and this sidecar to be retired.
+
+Usage
+=====
+
+Use these just like you would ``ChainMap`` and ``Counter``, except that
+you get attribute-style access as well.
+
+For ``chainstuf``::
+
+    from otherstuf import chainstuf
+    
+    d1 = dict(this=1, that=2)
+    d2 = dict(roger=99, that=100)
+    
+    # test simple attribute equivalence
+    c = chainstuf(d1, d2)
+    
+    assert c.this == 1
+    assert c.roger == 99
+    
+    c.roger = 'wilco'
+    assert c.roger
+    print "roger", c.roger
+    
+    d1.update(feeling='fancypants!')
+    print "i'm feeling", c.feeling     # passed through, since d2 lacks 'feeling'
+
+For ``counterstuf``::
+
+    from otherstuf import counterstuf
+    
+    c = counterstuf()
+    c.update("this and this is this but that isn't this".split())
+    c.total = sum(c.values())
+    
+    print "everything:", c.total
+    print "'this' mentioned", c.this, "times"
+    print "'bozo' mentioned", c.bozo, "times"
+    print c
+    
+Notes
+=====
+
+ * Commenced automated multi-version testing with
+   `pytest <http://pypi.python.org/pypi/pytest>`_
+   and `tox <http://pypi.python.org/pypi/tox>`_.
+   
+ * Now
+   successfully packaged and tested for Python 2.6, 2.7, 3.2, 3.3 and
+   PyPy 1.9 (aka Python 2.7.2). Previous exceptions for Python 2.6 have been eliminated.
+   
+ * Now packaged as a package rather than modules. This changes the import from
+   ``from chainstuf import chainstuf`` and ``from counterstuf import counterstuf`` to
+   ``from otherstuf import chainstuf`` and ``from otherstuf import counterstuf``, respectively.
+ 
+ * The author, `Jonathan Eunice <mailto:jonathan.eunice@gmail.com>`_ or
+   `@jeunice on Twitter <http://twitter.com/jeunice>`_
+   welcomes your comments and suggestions.
+
+Installation
+============
+
+::
+
+    pip install otherstuf
+
+To ``easy_install`` under a specific Python version (3.3 in this example)::
+
+    python3.3 -m easy_install otherstuf
+    
+(You may need to prefix these with "sudo " to authorize installation. If they're
+already installed, the ``--upgrade`` flag will be helpful; add it right before the
+package name.)
