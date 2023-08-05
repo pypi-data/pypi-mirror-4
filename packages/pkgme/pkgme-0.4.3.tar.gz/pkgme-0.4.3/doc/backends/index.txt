@@ -1,0 +1,260 @@
+==================
+``pkgme`` backends
+==================
+
+``pkgme`` backends provide the project specific information that is needed to generate
+the packaging. They examine the project in question and provide the information to
+the best of their ability.
+
+Each backend deals with a particular language, or project type, for instance their
+could be backends for Vala, Ruby on Rails, Python Django, C with autotools, GNOME,
+KDE, CMake, etc.
+
+How they work
+-------------
+
+``pkgme`` itself is agnostic about the type of project that it is working on, but knows
+how to put information about a project in to the packaging files such that result
+should work, assuming that the information provided is good enough.
+
+Every time it needs a bit of information about the project, such as its name, or
+the dependencies it requires, it asks the backend that is the best match for the
+project.
+
+In this manner, the backends, and so you as a backend author, don't need to know
+much about packaging, and ``pkgme`` doesn't need to know about every different sort of
+project that there is.
+
+Selecting a backend
+-------------------
+
+When ``pkgme`` is asked to create the packaging for a project, it firsts selects the
+backend that is most suited to the task. To do this it asks each backend to report
+a score of how well it thinks that it can handle that project.
+
+A Ruby on Rails backend would presumably not be able to handle a Python project
+very well, so if asked to report a score for a Python project it should return
+"0".
+
+However, if it is asked about a Ruby on Rails project then it should report a higher
+number, the question is just how high. Consider the fact that there may be a
+generic Ruby backend, which would presumably be able to give some useful information
+about this project. However, the Ruby backend shouldn't have to detect that this is a
+Rails project, and know that there is a Rails backend, and so answer "0", as that would
+be very brittle. In addition, there may be a backend that is specifically for
+Ruby on Rails, using particular conventions and addons, which would want to out-score
+the generic Rails backend when appropriate.
+
+Assigning all the scores up-front isn't a good idea though, so we use the following
+guidelines:
+
+  * 0 - no information can be provided about the project (e.g. a Ruby backend with a Python project).
+  * 10 - some information can be provided, but the backend is generic (e.g. Ruby backend).
+  * 20 - some information can be provided, and the backend is more generic than just language (e.g. Ruby on Rails backend).
+  * 30 - some information can be provided, and the backend is highly specialised.
+
+When there are many backends that are closely related we can assign scores more carefully
+to those backend, but this scheme will suffice for now.
+
+Getting the info
+----------------
+
+When ``pkgme`` needs to get a bit of information about the project, such as its name, or
+the dependencies required to build, it asks the backend that it selected. The backend
+is expected to do its best to provide that information, but not to provide it if it can't
+do so, otherwise the generated packaging wouldn't work.
+
+The backend can use any means it likes to get the information, parsing files in
+conventional locations, scanning the tree.
+
+Interface with packaging
+------------------------
+
+There are a couple of places where the backend needs to know something related to packaging.
+
+The first of these is in the specification of the build dependencies, where the backend
+has to provide the list of packages that are needed. While the backend probably has
+available the list of modules used or similar, it wouldn't be possible for ``pkgme`` to
+translate these to a list of packages while remaining generic.
+
+Therefore one of the things the backend must be able to do is to go from the list of
+modules to the list of packages that provide them, using whatever means is appropriate.
+
+The second area where the backend needs to know something related to packaging is specifying
+what build system to use. ``pkgme`` leaves all the steps of actually building the package, knowing
+what commands to run to build, what files to put where, up to debhelper. debhelper in turn
+delegates some of this work to its buildsystems, which are analogous to ``pkgme``'s backends.
+
+Therefore ``pkgme`` needs to know which buildsystem to instruct debhelper to use, and for this it
+will query the backend. This means that the backend should know which debhelper buildsystem
+is appropriate for the project. If you are implementing a backend for which there isn't yet
+a debhelper buildsystem, you will also have to implement that in order to enjoy completely
+automated packaging.
+
+.. FIXME: reference for the currently available debhelper backends.
+.. FIXME: reference for implementing a debhelper buildsystem.
+
+Implementing a backend
+----------------------
+
+A backend is a directory of scripts that are called by ``pkgme`` as needed.
+
+The name of the directory is the name of the backend, and should be unique.
+
+The first script that you need to provide is called ``want``, and is called to decide
+if your backend should be used for the project in question. It is executed with the
+current directory the root of the project, and should return a number on stdout that is
+how well the backend will work for the project (see `Selecting a backend`_).
+
+The ``want`` script can also return a JSON array instead of a number.  This
+array **must** have a ``score`` key with a number that is how well the backend
+will work for the project.  It may also have a ``reason`` key with a text
+value that explains why this score was given.  This reason will be shown when
+``pkgme`` cannot find any eligible backends for a project.  Ideally, such
+reasons are short and have no formatting.
+
+After implementing that script you have a choice of how to provide the rest of the
+information.
+
+.. note::
+
+  If ``pkgme`` doesn't provide what you need in order to produce working packaging
+  for your project type, then please :doc:`let us know </contact>`.
+
+Many scripts
+~~~~~~~~~~~~
+
+You can provide one script per piece of information that ``pkgme`` may request.
+The script is given the name of the piece of information that it will provide, and
+is expected to print the information on stdout when invoked. See
+`Information that ``pkgme`` may request`_.
+
+Each script may exit with an error if the information cannot be provided.
+
+The scripts are called with a current working directory of the root of the project,
+and so should examine the files in the working directory to obtain the information.
+
+One script
+~~~~~~~~~~
+
+It is also possible to write a single script that can provide multiple bits of
+information at once. This script reads in JSON formatted description of the pieces
+of information that are needed, and then writes a JSON formatted response on stdout
+that contains the pieces of information.
+
+The script can exit with an error if no information can be provided, or may choose
+to respond omitting the information that cannot be provided.
+
+The script is called with a current working directory of the root of the project,
+and so should examine the files in the working directory to obtain the information.
+
+The script may be called multiple times for the same project.
+
+The script should be called ``all_info``.
+
+``pkgme`` will write a JSON formatted list on the stdin of the ``all_info`` script
+containing the names of the pieces of information that are desired. It is expected
+to write a JSON formatted dict to its stdout and then exit. The dict should have keys
+that are the names passed in to the script, and the values should be the required
+information.
+
+For instance, if the script is passed::
+
+  ["package_name", "version"]
+
+then it should respond with something like::
+
+  {
+   "package_name": "foo",
+   "version": 1.0
+  }
+
+Keys may be omitted from the output if the information cannot be provided.
+
+Error handling
+~~~~~~~~~~~~~~
+
+Backends generally should not raise errors.  Instead, they should use their
+``want`` scripts to figure out whether they could package something
+successfully.
+
+Thus, if any of your backend scripts return a non-zero error code, pkgme will
+treat that as a serious and fatal error. It will abort packaging and dump any
+output from the failed script to the user, with an ugly error message and a
+traceback.  This is intended to provide you with the most information we can
+to help you debug your backend, and is an exceptional circumstance that users
+should never see.
+
+However, sometimes backends cannot guarantee in their ``want`` script that
+they can actually package something.  Perhaps the check would be very
+expensive, or perhaps packaging relies on some network operation that
+fails.  In these cases, the user ought to get a nice error message, rather
+than an ugly traceback.
+
+To provide the user with such an error, exit a backend script with return
+code 42.  Then the user will simply be shown ``ERROR:``, followed by any
+output printed by the script.  This gives you full control over the error
+message that the user sees, and allows you to make the message as friendly or
+as nasty as you would like.
+
+
+Making your backend available to ``pkgme``
+------------------------------------------
+
+Once you've written a backend, you will need to tell ``pkgme`` about it.
+There are a few different ways of doing this.
+
+Set the ``PKGME_BACKEND_PATHS`` environment variable
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The ``PKGME_BACKEND_PATHS`` environment variable overrides any place where
+``pkgme`` might otherwise look for backends. It's a ``PATH``-style variable
+where each path represents a directory that might contain backends.
+
+Install your backends on the system
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If ``PKGME_BACKEND_PATHS`` is unset, then ``pkgme`` will look for backends in
+the system installation directory.  This can normally be found in
+``/usr/share/pkgme/backends``.  If ``pkgme`` is being run by a Python
+installed in a non-default location, you'll find it in the
+``share/pkgme/backends`` directory under that location. (e.g. for
+``/usr/local/bin/python``, system backends live in
+``/usr/local/share/pkgme/backends``).
+
+Publish an entry point
+~~~~~~~~~~~~~~~~~~~~~~
+
+If your pkgme backend is implemented as a Python package, then you may want to
+publish an entry point.  This requires the use of setuptools_
+
+Simply put a line in your setup.py like this::
+
+  setup(
+      ...
+      entry_points = {
+         ...,
+         'pkgme.get_backends_path': ['your_backend_name=package.module:function_name'],
+         ...,
+         },
+      ...
+      )
+
+Where ``function_name`` is a nullary callable that returns a path that
+will be inserted in the ``pkgme`` backends search path.  If you are using
+setuptools, then you probably want to use ``pkg_resources.resource_filename``
+to generate this path.
+
+
+Information that ``pkgme`` may request
+--------------------------------------
+
+The following are the bits of information that your backend may be requested to provide.
+
+.. This outputs information on the info that a backend can provide, based
+   on introspecting the code. See pkgme.rstinfo for the code that does
+   this.
+.. pkgme_info_elements::
+
+
+.. _setuptools: http://pypi.python.org/pypi/setuptools
