@@ -1,0 +1,291 @@
+#!/usr/bin/python2
+# -*- coding: utf-8 -*-
+#
+#       pyifbabel
+#       
+#       Copyright © 2012 Brandon Invergo <brandon@brandoninvergo.com>
+#       
+#       This file is part of pyifbabel.
+#
+#       pyifbabel is free software: you can redistribute it and/or modify
+#       it under the terms of the GNU General Public License as published by
+#       the Free Software Foundation, either version 3 of the License, or
+#       (at your option) any later version.
+#
+#       pyifbabel is distributed in the hope that it will be useful,
+#       but WITHOUT ANY WARRANTY; without even the implied warranty of
+#       MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#       GNU General Public License for more details.
+#
+#       You should have received a copy of the GNU General Public License
+#       along with pyifbabel.  If not, see <http://www.gnu.org/licenses/>.
+
+
+import sys
+import getopt
+import os.path
+
+from treatyofbabel.ifstory import IFStory
+from treatyofbabel.babel import *
+
+
+def print_usage():
+    sys.exit("""
+pyifbabel: Treaty of Babel Analysis Tool ({0}, Treaty of Babel revision {1})
+Usage:
+    babel --ifid <storyfile>
+    babel --ifid <ifictionfile>
+        Deduce IFID
+    babel --format <storyfile>
+    Deduce story format
+    babel --ifiction <storyfile>
+        Extract iFiction file
+    babel --meta <storyfile>
+        Print story metadata
+    babel --identify <storyfile>
+        Describe story file
+    babel --cover <storyfile>
+        Extract cover art
+    babel --story <storyfile>
+        Extract story file (ie. from a blorb)
+    babel --verify <ifictionfile>
+        Verify integrity of iFiction file
+    babel --lint <ifictionfile>
+        Verify style of iFiction file
+    babel --fish <storyfile>
+    babel --fish <ifictionfile>
+        Extract all iFiction and cover art
+    babel --unblorb <storyfile>
+        As --fish, but also extract story files
+    babel --blorb <storyfile> <ifictionfile> [<cover art>]
+        Bundle story file and (sparse) iFiction into blorb
+    babel --blorbs <storyfile> <ifictionfile> [<cover art>]
+        Bundle story file and (sparse) iFiction into sensibly-named blorb
+    babel --complete <storyfile> <ifictionfile>
+        Create complete iFiction file from sparse iFiction
+
+For functions which extract files, add "--to <directory>" to the command
+to set the output directory.
+The input file can be specified as "-" to read from standard input
+(This may only work for .iFiction files)""".format(VERSION, TREATY_VERSION))
+
+
+if __name__ == "__main__":
+
+    to_dir = None
+    long_args = ["ifid", "format", "ifiction", "meta", "identify", "cover",
+            "story", "verify", "lint", "fish", "unblorb", "blorb",
+            "blorbs", "complete", "to="]
+    try:
+        opts, args = getopt.gnu_getopt(sys.argv[1:], "", long_args)
+    except getopt.GetoptError, err:
+        print str(err)
+        print_usage()
+        sys.exit(2)
+    if len(opts) == 0:
+        print_usage()
+        sys.exit(2)
+    if len(opts) > 2:
+        print_usage()
+        sys.exit(2)
+    if len(opts) == 2:
+        if "--to" in opts[0]:
+            to_dir = opts[0][1]
+        elif "--to" in opts[1]:
+            to_dir = opts[1][1]
+        else:
+            print_usage()
+            sys.exit(2)
+    mode = opts[0][0][2:]
+    if len(args) == 0:
+        print_usage()
+        sys.exit(2)
+    in_file = args[0]
+    if in_file == "-":
+        in_file = sys.stdin
+    if len(args) == 2:
+        in_file2 = args[1]
+    if len(args) == 3:
+        in_file3 = args[2]
+    if mode == "ifid":
+        ifids = get_ifids(in_file)
+        for ifid in ifids:
+            print "IFID: {0}".format(ifid)
+    elif mode == "format":
+        ifformat = deduce_format(in_file)
+        print "Format: {0}".format(ifformat)
+    elif mode == "ifiction":
+        ifids = get_ifids(in_file)
+        if ifids is None:
+            ifid = "UNKNOWN"
+        else:
+            ifid = ifids[0]
+        meta = get_meta(in_file, True)
+        if meta is None:
+            print "No iFiction record for {0}".format(ifid)
+        else:
+            basename = '.'.join([ifid, "iFiction"])
+            if to_dir is not None:
+                out_path = os.path.join(to_dir, basename)
+            else:
+                out_path = basename
+            with open(out_path, 'w') as out_handle:
+                out_handle.write(meta)
+    elif mode == "meta":
+        ifids = get_ifids(in_file)
+        if ifids is None:
+            ifid = "UNKNOWN"
+        else:
+            ifid = ifids[0]
+        meta = get_meta(in_file, True)
+        if meta is None:
+           print "No iFiction record for {0}".format(ifid)
+        else:
+            print meta
+    elif mode == "identify":
+        meta = get_meta(in_file, True)
+        ifids = get_ifids(in_file)
+        if ifids is None:
+            ifid = "UNKNOWN"
+        else:
+            ifid = ifids[0]
+        ifformat = deduce_format(in_file)
+        warning_line = ""
+        if ifformat is None:
+            warning_line = "Warning: Story format could not be positively identified. Guessing executable"
+            ifformat = "executable"
+        size = os.path.getsize(in_file) / 1024
+        cover = get_cover(in_file)
+        if meta is not None:
+            ifiction_dom = ifiction.get_ifiction_dom(meta)
+            story_node = ifiction.get_all_stories(ifiction_dom)[0]
+            biblio = ifiction.get_bibliographic(story_node)
+            biblio_line = ""
+            title = biblio.get("title")
+            if title is not None:
+                biblio_line = "".join([biblio_line, '"{0}"'.format(title)]) 
+            author = biblio.get("author")
+            if author is not None:
+                biblio_line = "".join([biblio_line, " by {0}".format(author)])
+            if biblio_line == "":
+                biblio_line = "No bibliographic data"
+        else:
+            biblio_line = "No bibliographic data"
+        ifid_line = "IFID: {0}".format(ifid)
+        if cover is None:
+            cover_str = "no cover"
+        else:
+            if cover.img_format == "jpg":
+                cover.img_format = "jpeg"
+            cover_str = "cover {0}x{1} {2}".format(cover.width, cover.height, cover.img_format)
+        info_line = "{0}, {1}k, {2}".format(ifformat, size, cover_str)
+        if warning_line != "":
+            print "\n".join([warning_line, biblio_line, ifid_line, info_line])
+        else:
+            print "\n".join([biblio_line, ifid_line, info_line])
+    elif mode == "cover":
+        ifids = get_ifids(in_file)
+        if ifids is None:
+            ifid = "UNKNOWN"
+        else:
+            ifid = ifids[0]
+        cover = get_cover(in_file)
+        if cover is not None:
+            basename = '.'.join([ifid, cover.img_format])
+            if to_dir is not None:
+                out_path = os.path.join(to_dir, basename)
+            else:
+                out_path = basename
+            with open(out_path, 'wb') as out_handle:
+                out_handle.write(cover.data)
+    elif mode == "story":
+        ifids = get_ifids(in_file)
+        if ifids is None:
+            ifid = "UNKNOWN"
+        else:
+            ifid = ifids[0]
+        story = get_story(in_file)
+        handler = deduce_handler(in_file, story)
+        ext = handler.get_story_file_extension(story)
+        basename = "".join([ifid, ext])
+        if to_dir is not None:    
+            out_path = os.path.join(to_dir, basename)
+        else:
+            out_path = basename
+        with open(out_path, 'wb') as out_handle:
+            out_handle.write(story)
+    elif mode == "verify":
+        print "This function is not yet implemented"
+    elif mode == "lint":
+        print "This function is not yet implemented"
+    elif mode == "fish":
+        ifids = get_ifids(in_file)
+        if ifids is None:
+            ifid = "UNKNOWN"
+        else:
+            ifid = ifids[0]
+        meta = get_meta(in_file, True)
+        if meta is None:
+            print "No iFiction record for {0}".format(ifid)
+        else:
+            basename = '.'.join([ifid, "iFiction"])
+            if to_dir is not None:
+                out_path = os.path.join(to_dir, basename)
+            else:
+                out_path = basename
+            with open(out_path, 'w') as out_handle:
+                out_handle.write(meta)
+        cover = get_cover(in_file)
+        if cover is not None:
+            basename = '.'.join([ifid, cover.img_format])
+            if to_dir is not None:
+                out_path = os.path.join(to_dir, basename)
+            else:
+                out_path = basename
+            with open(out_path, 'wb') as out_handle:
+                out_handle.write(cover.data)
+    elif mode == "unblorb":
+        ifids = get_ifids(in_file)
+        if ifids is None:
+            ifid = "UNKNOWN"
+        else:
+            ifid = ifids[0]
+        meta = get_meta(in_file, True)
+        if meta is None:
+            print "No iFiction record for {0}".format(ifid)
+        else:
+            basename = '.'.join([ifid, "iFiction"])
+            if to_dir is not None:
+                out_path = os.path.join(to_dir, basename)
+            else:
+                out_path = basename
+            with open(out_path, 'w') as out_handle:
+                out_handle.write(meta)
+        cover = get_cover(in_file)
+        if cover is not None:
+            basename = '.'.join([ifid, cover.img_format])
+            if to_dir is not None:
+                out_path = os.path.join(to_dir, basename)
+            else:
+                out_path = basename
+            with open(out_path, 'wb') as out_handle:
+                out_handle.write(cover.data)
+        story = get_story(in_file)
+        handler = deduce_handler(in_file, story)
+        ext = handler.get_story_file_extension(story)
+        basename = "".join([ifid, ext])
+        if to_dir is not None:    
+            out_path = os.path.join(to_dir, basename)
+        else:
+            out_path = basename
+        with open(out_path, 'wb') as out_handle:
+            out_handle.write(story)
+    elif mode == "blorb":
+        print "This function is not yet implemented"
+    elif mode == "blorbs":
+        print "This function is not yet implemented"
+    elif mode == "complete":
+        print "This function is not yet implemented"
+    sys.exit(0)
+ 
+
