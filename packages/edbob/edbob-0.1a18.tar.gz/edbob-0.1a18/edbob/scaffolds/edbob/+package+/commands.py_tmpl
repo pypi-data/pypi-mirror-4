@@ -1,0 +1,86 @@
+#!/usr/bin/env python
+
+"""
+``{{package}}.commands`` -- Console Commands
+"""
+
+import sys
+
+import edbob
+from edbob import commands
+
+from {{package}} import __version__
+
+
+class Command(commands.Command):
+    """
+    The primary command for {{project}}.
+    """
+    
+    name = '{{package}}'
+    version = __version__
+    description = "{{project}}"
+    long_description = ''
+
+
+class InitCommand(commands.Subcommand):
+    """
+    Initializes the database; called as ``{{package}} initialize``.  This is
+    meant to be leveraged as part of setting up the application.  The database
+    used by this command will be determined by config, for example::
+
+    .. highlight:: ini
+
+       [edbob.db]
+       sqlalchemy.url = postgresql://user:pass@localhost/{{package}}
+    """
+
+    name = 'initialize'
+    description = "Initialize the database"
+
+    def run(self, args):
+        from edbob.db import engine, Session
+        from edbob.db.util import install_core_schema
+        from edbob.db.exceptions import CoreSchemaAlreadyInstalled
+        from edbob.db.extensions import activate_extension
+
+        # Install core schema to database.
+        try:
+            install_core_schema(engine)
+        except CoreSchemaAlreadyInstalled, err:
+            print '%s:' % err
+            print '  %s' % engine.url
+            return
+
+        # Activate extensions.
+        activate_extension('auth')
+        activate_extension('{{package}}')
+
+        # Okay, on to bootstrapping...
+        session = Session()
+
+        # This creates an 'admin' user with 'admin' password.        
+        import edbob.db.auth
+        edbob.db.auth.init_database(engine, session)
+
+        # Do any other bootstrapping you like here...
+        
+        session.commit()
+        session.close()
+        
+        print "Initialized database:"
+        print '  %s' % engine.url
+
+
+def main(*args):
+    """
+    The primary entry point for the command system.
+    """
+
+    if args:
+        args = list(args)
+    else:
+        args = sys.argv[1:]
+
+    cmd = Command()
+    cmd.run(*args)
