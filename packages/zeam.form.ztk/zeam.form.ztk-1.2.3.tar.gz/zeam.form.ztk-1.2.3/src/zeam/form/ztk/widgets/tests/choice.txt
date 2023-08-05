@@ -1,0 +1,365 @@
+===========================
+zeam.form.ztk choice widget
+===========================
+
+Simple case
+===========
+
+First we need a choice:
+
+  >>> from zope import interface, schema
+  >>> from zope.schema.vocabulary import SimpleVocabulary, SimpleTerm
+  >>> from zope.interface.verify import verifyObject
+
+  >>> def display_vocabulary(values):
+  ...     for value in values:
+  ...         print "%r %r %r" % (value.value, value.token, value.title)
+
+  >>> letter_vocabulary = SimpleVocabulary([
+  ...     SimpleTerm(value='A', token='a1', title='Letter A'),
+  ...     SimpleTerm(value='B', token='b1', title='Letter B'),
+  ...     SimpleTerm(value='C', token='c1', title='Letter C')])
+
+  >>> number_vocabulary = SimpleVocabulary([
+  ...     SimpleTerm(value=1, token='#1', title='Number 1'),
+  ...     SimpleTerm(value=2, token='#2', title='Number 2'),
+  ...     SimpleTerm(value=3, token='#3', title='Number 3')])
+
+  >>> class ISimpleChoice(interface.Interface):
+  ...     choice = schema.Choice(
+  ...         title=u"My favorite letter",
+  ...         source=letter_vocabulary)
+
+
+And we will need a content and a request to test:
+
+  >>> from zope.publisher.browser import TestRequest
+  >>> request = TestRequest()
+
+  >>> class SimpleContent(object):
+  ...    interface.implements(ISimpleChoice)
+  ...    choice = None
+  >>> content = SimpleContent()
+  >>> content.choice = 'B'
+
+  >>> broken_content = SimpleContent()
+  >>> broken_content.choice = 'Z'
+
+Field
+-----
+
+So now you can create a field, and get a choice field:
+
+  >>> from zeam.form.base import Fields
+  >>> from zeam.form.base import interfaces
+
+  >>> simple_choice_fields = Fields(ISimpleChoice)
+  >>> simple_field = simple_choice_fields['choice']
+  >>> simple_field
+  <ChoiceSchemaField My favorite letter>
+
+  >>> simple_field.source is letter_vocabulary
+  True
+
+  >>> simple_field.validate('A', None)
+  >>> simple_field.validate('foo', None)
+  u'Constraint not satisfied'
+
+  >>> verifyObject(interfaces.IField, simple_field)
+  True
+
+Widget
+------
+
+You have an associated widget:
+
+  >>> from zeam.form.ztk import Widgets, FormData, DISPLAY
+
+  >>> simple_form = FormData(content, request)
+  >>> simple_form.ignoreContent = False
+
+  >>> simple_widgets = Widgets(
+  ...     simple_choice_fields,
+  ...     form=simple_form,
+  ...     request=request)
+
+  >>> simple_widgets.update()
+
+  >>> simple_widget = simple_widgets['form.field.choice']
+  >>> simple_widget
+  <ChoiceFieldWidget My favorite letter>
+
+  >>> simple_widget.inputValue()
+  'b1'
+
+  >>> print simple_widget.render()
+  <select id="form-field-choice" name="form.field.choice" class="field field-choice field-required">
+    <option value="a1">Letter A</option>
+    <option value="b1" selected="selected">Letter B</option>
+    <option value="c1">Letter C</option>
+  </select>
+
+Display Widget
+--------------
+
+We have a display widget that display a value with the correct title:
+
+  >>> display_form = FormData(content, request)
+  >>> display_form.ignoreContent = False
+  >>> display_form.ignoreRequest = True
+  >>> display_form.mode = DISPLAY
+
+  >>> display_widgets = Widgets(
+  ...     simple_choice_fields,
+  ...     form=display_form,
+  ...     request=request)
+
+  >>> display_widgets.update()
+
+  >>> display_widget = display_widgets['form.field.choice']
+  >>> display_widget
+  <ChoiceDisplayWidget My favorite letter>
+
+  >>> print display_widget.render()
+  Letter B
+
+You can display a content that have a value which is not in the
+vocabulary. Nothing will be displayed:
+
+  >>> broken_display_form = FormData(broken_content, request)
+  >>> broken_display_form.ignoreContent = False
+  >>> broken_display_form.ignoreRequest = True
+  >>> broken_display_form.mode = DISPLAY
+
+  >>> broken_display_widgets = Widgets(
+  ...     simple_choice_fields,
+  ...     form=broken_display_form,
+  ...     request=request)
+
+  >>> broken_display_widgets.update()
+
+  >>> broken_display_widget = broken_display_widgets['form.field.choice']
+  >>> broken_display_widget
+  <ChoiceDisplayWidget My favorite letter>
+
+  >>> print broken_display_widget.render()
+  <BLANKLINE>
+
+Extractor
+---------
+
+We need a custom extractor as the token value used in the form can be
+different than the real value:
+
+  >>> from zope import component
+  >>> from zeam.form.base import interfaces
+
+  >>> simple_extractor = component.getMultiAdapter(
+  ...      (simple_field, simple_form, request), interfaces.IWidgetExtractor)
+
+  >>> simple_extractor
+  <zeam.form.ztk.widgets.choice.ChoiceWidgetExtractor object at ...>
+  >>> simple_extractor.extract()
+  (<Marker NO_VALUE>, None)
+
+Let's now do it with a value:
+
+  >>> simple_request = TestRequest(
+  ...    form={simple_widget.identifier: u'a1', })
+
+  >>> simple_extractor = component.getMultiAdapter(
+  ...    (simple_field, simple_form, simple_request),
+  ...    interfaces.IWidgetExtractor)
+
+  >>> simple_extractor.extract()
+  ('A', None)
+
+And a value which is not in the vocabulary:
+
+  >>> broken_request = TestRequest(
+  ...    form={simple_widget.identifier: u'z42', })
+
+  >>> broken_extractor = component.getMultiAdapter(
+  ...    (simple_field, simple_form, broken_request),
+  ...    interfaces.IWidgetExtractor)
+
+  >>> broken_extractor.extract()
+  (None, u'Invalid value')
+
+Context binded source
+=====================
+
+Let's define a source which need the context to produce its values,
+and an interface for it:
+
+  >>> from grokcore import component
+  >>> from zope.schema.interfaces import IContextSourceBinder
+
+  >>> @component.provider(IContextSourceBinder)
+  ... def context_vocabulary(context):
+  ...     return letter_vocabulary
+
+  >>> class IContextChoice(interface.Interface):
+  ...     choice = schema.Choice(
+  ...         title=u"My Choice",
+  ...         source=context_vocabulary)
+
+  >>> class ContextContent(object):
+  ...    interface.implements(IContextChoice)
+  ...    choice = None
+
+  >>> content = ContextContent()
+  >>> content.choice = 'C'
+
+  >>> from zeam.form.ztk import FormData
+
+  >>> context_form = FormData(content, request)
+  >>> context_form.ignoreContent = False
+
+Field
+-----
+
+So now you can create a field, and get a choice field:
+
+  >>> from zeam.form.ztk import Fields
+
+  >>> context_fields = Fields(IContextChoice)
+  >>> context_field = context_fields['choice']
+  >>> context_field
+  <ChoiceSchemaField My Choice>
+  >>> context_field.source is None
+  True
+  >>> context_field.factory is context_vocabulary
+  True
+
+  >>> choices = context_field.getChoices(context_form)
+  >>> choices
+  <zope.schema.vocabulary.SimpleVocabulary object at ...>
+  >>> display_vocabulary(choices)
+  'A' 'a1' 'Letter A'
+  'B' 'b1' 'Letter B'
+  'C' 'c1' 'Letter C'
+
+  >>> context_field.validate('A', None)
+  >>> context_field.validate(1, None)
+  u'Constraint not satisfied'
+
+Widget
+------
+
+You have an associated widget:
+
+  >>> from zeam.form.ztk import Widgets, FormData
+
+  >>> context_form = FormData(content, request)
+  >>> context_form.ignoreContent = False
+
+  >>> context_widgets = Widgets(
+  ...     context_fields,
+  ...     form=context_form,
+  ...     request=request)
+
+  >>> context_widgets.update()
+
+  >>> context_widget = context_widgets['form.field.choice']
+  >>> context_widget
+  <ChoiceFieldWidget My Choice>
+
+  >>> context_widget.inputValue()
+  'c1'
+
+  >>> print context_widget.render()
+  <select id="form-field-choice" name="form.field.choice" class="field field-choice field-required">
+    <option value="a1">Letter A</option>
+    <option value="b1">Letter B</option>
+    <option value="c1" selected="selected">Letter C</option>
+  </select>
+
+
+Customizing vocabulary
+----------------------
+
+You after creation change the vocabulary:
+
+  >>> context_field.source = number_vocabulary
+  >>> new_choices = context_field.getChoices(context_form)
+  >>> new_choices
+  <zope.schema.vocabulary.SimpleVocabulary object at ...>
+  >>> display_vocabulary(new_choices)
+  1 '#1' 'Number 1'
+  2 '#2' 'Number 2'
+  3 '#3' 'Number 3'
+
+  >>> context_field.validate('A', None)
+  u'Constraint not satisfied'
+  >>> context_field.validate(1, None)
+
+Or you can change the factory. Let's define a form binded source:
+
+  >>> from zeam.form.ztk.interfaces import IFormSourceBinder
+
+  >>> @component.provider(IFormSourceBinder)
+  ... def form_vocabulary(form):
+  ...     assert form is context_form
+  ...     return letter_vocabulary
+
+  >>> context_field.factory = form_vocabulary
+  >>> new_choices = context_field.getChoices(context_form)
+  >>> new_choices
+  <zope.schema.vocabulary.SimpleVocabulary object at ...>
+  >>> display_vocabulary(new_choices)
+  'A' 'a1' 'Letter A'
+  'B' 'b1' 'Letter B'
+  'C' 'c1' 'Letter C'
+
+  >>> context_field.validate('A', None)
+  >>> context_field.validate(1, None)
+  u'Constraint not satisfied'
+
+
+Registered vocabulary
+=====================
+
+Let's create a vocabulary that is registered in the ZCA, and use it in
+a schema:
+
+  >>> from zope.schema.interfaces import IVocabularyFactory
+  >>> from zope.component import provideUtility, queryUtility
+
+  >>> @component.provider(IVocabularyFactory)
+  ... def vocabulary_factory(context):
+  ...     return letter_vocabulary
+
+  >>> provideUtility(vocabulary_factory, IVocabularyFactory, name="Third letter")
+  >>> vocabulary = queryUtility(IVocabularyFactory, name="Third letter")
+  >>> vocabulary
+  <function vocabulary_factory at ...>
+
+  >>> class IThirdChoice(interface.Interface):
+  ...     choice = schema.Choice(
+  ...         title=u"The third letter",
+  ...         vocabulary="Third letter")
+
+Field
+-----
+
+So now you can create a field, and get a choice field:
+
+  >>> vocabulary_fields = Fields(IThirdChoice)
+  >>> vocabulary_field = vocabulary_fields['choice']
+  >>> vocabulary_field
+  <ChoiceSchemaField The third letter>
+  >>> vocabulary_field.source is None
+  True
+  >>> vocabulary_field.factory is vocabulary_factory
+  True
+
+  >>> choices = vocabulary_field.getChoices(context_form)
+  >>> choices
+  <zope.schema.vocabulary.SimpleVocabulary object at ...>
+  >>> display_vocabulary(choices)
+  'A' 'a1' 'Letter A'
+  'B' 'b1' 'Letter B'
+  'C' 'c1' 'Letter C'
+
+  >>> vocabulary_field.validate('C', None)
