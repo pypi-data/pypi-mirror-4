@@ -1,0 +1,161 @@
+#! /usr/bin/env python
+from optparse import OptionParser
+from wordpresspm import installers
+import sys, os, re, zipfile, shutil, urllib2, urllib, subprocess, re, tempfile, urlparse
+
+
+class WPM(object):
+    wp_latest = "http://wordpress.org/latest.zip"
+
+    def __init__(self):
+        self.parser = OptionParser()
+        self.parser.usage = "wpm installframwork|install|search|update <plugin name> <location> [options]"
+    
+    def main(self):
+        self.set_options()
+        self.options, self.args = self.parser.parse_args()
+        
+        try:
+                getattr(self,self.args[0])()
+        except IndexError:
+            print "Please specify a command."
+            return
+        except AttributeError:
+            print "Invalid Command. Usage: %s" % self.parser.usage
+            return
+
+        print "Installation Complete."
+    
+    def set_options(self):
+        self.parser.add_option("-r", "--requirements", metavar="FILE", help="The location of the requirements file",)
+
+
+    """
+    Downloads and installs the WordPress framework.
+    """        
+    def installframework(self):
+        
+        print "Installing WordPress framework"
+                
+        installer = self._get_installer( protocol="ZIP")
+        installer = installer( arguments=self.args, options=self.options, url=self.wp_latest )
+
+        if os.path.exists( os.path.join(installer.target_location,'wp-config.php')):
+            answer = raw_input("It looks like WordPress has already been installed in this directory. Should I overwrite? (y/n):")
+        else:
+            answer = 'y'
+
+        if answer != 'y':
+            sys.exit("Aborting WordPress installation.")
+              
+        installer.install()
+        
+        for obj in os.listdir(os.path.join(installer.target_location,'wordpress')):
+            src = os.path.join(installer.target_location,'wordpress', obj)
+            dest = os.path.join(installer.target_location,'wordpress', '../', obj)
+            shutil.move(src, dest)
+         
+        shutil.move(os.path.join(installer.target_location,'wp-config-sample.php'), os.path.join(installer.target_location,'wp-config.php'))
+    
+        os.rmdir(os.path.join(installer.target_location,'wordpress'))
+        
+        installer.set_security_keys(os.path.join(installer.target_location,'wp-config.php'))
+
+        print "Done"
+        
+
+    """
+    Installs a plugin
+    """        
+    def install(self):
+        plugin_name = self.args[1]
+                
+        if self.options.__dict__.get('requirements',None) is not None:
+            file = open(self.options.__dict__.get('requirements'), 'r')
+            requirements = file.readlines()
+            file.close()
+            
+            for line in requirements:
+                self._route_install( line )
+        else:            
+            self._route_install(plugin_name)
+
+
+    """
+    Search for available plugins to install
+    """      
+    def search(self):
+
+        local = open(os.path.expanduser('~/.wpm/available_plugins'), 'r+')
+        search_str = sys.argv[2]
+        
+        for line in local.readlines():
+            if re.search(search_str, line): print line.replace("\r\n",'')
+
+
+    """
+    List all installed plugins
+    """            
+    def list(self):
+        try:
+            pass
+        except:
+            NotImplementedError
+
+    """
+    Update the local list of plugins
+    """
+    def update(self):
+        
+        print "Getting plugins list"
+        installer = installers.DBInstaller( arguments=self.args, options=self.options )
+        installer.install()
+        print "\nPlugins updated."
+
+
+    """
+    Create the setup directory that contains the package repositories
+    """        
+    def setup(self):
+
+        print "Installing WPM"
+        installer = installers.DBInstaller( arguments=self.args, options=self.options )
+        installer.install()
+        print "\nInstallation complete"
+
+    """
+    Decides which protocol to use to install the plugin
+    """
+    def _route_install(self, line):
+
+        if line == '' or line[:1] == '#':
+            return
+
+        parsed = re.compile('(?P<protocol>git|svn|zip)\+(?P<url>.*)#egg=(?P<name>.*)').search(line.strip())
+
+        params = {
+            'arguments': self.args,
+            'options': self.options,
+            'url': parsed.group('url') if parsed is not None else '' ,
+            'plugin_name': parsed.group('name') if parsed is not None else ''
+        }
+
+        if parsed is None:
+            params['plugin_name'] = line.strip()
+            Installer = self._get_installer()
+        else:
+            Installer = self._get_installer( protocol=parsed.group('protocol') )
+
+        instance = Installer( **params )
+        instance.install()
+
+        print "Installed " + params['plugin_name']
+
+        
+    def _get_installer(self, protocol='WP'):
+        return getattr( installers, "%sInstaller" % protocol.upper() )
+        
+
+if __name__ == '__main__':
+    wpm = WPM()
+    wpm.main()
