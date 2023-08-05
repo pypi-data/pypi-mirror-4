@@ -1,0 +1,75 @@
+Converts original data to JSON
+==============================
+
+Use for debug: import pdb; pdb.set_trace()
+
+Let's upload a file.
+
+    >>> portal = layer['portal']
+    >>> _ = portal.invokeFactory('Folder', 'sandbox')
+    >>> sandbox = portal._getOb('sandbox')
+    >>> _ = sandbox.invokeFactory('File', 'daviz-file')
+    >>> daviz_file = sandbox._getOb('daviz-file')
+
+    >>> from eea.app.visualization.interfaces import IPossibleVisualization
+    >>> IPossibleVisualization.providedBy(daviz_file)
+    True
+
+    >>> from eea.daviz.tests.utils import preparefile
+    >>> csv_file = preparefile('data/file.tsv', ctype='text/csv')
+    >>> daviz_file.setFile(csv_file)
+
+Let's check if file uploaded.
+
+    >>> len(daviz_file.getFile().data) > 0
+    True
+
+Let's convert file data and check JSON output.
+
+    >>> from StringIO import StringIO
+    >>> from zope.component import getUtility
+    >>> from zope.interface import implements, alsoProvides
+    >>> from eea.app.visualization.converter.interfaces import IExhibitJsonConverter
+    >>> from eea.app.visualization.interfaces import IVisualizationEnabled
+
+    >>> if not IVisualizationEnabled.providedBy(daviz_file):
+    ...     alsoProvides(daviz_file, IVisualizationEnabled)
+    >>> datafile = StringIO(daviz_file.getFile().data)
+    >>> converter = getUtility(IExhibitJsonConverter)
+    >>> columns, json = converter(datafile)
+    >>> from pprint import pprint
+    >>> pprint(json)
+    {'items': [...
+               {'country': 'Italy',
+                'description': '\xd0\x97\xd0\xb5\xd0\xbc\xd1\x8f',
+                'job_title': 'Head of Group',
+                'label': 'Antonio De Marinis',
+                'programme': 'NSV1 - Biodiversity',
+                'quantity': 10.5,
+                'starting_date': '2010-01-01'},
+    ...],
+     'properties': {'country': {'columnType': u'text',
+                                'label': u'Country',
+                                'order': 3,
+                                'valueType': u'text'},
+    ...}}
+
+Now let's use the browser interface
+
+    >>> from zope.component import queryMultiAdapter
+    >>> converter = queryMultiAdapter((daviz_file, daviz_file.REQUEST), name=u'daviz_support')
+    >>> _ = converter.enable()
+
+    >>> from zope.component import queryAdapter
+    >>> from eea.app.visualization.interfaces import IVisualizationConfig
+    >>> accessor = queryAdapter(daviz_file, IVisualizationConfig)
+    >>> accessor.json.__class__
+    <class 'persistent.mapping.PersistentMapping'>
+
+    >>> pprint(dict(accessor.json))
+    {'items': [],
+      'properties': {'country': {'columnType': u'text',
+                                 'label': u'Country',
+                                 'order': 3,
+                                 'valueType': u'text'},
+    ...}}
