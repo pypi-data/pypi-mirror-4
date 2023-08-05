@@ -1,0 +1,1 @@
+See `collective/behavior/salable/docs/README.rst <https://github.com/collective/collective.behavior.salable/blob/master/collective/behavior/salable/docs/README.rst>`_
