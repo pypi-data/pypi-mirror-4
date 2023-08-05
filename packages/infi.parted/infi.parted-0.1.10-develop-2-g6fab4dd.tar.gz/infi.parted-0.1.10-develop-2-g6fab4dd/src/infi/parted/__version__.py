@@ -1,0 +1,10 @@
+__version__ = "0.1.10-develop-2-g6fab4dd"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = 'develop'
+__git_remote_tracking_branch__ = 'origin/develop'
+__git_remote_url__ = 'git@gitserver:/host/parted.git'
+__git_head_hash__ = '6fab4ddff922e10f329d5aa9bdd6e122f8a1cbd5'
+__git_head_subject__ = 'HIP-362'
+__git_head_message__ = ''
+__git_dirty_diff__ = ''
