@@ -1,0 +1,209 @@
+===================================================================
+Functional test of the google import which checks the importer
+command line works for google sites 
+===================================================================
+
+by Ed Crewe, ILRT (University of Bristol) 
+Feb 2011
+
+(requires google site with test content generated from export_google.txt
+Duplicates second half of import.txt after this test, 
+to check that site has gone into plone OK from Google)
+
+    >>> import os 
+    >>> from shutil import copytree, move, rmtree
+    >>> from Products.CMFPlone.utils import getToolByName
+
+Make the implicit test user (portal_owner) a manager
+
+    >>> self.setRoles(['Manager'])
+
+Set up a new folder and populate import context
+===============================================
+
+Add a folder to generate the import content in
+
+    >>> folderid = 'import_folder'
+    >>> doc = portal.invokeFactory("Folder", folderid)
+    >>> folder = getattr(portal, folderid)
+
+Publish it
+
+    >>> wftool = getToolByName(portal, 'portal_workflow')
+    >>> wftool.doActionFor(folder,'publish')
+
+Get the export path from the content exporter - hence this is writable
+
+    >>> from ilrt.contentmigrator.exportimport.contentexporter import ContentExporterView
+    >>> exporter = ContentExporterView(portal, {})
+    >>> export_path = exporter.savepath
+
+
+Get this eggs tests profile info and the import path we will need to move our export to
+
+    >>> from Products.GenericSetup import profile_registry
+    >>> profile_id = '%s:%s' % ('ilrt.contentmigrator', 'tests')
+    >>> profile_info = profile_registry.getProfileInfo(profile_id)
+    >>> import_path = os.path.join(profile_info['path'],'structure')
+
+Log in to the Google site ready to export it
+============================================
+
+(this test is dependent on the export_google test having been run to 
+populate the Google site)
+
+    >>> import gdata.sites.client
+    >>> SOURCE = 'contentmigrator-export-v1'
+    >>> SITE = 'contentmigrator'
+    >>> USER = 'contentmigrator@gmail.com'
+    >>> PW = 'torrag456'
+    >>> client = gdata.sites.client.SitesClient(source=SOURCE, site=SITE)
+    >>> client.ssl = True  
+    >>> token = client.ClientLogin(USER, PW, client.auth_service)
+
+Check we are pointing at the test site
+
+    >>> feed = client.GetSiteFeed()
+    >>> titles = [entry.site_name.text for entry in feed.entry]
+    >>> 'contentmigrator' in titles
+    True
+
+Remove the export structure folder if it already exists in the tests profile
+
+    >>> if os.path.exists(export_path):
+    ...     rmtree(export_path)
+
+Export the Google site to a structure folder
+
+    >>> from ilrt.contentmigrator.google.import_content import GoogleExporter
+    >>> exp = GoogleExporter(client, export_path)
+    >>> exp.export()
+    >>> 'Wrote ilrt.jpg [attachment]' in exp.out
+    True
+
+    >>> os.path.exists(export_path)
+    True
+
+    >>> 'Wrote Test New Item [webpage]' in exp.out
+    True
+
+cp export_path to import_path - since import folder may not be writable via plone
+
+    >>> copytree(export_path, import_path)
+    >>> os.path.exists(os.path.join(import_path,'.objects'))
+    True
+
+Do the Import
+=============
+
+This assumes the export has run to create the import structure 
+
+    >>> importer = getattr(portal, 'portal_setupcontent')
+
+Check the import reindex at the end option preserves metadata so use 'all'
+Run the import
+
+    >>> importer.editContext(context_id='profile-%s' % profile_id, reindex='all')
+    >>> importer.manage_runImport(root='/%s' % folderid)
+    >>> 'Adding folder test_folder with 4 objects' in importer.getImportLog()
+    True
+
+Check that the import has worked via the test browser
+=====================================================
+
+Start functional test
+---------------------
+
+    >>> from Products.Five.testbrowser import Browser
+    >>> from mechanize._mechanize import LinkNotFoundError
+
+    >>> browser = Browser()
+    >>> browser.handleErrors = True
+    >>> portal_url = portal.absolute_url()
+
+Login as the demo editor user
+-----------------------------
+
+    >>> from Products.PloneTestCase import PloneTestCase as PTC
+
+We have the login portlet, so let's use that:
+
+    >>> browser.open('http://nohost/plone/login')
+    >>> browser.getLink('Log in').click()
+    >>> browser.getControl(name='__ac_name').value = PTC.portal_owner
+    >>> browser.getControl(name='__ac_password').value = PTC.default_password
+    >>> browser.getControl(name='submit').click()
+
+We check that we get the logged-in message:
+
+    >>> "You are now logged in" in browser.contents
+    True
+
+Lets see if our content has imported into import_folder
+-------------------------------------------------------
+
+Now lets look to see if the test folder has been imported into the import_folder
+
+    >>> testurl = '/'.join([portal_url,folderid,'folder_contents'])
+    >>> testurl
+    'http://nohost/plone/import_folder/folder_contents'
+    >>> browser.open(testurl)
+    >>> 'test_folder' in browser.contents
+    True
+
+
+Check nested folder is there and modified dates are getting passed OK on import
+
+    >>> from datetime import datetime
+    >>> now = datetime.now().year
+    >>> folder = portal.import_folder.test_folder.nested
+    >>> now == folder.modified().year()
+    True
+
+Lets go to it
+
+    >>> testurl = '/'.join([portal_url,folderid,'test_folder/folder_contents'])
+    >>> browser.open(testurl)
+
+Now lets look to see if the page, file and image are in it
+First the page and its workflow state
+
+    >>> 'ilrt.jpg' in browser.contents
+    True
+    >>> 'test.pdf' in browser.contents
+    True
+
+Next check the image by size to ensure binaries are not empty
+
+    >>> '2.8 kB' in browser.contents
+    True
+    >>> '0 kB' in browser.contents
+    False
+
+Finally open the page
+
+    >>> testurl = '/'.join([portal_url,folderid,'test_folder/test-new-item'])
+    >>> browser.open(testurl)
+
+Check the page metadata
+
+    >>> "A-dummy-page-created-by-the-test" in browser.contents
+    True
+    >>> "blah blah my content" in browser.contents
+    True
+
+Confirm that the lines field is handled properly as a tuple
+
+    >>> testpage = getattr(folder.test_folder, 'test-new-item', None)
+    >>> testpage == None
+    False
+
+Clean up exported content or test will generate content
+-------------------------------------------------------
+
+    >>> rmtree(import_path)
+    >>> os.path.exists(import_path)
+    False
+
+
+Debug read the log     >>> importer.getImportLog()

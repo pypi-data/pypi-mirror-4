@@ -1,0 +1,293 @@
+===================================================================
+Functional test of the export which checks the standalone exporter
+product for older plone works in new plone and dumps default 
+content and created user, page, image and workflow states
+===================================================================
+
+by Ed Crewe, ILRT (University of Bristol) 
+June 2009 - export content test for plone 3 
+(see export.txt for same test for current plone 4)
+
+    >>> import os 
+    >>> from Products.Five.testbrowser import Browser
+    >>> from Products.PloneTestCase.setup import portal_owner, default_password
+    >>> from Products.CMFPlone.utils import getToolByName
+    >>> from mechanize._mechanize import LinkNotFoundError
+
+First we need to create a user and content
+==========================================
+
+Set up a new user as an editor
+------------------------------
+
+Make the implicit test user (portal_owner) a manager
+
+    >>> self.setRoles(['Manager'])
+    >>> portal_url = portal.absolute_url()
+
+Register a new demo editor user
+
+    >>> editor = "demoeditor"
+    >>> roles = ['Member','Editor','Contributor']
+    >>> uf = portal.acl_users
+    >>> if uf.getUserById(editor) is None:
+    ...     uf.userFolderAddUser(editor, default_password,roles,[]) 
+
+Check we have created the user
+
+    >>> user = uf.getUserById(editor)
+    >>> user.getId()
+    'demoeditor'
+
+Add a folder for the editor to work in
+---------------------------------------
+
+    >>> folderid = 'test_folder'
+    >>> doc = portal.invokeFactory("Folder", folderid)
+    >>> folder = getattr(portal, folderid)
+
+Publish it
+
+    >>> wftool = getToolByName(portal, 'portal_workflow')
+    >>> wftool.doActionFor(folder,'publish')
+
+Start functional test for editor
+--------------------------------
+
+    >>> browser = Browser()
+
+Set this to false to see all errors
+
+    >>> browser.handleErrors = True
+
+Login as the demo editor user
+-----------------------------
+
+We have the login portlet, so let's use that:
+
+    >>> browser.open(portal_url)
+    >>> browser.getControl(name='__ac_name').value = editor
+    >>> browser.getControl(name='__ac_password').value = default_password
+    >>> browser.getControl(name='submit').click()
+
+We check that we get the logged-in message:
+
+    >>> "You are now logged in" in browser.contents
+    True
+
+Switch to textarea for editor 
+-----------------------------
+
+Go to the users dashboard to check their preferences are set OK
+
+   >>> browser.open(portal_url + '/dashboard')
+
+Check we have disabled editors and just use the text box
+
+    >>> browser.getLink('Personal Preferences').click()
+    >>> browser.getControl(name='wysiwyg_editor').value = ['None']
+    >>> browser.getControl(name='fullname').value = 'Demo Editor'
+    >>> browser.getControl(name='email').value = 'nobody@plone.org'
+    >>> browser.getControl(name='form.button.Save').click()
+    >>> "Your personal settings have been saved." in browser.contents
+    True
+    >>> browser.getControl(name='wysiwyg_editor').value
+    ['None']
+
+
+Add a page as an editor
+-----------------------
+
+Now go to the folder listing page
+
+    >>> folder_url = folder.absolute_url()
+    >>> browser.open(folder_url)
+    >>> 'Contents' in browser.contents
+    True
+
+Lets try to create a new document as the editor
+-----------------------------------------------
+
+    >>> new_title = "Test New Item"
+    >>> new_id = "test-new-item"
+
+Click on the 'Add New ...' > 'Document' link via url to be language safe 
+
+    >>> browser.getLink(url=folder_url + '/createObject?type_name=Document').click()
+    >>> "/portal_factory/Document/document." in browser.contents
+    True
+
+Fill in the form with dummy content for the test page
+
+    >>> browser.getControl(name="title").value = new_title
+    >>> descrip = "A dummy page created by the test handler"
+    >>> browser.getControl(name='description').value = descrip
+    >>> browser.getControl(name='text').value = "<h1>Test new page</h1>\n\n<p>blah blah my content</p>"
+    >>> browser.getControl(name='rights').value = "ilrt.contentmigrator test\n"
+    >>> browser.getControl(name='language').value = ['zu',]
+
+Test a lines field too 
+
+    >>> contrib = browser.getControl(name='contributors:lines')
+    >>> contrib.value = "test\nlines\nfield"
+    >>> try:
+    ...     submit = browser.getControl('Submit')
+    ... except:
+    ...	    submit = browser.getControl(name='form.button.save')
+    >>> submit.click()
+    >>> "Changes saved." in browser.contents
+    True
+    >>> new_title in browser.contents
+    True
+
+Confirm internally stored as tuple
+
+    >>> testpage = getattr(folder, 'test-new-item', None)
+    >>> testpage.Contributors()
+    ('test', 'lines', 'field')
+
+So lets just submit this item for publication ... 
+
+    >>> doc_url = folder_url + '/' + new_id
+    >>> submit_url =  doc_url + '/content_status_modify?workflow_action=submit'
+    >>> browser.getLink(url=submit_url).click()
+
+Check its pending
+
+    >>> 'class="state-pending navTreeCurrentItem navTreeCurrentNode"' in browser.contents
+    True
+
+Get this eggs profile info in order to derive the tests path from it
+
+    >>> from Products.GenericSetup import profile_registry
+    >>> profile_info = profile_registry.getProfileInfo('%s:%s' % ('ilrt.contentmigrator', 'default'))
+    >>> test_path = profile_info['path']
+    >>> test_path = test_path.replace('profiles','tests')
+    >>> test_path = test_path.replace('default','content')
+
+Add a file
+----------
+
+We get the example pdf file
+
+    >>> pdf = open(os.path.join(test_path,'test.pdf'))
+
+First we need to open folder view
+
+    >>> browser.open(folder_url)
+
+Then we need to upload it to the form
+
+    >>> browser.getLink('File').click()
+    >>> browser.getControl(name='title').value = 'Test PDF File'
+    >>> browser.getControl(name='description').value = 'Test description'
+    >>> upload_control = browser.getControl(name='file_file')
+    >>> upload_file = upload_control.mech_control
+    >>> upload_file.add_file(pdf,filename='test.pdf')
+
+Finally save the form and close the file.
+
+    >>> try:
+    ...     submit = browser.getControl('Submit')
+    ... except:
+    ...	    submit = browser.getControl(name='form.button.save')
+    >>> submit.click()
+    >>> pdf.close()
+    >>> 'Changes saved.' in browser.contents
+    True
+
+
+Add an image
+------------
+
+Repeat for an image
+
+    >>> image = open(os.path.join(test_path,'ilrt.jpg'))
+    >>> browser.open(folder_url)
+    >>> browser.getLink('Image').click()
+    >>> browser.getControl(name='title').value = 'Test image'
+    >>> browser.getControl(name='description').value = 'ILRT logo'
+    >>> upload_control = browser.getControl(name='image_file')
+    >>> upload_file = upload_control.mech_control
+    >>> upload_file.add_file(image,filename='ilrt.jpg')
+    >>> try:
+    ...     submit = browser.getControl('Submit')
+    ... except:
+    ...	    submit = browser.getControl(name='form.button.save')
+    >>> submit.click()
+    >>> image.close()
+    >>> 'Changes saved.' in browser.contents
+    True
+
+And another folder
+
+    >>> dummy = portal.test_folder.invokeFactory("Folder", 'nested')
+
+Do the Export
+=============
+
+    >>> from ilrt.contentmigrator.exportimport.contentexporter import ContentExporterView
+    >>> exporter = ContentExporterView(portal, {})
+    >>> log = exporter.export(root='/', portal=portal, users='yes')
+
+Check log to see if it thinks its worked
+
+    >>> 'Exporting 13 content items to zope/var/structure' in log
+    True
+
+Now lets look to see if the test folder has been exported to instance/var/structure
+
+    >>> export_path = os.path.join(INSTANCE_HOME,'var','structure',folderid)
+    >>> os.path.exists(export_path)
+    True
+
+See if it has its objects metadata
+
+    >>> ofd = open(os.path.join(export_path,'.objects'))
+    >>> 'test-new-item,Document' in ofd.read()
+    True
+    >>> ofd.close()
+
+Now lets look to see if the page, file and image are in it
+First the page and its workflow state
+
+    >>> ofd = open(os.path.join(export_path,new_id))
+    >>> expage = ofd.read()
+    >>> 'blah blah' in expage
+    True
+    >>> 'states: pending' in expage
+    True
+    >>> 'creators: demoeditor' in expage
+    True
+    >>> ofd.close()
+
+Next check the file and image by size to ensure binaries are not empty
+
+    >>> os.path.getsize(os.path.join(export_path,'test.pdf')) > 10000
+    True    
+    >>> os.path.getsize(os.path.join(export_path,'ilrt.jpg')) > 2000
+    True
+
+Finally check the nested folder .properties metadata file exists
+
+    >>> filepath = os.path.join(export_path,'nested','.properties')
+    >>> ofd = open(filepath)
+    >>> exprops = ofd.read()
+    >>> 'nested' in exprops
+    True
+    >>> 'states: private' in exprops
+    True
+    >>> ofd.close()
+
+To check modified dates are getting reset on import so we want to 
+manually alter the date to make it easier to check
+
+    >>> from datetime import datetime
+    >>> year = datetime.now().year
+    >>> exprops = exprops.replace('_date: %s' % year, '_date: %s' % str(int(year)-5))
+    >>> ofd = open(filepath, 'w')
+    >>> ofd.write(exprops)
+    >>> ofd.close()
+ 
+Debug - show the log >>> str(exporter.getLog())
+
