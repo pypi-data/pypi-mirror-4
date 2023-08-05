@@ -1,0 +1,1 @@
+define(["jquery","plugins/bootstrap"],function(e){return e("body").tooltip({title:"This is unpublished content and viewable only by staff",selector:".staff-only",placement:function(){return this.$element.attr("data-placement")||"top"}})});
