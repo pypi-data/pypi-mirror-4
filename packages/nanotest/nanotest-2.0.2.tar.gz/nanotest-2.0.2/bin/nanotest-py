@@ -1,0 +1,149 @@
+#!/usr/bin/env python
+
+import argparse
+import json
+import os
+import sys
+
+# ----------------------------------------------------------------------- init
+
+parser = argparse.ArgumentParser(description="Find any and all files matching '*/tests/*py' in the current directory tree, and run them as nanotest-py tests.")
+parser.add_argument("-j", "--json", action="store_true", help ="Dump all test results to STDOUT as JSON (disables other output; result will be an empty list if no tests are found)")
+parser.add_argument("-s", "--silent", action="store_true", help ="Output nothing at all, indicating test failure by return code (0: success, 1: failure, 2: no tests found)")
+parser.add_argument("-n", '--noprepend', action="store_true", help="Do not prepend the current directory to sys.path; append instead")
+parser.add_argument("-v", '--version', action='version', version='%(prog)s 2.0.2')
+parser.add_argument("-d", "--dev", action="store_true", help ="Run developer tests also")
+parser.add_argument('testfiles', metavar="TEST", nargs="*",  help="Execute specified test files instead of searching tree")
+args = parser.parse_args()
+if args.silent:
+    args.quiet = True
+
+if args.noprepend:
+    sys.path.append('./')
+else:
+    tmpary = ["./"]
+    tmpary.extend(sys.path)
+    sys.path = tmpary
+
+results       = []
+testfiles     = args.testfiles
+inittestcount = len(testfiles)
+
+# ------------------------------------------------------------------ functions
+
+def process_results():
+    rc  = 0
+    tests_total = 0
+    passing_total = 0
+    maxlen = 0
+    for result in results:
+        if len(result["file"]) > maxlen:
+            maxlen = len(result["file"])
+    maxlen += 2
+    for result in results:
+        if not result["run"]:
+            rc = 1
+            if not args.silent: 
+                print("{:{fill}} {}".format(result["file"], result["msg"], fill=maxlen))
+            continue
+        numtests = len(result["tests"])
+        if numtests == 0:
+            print("{:{fill}} no tests in file".format(result["file"], fill=maxlen))
+            continue
+        if not args.silent: 
+            print("{:{fill}}".format(result["file"], fill=maxlen), end=' ')
+            passing, output = process_tests(result["tests"])
+            tests_total    += numtests
+            passing_total  += passing
+        print("{}/{} passing\t".format(passing, numtests), end=' ')
+        if passing == numtests:
+            print("ok")
+        else:
+            print("not ok")
+        print(output, end="")
+    print("{}/{} passing in {} files".format(passing_total, tests_total, len(results)))
+    return rc
+
+
+# process_tests counts passing tests and generates reporting output
+# for failed tests.
+def process_tests(tests):
+    testnum = 0
+    passing = 0
+    output  = ""
+    for t in tests:
+        testnum += 1
+        if t["pass"]:
+            passing += 1
+        else:
+            # all fails get basic info as output
+            output += "    test {} ({}) on line {} failed\n".format(testnum, t["msg"], t["line"])
+            for c in t["comp"]:
+                # if there's a reason given in the test, output it
+                if c["reason"]: output += "      {}\n".format(c["reason"])
+                # and show the xpect/got vals unless both are None
+                if c["xpect"] != None and c["got"] != None:
+                    output += "        expected: '{}'\n".format(c["xpect"])
+                    output += "        got:      '{}'\n".format(c["got"])
+    return passing, output
+
+# ----------------------------------------------------------------------- main
+
+for root, dirs, files in os.walk("."):
+    # walk pwd tree to find tests and modules
+    for f in sorted(files):
+        if f[-3:] == ".py":
+            if inittestcount == 0 and root[-6:] == "/tests":
+                if f[-6:-3] == "DEV":
+                    if args.dev:
+                        testfiles.append(os.path.join(root,f))
+                else:
+                    testfiles.append(os.path.join(root,f))
+            else:
+                sys.path.append(os.path.join(root,f))
+if len(testfiles) == 0:
+    if not args.silent or args.json:
+        print("No tests found; nothing to do.")
+    if args.json:
+        print(json.dumps(results))
+    sys.exit(2)
+
+
+for test in testfiles:
+    # try to open each test file and read it in
+    try:
+        f = open(test, 'r')
+    except Exception as err:
+        msg = "could not open: {}".format(err)
+        results.append({'run': False, 'msg': msg, 'file': test, 'tests': None})
+        continue
+    teststr = f.read()
+    # try to compile file contents to code object
+    try:
+        testcode = compile(teststr, test, "exec")
+    except Exception as err:
+        msg = "tests failed to compile: {}".format(err)
+        results.append({'run': False, 'msg':msg , 'file': test, 'tests': None})
+        continue        
+    # try to run tests
+    testcontext = {}
+    try:
+        exec(testcode, testcontext)
+    except Exception as err:
+        msg = "tests failed to run: {}".format(err)
+        results.append({'run': False, 'msg':msg , 'file': test, 'tests': None})
+        continue
+    # handle there not being a known Nanotester object
+    if not "n" in testcontext:
+        results.append({'run': False, 'msg':"no Nanotester object found" , 'file': test, 'tests': None})
+        continue
+    results.append({'run': True, 'msg': None, 'file': test, 'tests': testcontext['n'].results})
+
+
+# done. dump raw results as json or print report
+rc = 0
+if args.json:
+    print(json.dumps(results))
+else:
+    rc = process_results()
+sys.exit(rc)
