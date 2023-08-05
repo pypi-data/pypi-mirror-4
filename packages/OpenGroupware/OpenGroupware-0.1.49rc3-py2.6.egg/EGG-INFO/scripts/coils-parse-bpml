@@ -1,0 +1,106 @@
+#!/usr/bin/python2.6
+# Copyright (c) 2009, 2010, 2012 Adam Tauno Williams <awilliam@whitemice.org>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+#
+import pickle, pprint, getopt, sys, os
+from xml.sax.handler          import ContentHandler
+from xml.sax                  import make_parser
+from coils.core               import *
+from coils.logic.workflow     import BPMLSAXHandler, ActionMapper
+
+def usage():
+    print """
+        Compile a BPML file to CPM
+        --help            Display this message.
+        --filename=       BPML file to parse (required)
+        --proof=[yes|no]  Verify the actions used are available (default: no)
+        --output=         Write the CPM to a file (otherwise it is displayed as text).
+    """
+    return
+
+def main(argv):
+    input_filename = None
+    output_filename = None
+    do_proof = False
+    try:
+        opts, args = getopt.getopt(argv, "hf:p:o:", ["help", "filename=", "proof=", "output="])
+    except getopt.GetoptError, e:
+        print e
+        usage()
+        sys.exit(2)
+    for opt, arg in opts:
+        if opt in ("-h", "--help"):
+            usage()
+            sys.exit(0)
+        elif opt in ("-f", "--filename"):
+            input_filename = arg
+        elif opt in ("-o", "--output"):
+            output_filename = arg
+        elif opt in ("-p", "--proof"):
+            if (arg.lower() == 'yes'):
+                do_proof = True
+
+    if (input_filename is None):
+        usage()
+        sys.exit(2)
+
+    # Initialize COILs
+    initialize_COILS({'log_file': '{0}/coils.log'.format(os.getenv('HOME'))})
+
+    if (os.path.exists(input_filename)):
+        handle = open(input_filename, 'rb')
+        code = None
+        try:
+            parser = make_parser()
+            handler = BPMLSAXHandler()
+            parser.setContentHandler(handler)
+            parser.parse(handle)
+            code = handler.get_processes()
+            handle.close()
+        except Exception, e:
+            print('Compilation of markup failed.')
+            print(e)
+            sys.exit(4)
+        else:
+            if (do_proof):
+                namespace = code.get('__namespace__')
+                for uuid in code.get(namespace):
+                    if (uuid == '__start__' or uuid == '__error__'):
+                        continue
+                    action = code.get(namespace).get(uuid)
+                    if (action['control'] is not None):
+                        continue
+                    name = action.get('params').get('activityName')
+                    action = ActionMapper.get_action(name)
+                    if (action is None):
+                        print 'ERROR: No such action as {0} in stanza {1}'.format(name, uuid)
+            if (output_filename is None):
+                pprint.pprint(code)
+            else:
+                handle = open(output_filename, 'wb')
+                pickle.dump(code, handle)
+                handle.close()
+        sys.exit(0)
+    else:
+        print 'File {0} does not exist.'.format(filename)
+        sys.exit(3)
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
