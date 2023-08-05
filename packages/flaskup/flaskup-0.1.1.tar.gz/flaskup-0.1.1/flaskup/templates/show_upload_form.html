@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+
+{% block content %}
+<form action="{{ url_for('upload_file') }}"
+      method="post"
+      enctype="multipart/form-data"
+      id="form-upload"
+      class="form-horizontal">
+ <fieldset>
+ <legend>
+  {{ _('Easily share files') }}
+ </legend>
+
+ {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+<div class="control-group">
+  <label class="control-label" for="myfile">{{ _('My file') }}</label>
+  <div class="controls">
+   <input type="file" class="input-file" id="myfile" name="myfile">
+  <p class="help-block">{{ _('Choose a file on your computer.') }}</p>
+  </div>
+</div>
+
+<div class="control-group">
+ <label class="control-label" for="myemail">{{ _('My email address') }}</label>
+ <div class="controls">
+  <input id="myemail" class="input-xlarge" type="text" name="myemail">
+  <p class="help-block">{{ _('Send an email with a link to download the file.') }}</p>
+ </div>
+</div>
+
+<div class="control-group">
+ <label class="control-label" for="mycontacts">{{ _('My contacts') }}</label>
+ <div class="controls">
+  <textarea id="mycontacts" class="input-xlarge" rows="3" name="mycontacts"></textarea>
+  <p class="help-block">{{ _('Send the download link to my contacts. (one email address per line)') }}</p>
+ </div>
+</div>
+
+<div class="form-actions">
+ <button id="btn-submit"
+         class="btn btn-primary btn-large"
+         type="submit">{{ _('Send!') }}</button>
+
+ <div id="upload_modal" class="modal hide fade">
+  <div class="modal-header">
+   <h3>{{ _('Uploading...') }}</h3>
+  </div>
+  <div class="modal-body">
+   <h4>{{ _('Your file is uploading, please wait.') }}</h4>
+   <div id="js-progress">
+    <div class="progress progress-striped active">
+     <div id="bar" class="bar" style="width: 0%;"></div>
+    </div>
+    <p>
+     <img src="{{ url_for('static', filename='uploading.gif') }}">
+     <span id="upload_percent">0%</span> — <span id="upload_info"></span>
+    </p>
+   </div>
+  </div>
+  <div class="modal-footer">
+   <a href="#" class="btn" data-dismiss="modal" id="btn-cancel" >{{ _('Cancel') }}</a>
+  </div>
+ </div>
+
+</div> <!-- form-actions -->
+
+ </fieldset>
+</form>
+
+{% endblock %}
+
+
+
+{% block sidebar %}
+
+<div class="well">
+ <h3>{{ _('How does it work?') }}</h3>
+ <p>{{ _('You simply choose a file on your computer an it will by uploaded to %(t)s. In return, you will have a link to download the file. You can share this link with whoever you want.', t=config['FLASKUP_TITLE']) }}</p>
+ <h3>{{ _('Who can download my file?') }}</h3>
+ <p>{{ _('Anyone who know the download link will be able to download your file. So be careful to not share the download link publicly.') }}</p>
+ <h3>{{ _('How many days my file will be available?') }}</h3>
+ <p>{{ _('Your file will be available for %(m)s days.', m=config['FLASKUP_MAX_DAYS']) }}</p>
+ <h3>{{ _('Will you send spam to me or my contacts?') }}</h3>
+ <p>{{ _('Definitely, no! We won\'t send you spam. We hate spam too!') }}</p>
+</div>
+
+{% endblock %}
+
+
+
+{% block javascript %}
+<script type="text/javascript" src="{{ url_for('static', filename='jquery-1.7.2.min.js') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='bootstrap-modal.js') }}"></script>
+<script type="text/javascript">
+  var upload_percent_text,
+      upload_info_text,
+      progress,
+      btn_submit,
+      btn_cancel;
+
+  // variables used to compute upload_speed
+  var upload_last_datetime,
+      upload_last_size,
+      upload_speed;
+
+  function readable_size(size) {
+    var units = ['', 'Ki', 'Mi', 'Gi', 'Ti', 'Pi', 'Ei', 'Zi', 'Yi'];
+    var i = 0;
+    while(size >= 1024) {
+        size /= 1024;
+        ++i;
+    }
+    return size.toFixed(1) + ' ' + units[i] + '{{ _('B') }}';
+  }
+
+  function update_progress_dialog(evt) {
+    // compute the upload speed, only once a second
+    var current_datetime = new Date();
+    if(current_datetime - upload_last_datetime > 1000) {
+      // compute differences between current and last values
+      var diff_datetime = (current_datetime - upload_last_datetime) / 1000;
+      var diff_size = evt.loaded - upload_last_size;
+      upload_speed = diff_size / diff_datetime;
+      // store current values
+      upload_last_datetime = current_datetime;
+      upload_last_size = evt.loaded;
+    }
+
+    // update progress bar (width)
+    var percent = evt.loaded * 100 / evt.total;
+    var bar = document.getElementById('bar');
+    bar.setAttribute('style', 'width: ' + percent + '%;');
+
+    // display informations about the current upload
+    if(percent == 100) {
+      upload_percent_text.innerHTML = '100%';
+      upload_info_text.innerHTML = readable_size(evt.loaded) + ' / '
+        + readable_size(evt.total);
+    } else {
+      upload_percent_text.innerHTML = percent.toFixed(1) + '%';
+      upload_info_text.innerHTML = readable_size(evt.loaded) + ' / '
+        + readable_size(evt.total) + ' @ ' + readable_size(upload_speed) + '/s';
+    }
+  }
+
+  function upload_file() {
+    // display modal
+    $('#upload_modal').modal();
+
+    // prepare XHR
+    var xhr = new XMLHttpRequest();
+    var form = document.getElementById('form-upload');
+    var fd = new FormData(form);
+
+    // event listners
+    xhr.upload.addEventListener("loadstart", upload_loadstart, false);
+    xhr.upload.addEventListener("progress", upload_progress, false);
+    xhr.addEventListener("load", upload_complete, false);
+    xhr.addEventListener("error", upload_failed, false);
+    xhr.addEventListener("abort", upload_canceled, false);
+
+    // POST form
+    xhr.open("POST", "{{ url_for('upload_file_xhr') }}");
+    xhr.send(fd);
+
+    // store our xhr, so we can abort it
+    progress.xhr = xhr;
+  }
+
+  function upload_loadstart(evt) {
+    // upload begins, initialize some variables
+    upload_last_datetime = new Date();
+    upload_last_size = 0;
+    upload_speed = 0;
+  }
+
+  function upload_progress(evt) {
+    if (evt.lengthComputable) {
+      // update the view
+      update_progress_dialog(evt);
+    }
+  }
+
+  function upload_complete(evt) {
+    if(evt.target.status != 200) {
+        // display error message
+        alert(evt.target.responseText);
+        // hide modal
+        $('#upload_modal').modal('hide');
+        return;
+    }
+    // follow the link returned by the server
+    document.location.href = evt.target.responseText;
+  }
+
+  function upload_failed(evt) {
+    alert('{{ _('There was an error attempting to upload the file.') }}');
+  }
+
+  function upload_canceled(evt) {
+    // reset progress bar
+    var bar = document.getElementById('bar');
+    bar.setAttribute('style', 'width: 0%;');
+    // hide modal
+    $('#upload_modal').modal('hide');
+  }
+
+  // code executed when the page is fully loaded
+  window.onload = function() {
+    // first thing, check browser capabilities
+    try {
+      var fd = new FormData();
+    } catch(e) {
+      return;
+    }
+
+    // get some refs to various HTML elements
+    upload_percent_text = document.getElementById('upload_percent');
+    upload_info_text = document.getElementById('upload_info');
+    progress = document.getElementById('js-progress');
+    btn_submit = document.getElementById('btn-submit');
+    btn_cancel = document.getElementById('btn-cancel');
+
+    // bind submit button to our custom uploader
+    btn_submit.setAttribute('onclick', 'upload_file()');
+    btn_submit.setAttribute('form', null);
+
+    // bind cancel button to abort the XHR
+    btn_cancel.setAttribute('onclick', 'progress.xhr.abort()');
+  };
+
+</script>
+{% endblock %}
