@@ -1,0 +1,10 @@
+__version__ = "0.1"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '0a598ac9da5229572b9f875fb3a56f14b1cbc623'
+__git_head_subject__ = 'Finished release v0.1.'
+__git_head_message__ = '* release/v0.1:\n  TRIVIAL forgot self\n  TRIVIAL fixing tests on windows\n  TRIVIAL implementation and code\n  buildout.cfg: adding run_as to console_scripts\n  buildout.cfg: adding run_as to console_scripts\n  buildout.cfg: adding infi.execute to requirements\n  buildout.cfg: adding infi.instruct to requirements\n  buildout.cfg: adding infi.cwrap to requirements\n  buildout.cfg: adding infi.pyutils to requirements\n  buildout.cfg: adding infi.winver to requirements\n  added all project files\n  empty commit after version v0'
+__git_dirty_diff__ = ''
