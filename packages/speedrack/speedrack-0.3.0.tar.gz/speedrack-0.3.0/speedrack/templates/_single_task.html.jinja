@@ -1,0 +1,184 @@
+{%- from "helpers/flash.html.jinja" import render_flash, render_all_flash with context -%}
+{%- from "helpers/file.html.jinja" import mono_file_summary -%}
+        <div class="row-fluid">
+        <div class="span12">
+          {{ render_all_flash() }}
+          {%- if display_task is none -%}
+
+          <div class="hero-unit">
+            <h1>{{ config['APP_NAME'] }}</h1>
+            <p>At hand and ready to go.</p>
+          </div>
+
+          {%- else -%} {# yes, display_task #}
+
+          <h1>{{ display_task.name }}</h1>
+          <div class="row-fluid"> {# task header #}
+
+            <div class="span7">
+              {%- if display_task.description is not none -%}
+              <p class="lead">{{ display_task.description }}</p>
+              {%- else -%}
+              <p class="lead"><em>No description available</em></p>
+              {%- endif -%}
+
+              {%- if just_launched or display_task.running %}
+              <p><a class="btn btn-primary disabled" href="#">Running now!</a></p>
+              {% elif display_task.conf_error %}
+              <p><a class="btn btn-danger disabled" href="#">Configuration error</a></p>
+              {% elif not display_task.active %}
+              <p><a class="btn btn-warning disabled" href="#">Task inactive</a></p>
+              {% elif g.shutdown %}
+              <p><a class="btn btn-warning disabled" href="#">System shutting down</a></p>
+              {% else %}
+              <p><a class="btn btn-primary" href="{{ url_for('run_task', task_name=display_task.name) }}">Run Now! &raquo;</a></p>
+              {% endif -%}
+            </div>
+
+            <div class="span5">
+              <table class="table table-condensed">
+                <tr>
+                  <td>Next scheduled run</td>
+                  <td>{% if display_task.conf_error -%}
+                    <em>Conf error</em>
+                    {%- elif display_task.active -%}
+                    {{ display_task.next_run_time }}
+                    {%- else -%}
+                    <em>Not active</em>
+                    {% endif %}</td>
+                </tr>
+                <tr>
+                  <td># runs since startup</td>
+                  <td>{% if display_task.active %}{{ display_task.num_active_runs }}{% else %}<em>Not active</em>{% endif %}</td>
+                </tr>
+                <tr>
+                  <td># runs retained on disk</td>
+                  <td>{{ display_task.count_executions() }}</td>
+                </tr>
+              </table>
+            </div>
+
+          </div> {# row-fluid task header #}
+
+          <div class="row-fluid"> {# task executions #}
+
+            {%- if display_task.count_executions() == 0 -%}
+
+            <div class="alert alert">
+              <h4 class="alert-heading">Wait, what?</h4>
+              Couldn't find any results or schedule information for this task.
+              Is it <a href="{{ url_for('show_debug') }}">misconfigured</a>?
+            </div>
+
+            {%- else -%}
+
+            <div class="span4">
+
+              <table class="table table-striped table-condensed">
+                {% for execution in display_task.get_executions()|leading(config['EXECUTION_DISPLAY']) %}
+                <tr>
+                  <td>
+                    <a href="{{ url_for('show_tasks', task_name=display_task.name, timestamp=execution.timestamp) }}">
+                      {{ execution.timestamp }}
+                    </a>
+                  </td>
+                  <td align=right>
+                    <span class="label label-{{ execution.get_status()|status_severity }}">
+                      {{ execution.get_status() }}
+                    </span>
+                  </td>
+                </tr>
+                {% endfor %}
+              </table>
+
+              {%- if display_task.count_executions() > config['EXECUTION_DISPLAY'] %}
+              <p>Showing most recent {{ config['EXECUTION_DISPLAY'] }} (of {{ display_task.count_executions() }}).</p>
+              <p>If you need more, you should probably hit the directory with <a href="http://betterthangrep.com">ack</a>.</p>
+              {% endif -%}
+
+            </div>
+
+            <div class="span8">
+
+              {% if display_execution is none -%}
+
+              <div class="alert alert-block">
+                <h4 class="alert-heading">Nothing to show here.</h4>
+                This task has never been executed.
+              </div>
+
+              {%- else -%}
+
+              <div>
+                <h2>{{ display_execution.timestamp }}</h2>
+              </div>
+
+              {# tab display is a mixture of contents of execution and user request #}
+              <ul class="nav nav-tabs">
+
+                {%- macro is_active(expected, actual) -%}
+                {%- if expected == actual -%}
+                "active"
+                {%- endif -%}
+                {%- endmacro %}
+
+                {%- macro tab(name, linktext) -%}
+                <li class={{ is_active(display_label, name|lower) }}>
+                  <a href="{{ url_for('show_tasks', task_name=display_task.name, timestamp=display_execution.timestamp) }}?{{ name }}">
+                    {{ linktext }}
+                  </a>
+                </li>
+                {%- endmacro -%}
+
+                {%- macro cond_tab(state, condition, cond_true_text, cond_false_text=None) -%}
+                {%- if condition() %}
+                  {{ tab(state, cond_true_text) }}
+                {%- elif cond_false_text %} {# none = no tab #}
+                  {{ tab(state, cond_false_text) }}
+                {% endif -%}
+                {%- endmacro -%}
+
+                {{ cond_tab("stdout",
+                            display_execution.has_std_out,
+                            "stdout " + filer.get_humanized_size(display_execution.std_out),
+                            "(no stdout)") }}
+
+                {{ cond_tab("stderr",
+                            display_execution.has_std_err,
+                            "stderr " + filer.get_humanized_size(display_execution.std_err),
+                            "(no stderr)") }}
+
+                {{ cond_tab("opparams",
+                            display_execution.has_params,
+                            "params") }}
+
+                {{ cond_tab("operror",
+                            display_execution.execution_error,
+                            "OPERATION ERROR") }}
+
+              </ul>
+
+              {%- if display_file %}
+              {{ mono_file_summary(filer, display_file, config['FSIZE_MAX'], config['FSIZE_SUMMARY']) }}
+                {%- if filer.is_file(display_file) and filer.get_size(display_file) -%}
+                <p><a class="btn btn-primary" href="{{ url_for('show_task_file', task_name=display_task.name, timestamp=display_execution.timestamp, display_label=display_label) }}">View whole file &raquo;</a>
+                {%- endif -%}
+              {% else %}
+              <div class="alert alert-block">
+                <h4 class="alert-heading">Nothing to show here.</h4>
+                No results yet for this file.
+              </div>
+              {% endif -%}
+
+              {%- endif -%} {# display_execution #}
+
+              </div>
+
+            {%- endif -%} {# display_task.get_executions() #}
+
+            </div> {# task executions #}
+
+          {%- endif -%} {# display_task #}
+
+        </div> {# ./span12 #}
+        </div> {# row fluid #}
