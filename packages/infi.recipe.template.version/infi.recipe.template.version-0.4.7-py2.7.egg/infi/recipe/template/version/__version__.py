@@ -1,0 +1,10 @@
+__version__ = "0.4.7"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '44a0048f84d57fb4b2ae1e70a1f9cc7d991fcf30'
+__git_head_subject__ = 'Finished release v0.4.7.'
+__git_head_message__ = '# By Guy Rozendorn (5) and Arnon Yaari (1)\n* release/v0.4.7:\n  TRIVIAL workaround for get_commit_describe\n  TRIVIAL fixed tests\n  TRIVIAL fixed tests\n  HOSTDEV-494 homepage support\n  TRIVIAL updated README.md\n  empty commit after version v0.4.6'
+__git_dirty_diff__ = ''
