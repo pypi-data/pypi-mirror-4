@@ -1,0 +1,10 @@
+__version__ = "0.4.3"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '17d662ad30b1c0337ab005c80112b2bd09e63c77'
+__git_head_subject__ = 'Finished release v0.4.3.'
+__git_head_message__ = '# By Guy Rozendorn (3) and Arnon Yaari (1)\n* release/v0.4.3:\n  HOSTDEV-589 trivial\n  HOSTDEV-574 mirror_package now has a --recursive flag\n  updated project files from skeleton\n  empty commit after version v0.4.2'
+__git_dirty_diff__ = ''
