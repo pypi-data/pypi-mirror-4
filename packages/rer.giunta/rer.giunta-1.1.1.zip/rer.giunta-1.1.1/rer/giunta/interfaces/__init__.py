@@ -1,0 +1,6 @@
+from assessore import IRERAssessore
+from layer import IRERGiuntaLayer
+from viewlet_manager import IGiuntaViewletManager
+IRERAssessore
+IRERGiuntaLayer
+IGiuntaViewletManager
