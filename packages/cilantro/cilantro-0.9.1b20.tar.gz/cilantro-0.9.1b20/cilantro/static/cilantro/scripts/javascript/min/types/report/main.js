@@ -1,0 +1,1 @@
+define(["cilantro/types/report/models","cilantro/types/report/views","cilantro/types/report/messages"],function(a,b,c){return{Models:a,Views:b,Messages:c}})

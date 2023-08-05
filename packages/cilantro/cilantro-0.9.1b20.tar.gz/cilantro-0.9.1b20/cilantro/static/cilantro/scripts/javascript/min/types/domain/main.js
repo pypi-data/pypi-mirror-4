@@ -1,0 +1,1 @@
+define(["cilantro/types/domain/models","cilantro/types/domain/views"],function(a,b){return{Models:a,Views:b}})

@@ -1,0 +1,1 @@
+define(["cilantro/types/perspective/models"],function(a){return{Models:a}})

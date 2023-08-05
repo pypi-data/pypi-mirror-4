@@ -1,0 +1,1 @@
+$(function(){Modernizr.input.placeholder||$("input[placeholder]").placeholder(),Modernizr.input.autofocus||$("input[autofocus]").focus()})

@@ -1,0 +1,1 @@
+define(["cilantro/types/scope/models"],function(a){return{Models:a}})
