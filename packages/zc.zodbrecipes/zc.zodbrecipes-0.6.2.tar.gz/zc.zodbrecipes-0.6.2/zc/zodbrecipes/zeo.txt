@@ -1,0 +1,896 @@
+Defining ZEO Storage Servers
+============================
+
+The zc.zodbrecipes:server recipe can be used to define ZEO storage
+servers. To define a storage server, you define a part for the server
+and specify configuration data.
+
+    >>> write('buildout.cfg',
+    ... '''
+    ... [buildout]
+    ... parts = server
+    ...
+    ... [server]
+    ... recipe = zc.zodbrecipes:server
+    ... zeo.conf =
+    ...    <zeo>
+    ...       address 8100
+    ...       monitor-address 8101
+    ...       transaction-timeout 300
+    ...    </zeo>
+    ...    %import foo
+    ...    <foo>
+    ...       path /databases/Data.fs
+    ...    </foo>
+    ... ''')
+
+Here we specified a minimal configuration using a "foo" storage.  We
+can use any kind of storage we want.  Here we used an import statement
+to import the schema definition that defined the foo section.  Any
+imports are simply copied to the generated configuration file.  When
+we run the buildout:
+
+    >>> print system(buildout), # doctest: +NORMALIZE_WHITESPACE
+    Installing server.
+    zc.zodbrecipes:
+    A runzeo script couldn't be found at:
+    <BLANKLINE>
+      '/sample-buildout/bin/runzeo'
+    <BLANKLINE>
+    You may need to generate a runzeo script using the
+    zc.recipe.eggs:script recipe and the ZODB3 egg, or you may need
+    to specify the location of a script using the runzeo option.
+    <BLANKLINE>
+    Generated script '/sample-buildout/bin/server'.
+
+We got a warning because the recipe expects there to be a runzeo
+script and we haven't created one.  This is done using the
+zc.recipe.egg:script recipe:
+
+    >>> write('buildout.cfg',
+    ... '''
+    ... [buildout]
+    ... parts = zodb server
+    ...
+    ... [zodb]
+    ... recipe = zc.recipe.egg:script
+    ... eggs = ZODB3
+    ...
+    ... [server]
+    ... recipe = zc.zodbrecipes:server
+    ... zeo.conf =
+    ...    <zeo>
+    ...       address 8100
+    ...       monitor-address 8101
+    ...       transaction-timeout 300
+    ...    </zeo>
+    ...    %import foo
+    ...    <foo>
+    ...       path /databases/Data.fs
+    ...    </foo>
+    ... ''')
+
+    >>> print system(buildout),
+    Installing zodb.
+    Generated script '/sample-buildout/bin/fstail'.
+    Generated script '/sample-buildout/bin/zeopack'.
+    Generated script '/sample-buildout/bin/runzeo'.
+    Generated script '/sample-buildout/bin/zeopasswd'.
+    Generated script '/sample-buildout/bin/zeoctl'.
+    Generated script '/sample-buildout/bin/fsdump'.
+    Generated script '/sample-buildout/bin/fsrefs'.
+    Generated script '/sample-buildout/bin/repozo'.
+    Generated script '/sample-buildout/bin/fsoids'.
+    Updating server.
+
+We get 2 things.  We get a directory in parts containing ZEO and
+zdaemon configuration files:
+
+    >>> ls('parts', 'server')
+    -  zdaemon.conf
+    -  zeo.conf
+
+Let's look at the configuration files:
+
+    >>> cat('parts', 'server', 'zeo.conf')
+    %import foo
+    <BLANKLINE>
+    <zeo>
+      address 8100
+      monitor-address 8101
+      transaction-timeout 300
+    </zeo>
+    <BLANKLINE>
+    <foo>
+      path /databases/Data.fs
+    </foo>
+    <BLANKLINE>
+    <eventlog>
+      <logfile>
+        path STDOUT
+      </logfile>
+    </eventlog>
+
+We see the same data we input with the addition of an eventlog section
+that directs logging to standard out.  In production, we'll use
+zdaemon's transacript log to capture this logging output in a file.
+If we wish, we can specify a log file ourselves:
+
+    >>> write('buildout.cfg',
+    ... '''
+    ... [buildout]
+    ... parts = zodb server
+    ...
+    ... [zodb]
+    ... recipe = zc.recipe.egg:script
+    ... eggs = ZODB3
+    ...
+    ... [server]
+    ... recipe = zc.zodbrecipes:server
+    ... zeo.conf =
+    ...    <zeo>
+    ...       address 8100
+    ...       monitor-address 8101
+    ...       transaction-timeout 300
+    ...    </zeo>
+    ...    %import foo
+    ...    <foo>
+    ...       path /databases/Data.fs
+    ...    </foo>
+    ...    <eventlog>
+    ...      <logfile>
+    ...        path /var/log/zeo.log
+    ...      </logfile>
+    ...    </eventlog>
+    ... ''')
+
+    >>> print system(buildout),
+    Uninstalling server.
+    Updating zodb.
+    Installing server.
+    Generated script '/sample-buildout/bin/server'.
+
+    >>> cat('parts', 'server', 'zeo.conf')
+    %import foo
+    <BLANKLINE>
+    <zeo>
+      address 8100
+      monitor-address 8101
+      transaction-timeout 300
+    </zeo>
+    <BLANKLINE>
+    <foo>
+      path /databases/Data.fs
+    </foo>
+    <BLANKLINE>
+    <eventlog>
+      <logfile>
+        path /var/log/zeo.log
+      </logfile>
+    </eventlog>
+
+But we'll stick with the default:
+
+    >>> write('buildout.cfg',
+    ... '''
+    ... [buildout]
+    ... parts = zodb server
+    ...
+    ... [zodb]
+    ... recipe = zc.recipe.egg:script
+    ... eggs = ZODB3
+    ...
+    ... [server]
+    ... recipe = zc.zodbrecipes:server
+    ... zeo.conf =
+    ...    <zeo>
+    ...       address 8100
+    ...       monitor-address 8101
+    ...       transaction-timeout 300
+    ...    </zeo>
+    ...    %import foo
+    ...    <foo>
+    ...       path /databases/Data.fs
+    ...    </foo>
+    ... ''')
+
+    >>> print system(buildout),
+    Uninstalling server.
+    Updating zodb.
+    Installing server.
+    Generated script '/sample-buildout/bin/server'.
+
+Let's look at the zdaemon log file:
+
+    >>> cat('parts', 'server', 'zdaemon.conf')
+    <runner>
+      daemon on
+      directory /sample-buildout/parts/server
+      program /sample-buildout/bin/runzeo -C /sample-buildout/parts/server/zeo.conf
+      socket-name /sample-buildout/parts/server/zdaemon.sock
+      transcript /sample-buildout/parts/server/zeo.log
+    </runner>
+    <BLANKLINE>
+    <eventlog>
+      <logfile>
+        path /sample-buildout/parts/server/zeo.log
+      </logfile>
+    </eventlog>
+
+We run the runzeo script with the zeo.conf file.  Log and run-time
+files are places in the server part directory.  We use a transcript
+log to provide the ZEO server log.  I like to use the transacriot log
+because it captures program output, such as start-up exceptions that
+aren't captured in a program's logs.
+
+And we get a control script generated in our bin directory:
+
+    >>> cat('bin', 'server')
+    #!/usr/local/bin/python2.4
+    <BLANKLINE>
+    import sys
+    sys.path[0:0] = [
+        '/sample-buildout/eggs/zdaemon-2.0-py2.4.egg',
+        '/sample-buildout/eggs/setuptools-0.6-py2.4.egg',
+        '/sample-buildout/eggs/ZConfig-2.4-py2.4.egg',
+        ]
+    <BLANKLINE>
+    <BLANKLINE>
+    import zdaemon.zdctl
+    <BLANKLINE>
+    if __name__ == '__main__':
+        sys.exit(zdaemon.zdctl.main([
+            '-C', '/sample-buildout/parts/server/zdaemon.conf',
+            ]+sys.argv[1:]
+            ))
+
+This is a zdaemon script.  We can use this to control the ZEO server
+process.
+
+Specifying additional eggs
+==========================
+
+You can specify additional eggs to be installed for use by the
+zdaemon script:
+
+    >>> write('buildout.cfg',
+    ... '''
+    ... [buildout]
+    ... parts = zodb server
+    ...
+    ... [zodb]
+    ... recipe = zc.recipe.egg:script
+    ... eggs = ZODB3
+    ...
+    ... [server]
+    ... recipe = zc.zodbrecipes:server
+    ... eggs = zope.event
+    ... zeo.conf =
+    ...    <zeo>
+    ...       address 8100
+    ...       monitor-address 8101
+    ...       transaction-timeout 300
+    ...    </zeo>
+    ...    %import foo
+    ...    <foo>
+    ...       path /databases/Data.fs
+    ...    </foo>
+    ... ''')
+
+    >>> print system(buildout),
+    Uninstalling server.
+    Updating zodb.
+    Installing server.
+    Generated script '/sample-buildout/bin/server'.
+
+We can see the zope.event egg present in the control script
+generated in our bin directory:
+
+    >>> cat('bin', 'server')
+    #!/usr/local/bin/python2.4
+    <BLANKLINE>
+    import sys
+    sys.path[0:0] = [
+        '/sample-buildout/eggs/zope.event-2.0-py2.4.egg',
+        '/sample-buildout/eggs/zdaemon-2.0-py2.4.egg',
+        '/sample-buildout/eggs/setuptools-0.6-py2.4.egg',
+        '/sample-buildout/eggs/ZConfig-2.4-py2.4.egg',
+        ]
+    <BLANKLINE>
+    <BLANKLINE>
+    import zdaemon.zdctl
+    <BLANKLINE>
+    if __name__ == '__main__':
+        sys.exit(zdaemon.zdctl.main([
+            '-C', '/sample-buildout/parts/server/zdaemon.conf',
+            ]+sys.argv[1:]
+            ))
+
+NB: This is a zdaemon script. If your ZEO server needs additional eggs, such as
+    to provide additional storage types or log handlers, they should appear in
+    [zodb] section in the above example, NOT the [server] section!
+
+Unix Deployment support
+=======================
+
+The server recipe works with the zc.recipe.deployment.  In particular,
+if a deployment option is specified, it names a part or section that
+defines the following uptions:
+
+crontab-directory
+  A directory for crontab files.
+
+etc-directory
+  A directory for configuration files.
+
+log-directory
+  A directory for log files.
+
+logrotate-directory
+  A directory for logrotate configuration files.
+
+rc-directory
+  A directory for run-control scripts.
+
+run-directory
+  A directory for run-time files.
+
+user
+  The user the server process should run as
+
+Let's create some directories and add a deployment section to our
+buildout:
+
+    >>> for d in 'cron', 'etc', 'log', 'rotate', 'rc', 'run':
+    ...     mkdir(d)
+    ...     globals()[d] = join(sample_buildout, d)
+
+    >>> write('buildout.cfg',
+    ... '''
+    ... [buildout]
+    ... parts = zodb server
+    ...
+    ... [zodb]
+    ... recipe = zc.recipe.egg:script
+    ... eggs = ZODB3
+    ...
+    ... [server]
+    ... recipe = zc.zodbrecipes:server
+    ... zeo.conf =
+    ...    <zeo>
+    ...       address 8100
+    ...       monitor-address 8101
+    ...       transaction-timeout 300
+    ...    </zeo>
+    ...    %%import foo
+    ...    <foo>
+    ...       path /databases/Data.fs
+    ...    </foo>
+    ... deployment = demo
+    ...
+    ... [demo]
+    ... crontab-directory = %(cron)s
+    ... etc-directory = %(etc)s
+    ... log-directory = %(log)s
+    ... logrotate-directory = %(rotate)s
+    ... rc-directory = %(rc)s
+    ... run-directory = %(run)s
+    ... user = bob
+    ... ''' % globals())
+
+    >>> print system(buildout),
+    Uninstalling server.
+    Updating zodb.
+    Installing server.
+    Generated script '/sample-buildout/rc/demo-server'.
+
+Now, the parts directory and the control script will be gone:
+
+    >>> import os
+    >>> os.path.exists(join('parts', 'server'))
+    False
+    >>> os.path.exists(join('bin', 'server'))
+    False
+
+Instead, the control script will be in the rc directory:
+
+    >>> cat('rc', 'demo-server')
+    #!/usr/local/bin/python2.4
+    <BLANKLINE>
+    import sys
+    sys.path[0:0] = [
+        '/sample-buildout/eggs/zdaemon-2.0-py2.4.egg',
+        '/sample-buildout/eggs/setuptools-0.6-py2.4.egg',
+        '/sample-buildout/eggs/ZConfig-2.4-py2.4.egg',
+        ]
+    <BLANKLINE>
+    <BLANKLINE>
+    import zdaemon.zdctl
+    <BLANKLINE>
+    if __name__ == '__main__':
+        sys.exit(zdaemon.zdctl.main([
+            '-C', '/sample-buildout/etc/server-zdaemon.conf',
+            ]+sys.argv[1:]
+            ))
+
+The run-control script name now combines the deployment name and the
+script name.
+
+and the configuration files will be in the etc directory:
+
+    >>> ls('etc')
+    -  server-zdaemon.conf
+    -  server-zeo.conf
+
+Log rotation
+============
+
+If a deployment is used, we'll also get a logrotate configuration file:
+
+    >>> cat('rotate', 'demo-server')
+    /sample-buildout/log/server-zeo.log {
+      rotate 5
+      weekly
+      postrotate
+        /sample-buildout/rc/demo-server -C /sample-buildout/etc/server-zdaemon.conf reopen_transcript
+      endscript
+    }
+
+This will rotate the zeo log file once a week.
+
+If we look at the zdaemon configuration file, we can see that it reflects
+the deployment locations:
+
+    >>> cat('etc', 'server-zdaemon.conf')
+    <runner>
+      daemon on
+      directory /sample-buildout/run
+      program /sample-buildout/bin/runzeo -C /sample-buildout/etc/server-zeo.conf
+      socket-name /sample-buildout/run/server-zdaemon.sock
+      transcript /sample-buildout/log/server-zeo.log
+      user bob
+    </runner>
+    <BLANKLINE>
+    <eventlog>
+      <logfile>
+        path /sample-buildout/log/server-zeo.log
+      </logfile>
+    </eventlog>
+
+Note that different file names are used.  Since a deployment may be
+(and usually is) shared by multiple parts, files are prefixed with
+their part names.  Also note that the deployment user is set in the
+zdaemon configuration.
+
+If you want to manage your own log rotation, you can place "logrotate = false"
+in your deployment section to prevent the logrotate config being generated:
+
+    >>> write('buildout.cfg',
+    ... '''
+    ... [buildout]
+    ... parts = zodb server
+    ...
+    ... [zodb]
+    ... recipe = zc.recipe.egg:script
+    ... eggs = ZODB3
+    ...
+    ... [server]
+    ... recipe = zc.zodbrecipes:server
+    ... zeo.conf =
+    ...    <zeo>
+    ...       address 8100
+    ...       monitor-address 8101
+    ...       transaction-timeout 300
+    ...    </zeo>
+    ...    %%import foo
+    ...    <foo>
+    ...       path /databases/Data.fs
+    ...    </foo>
+    ... deployment = demo
+    ...
+    ... [demo]
+    ... logrotate = false
+    ... crontab-directory = %(cron)s
+    ... etc-directory = %(etc)s
+    ... log-directory = %(log)s
+    ... logrotate-directory = %(rotate)s
+    ... rc-directory = %(rc)s
+    ... run-directory = %(run)s
+    ... user = bob
+    ... ''' % globals())
+
+    >>> print system(buildout),
+    Uninstalling server.
+    Updating zodb.
+    Installing server.
+    Generated script '/sample-buildout/rc/demo-server'.
+
+The logrotate config is not there, but the rc script still is:
+
+    >>> ls('rotate')
+    >>> ls('rc')
+    -  demo-server
+
+If it's more convenient, this can be placed in the [server] section instead:
+
+    >>> write('buildout.cfg',
+    ... '''
+    ... [buildout]
+    ... parts = zodb server
+    ...
+    ... [zodb]
+    ... recipe = zc.recipe.egg:script
+    ... eggs = ZODB3
+    ...
+    ... [server]
+    ... recipe = zc.zodbrecipes:server
+    ... zeo.conf =
+    ...    <zeo>
+    ...       address 8100
+    ...       monitor-address 8101
+    ...       transaction-timeout 300
+    ...    </zeo>
+    ...    %%import foo
+    ...    <foo>
+    ...       path /databases/Data.fs
+    ...    </foo>
+    ... deployment = demo
+    ... logrotate = false
+    ...
+    ... [demo]
+    ... crontab-directory = %(cron)s
+    ... etc-directory = %(etc)s
+    ... log-directory = %(log)s
+    ... logrotate-directory = %(rotate)s
+    ... rc-directory = %(rc)s
+    ... run-directory = %(run)s
+    ... user = bob
+    ... ''' % globals())
+
+    >>> print system(buildout),
+    Updating zodb.
+    Updating server.
+
+The logrotate config is not there, but the rc script still is:
+
+    >>> ls('rotate')
+    >>> ls('rc')
+    -  demo-server
+
+Packing cron job
+================
+
+We can request definition of a cron job to pack the databases by
+specifying a pack option.  This option takes 5 to 7 values.  The
+first 5 values are the time and date fields defined by Unix crontab
+files. The sixth field is the number of days in the past to pack to and
+defaults to 1.
+
+Let's add a pack option:
+
+    >>> write('buildout.cfg',
+    ... '''
+    ... [buildout]
+    ... parts = zodb server
+    ...
+    ... [zodb]
+    ... recipe = zc.recipe.egg:script
+    ... eggs = ZODB3
+    ...
+    ... [server]
+    ... recipe = zc.zodbrecipes:server
+    ... zeo.conf =
+    ...    <zeo>
+    ...       address 8100
+    ...       monitor-address 8101
+    ...       transaction-timeout 300
+    ...    </zeo>
+    ...    %%import foo
+    ...    <foo>
+    ...       path /databases/Data.fs
+    ...    </foo>
+    ... deployment = demo
+    ... pack = 1 1 * * 0 3
+    ...
+    ... [demo]
+    ... crontab-directory = %(cron)s
+    ... etc-directory = %(etc)s
+    ... log-directory = %(log)s
+    ... logrotate-directory = %(rotate)s
+    ... rc-directory = %(rc)s
+    ... run-directory = %(run)s
+    ... user = bob
+    ... ''' % globals())
+
+    >>> print system(buildout+' -D'),
+    Uninstalling server.
+    Updating zodb.
+    Installing server.
+    Generated script '/sample-buildout/rc/demo-server'.
+
+Now, we'll get a crontab file:
+
+    >>> cat(cron, 'pack-demo-server')
+    1 1 * * 0 bob /sample-buildout/bin/zeopack -p 8100 -S 1 -d 3
+
+.. Make sure it works to supply a storage name:
+
+    >>> write('buildout.cfg',
+    ... '''
+    ... [buildout]
+    ... parts = zodb server
+    ...
+    ... [zodb]
+    ... recipe = zc.recipe.egg:script
+    ... eggs = ZODB3
+    ...
+    ... [server]
+    ... recipe = zc.zodbrecipes:server
+    ... zeo.conf =
+    ...    <zeo>
+    ...       address 8100
+    ...       monitor-address 8101
+    ...       transaction-timeout 300
+    ...    </zeo>
+    ...    %%import foo
+    ...    <foo x>
+    ...       path /databases/Data.fs
+    ...    </foo>
+    ... deployment = demo
+    ... pack = 1 1 * * 0 3
+    ...
+    ... [demo]
+    ... crontab-directory = %(cron)s
+    ... etc-directory = %(etc)s
+    ... log-directory = %(log)s
+    ... logrotate-directory = %(rotate)s
+    ... rc-directory = %(rc)s
+    ... run-directory = %(run)s
+    ... user = bob
+    ... ''' % globals())
+
+    >>> _ = system(buildout+' -D'),
+
+    >>> cat(cron, 'pack-demo-server')
+    1 1 * * 0 bob /sample-buildout/bin/zeopack -p 8100 -S x -d 3
+
+
+In this example, we'll pack the databases every Sunday at 1:01 to 3
+days.
+
+We can add an email address to the pack option.  If we do, then a
+MAILTO variable will be added to the cron file:
+
+    >>> write('buildout.cfg',
+    ... '''
+    ... [buildout]
+    ... parts = zodb server
+    ...
+    ... [zodb]
+    ... recipe = zc.recipe.egg:script
+    ... eggs = ZODB3
+    ...
+    ... [server]
+    ... recipe = zc.zodbrecipes:server
+    ... zeo.conf =
+    ...    <zeo>
+    ...       address 8100
+    ...       monitor-address 8101
+    ...       transaction-timeout 300
+    ...    </zeo>
+    ...    %%import foo
+    ...    <foo>
+    ...       path /databases/Data.fs
+    ...    </foo>
+    ... deployment = demo
+    ... pack = 1 1 * * 0 3 jim@zope.com
+    ...
+    ... [demo]
+    ... crontab-directory = %(cron)s
+    ... etc-directory = %(etc)s
+    ... log-directory = %(log)s
+    ... logrotate-directory = %(rotate)s
+    ... rc-directory = %(rc)s
+    ... run-directory = %(run)s
+    ... user = bob
+    ... ''' % globals())
+
+    >>> print system(buildout+' -D'),
+    Uninstalling server.
+    Updating zodb.
+    Installing server.
+    Generated script '/sample-buildout/rc/demo-server'.
+
+    >>> cat(cron, 'pack-demo-server')
+    MAILTO=jim@zope.com
+    1 1 * * 0 bob /sample-buildout/bin/zeopack -p 8100 -S 1 -d 3
+
+This causes email to be sent to the given address, rather than to the
+user specified in the crontab file.
+
+shell start scripts
+===================
+
+By default, the startup scripts are generated Python scripts that use
+the zdaemon module.  Sometimes, this is inconvenient. In particular,
+when deploying software, generated Python scripts may break after a
+software update because they contain pasths to software eggs. We can
+request shell scripts that invoke a generic zdaemon script.  The shell
+script only depends on the path to the zdaemon script, which generally
+doesn't change when updating softawre.
+
+To request a shell script, add a shell-script option with a true
+value. We also need to cause a zdaemon script to be generated:
+
+    >>> write('buildout.cfg',
+    ... '''
+    ... [buildout]
+    ... parts = zodb zdaemon server
+    ...
+    ... [zodb]
+    ... recipe = zc.recipe.egg:script
+    ... eggs = ZODB3
+    ...
+    ... [zdaemon]
+    ... recipe = zc.recipe.egg:script
+    ... eggs = zdaemon
+    ...
+    ... [server]
+    ... recipe = zc.zodbrecipes:server
+    ... zeo.conf =
+    ...    <zeo>
+    ...       address 8100
+    ...       monitor-address 8101
+    ...       transaction-timeout 300
+    ...    </zeo>
+    ...    %%import foo
+    ...    <foo>
+    ...       path /databases/Data.fs
+    ...    </foo>
+    ... deployment = demo
+    ... pack = 1 1 * * 0 3 jim@zope.com
+    ... shell-script = true
+    ...
+    ... [demo]
+    ... crontab-directory = %(cron)s
+    ... etc-directory = %(etc)s
+    ... log-directory = %(log)s
+    ... logrotate-directory = %(rotate)s
+    ... rc-directory = %(rc)s
+    ... run-directory = %(run)s
+    ... user = bob
+    ... ''' % globals())
+
+    >>> print system(buildout+' -D'),
+    Uninstalling server.
+    Updating zodb.
+    Installing zdaemon.
+    Generated script '/sample-buildout/bin/zdaemon'.
+    Installing server.
+    zc.zodbrecipes: Generated shell script '/sample-buildout/rc/demo-server'.
+
+    >>> cat('rc', 'demo-server')
+    #!/bin/sh
+    su bob -c \
+      "/sample-buildout/bin/zdaemon -C '/sample-buildout/etc/server-zdaemon.conf' $*"
+
+Names
+=====
+
+Names can be specified for deployments and for individual server
+parts. These names determine names of files generated.
+
+    >>> write('buildout.cfg',
+    ... '''
+    ... [buildout]
+    ... parts = zodb zdaemon server
+    ...
+    ... [zodb]
+    ... recipe = zc.recipe.egg:script
+    ... eggs = ZODB3
+    ...
+    ... [zdaemon]
+    ... recipe = zc.recipe.egg:script
+    ... eggs = zdaemon
+    ...
+    ... [server]
+    ... name = Server
+    ... recipe = zc.zodbrecipes:server
+    ... zeo.conf =
+    ...    <zeo>
+    ...       address 8100
+    ...       monitor-address 8101
+    ...       transaction-timeout 300
+    ...    </zeo>
+    ...    %%import foo
+    ...    <foo>
+    ...       path /databases/Data.fs
+    ...    </foo>
+    ... deployment = demo
+    ... pack = 1 1 * * 0 3 jim@zope.com
+    ... shell-script = true
+    ...
+    ... [demo]
+    ... name = Demo
+    ... crontab-directory = %(cron)s
+    ... etc-directory = %(etc)s
+    ... log-directory = %(log)s
+    ... logrotate-directory = %(rotate)s
+    ... rc-directory = %(rc)s
+    ... run-directory = %(run)s
+    ... user = bob
+    ... ''' % globals())
+
+    >>> print system(buildout+' -D'),
+    Uninstalling server.
+    Updating zodb.
+    Updating zdaemon.
+    Installing server.
+    zc.zodbrecipes: Generated shell script '/sample-buildout/rc/Demo-Server'.
+
+    >>> ls(cron)
+    -  pack-Demo-Server
+
+    >>> ls(etc)
+    -  Server-zdaemon.conf
+    -  Server-zeo.conf
+
+    >>> ls(rotate)
+    -  Demo-Server
+
+    >>> ls(rc)
+    -  Demo-Server
+
+Feedback when you make mistakes
+===============================
+
+If you make a mistake in your zeo.conf, some errors will result in a
+simple, informative message being returned:
+
+    >>> write('buildout.cfg',
+    ... '''
+    ... [buildout]
+    ... parts = zodb server
+    ...
+    ... [zodb]
+    ... recipe = zc.recipe.egg:script
+    ... eggs = ZODB3
+    ...
+    ... [server]
+    ... recipe = zc.zodbrecipes:server
+    ... zeo.conf =
+    ...    nothing useful
+    ... ''')
+
+    >>> print system(buildout+' -q'),
+    Couldn't clean up '/sample-buildout/bin/server'.
+    While:
+      Installing server.
+    Error: No zeo section was defined.
+
+If your zeo.conf has a syntax error, you'll get shown the problematic
+text and the message from the error:
+
+    >>> write('buildout.cfg',
+    ... '''
+    ... [buildout]
+    ... parts = zodb server
+    ...
+    ... [zodb]
+    ... recipe = zc.recipe.egg:script
+    ... eggs = ZODB3
+    ...
+    ... [server]
+    ... recipe = zc.zodbrecipes:server
+    ... zeo.conf =
+    ...    <bad
+    ... ''')
+
+    >>> print system(buildout+' -q'),
+    Couldn't clean up '/sample-buildout/bin/server'.
+    While:
+      Installing server.
+    Error: malformed section start (line 2) in:
+    <BLANKLINE>
+    <bad
+    <BLANKLINE>
