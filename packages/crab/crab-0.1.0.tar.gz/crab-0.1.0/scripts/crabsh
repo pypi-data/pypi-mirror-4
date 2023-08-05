@@ -1,0 +1,162 @@
+#!/usr/bin/env python
+
+# Copyright (C) 2012 Science and Technology Facilities Council.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+from codecs import latin_1_encode, latin_1_decode
+import os
+import sys
+import subprocess
+from optparse import OptionParser
+
+from crab import CrabError, CrabStatus
+from crab.client import CrabClient
+from crab.util.string import split_quoted_word
+
+def main():
+    parser = OptionParser()
+    parser.add_option('-c',
+        type='string', dest='command',
+        help='specify the COMMAND to execute', metavar='COMMAND')
+    parser.add_option('--id',
+        type='string', dest='jobid',
+        help='set job ID', metavar='ID')
+    parser.add_option('--shell',
+        type='string', dest='shell',
+        help='use SHELL to execute COMMAND', metavar='SHELL')
+
+    (options, args) = parser.parse_args()
+
+    # Determine command to execute
+
+    if len(args) != 0:
+        parser.error('no arguments required')
+    if options.command is None:
+        parser.error('COMMAND not specified')
+
+    command = options.command
+
+    # Strip leading CRABIGNORE variable from command if present.
+
+    if command.startswith('CRABIGNORE='):
+        (ignore, command) = split_quoted_word(command[11:])
+        if ignore.lower() not in ['0', 'no', 'false', 'off']:
+            # Currently ignore being told to ignore the cron job as
+            # CRABIGNORE was designed to be used in crontab importing.
+            # TODO: consider whether crabsh ought to do anything
+            # in this case.
+            pass
+
+    # Determine shell to use
+    #
+    # Note that cron defaults to sh regardless of the user's shell.
+
+    shell = '/bin/sh'
+    env = os.environ
+
+    if options.shell:
+        shell = options.shell
+    elif 'CRABSHELL' in env:
+        shell = env['CRABSHELL']
+
+    # Look for cron job ID
+
+    jobid = None
+
+    if options.jobid:
+        jobid = options.jobid
+    elif command.startswith('CRABID='):
+        (jobid, command) = split_quoted_word(command[7:])
+
+        # We could leave the CRABID in the command for the shell to
+        # extract, but doing it this way makes sure the command matches
+        # that in the database and allows for shells which cannot handle
+        # variables given at the start of a command
+        env['CRABID'] = jobid
+    elif 'CRABID' in env:
+        jobid = env['CRABID']
+
+    # Attempt to execute the command
+
+    client = CrabClient(command, jobid=jobid)
+
+    try:
+        client.start()
+    #except CrabError as err:
+    #except CrabError, err:
+    except CrabError:
+        err = sys.exc_info()[1]
+        print('crabsh: ' + command)
+        print('Failed to notify job start.')
+        print('ERROR: ' + str(err) + '\n')
+
+    try:
+        p = subprocess.Popen([shell, '-c', command],
+                             stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE,
+                             env=env)
+
+        (stdoutdata, stderrdata) = p.communicate()
+        returncode = CrabStatus.SUCCESS
+
+        if p.returncode:
+            returncode = CrabStatus.FAIL
+
+        client.finish(returncode,
+                      (latin_1_decode(stdoutdata, 'replace'))[0],
+                      (latin_1_decode(stderrdata, 'replace'))[0])
+
+
+
+    #except OSError as err:
+    #except OSError, err:
+    except OSError:
+        err = sys.exc_info()[1]
+        try:
+            client.finish(CrabStatus.COULDNOTSTART, str(err))
+        except CrabError:
+            print('crabsh: ' + command)
+            print('Failed to notify that job could not start.')
+            print('ERROR: ' + str(err))
+
+    #except CrabError as err:
+    #except CrabError, err:
+    except CrabError:
+        err = sys.exc_info()[1]
+        # Print fall-back message for cron to send by email (to the
+        # crontab owner or address set its MAILTO variable.
+        print('crabsh: ' + command)
+        print('Failed to notify job finish.')
+        print('ERROR: ' + str(err))
+        print('\nRETURN CODE: ' + str(returncode))
+        print('\nSTDOUT:')
+        print(stdoutdata)
+        print('\n\nSTDERR:')
+        print(stderrdata)
+
+    else:
+        # Echo the output only if we didn't already print it due
+        # to an exception occurring.
+        if (('CRABECHO' in env) and (env['CRABECHO'].lower() not in
+                    ('', '0', 'no', 'false', 'off'))):
+            if stdoutdata != '':
+                print(stdoutdata)
+            if stderrdata != '':
+                if stdoutdata != '':
+                    print('\n\nStandard Error:\n')
+                print(stderrdata)
+
+if __name__ == "__main__":
+    main()
