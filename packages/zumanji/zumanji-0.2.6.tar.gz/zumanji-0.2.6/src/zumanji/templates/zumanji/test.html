@@ -1,0 +1,218 @@
+{% extends "zumanji/layout.html" %}
+
+{% load zumanji_helpers %}
+
+{% block content %}
+  <ul class="pager">
+    {% if previous_test_by_build %}
+      <li class="previous">
+        <a href="{% url zumanji:view_test project_label=previous_test_by_build.project.label build_id=previous_test_by_build.build_id test_label=previous_test_by_build.label %}">&larr; Previous Build (#{{ previous_test_by_build.build_id }})</a>
+      </li>
+    {% else %}
+      <li class="previous disabled">
+        <a href="#">&larr; Previous Build</a>
+      </li>
+    {% endif %}
+
+    {% if next_test_by_build %}
+      <li class="next">
+        <a href="{% url zumanji:view_test project_label=next_test_by_build.project.label build_id=next_test_by_build.build_id test_label=next_test_by_build.label %}">Next Build (#{{ next_test_by_build.build_id }}) &rarr;</a>
+      </li>
+    {% else %}
+      <li class="next disabled">
+        <a href="#">Next Build &rarr;</a>
+      </li>
+    {% endif %}
+  </ul>
+
+  <ul class="breadcrumb">
+    {% for link, label in breadcrumbs %}
+      {% if forloop.last %}
+        <li class="active">{{ label }}</li>
+      {% else %}
+       <li><a href="{{ link }}">{{ label }}</a> <span class="divider">/</span></li>
+      {% endif %}
+    {% endfor %}
+  </ul>
+
+  {% render_historical_sparkline test %}
+
+  <table class="table table-striped table-bordered">
+    <thead>
+      <tr>
+        <th>Test</th>
+        {% render_test_columns %}
+        <th style="width:60px; text-align:center;">Duration</th>
+        {# <th style="width:100px; text-align:center;">Historical</th> #}
+      </tr>
+    </thead>
+    <tbody>
+      {% for test in test_list %}
+        {% render_test_row test %}
+      {% empty %}
+        {% render_test_row test %}
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if not test_list %}
+    {# Must be a leaf #}
+    <h4>Build Details</h4>
+    {% include "zumanji/includes/build_details.html" %}
+  {% endif %}
+
+  {% if test.description %}
+    <h4>Description</h4>
+    <blockquote>{{ test.description|linebreaks }}</blockquote>
+  {% endif %}
+
+  <ul class="nav nav-tabs">
+    <li class="{% if changes or not trace_results %}active{% endif %}"><a href="#changes" data-toggle="tab">Changes ({{ changes|length }})</a></li>
+    {% if trace_results %}
+      <li class="{% if not changes and trace_results %}active{% endif %}"><a href="#trace" data-toggle="tab">Trace ({{ trace_results.num_diffs }} diffs)</a></li>
+    {% endif %}
+    {% if previous_builds %}
+      <li class="pull-right dropdown">
+        <a class="dropdown-toggle" data-toggle="dropdown" href="#">
+          <strong>Compare With:</strong> #{{ compare_build.id }} - {{ compare_build.revision.label }}
+          <b class="caret"></b>
+        </a>
+        <ul class="dropdown-menu">
+          <li>
+            {% for b in previous_builds %}
+              <li{% if compare_build == b %} class="active"{% endif %}><a href="?compare_with={{ b.id }}">#{{ b.id }} - {{ b.revision.label }}</a></li>
+            {% endfor %}
+          </li>
+        </ul>
+      </li>
+    {% endif %}
+  </ul>
+  <div class="tab-content">
+    <div class="tab-pane{% if changes or not trace_results %} active{% endif %}" id="changes">
+      {% if changes %}
+        <table class="table table-bordered table-striped">
+          <thead>
+            <tr>
+              <th>Test</th>
+              {% render_test_columns %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for change in changes %}
+              {% render_change_row change compare_build %}
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p>No changes in reported calls were seen.</p>
+      {% endif %}
+    </div>
+    {% if trace_results %}
+      <div class="tab-pane{% if not changes and trace_results %} active{% endif %}" id="trace">
+        <div class="row">
+          <div class="span12">
+            <label class="pull-right"><input type="checkbox" name="trace_changed" value="1" checked="checked"> Show only changed calls</label>
+          </div>
+          {% for trace in trace_results.diff %}
+          <div class="span6">
+            <table class="table table-striped trace-diff">
+              <caption>
+                {% if trace.test %}
+                  Calls captured in <a href="{% url zumanji:view_test project_label=trace.test.project.label build_id=trace.test.build_id test_label=trace.test.label %}">Build #{{ trace.test.build_id }}</a>
+                {% else %}
+                  (No previous results captured)
+                {% endif %}
+              </caption>
+              <tbody>
+              {% for tag, call_id, call in trace.calls %}
+                <tr class="diff-{{ tag }} call-{{ call_id }}" data-call="{{ call_id }}">
+                  {% if call %}
+                    <td style="text-align:right; width:50px;">{{ call.interface }}</td>
+                    <td>
+                      <div class="diff-call">
+                        {% for i in call.depth|range %}<span class="indent"></span>{% endfor %}
+                        {{ call.command }} {{ call.args }}
+                      </div>
+                    </td>
+                    {# <td style="text-align:center;">{{ call.duration|floatformat:3 }} s</td> #}
+                  {% else %}
+                    <td colspan="2">&nbsp;</td>
+                  {% endif %}
+                </tr>
+              {% endfor %}
+            </table>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  {% if trace_results %}
+    <script>
+    (function(){
+      calls = {{ trace_results.calls|as_json|safe }};
+      $modal = $('<div class="modal hide">' + 
+        '  <div class="modal-header">' + 
+        '    <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>' + 
+        '    <h3>Call Information</h3>' + 
+        '  </div>' + 
+        '  <div class="modal-body"></div>' + 
+        '  <div class="modal-footer">' + 
+        '    <button type="button" class="btn" data-dismiss="modal" aria-hidden="true">Close</button>' + 
+        '  </div>' + 
+        '</div>');
+
+      function showStacktrace(call) {
+        var $tb = $('<ul class="traceback"></ul>');
+        
+        $.each(call.stacktrace, function(f_index, frame){
+          var $frame = $('<li class="frame">' +
+            '  <p>' +
+            '    <code>' + frame.filename + '</code> in <code>' + frame.function + '</code>' +
+            ' at line <code>' + frame.lineno + '</code>' +
+            '  </p>' +
+            '</li>');
+          if (frame.context.length > 0) {
+            var $context = $('<ol start=' + (frame.context ? frame.context[0][0] : '') + ' class="context expandable"></ol>');
+
+            $.each(frame.context, function(index, bit){
+              $('<li' + (bit[0] == frame.lineno ? ' class="active"': ' class="stack' + f_index + ' closed"') +
+                '  onclick="$(\'.stack' + f_index + '\').toggleClass(\'closed\')"><pre>' + bit[1] + '</pre>' +
+                '</li>').appendTo($context);
+            });
+
+            $context.appendTo($frame);
+          }
+
+          $frame.appendTo($tb);
+        });
+
+        var $body = $modal.find('.modal-body');
+        $body.empty();
+        $('<pre>' + call.command + ' ' + call.args + '</pre>').appendTo($body);
+        $tb.appendTo($body);
+        $modal.modal();
+      }
+
+      $('.diff-call').click(function(){
+        var $el = $(this);
+        var call_id = $el.parents('tr').attr('data-call');
+        showStacktrace(calls[call_id]);
+      }).css('cursor', 'pointer');
+
+      $('input[name="trace_changed"]').change(function(){
+        $el = $(this);
+        if ($el.is(':checked')) {
+          $('.diff-equal').hide();
+        } else {
+          $('.diff-equal').show();
+        }
+      }).change();
+    }());
+    </script>
+  {% endif %}
+{% endblock %}
