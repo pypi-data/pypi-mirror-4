@@ -1,0 +1,33 @@
+_`foundations.common`
+=====================
+
+.. automodule:: foundations.common
+
+Module Attributes
+-----------------
+
+.. attribute:: foundations.common.LOGGER
+
+.. attribute:: foundations.common.CONNECTION_IP
+
+Functions
+---------
+
+.. autofunction:: uniqify
+
+.. autofunction:: orderedUniqify
+
+.. autofunction:: pathExists
+
+.. autofunction:: getFirstItem
+
+.. autofunction:: getLastItem
+
+.. autofunction:: isBinaryFile
+
+.. autofunction:: repeat
+
+.. autofunction:: dependencyResolver
+
+.. autofunction:: isInternetAvailable
+
