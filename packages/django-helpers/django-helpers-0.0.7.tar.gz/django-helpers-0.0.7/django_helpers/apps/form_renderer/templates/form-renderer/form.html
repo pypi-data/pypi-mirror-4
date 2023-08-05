@@ -1,0 +1,260 @@
+{% load log jsmin variable logger%}
+
+{% block form_common_error %}
+    {# TODO: Meed to find a methood to generate this varaiable automatically.#}
+    {% if form_error_message %}
+        <div class="system error">
+            {{ form_error_message }}
+            {% if form.non_field_errors %}
+                <ol>
+                    {% for err in form.non_field_errors %}
+                        <li><span>{{ err }}</span></li>
+                    {% endfor %}
+                </ol>
+            {% endif %}
+        </div>
+    {% endif %}
+{% endblock %}
+
+<form id="{{ form_id }}" action="{{ form_action }}" {% if form.multipart %}enctype="multipart/form-data" {% endif %} method="{{ method }}" accept-charset="utf-8">
+
+{% for field in form %}
+{% block form_display %}
+    <div class="row">
+        {{ field.label_tag }}
+        <div class="rowright{% if field.errors %} error{% endif %}">
+            {{ field }}
+            {% if field.errors %}
+                {% for error_msg in field.errors %}
+                    <span class="error">{{ error_msg }}</span>
+                {% endfor %}
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}
+{% endfor %}
+
+{% block form_submit %}
+    <div class="row">
+        <button type="submit" class="medium green">
+            <span>{{ form_submit|default:"Submit" }}</span>
+        </button>
+    </div>
+{% endblock %}
+
+{% if csrf_token_html %}
+    {{ csrf_token_html }}
+{% else %}
+    {% csrf_token %}
+{% endif %}
+
+</form>
+
+
+<script type="text/javascript">
+    {% jsmin %}
+
+        // Form Validation
+        {% if has_validation %}
+            {% block validation %}
+                // This is used to ensure validation in hidden fields.
+                $.validator.setDefaults({ ignore : [] });
+
+
+                jQuery(function ($) {
+                    var
+                            options = {},
+                            main_form = $("#" + "{{ form_id }}"),
+                            form_container = main_form.parent();
+
+                    {% block validation_options %}
+                        /* Give some template specific code here.*/
+                        options = {
+                            errorElement : "span",
+
+                            errorPlacement : function (error, element) {
+                                var parent = element.parent();
+                                parent.children("span.error").remove();
+                                parent.addClass("error").append(error);
+                            },
+
+                            /**
+                             @author Muhammed K K
+                             @date-created 10/2/12, 6:00 PM
+                             @param {jQuery} obj The error field
+                             @description This function will be called when the value of
+                             an a field is changed.
+                             */
+                            success : function (obj) {
+                                obj.parent().removeClass("error");
+                                obj.remove();
+                            }
+                        };
+                    {% endblock %}
+
+                    $('form').attr('novalidate', 'novalidate');
+                    jQuery.extend(options, {
+                        rules : {
+                            {% for form_field in form %}
+                                "{{ form_field.html_name }}" : {
+                                    {% assign field form_field.field %}
+
+                                    {% if field.required %}
+                                        "required" : true,
+                                    {% endif %}
+
+                                    {% if field.integer %}
+                                        "number" : true,
+                                    {% endif %}
+
+                                    {% if field.email %}
+                                        "email" : true,
+                                    {% endif %}
+
+                                    {% if field.url %}
+                                        "url" : true,
+                                    {% endif %}
+
+                                    {% if field.min_length %}
+                                        "minlength" : {{ field.min_length }},
+                                    {% endif %}
+
+                                    {% if field.max_length %}
+                                        "maxlength" : {{ field.max_length }},
+                                    {% endif %}
+
+                                },
+                            {% endfor %}
+                        },
+
+                        messages : {
+                            {% for form_field in form %}
+                                "{{ form_field.html_name }}" : {
+                                    {% assign field form_field.field %}
+                                    {% assign messages field.error_messages %}
+
+                                    {% if field.required %}
+                                        "required" : "{{ messages.required }}",
+                                    {% endif %}
+
+                                    {% if field.integer %}
+                                        "number" : "{{ messages.invalid }}",
+                                    {% endif %}
+
+                                    {% if field.email %}
+                                        "email" : "{{ messages.invalid }}",
+                                    {% endif %}
+
+                                    {% if field.url %}
+                                        "url" : "{{ messages.invalid }}",
+                                    {% endif %}
+                                },
+                            {% endfor %}
+                        }
+                    });
+                    main_form.validate(options);
+                });
+            {% endblock %}
+        {% endif %}
+
+        // Form Rules
+        {% if has_rules %}
+            {% block rules %}
+                jQuery(function () {
+                    var evaluate = function (val, condition, value, type) {
+                        if (type === "" || type === "string") {
+                            val = val.toString();
+                            value = value.toString();
+                        }
+
+                        if (condition === "==" || condition === "") {
+                            return val === value;
+                        } else if (condition === "!=") {
+                            return val !== value;
+                        } else if (condition === "<") {
+                            return val < value;
+                        } else if (condition === ">") {
+                            return val > value;
+                        } else if (condition === ">=") {
+                            return val >= value;
+                        } else if (condition === "<=") {
+                            return val <= value;
+                        }
+                        return false;
+                    }, hide_row, show_row;
+
+
+
+                    {% block form_rule_methods %}
+                        hide_row = function(elem) {
+                            elem.parent().parent().hide();
+                        };
+
+                        show_row = function(elem) {
+                            elem.parent().parent().show();
+                        };
+                    {% endblock %}
+
+                    {% if debug %}
+                        if(hide_row === undefined || show_row === undefined){
+                            alert("Form rule methods is not valid.");
+                            throw "Form rule methods is not valid.";
+                        }
+                    {% endif %}
+
+                    // Hide field rules
+                    {% for field_name, rule in form.meta_rules.hide_if.items %}
+                        $("[name=" + "{{ rule.field }}]", main_form).change(function () {
+                            var elem = $("[name=" + "{{ field_name }}]").parent().parent(),
+                                    curr = $(this),
+                                    val = curr.val(),
+                                    condition = "{{ rule.condition }}",
+                                    type = "{{ rule.type }}",
+                                    value = "{{ rule.value }}";
+
+                            if (evaluate(val, condition, value, type)) {
+                                hide_row(elem);
+                            }
+                            else {
+                                show_row(elem);
+                            }
+                        });
+                    {% endfor %}
+
+                    // Disable field rules
+                    {% for field_name, rule in form.meta_rules.disable_if.items %}
+                        $("[name=" + "{{ rule.field }}]", main_form).change(function () {
+                            var elem = $("[name=" + "{{ field_name }}]"),
+                                    curr = $(this),
+                                    val = curr.val(),
+                                    condition = "{{ rule.condition }}",
+                                    type = "{{ rule.type }}",
+                                    value = "{{ rule.value }}",
+                                    op = evaluate(val, condition, value, type);
+                            elem.attr('disabled', op);
+                        });
+                    {% endfor %}
+                });
+            {% endblock %}
+        {% endif %}
+
+        // Widget Javascript
+        {% block widget_js %}
+            {% for field in form %}
+                {% if field.field.widget.has_js %}
+                    {{ field.field.widget.render_js }}
+                {% endif %}
+            {% endfor %}
+        {% endblock %}
+
+        {% if focus_first %}
+        // Select first input
+        {% block focus_elem %}
+            jQuery(function ($) {
+                $("input:first").focus();
+            });
+        {% endblock %}
+        {% endif %}
+
+    {% endjsmin %}
+</script>
