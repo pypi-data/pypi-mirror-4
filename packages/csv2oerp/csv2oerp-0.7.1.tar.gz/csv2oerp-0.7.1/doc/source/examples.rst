@@ -1,0 +1,135 @@
+.. _examples:
+
+*************
+Some examples
+*************
+
+Partners importation
+====================
+
+.. csv-table:: res_partner_address.csv
+
+   :header: "Address Type";"City";"Contact Name";"Country Name";"Customer";"E-Mail";"Phone";"Street";"Street2";"Supplier";"Title";"Zip";"Partner Name";"Partner Language";"Partner Country Name";"Partner City";"Salesman Name";"Salesman Email"
+    
+    "Address Type";"City";"Contact Name";"Country Name";"Customer";"E-Mail";"Phone";"Street";"Street2";"Supplier";"Title";"Zip";"Partner Name";"Partner Language";"Partner Country Name";"Partner City";"Salesman Name";"Salesman Email"
+    "default";"Paris";"Arthur Grosbonnet";"France";1;"a.g@wealthyandsons.com";3368978776;"1 rue Rockfeller";;0;"Sir";75016;"Bank Wealthy and sons";"en_US";"France";"Paris";"Lucie Weiss";"lucie.weis@dns.org"
+    "default";"Bruxelles";"Carl François";"Belgium";1;"carl.françois@bml.be";"+32-258-256545";"89 Chaussée de Waterloo";;0;;1000;"Centrale d'achats BML";"en_US";"Belgium";"Bruxelles";"Lucie Weiss";"lucie.weis@dns.org"
+    "default";"Buenos Aires";"Jack Daniels";"Argentina";1;"contact@smartbusiness.ar";"(5411) 4773-9666 ";"Palermo, Capital Federal ";"C1414CMS Capital Federal ";0;;1659;"SmartBusiness";"en_US";"Argentina";"Buenos Aires";"Lucie Weiss";"lucie.weis@dns.org"
+    "default";"Liege";"Karine Lesbrouffe";"Belgium";1;"k.lesbrouffe@eci-liege.info";"+32 421 52571";"2 Impasse de la Soif";;0;;6985;"Ecole de Commerce de Liege";"en_US";"Belgium";"Liege";"Lucie Weiss";"lucie.weis@dns.org"
+    "default";"Champs sur Marne";"Laith Jubair";"France";1;"info@axelor.com";"+33 1 64 61 04 01";"12 rue Albert Einstein";;1;;77420;"Axelor";"en_US";"France";"Champs sur Marne";"Lucie Weiss";"lucie.weis@dns.org"
+    "default";"Avignon CEDEX 09";"Laurent Jacot";"France";1;"contact@tecsas.fr";"(+33)4.32.74.10.57";"85 rue du traite de Rome";;0;;84911;"Tecsas";"en_US";"France";"Avignon CEDEX 09";"Lucie Weiss";"lucie.weis@dns.org"
+    "default";"Grenoble";"Loïc Dupont";"China";1;"l.dupont@tecsas.fr";"+33-658-256545";"Rue Lavoisier 145";;0;;38100;"Tecsas";"en_US";"France";"Avignon CEDEX 09";"Lucie Weiss";"lucie.weis@dns.org"
+    "default";"Namur";"Lucien Ferguson";;1;"lucien.ferguson@bml.be";"+32-621-568978";"89 Chaussée de Liège";;0;;5000;"Magazin BML 1";"en_US";;"Namur";"Lucie Weiss";"lucie.weis@dns.org"
+    "default";"Lausanne";"Luc Maurer";"Switzerland";1;;"+41 21 619 10 04";"PSE-A, EPFL ";;1;;1015;"Camptocamp";"en_US";"Switzerland";"Lausanne";"Lucie Weiss";"lucie.weis@dns.org"
+    "default";"Brest";"Marine Leclerc";;1;"marine@leclerc.fr";"+33-298.334558";"rue Grande";;0;;29200;"Leclerc";"en_US";;"Brest";"Lucie Weiss";"lucie.weis@dns.org"
+    "default";"Liège";"Martine Ohio";;1;"martine.ohio@ulg.ac.be";"+32-45895245";"Place du 20Août";;0;;4000;"Université de Liège";"en_US";;"Liège";"Lucie Weiss";"lucie.weis@dns.org"
+    "default";"Bruxelles";"Michel Schumacher";"Belgium";1;"info@balmerinc.be";"(+32)2 211 34 83";"Rue des Palais 51, bte 33";;0;;1000;"BalmerInc S.A.";"en_US";"Belgium";"Bruxelles";"Lucie Weiss";"lucie.weis@dns.org"
+    "default";"Namur";"NotSoTiny SARL";"Belgium";1;;"(+32).81.81.37.00";"Rue du Nid 1";;0;;5000;"NotSoTiny SARL";"en_US";"Belgium";"Namur";"Lucie Weiss";"lucie.weis@dns.org"
+    "default";"Cupertino";"Seagate Technology";"United States";1;"info@seagate.com";"+1 408 256987";"10200 S. De Anza Blvd";;1;;95014;"Seagate";"en_US";"United States";"Cupertino";"Lucie Weiss";"lucie.weis@dns.org"
+    "default";"Alencon";"Sebastien LANGE";"France";1;"contact@syleam.fr";"+33 (0) 2 33 31 22 10";"1 place de l'Église";;0;;61000;"Syleam";"en_US";"France";"Alencon";"Martin Shain";"martin.shain@dns.org"
+    "default";"Wavre";"Sylvie Lelitre";"Belgium";1;"s.l@agrolait.be";3281588558;"69 rue de Chimay";;0;"Madam";5478;"Agrolait";"en_US";"Belgium";"Wavre";"Martin Shain";"martin.shain@dns.org"
+    "default";"Boston";"Tiny Work";"United States";1;"info@tinyatwork.com";"+33 (0) 2 33 31 22 10";"One Lincoln Street";;0;;5501;"Tiny AT Work";"en_US";"United States";"Boston";"Martin Shain";"martin.shain@dns.org"
+    "default";"Shanghai";"Zen";"China";1;"zen@chinaexport.com";"+86-751-64845671";"52 Chop Suey street";;0;;478552;"China Export";"en_US";"China";"Shanghai";"Martin Shain";"martin.shain@dns.org"
+    "default";"Wavre";"Paul Lelitre";"Belgium";1;"p.l@agrolait.be";3281588557;"71 rue de Chimay";;0;"Sir";5478;"Agrolait";"en_US";"Belgium";"Wavre";"Martin Shain";"martin.shain@dns.org"
+    "default";"Brest";"Claude Leclerc";;1;"claude@leclerc.fr";"+33-298.334598";"rue Grande";;0;;29200;"Leclerc";"en_US";;"Brest";"Martin Shain";"martin.shain@dns.org"
+    "default";"Wavre";"Serge Lelitre";"Belgium";1;"serge.l@agrolait.be";3281588556;"69 rue de Chimay";;0;"Sir";5478;"Agrolait";"en_US";"Belgium";"Wavre";"Martin Shain";"martin.shain@dns.org"
+    "default";"Antwerpen";;"Belgium";1;;;"Antwerpsesteenweg 254";;0;;2000;"NotSoTiny SARL";"en_US";"Belgium";"Namur";"Martin Shain";"martin.shain@dns.org"
+    "default";"Mons";"Eric Dubois";"Belgium";1;"e.dubois@gmail.com";"(+32).758 958 789";"Chaussée de Binche, 27";;0;;7000;"Eric Dubois";"en_US";"Belgium";"Mons";"Martin Shain";"martin.shain@dns.org"
+    "default";"Namur";"Fabien Dupont";"Belgium";1;;;"Blvd Kennedy, 3";;0;;5000;"Fabien Dupont";"en_US";"Belgium";"Namur";"Martin Shain";"martin.shain@dns.org"
+    "default";"Brussels";"Geoff";"Belgium";1;;;;;0;;;"ZeroOne Inc";"en_US";"Belgium";"Brussels";"Martin Shain";"martin.shain@dns.org"
+    "default";"Paris";"Henry Chard";"France";1;;;;;0;;;"The Shelve House";"en_US";"France";"Paris";"Lucky Luke";"lucky.luke@west.org"
+    "default";"Puurs";"Leen Vandenloep";"Belgium";1;;"(+32).70.12.85.00";"Schoonmansveld 28";;1;;2870;"Vicking Direct";"en_US";"Belgium";"Puurs";"Lucky Luke";"lucky.luke@west.org"
+    "default";"Brussels";"Marc Dubois";"Belgium";1;"m.dubois@dubois.be";;"Avenue de la Liberté 56";;0;;1000;"Dubois sprl";"en_US";"Belgium";"Brussels";"Lucky Luke";"lucky.luke@west.org"
+    "default";"Louvain-la-Neuve";"Thomas Passot";"Belgium";1;;"(+32).10.45.17.73";"Rue de l'Angelique, 1";;0;;1348;"Mediapole SPRL";"en_US";"Belgium";"Louvain-la-Neuve";"Lucky Luke";"lucky.luke@west.org"
+    "default";"Grand-Rosière";;"Belgium";1;;;"Chaussée de Namur";;0;;1367;"Lucie Vonck";"en_US";"Belgium";"Grand-Rosière";"Lucky Luke";"lucky.luke@west.org"
+
+Importation script::
+
+    >>> import csv2oerp
+    >>> from csv2oerp import Field, Model, Session, Openerp
+    >>> from csv2oerp import callbacks as cb
+
+    >>> # OpenERP configuration
+    >>> host = '172.24.1.169'
+    >>> port = 8069
+    >>> dbname = 'csv2oerp07'
+    >>> user = 'admin'
+    >>> pwd = 'admin'
+    >>> lang = 'fr_FR'
+    >>> oerp = Openerp(host, port, user, pwd, dbname, lang)
+
+    >>> #===============================================================================
+    >>> # res_partner_address
+    >>> #===============================================================================
+    >>> # 0: Address Type
+    >>> # 1: City
+    >>> # 2: Contact Name
+    >>> # 3: Country Name
+    >>> # 4: Customer
+    >>> # 5: E-Mail
+    >>> # 6: Phone
+    >>> # 7: Street
+    >>> # 8: Street2
+    >>> # 9: Supplier
+    >>> # 10: Title
+    >>> # 11: Zip
+    >>> # 12: Partner Name
+    >>> # 13: Partner Language
+    >>> # 14: Partner Country Name
+    >>> # 15: Partner City
+    >>> # 16: Salesman Name
+    >>> # 17: Salesman Email
+    >>> res_partner_address = Session(u'res_partner_address', 'res_partner_address.csv',
+    >>>         delimiter=';', quotechar='"', encoding='utf8')
+
+    >>> salesman = Model(u'res.users', fields=[
+    ...     Field('name', [16]),
+    ...     Field('user_email', [17]),
+    ...     Field('login', [17]),
+    ...     ], update=False, search=['name', 'user_email'])
+
+    >>> country_partner = Model(u'res.country', fields=[
+    ...     Field('name', [3]),
+    ...     ], update=False, search=['name'])
+
+    >>> country_address = Model(u'res.country', fields=[
+    ...     Field('name', [14]),
+    ...     ], update=False, search=['name'])
+
+    >>> partner_title = Model(u'res.partner.title', fields=[
+    ...     Field('name', [10]),
+    ...     ], update=False, search=['name'])
+
+    >>> partner = Model(u'res.partner', fields=[
+
+    ...     Field('customer', [4], callbacks=[cb.to_boolean()]),
+    ...     Field('supplier', [9], callbacks=[cb.to_boolean()]),
+    ...     Field('name', [12]),
+    ...     Field('lang', [13]),
+
+    ...     Field('user_id', relation=salesman),
+    ...     Field('country', relation=country_partner),
+
+    ...     ], search=['name', 'city'])
+
+    >>> addresses = Model(u'res.partner.address', fields=[
+
+    ...     Field('type', [0]),
+    ...     Field('city', [1]),
+    ...     Field('name', [2]),
+    ...     Field('email', [5]),
+    ...     Field('phone', [6]),
+    ...     Field('street', [7]),
+    ...     Field('street2', [8]),
+    ...     Field('zip', [11]),
+
+    ...     Field('partner_id', relation=partner),
+    ...     Field('country_id', relation=country_address),
+    ...     Field('title', relation=partner_title),
+
+    ...     ], search=['type', 'partner_id'])
+
+    >>> res_partner_address.join(oerp, [addresses, ])
+
+    >>> # Show statistics
+    >>> csv2oerp.show_stats()
