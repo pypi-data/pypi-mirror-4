@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block title %}Stock Tweets{% endblock %}
+
+{% block pageJavascript %}
+<script type="text/javascript">
+$(document).ready(function(){
+
+	// slider JS
+	$(function() {
+		$( "#slider" ).slider({
+			value: {{ hours }},
+			min: 1,
+			max: 24,
+			step: 1,
+			slide: function( event, ui ) {
+					$( "#numHours" ).text( ui.value );
+			},
+			stop: function( event, ui) { // only reload once release click off slider
+				window.location = '/stocktweets/' + ui.value;
+			}
+		});
+		$( "#numHours" ).text( {{ hours }} );
+	});
+
+	// display tweets
+	$(".stockRow").click(function() {
+		$('#tweetHeading').css('display', '');
+		var pk = $(this).find(".stockpk").text();
+		$('.tweetblock').css('display', 'none');
+		$("#pk-" + pk).css('display', '');
+	});
+
+	// set initial height
+	$(".tweets").height($(window).height() - $(".navbar").height() - 80);
+	// resize height
+	$(window).resize(function(){
+        $(".tweets").height($(window).height() - $(".navbar").height() - 80);
+    });	
+});
+</script>
+{% endblock %}
+
+
+{% block content %}
+<div class="container">
+	<div class="row">
+		<div class="span7">
+<h3>Stocks</h3>
+
+{% if errors %}
+	<div class="alert alert-error">
+		{% for error in errors %} 
+			<ul>
+				<li>{{ error }}</li>
+			</ul>
+		{% endfor %}
+	</div>
+{% endif %}
+
+<form action="/stocktweets/" method="post" class="form-inline"> 
+{% csrf_token %}
+
+{% if symbolForm.errors %}
+	<div class="alert alert-error">
+		{% for field in symbolForm %} 
+			<ul>
+				{% if field.errors %}
+				<li>{{ field.label }}: {{ field.errors|striptags }}</li>
+				{% endif %}
+			</ul>
+		{% endfor %}
+	</div>
+{% endif %}
+
+<div class="fieldWrapper">
+	<label for="id_symbol">Symbol: </label>
+	{{ symbolForm.symbol }}
+	<input type="submit" value="Add" class="btn"/>
+</div>
+
+<input type="hidden" name="hours" value={{ hours }} />
+</form>
+
+<p>
+	Show mentions of stocks on Twitter for the past <span id="numHours" class="badge badge-important"></span> hours
+	<div id="slider"></div>
+</p>
+
+<table class="table table-striped table-bordered table-hover" >
+	<tr>
+		<th><a href="/stocktweets/{{ hours }}"><i class="icon-refresh"></i></a></th>
+		<th>Ticker</th>
+		<th>Name</th>
+		<th>Price</th>
+		<th>Change</th>
+		<th>Vol / Avg</th>
+		<th>Mentions<img src="https://twitter.com/images/resources/twitter-bird-light-bgs.png" width="20" height="20" /></th>
+	</tr>
+{% for s in stocks %}
+	<tr class="stockRow">
+		<td>
+			<span class="stockpk" style="display:none" >{{ s.pk }}</span>
+			<a href="/stocktweets/deleteStock/{{ s.pk }}/{{ hours }}"><i class="icon-remove"></i></a>
+		</td>
+		<td><a href="http://www.google.com/finance?q={{ s.symbol }}" target="_blank">{{ s.symbol }}</a></td>
+		<td>{{ s.name }}</td>
+		<td>{{ s.price }}</td>
+		<td class="{% if s.change < 0 %}text-error{% elif s.change > 0 %}text-success{% endif %}">{{ s.change}} / ({{ s.pctChange }}%)</td>
+		<td>{{ s.volume }} / {{ s.avgVol }}</td>
+		<td>{{ s.mentions }}</td>
+	</tr>
+{% endfor %}
+</table>
+</div>
+
+<div class="span5">
+<h3 id="tweetHeading" style="display:none">Recent Tweets</h3>
+	<div class="tweets" style="overflow:auto">
+		{% for s in stocks %}
+			<div id="pk-{{ s.id }}" class="tweetblock" style="display:none">
+				{% if not s.tweet_set.all %}
+					<p><em>${{ s.symbol }} has not been mentioned on Twitter recently.</em></p>
+				{% else %}
+					{% for tweet in s.tweet_set.all %}
+						<div class="tweet">
+							<blockquote class="twitter-tweet">
+								<p>{{ tweet.message }}</p>
+								<a href="https://www.twitter.com/{{ tweet.screenName}}" target="_blank">(@{{ tweet.screenName }})</a> 
+								<a href="https://twitter.com/{{ tweet.screenName }}/status/{{ tweet.tweetId }}" data-datetime="{{ tweet.date }}" target="_blank">{{ tweet.date }}</a>
+							</blockquote>
+						</div>
+					{% endfor %}
+				{% endif %}
+			</div>
+		{% endfor %}
+	</div>
+</div>
+</div>
+
+</div>
+
+{% endblock %}
+	
