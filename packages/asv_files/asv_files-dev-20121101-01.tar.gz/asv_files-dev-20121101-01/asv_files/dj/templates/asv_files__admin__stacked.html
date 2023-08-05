@@ -1,0 +1,171 @@
+{% load i18n adminmedia %}
+{% load thumbnail %}
+{% load asv_media_tags %}
+{% load asv_files_tags %}
+<div class="asv_files-group inline-group" id="{{ inline_admin_formset.formset.prefix }}-group">
+  <h2>{{ inline_admin_formset.opts.verbose_name_plural|title }}</h2>
+  {{ inline_admin_formset.formset.management_form }}
+  {{ inline_admin_formset.formset.non_form_errors }}
+  {% asv__url_pickle inline_admin_formset as PP %}
+
+  <div id="{{inline_admin_formset.formset.prefix}}-sortable">
+  <input type="hidden" class="asv__model_mark" value="{{PP}}">
+  {% for inline_admin_form in inline_admin_formset %}
+  <div {%if inline_admin_formset.formset.can_delete and inline_admin_form.original%}id="file_{{inline_admin_form.pk_field.field.value}}"{%endif%} class="inline-related{% if forloop.last %} empty-form last-related{% else%} sortable {% endif %}" id="{{ inline_admin_formset.formset.prefix }}-{% if not forloop.last %}{{ forloop.counter0 }}{% else %}empty{% endif %}">
+    <h3 style="border-top: solid 1px #DDD; margin-top: 10px;">
+      {% if inline_admin_form.original %}
+        <span class="inline_label">{{ inline_admin_form.original }}</span>
+      {% else %}
+        <b>{{ inline_admin_formset.opts.verbose_name|title }}:</b>&nbsp;
+        <span class="inline_label">#{{ forloop.counter }}</span>
+      {% endif %}
+      {% if inline_admin_formset.formset.can_delete and inline_admin_form.original %}
+        <span class="delete">
+            {{ inline_admin_form.deletion_field.field }}
+            {{ inline_admin_form.deletion_field.label_tag }}
+        </span>
+      {% endif %}
+    </h3>
+    {% if inline_admin_form.form.non_field_errors %}{{ inline_admin_form.form.non_field_errors }}{% endif %}
+    {% for fieldset in inline_admin_form %}
+    <fieldset class="module aligned {{ fieldset.classes }}">
+        {% if fieldset.name %}<h2>{{ fieldset.name }}</h2>{% endif %}
+        {% if fieldset.description %}
+            <div class="description">{{ fieldset.description|safe }}</div>
+        {% endif %}
+        {% for line in fieldset %}
+            {% if 'file' in line.fields %}
+                <div class="form-row file" style="width:240px; float:left; padding:0; border:none; ">
+                {% for field in line %}
+                    {% if field.field.value %}
+                        <div class="file_widget">
+                            <b>файл:</b>
+                            <div class="file_w_file_name" style="overflow:hidden; border-top: lightgrey 1px dotted; border-bottom: lightgrey 1px dotted;">
+                                {% filename field %}
+                            </div>
+                            <div class="file_w_button_bar" style="overflow:hidden;">
+                                <a href="#" class="btn btn_change">заменить</a>
+                            </div>
+                            <div class="file_w_select_bar" style="overflow:hidden; display:none;">
+                                файл будет заменен на:<br>
+                                {{ field.field }}
+                                <a href="#" class="btn btn_cancel">отмена</a>
+                            </div>
+                        </div>
+                    {% else %}
+                        {{ field.field }}
+                    {% endif %}
+                {% endfor %}
+                </div>
+            {% endif %}
+        {% endfor %}
+        <div style="overflow:hidden;">
+        {% for line in fieldset %}
+            {% if 'file' not in line.fields %}
+                <div class="form-row{% if line.errors %} errors{% endif %}{% for field in line %} {{ field.field.name }}{% endfor %} {{line.field.name}}">
+                {{ line.errors }}
+                {% for field in line %}
+                    <div class="qqq {% if not line.fields|length_is:'1' %}field-box{% endif %}">
+                        {% if field.is_checkbox %}
+                            {{ field.field }}{{ field.label_tag }}
+                        {% else %}
+                            {{ field.label_tag }}
+                            {% if field.is_readonly %}
+                                <p>{{ field.contents }}</p>
+                            {% else %}
+                                {{ field.field }}
+                            {% endif %}
+                        {% endif %}
+                        {% if field.field.field.help_text %}
+                            <p class="help">{{ field.field.field.help_text|safe }}</p>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+                </div>
+            {% endif %}
+        {% endfor %}
+        </div>
+    </fieldset>
+    {% endfor %}
+    {% if inline_admin_form.has_auto_field %}{{ inline_admin_form.pk_field.field }}{% endif %}
+    {{ inline_admin_form.fk_field.field }}
+  </div>
+  {% endfor %}
+  </div>
+</div>
+
+<script type="text/javascript">
+(function($) {
+    $(document).ready(function() {
+        var rows = "#{{ inline_admin_formset.formset.prefix }}-group .inline-related";
+        var updateInlineLabel = function(row) {
+            $(rows).find(".inline_label").each(function(i) {
+                var count = i + 1;
+                $(this).html($(this).html().replace(/(#\d+)/g, "#" + count));
+            });
+        }
+        var reinitDateTimeShortCuts = function() {
+            // Reinitialize the calendar and clock widgets by force, yuck.
+            if (typeof DateTimeShortcuts != "undefined") {
+                $(".datetimeshortcuts").remove();
+                DateTimeShortcuts.init();
+            }
+        }
+        var updateSelectFilter = function() {
+            // If any SelectFilter widgets were added, instantiate a new instance.
+            if (typeof SelectFilter != "undefined"){
+                $(".selectfilter").each(function(index, value){
+                  var namearr = value.name.split('-');
+                  SelectFilter.init(value.id, namearr[namearr.length-1], false, "{% admin_media_prefix %}");
+                })
+                $(".selectfilterstacked").each(function(index, value){
+                  var namearr = value.name.split('-');
+                  SelectFilter.init(value.id, namearr[namearr.length-1], true, "{% admin_media_prefix %}");
+                })
+            }
+        }
+        var initPrepopulatedFields = function(row) {
+            row.find('.prepopulated_field').each(function() {
+                var field = $(this);
+                var input = field.find('input, select, textarea');
+                var dependency_list = input.data('dependency_list') || [];
+                var dependencies = row.find(dependency_list.join(',')).find('input, select, textarea');
+                if (dependencies.length) {
+                    input.prepopulate(dependencies, input.attr('maxlength'));
+                }
+            });
+        }
+        $(rows).formset({
+            prefix: "{{ inline_admin_formset.formset.prefix }}",
+            addText: "{% blocktrans with inline_admin_formset.opts.verbose_name|title as verbose_name %}Add another {{ verbose_name }}{% endblocktrans %}",
+            formCssClass: "dynamic-{{ inline_admin_formset.formset.prefix }}",
+            deleteCssClass: "inline-deletelink",
+            deleteText: "{% trans "Remove" %}",
+            emptyCssClass: "empty-form",
+            removed: updateInlineLabel,
+            added: (function(row) {
+                initPrepopulatedFields(row);
+                reinitDateTimeShortCuts();
+                updateSelectFilter();
+                updateInlineLabel(row);
+            })
+        });
+        setTimeout(function(){ 
+            AsvAdminInitSortable('{{inline_admin_formset.formset.prefix}}-sortable','{%url asv_files:adminrpc__filesort%}');
+            $('a.btn_change').click(function(){
+                var t = $(this);
+                $('div.file_w_button_bar',t.parent().parent()).hide();
+                $('div.file_w_select_bar',t.parent().parent()).show();
+                return false;
+            });
+            $('a.btn_cancel').click(function(){
+                var t = $(this);
+                $('input[type=file]',t.parent()).val('');
+                $('div.file_w_select_bar',t.parent().parent()).hide();
+                $('div.file_w_button_bar',t.parent().parent()).show();
+                return false;
+            });
+        },50);
+    });
+})(django.jQuery);
+</script>
