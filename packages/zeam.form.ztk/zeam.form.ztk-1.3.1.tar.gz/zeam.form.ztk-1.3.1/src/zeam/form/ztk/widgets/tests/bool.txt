@@ -1,0 +1,121 @@
+============================
+zeam.form.ztk boolean widget
+============================
+
+We need first a boolean:
+
+  >>> from zope import interface, schema
+  >>> from zope.interface.verify import verifyObject
+
+  >>> class IQuestion(interface.Interface):
+  ...     answer = schema.Bool(title=u"Do you like zeam?")
+
+And a test content and request:
+
+  >>> from zope.publisher.browser import TestRequest
+  >>> request = TestRequest()
+
+  >>> class Question(object):
+  ...    interface.implements(IQuestion)
+  ...    answer = True
+  >>> content = Question()
+
+
+Field
+-----
+
+So now you can create a field, and get a boolean field:
+
+  >>> from zeam.form.ztk import Fields
+  >>> from zeam.form.base import interfaces
+
+  >>> fields = Fields(IQuestion)
+  >>> boolean_field = fields['answer']
+  >>> boolean_field
+  <BooleanField Do you like zeam?>
+
+  >>> verifyObject(interfaces.IField, boolean_field)
+  True
+
+
+Widget
+------
+
+You have an associated widget:
+
+  >>> from zeam.form.ztk import Widgets, FormData
+
+  >>> sub = FormData(content, request)
+  >>> sub.ignoreContent = False
+
+  >>> widgets = Widgets(fields, form=sub, request=request)
+  >>> widgets.update()
+
+  >>> boolean_widget = widgets['form.field.answer']
+  >>> boolean_widget
+  <CheckBoxWidget Do you like zeam?>
+
+  >>> verifyObject(interfaces.IWidget, boolean_widget)
+  True
+
+  >>> print boolean_widget.render()
+  <input id="form-field-answer" name="form.field.answer" class="field field-bool field-required"
+         checked="checked" value="True" type="checkbox" />
+
+
+Extractor
+---------
+
+And finaly we have an extractor. If there is nothing in the request
+the value is False:
+
+  >>> from zope import component
+
+  >>> false_extractor = component.getMultiAdapter(
+  ...      (boolean_field, sub, request), interfaces.IWidgetExtractor)
+
+  >>> false_extractor
+  <zeam.form.ztk.widgets.bool.CheckBoxWidgetExtractor object at ...>
+  >>> false_extractor.extract()
+  (False, None)
+
+  >>> verifyObject(interfaces.IWidgetExtractor, false_extractor)
+  True
+
+And if there is True in the request that means the checkbox is
+checked:
+
+  >>> true_request = TestRequest(
+  ...         form={boolean_widget.identifier: u'True', })
+
+  >>> extractor = component.getMultiAdapter(
+  ...      (boolean_field, sub, true_request), interfaces.IWidgetExtractor)
+
+  >>> extractor.extract()
+  (True, None)
+
+Passing in u'False' will result in a False boolean value being returned
+(checkbox is not checked).
+
+  >>> false_request = TestRequest(
+  ...         form={boolean_widget.identifier: u'False', })
+
+  >>> extractor = component.getMultiAdapter(
+  ...      (boolean_field, sub, false_request), interfaces.IWidgetExtractor)
+
+  >>> extractor.extract()
+  (False, None)
+
+Also, passing in an empty string will result in a False boolean value
+being returned (checkbox is not checked).  Being a checkbox, a browser
+will not send 'False', it simply won't send the field.  Accepting
+'false' makes it easier to develop an api which is called from code.
+
+  >>> empty_request = TestRequest(
+  ...         form={boolean_widget.identifier: u'', })
+
+  >>> extractor = component.getMultiAdapter(
+  ...      (boolean_field, sub, empty_request), interfaces.IWidgetExtractor)
+
+  >>> extractor.extract()
+  (False, None)
