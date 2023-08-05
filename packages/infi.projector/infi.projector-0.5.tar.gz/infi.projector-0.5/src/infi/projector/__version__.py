@@ -1,0 +1,10 @@
+__version__ = "0.5"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = 'f8bf9956ee2317d785c3366843e5f35d9e4eb4d2'
+__git_head_subject__ = 'Finished release v0.5.'
+__git_head_message__ = '# By Guy Rozendorn (24) and Arnon Yaari (1)\n* release/v0.5: (25 commits)\n  TRIVIAL fix revert_if_failed\n  Unfreezing dependencies\n  TRIVIAL fix unfreeze\n  empty commit after version v0.4\n  TRIVIAL fixed freeze --newest\n  Freezing dependencies\n  Freezing dependencies\n  TRIVIAL added test\n  Freezing dependencies\n  TRIVIAL homepage\n  TRIVIAL fix --no-push-changes\n  TRIVIAL revert_if_failed fix\n  HOSTDEV-494 added homepage support now that the recipe supports it\n  TRIVIAL execute_assert_success: yet another fix\n  TRIVIAL execute_assert_success: fix previous commit\n  HOSTDEV-490 PrettyExecutionError\n  TRIVIAL description\n  HOSTDEV-447 graceful clone of remote w/o develop branch\n  HOSTDEV-493  fix previous commit\n  HOSTDEV-493  freeze revisited, now implemented as a seprate command\n  ...'
+__git_dirty_diff__ = ''
