@@ -1,0 +1,228 @@
+""" Code to match pair of coordinates.
+
+Context : SRP
+Module  : SRPMatch.py
+Version : 2.0.2
+Author  : Stefano Covino
+Date    : 07/09/2011
+E-mail  : stefano.covino@brera.inaf.it
+URL:    : http://www.merate.mi.astro.it/~covino
+Purpose : Manage the matching of pair of coordinates.
+
+Usage   : SRPMatch [-c arg1 arg2 arg3 arg4] [-h] [-j arg5] -m arg6 [-n arg7] -o arg8 -r arg9 [-s arg10 arg11] -t arg12 [-v]
+            -c are the x,y column numbers for the reference table and the matching table
+            -j is the number of entries at the beginning of both tables to be skipped.
+            -m the matching table
+            -n the character to identify comment lines to skip
+            -o is the output file
+            -r reference table
+            -s the shift for coordinate match
+            -t is the maximum tolerance for a positive match.
+
+History : (24/10/2003) First version.
+        : (29/10/2003) Rewritten with numarray tools.
+        : (09/11/2003) FFT applied.
+        : (17/11/2003) Two different tolerance levels.
+        : (01/10/2004) Change in correlate2d parameters.
+        : (25/10/2004) Better choice of neighborhood elements.
+        : (26/10/2004) Correction of result writing.
+        : (03/11/2004) Possibility to force the shift between tables.
+        : (03/02/2005) Optparse.
+        : (08/06/2005) Better row jumping.
+        : (25/06/2005) Better pair association.
+        : (13/12/2007) Better management of jump option.
+        : (22/08/2009) Much simplified command.
+        : (28/04/2011) Bug correction for jump.
+        : (07/09/2011) Better cosmetics.
+"""
+
+
+
+import string, math, copy, os
+from optparse import OptionParser
+import SRP.SRPConstants as SRPConstants
+import SRP.SRPFiles as SRPFiles
+
+
+def FrRange(l):
+    if len(l) <= 1:
+        return 0.0,100.0,0.0,100.0
+    minx = l[0][0]
+    maxx = l[0][0]
+    miny = l[0][1]
+    maxy = l[0][1]
+    for i in l:
+        if i[0] < minx:
+            minx = i[0]
+        elif i[0] > maxx:
+            maxx = i[0]
+        if i[1] < miny:
+            miny = i[1]
+        elif i[1] > maxy:
+            maxy = i[1]
+    return minx,maxx,miny,maxy
+
+
+
+
+def CoordDist (inp1,inp2):
+    a = inp2[0]-inp1[0]
+    b = inp2[1]-inp1[1]
+    c = math.pow(a,2)
+    d = math.pow(b,2)
+    return math.sqrt(c+d),a,b
+
+
+
+class Neigh:
+    def __init__ (self, dist, member):
+        self.D = dist
+        self.M = member
+
+    def __cmp__ (self, other):
+        if self.D > other.D:
+            return 1
+        elif self.D == other.D:
+            return 0
+        else:
+            return -1
+
+
+
+parser = OptionParser(usage="usage: %prog [-c arg1 arg2 arg3 arg4] [-h] [-j arg5] -m arg6 [-n arg7] -o arg8 -r arg9 [-s arg10 arg11] -t arg12 [-v]", version="%prog 2.0.2")
+parser.add_option("-c", "--columns", action="store", nargs=4, type="int", dest="col", default=(2,3,2,3), help="Columns for cordinates [i.e. (2 3 1 2)].")
+parser.add_option("-j", "--jump", action="store", nargs=1, type="int", dest="jump", default=0, help="Number of header lines to jump.")
+parser.add_option("-m", "--match", action="store", nargs=1, type="string", dest="match", help="Coordinate list to match.")
+parser.add_option("-n", "--comment", action="store", nargs=1, type="string", dest="cmt", help="Comment character.")
+parser.add_option("-o", "--out", action="store", nargs=1, type="string", dest="outf", help="Output file.")
+parser.add_option("-r", "--ref", action="store", nargs=1, type="string", dest="ref", help="Reference coordinate list.")
+parser.add_option("-s", "--shift", action="store", nargs=2, type="float", dest="shift", default=(0.0,0.0),help="Forced shift between table [i.e. dx dy].")
+parser.add_option("-t", "--tolerance", action="store", nargs=1, type="float", dest="toler", help="Tolerance for matching.")
+parser.add_option("-v", "--verbose", action="store_true", dest="verbose", help="Fully describe operations.")
+
+
+(options, args) = parser.parse_args()
+
+
+if options.match and options.ref and options.toler and options.outf:
+    sname = SRPFiles.getSRPSessionName()
+    if options.verbose:
+        print "Session name %s retrieved." % sname
+    f1 = SRPFiles.SRPFile(SRPConstants.SRPLocalDir,options.ref,SRPFiles.ReadMode)
+    f1.SRPOpenFile()
+    if options.verbose:
+        print "Opening %s file." % options.ref
+    if f1.f == None:
+        parser.error("Error in input file %s." % options.ref)
+    f2 = SRPFiles.SRPFile(SRPConstants.SRPLocalDir,options.match,SRPFiles.ReadMode)
+    f2.SRPOpenFile()
+    if options.verbose:
+        print "Opening %s file." % options.match
+    if f2.f == None:
+        parser.error("Error in input file %s." % options.match)
+    if options.toler <= 0.0:
+        parser.error("Tolerance %.2f must be positive." % (options.toler))
+    if options.jump < 0:
+        parser.error("Header lines to jump %d must be positive." % options.jump)
+    try:
+        dt1 = f1.SRPReadTotFile()
+    except:
+        parser.error("Error in reading from file %s." % options.ref)
+    f1.SRPCloseFile()
+    try:
+        dt2 = f2.SRPReadTotFile()
+    except:
+        parser.error("Error in reading from file %s." % options.match)
+    f2.SRPCloseFile()
+    ddt1 = []
+    ddt2 = []
+    for i in range(options.jump,len(dt1)):
+        if options.cmt == None or (len(dt1) > 0 and dt1[i][0] != options.cmt[0]):
+            ddt1.append(dt1[i])
+    for i in range(options.jump,len(dt2)):
+        if options.cmt == None or (len(dt2) > 0 and dt2[i][0] != options.cmt[0]):
+            ddt2.append(dt2[i])
+    del dt1
+    del dt2
+    l1 = []
+    l2 = []
+    for i in range(len(ddt1)):
+        try:
+            inp = string.split(ddt1[i])
+            l1.append((float(inp[options.col[0]-1]),float(inp[options.col[1]-1]),i))
+        except:
+            parser.error("Problem in extracting data from file %s." % options.ref)
+    for i in range(len(ddt2)):
+        try:
+            inp = string.split(ddt2[i])
+            l2.append((float(inp[options.col[2]-1]),float(inp[options.col[3]-1]),i))
+        except:
+            parser.error("Problem in extracting data from file %s." % options.match)
+    # Get coordinate size of tables
+    l1minx,l1maxx,l1miny,l1maxy = FrRange(l1)
+    l2minx,l2maxx,l2miny,l2maxy = FrRange(l2)
+    l1xrange,l1yrange = l1maxx-l1minx,l1maxy-l1miny
+    l2xrange,l2yrange = l2maxx-l2minx,l2maxy-l2miny
+    # Get the largest range
+    if l1minx > l2minx:
+        minx = l2minx
+    else:
+        minx = l1minx
+    if l1maxx > l2maxx:
+        maxx = l1maxx
+    else:
+        maxx = l2maxx
+    if l1miny > l2miny:
+        miny = l2miny
+    else:
+        miny = l1miny
+    if l1maxy > l2maxy:
+        maxy = l1maxy
+    else:
+        maxy = l2maxy
+    # Information really required to describe tables
+    xxrange = int(math.ceil((maxx-minx)/options.toler))+1
+    yyrange = int(math.ceil((maxy-miny)/options.toler))+1
+    # Creating two frames of right sizes
+    if xxrange >= yyrange:
+        ssi = xxrange
+    else:
+        ssi = yyrange
+    if options.verbose:
+        print "Beginning iterations..."
+        print "Table %s contains %d objects." % (options.ref, len(l1))
+        print "Table %s contains %d objects." % (options.match, len(l2))
+    bdx = options.shift[0]
+    bdy = options.shift[1]
+    if options.verbose:
+        print "Displacement: dx = %.0f, dy = %.0f." % (bdx, bdy)
+    l3 = [0.0,0.0,0]
+    count = 0
+    l4 = copy.copy(l1)
+    l5 = copy.copy(l2)
+    o1 = SRPFiles.SRPFile(SRPConstants.SRPLocalDir,sname+options.outf,SRPFiles.WriteMode)
+    o1.SRPOpenFile()
+    for o in l4:
+        mdlist = []
+        for p in l5:
+            l3[0] = o[0] + bdx
+            l3[1] = o[1] + bdy
+            md, mx, my = CoordDist(l3,p)
+            if md < options.toler:
+                mdlist.append(Neigh(md,p))
+        if len(mdlist) > 0:
+            mdlist.sort()
+            minN = mdlist[0]
+            if minN.D < options.toler:
+                count = count + 1
+                l5.remove(minN.M)
+                o1.SRPWriteFile(str(string.strip(ddt1[o[2]]))+SRPConstants.SRPTab+str(string.strip(ddt2[minN.M[2]]))+os.linesep)
+    o1.SRPCloseFile()
+    if options.verbose:
+        print "Found %d objects in common." % count
+#               print "Fitting parameters (debug): %.1f, %d %d, %.1f %.1f" % (cr2d[am,bm], am, bm, l1minx-l2minx, l1miny-l2miny)
+#               print "Fitting parameters (debug): %.1f, %d %d" % (ccmax, ma, mb)
+    else:
+        print "%d %.0f %.0f" % (count, bdx, bdy)
+else:
+    parser.print_help()

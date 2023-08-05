@@ -1,0 +1,111 @@
+""" Code to compute magnitude to/from flux conversion
+
+Context : SRP
+Module  : SRPMagFlux.py
+Version : 1.1.5
+Author  : Stefano Covino
+Date    : 28/06/2012
+E-mail  : stefano.covino@brera.inaf.it
+URL:    : http://www.merate.mi.astro.it/~covino
+Purpose : Manage the creation of a BIAS FITS file.
+
+Usage   : SRPMagFlux -b band -f arg1 arg2 / -m arg1 arg2 / -j arg1 arg2 [-h] [-v] 
+            -b magnitude/flux band
+            -f flux and error (Erg/s/cm2/A)
+            -j flux and error (Jy)
+            -m magnitude and error
+
+History : (09/09/2003) First version.
+        : (03/02/2005) Optparse.
+        : (14/04/2005) Minor format correction.
+        : (18/04/2009) More flux density formats.
+        : (06/09/2011) Better cosmetics.
+        : (23/10/2011) Better coding style.
+        : (15/11/2011) New bands.
+        : (28/06/2012) More information about 2MASS zero-points.
+"""
+
+
+import SRP.SRPConstants as SRPConstants
+import SRP.SRPUtil as SRPUtil
+from optparse import OptionParser
+from SRP.SRPSpectroscopy.Ecm2sA2Jy import Ecm2sA2Jy
+from SRP.SRPSpectroscopy.Jy2Ecm2sA import Jy2Ecm2sA
+
+
+
+parser = OptionParser(usage="usage: %prog -b band -f arg1 arg2 / -m arg1 arg2 / -j arg1 arg2 [-h] [-l] [-v]", version="%prog 1.1.5")
+parser.add_option("-b", "--band", action="store", nargs=1, type="string", dest="band", help="magnitude/flux band")
+parser.add_option("-f", "--flux", action="store", nargs=2, type="float", dest="flux", help="flux and error (Erg/s/cm2/A)")
+parser.add_option("-j", "--fluxJ", action="store", nargs=2, type="float", dest="fluxJ", help="flux and error (Jy)")
+parser.add_option("-l", "--longexpl", action="store_true", dest="longexpl", help="more information about zeropints.")
+parser.add_option("-m", "--magnitude", action="store", nargs=2, type="float", dest="magn", help="magnitude and error")
+parser.add_option("-v", "--verbose", action="store_true", dest="verbose", help="fully describe operations")
+(options, args) = parser.parse_args()
+
+if options.longexpl:
+    print 
+    print 
+    print "Zero-point references:"
+    print "F95: Fukugita et al. 1995, PASP, 107, 945, Table 9"
+    print "B98: Bessel, Castelli & Plez 1998, A&A, 333, 231"
+    print "C09: Cenko et al. 2009, ApJ, 693, 1484, Table 2"
+    print "FORS1,2,ISAAC: http://archive.eso.org/apps/mag2flux/"
+    print "2MASS: http://www.ipac.caltech.edu/2mass/releases/allsky/faq.html#jansky"
+    print 
+    print "Zero-points are here assumed to hold for a 0.0 mag object in any band."
+    print "Bands with no trailing codes are calibrated in the Vega system."
+    print "Zero-point for AB system is 3631 mJy unless stated differentely."
+    print "For the VEGA system, Vega magnitudes are taken into account."
+    print "Vega mag from F95: U(0.02), B(0.03), V(0.03), Rc(0.03), Ic(0.024)."
+    print 
+if options.band or options.flux or options.fluxJ or options.magn:
+	if not options.band:
+		blist = SRPUtil.getBand()
+		if options.verbose:
+			print 2*SRPConstants.SRPTab+"Available bands:"
+		for i in blist:
+			print SRPConstants.SRPTab+i
+	elif options.flux or options.fluxJ or options.magn:
+		if options.fluxJ:
+			mag,emag,ban = SRPUtil.getMagnitude(options.fluxJ[0],options.fluxJ[1],options.band)
+			if ban != SRPConstants.SRPMagErr:
+				if options.verbose:
+					print "%sMagnitude and error, wavelength: %.3f +/- %.3f, %.3f (micron), %.3g (Hz)" % (SRPConstants.SRPTab, mag, emag, ban, 3e14/ban)
+				else:
+					print "%s%.3f %.3f %.0f %.2g" % (SRPConstants.SRPTab, mag, emag, ban, 3e14/ban)
+			else:
+				if options.verbose:
+					print SRPConstants.SRPTab+"Band not recognized."
+				blist = SRPUtil.getBand()
+				for i in blist:
+					print 2*SRPConstants.SRPTab+i
+        	elif options.flux:
+            		pmag,pemag,pban = SRPUtil.getMagnitude(1.0,0.1,options.band)
+			mag,emag,ban = SRPUtil.getMagnitude(Ecm2sA2Jy(options.flux[0],pban),Ecm2sA2Jy(options.flux[1],pban),options.band)
+			if ban != SRPConstants.SRPMagErr:
+				if options.verbose:
+					print "%sMagnitude and error, wavelength: %.3f +/- %.3f, %.3f (micron), %.3g (Hz)" % (SRPConstants.SRPTab, mag, emag, ban, 3e14/ban)
+				else:
+					print "%s%.3f %.3f %.3f %.3g" % (SRPConstants.SRPTab, mag, emag, ban, 3e14/ban)
+			else:
+				if options.verbose:
+					print SRPConstants.SRPTab+"Band not recognized."
+				blist = SRPUtil.getBand()
+				for i in blist:
+					print 2*SRPConstants.SRPTab+i
+		else:
+			fl,efl,freq = SRPUtil.getFlux(options.magn[0],options.magn[1],options.band)
+			if freq != SRPConstants.SRPMagErr:
+				if options.verbose:
+					print "%sFlux and error, frequency: %.4g +/- %.4g (Jy), %.4g +/- %.4g (erg/cm2sA), %.3g (Hz), %.3g (micron)" % (SRPConstants.SRPTab, fl, efl, Jy2Ecm2sA(fl,3e14/freq), Jy2Ecm2sA(efl,3e14/freq), freq, 3e14/freq)
+				else:
+					print "%s%.4g %.4g %.4g %.4g %.3g %.3g" % (SRPConstants.SRPTab, fl, efl, Jy2Ecm2sA(fl,3e14/freq), Jy2Ecm2sA(efl,3e14/freq), freq, 3e14/freq)
+			else:
+				if options.verbose:
+					print SRPConstants.SRPTab+"Band not recognized."
+				blist = SRPUtil.getBand()
+				for i in blist:
+					print 2*SRPConstants.SRPTab+i
+else:
+	parser.print_help()
