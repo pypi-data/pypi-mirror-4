@@ -1,0 +1,155 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+import os
+import shutil
+import sys
+import time
+import walkdir
+from multiprocessing import Process, Pool
+import optparse
+import subprocess
+import BaseHTTPServer
+from omdox import feedback
+from omdox import get_version
+from omdox import models
+from omdox.devserve import DocHandler, HOST_NAME, PORT_NUMBER
+
+
+#---------------------------------------------------------
+#
+# CWD
+#
+#---------------------------------------------------------
+cwd = os.getcwd()
+
+
+#---------------------------------------------------------
+#
+# SET UP ARGS
+#
+#---------------------------------------------------------
+_cmd_parser = optparse.OptionParser(usage='usage: omdox [options]')
+_opt = _cmd_parser.add_option
+_opt(
+    '-v',
+    '--version',
+    action='store_true',
+    help='show version number.')
+_opt(
+    '-c',
+    '--create',
+    action='store_true',
+    help='create a new set of docs')
+_opt(
+    '-r',
+    '--render',
+    action='store_true',
+    help='render docs and exit')
+_opt(
+    '-d',
+    '--dev',
+    action='store_true',
+    help='start a development server')
+
+
+
+_cmd_options, _cmd_args = _cmd_parser.parse_args()
+opt, args, parser = _cmd_options, _cmd_args, _cmd_parser
+
+def process_all_nodes(tree):
+    for branch in tree.get_branches():
+        # processs the branches
+        branch.process()
+        for node in branch.get_nodes():
+            node.process()
+
+#---------------------------------------------------------
+#
+# VERSION
+#
+# print the version number.
+#
+#---------------------------------------------------------
+if opt.version:
+    print get_version()
+    # exit
+    sys.exit(0)
+
+#---------------------------------------------------------
+#
+# DEVELOP
+# 
+# launch a development server.
+#
+#---------------------------------------------------------
+if opt.dev:
+    tree = models.Tree(cwd)
+    feedback.header('Rendering starting', indent=False)
+    process_all_nodes(tree)
+
+    for branch in tree.get_branches():
+        for node in branch.get_nodes():
+            node.process()
+    feedback.header('[DEV SERVER STARTED on %s:%s]' % (
+        HOST_NAME,
+        PORT_NUMBER))
+    server_class = BaseHTTPServer.HTTPServer
+    httpd = server_class((HOST_NAME, PORT_NUMBER), DocHandler)
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    httpd.server_close()
+    sys.exit(0)
+
+#---------------------------------------------------------
+#
+# CREATE
+#
+# create a blank set of docs.
+#
+#---------------------------------------------------------
+if opt.create:
+    copy_to = os.path.join(cwd, 'docs')
+    if os.path.exists(copy_to):
+        feedback.error(
+            'there is already documentation in this directory')
+        sys.exit()
+    for p in sys.path:
+        path_to_default = '%s/omdox/default' % p
+        if os.path.exists(path_to_default):
+            shutil.copytree(path_to_default, copy_to)
+            feedback.header(
+                'omdox has created documentation %s' % copy_to)
+            break
+    # exit
+    sys.exit(0)
+
+
+
+#---------------------------------------------------------
+#
+# RENDER
+#
+# render the docs to the build folder
+#
+#---------------------------------------------------------
+if opt.render or len(sys.argv) == 1:
+    if not os.path.exists('./layout.html'):
+        feedback.error(
+            'layout.html not found, are you in the right directory?')
+        sys.exit(0)
+    tree = models.Tree(cwd)
+    tree.grow()
+    #for nav in tree.get_nav():
+    #    print nav.name, nav.get_nodes()
+        
+    feedback.header('Rendering starting', indent=False)
+    process_all_nodes(tree)
+
+    for branch in tree.get_branches():
+        for node in branch.get_nodes():
+            node.process()
+    # exit
+    sys.exit(0)
+
