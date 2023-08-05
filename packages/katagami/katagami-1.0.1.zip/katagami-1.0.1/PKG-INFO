@@ -1,0 +1,270 @@
+Metadata-Version: 1.1
+Name: katagami
+Version: 1.0.1
+Summary: katagami: a simple xml/html template library
+Home-page: http://pypi.python.org/pypi/katagami
+Author: chrono-meter@gmx.net
+Author-email: chrono-meter@gmx.net
+License: PSF
+Description: katagami: a simple xml/html template library
+        ============================================
+        
+        This library is one of many `Python templating libraries
+        <http://wiki.python.org/moin/Templating>`_.
+        
+        
+        Features
+        --------
+         * Based on XML's Processing instructions (`<?...?>`)
+         * Simple features and simple implementation
+         * Python script inside XML/HTML with any level indentation
+         * `Inline expression`_
+         * `Embed script`_
+         * `Block structure`_
+         * Supports both of Python 2 and Python 3
+         * As fast as `mako <http://www.makotemplates.org/>`_
+         * Caching by `functools.lru_cache <http://docs.python.org/3/library/functools.html?highlight=functools.lru_cache#functools.lru_cache>`_ (only in Python 3)
+        
+        
+        Example
+        -------
+        
+        Setup::
+        
+            >>> def _(html, encoding='utf-8'):
+            ...     print(render(io.BytesIO(html)).decode(encoding))
+        
+        Make a HTML string with `inline expression`_ and Python's `for` (`Block
+        structure`_)::
+        
+            >>> _(b'''<html>
+            ... <body>
+            ...     <? for name in ['world']: {?>
+            ...         <p>hello, <?=name?></p>
+            ...     <?}?>
+            ... </body>
+            ... </html>''')
+            <html>
+            <body>
+            <BLANKLINE>
+                    <p>hello, world</p>
+            <BLANKLINE>
+            </body>
+            </html>
+        
+        
+        Inline expression
+        -----------------
+        
+        This feature evaluates your inline expression and output to result::
+        
+            >>> _(b'''<html><body>
+            ...     <?='hello, world'?>
+            ... </body></html>''')
+            <html><body>
+                hello, world
+            </body></html>
+        
+        By the default, this example raises an exception, evaluated expression must be
+        `str` (`unicode` in Python 2)::
+        
+            >>> _(b'''<html><body>
+            ...     <?=1?>
+            ... </body></html>''')
+            Traceback (most recent call last):
+            ...
+            TypeError: Can't convert 'int' object to str implicitly
+        
+        Set the `cast_string` feature::
+        
+            >>> _(b'''<html><body>
+            ...     <?=feature cast_string="True"?>
+            ...     <?=1?>
+            ... </body></html>''')
+            <html><body>
+            <BLANKLINE>
+                1
+            </body></html>
+        
+        Also set the `trap_exceptions` feature::
+        
+            >>> _(b'''<html><body>
+            ...     <?=feature trap_exceptions="True"?>
+            ...     <?=1?>
+            ... </body></html>''')
+            <html><body>
+            <BLANKLINE>
+                Can't convert 'int' object to str implicitly
+            </body></html>
+        
+        Note
+        ~~~~
+        
+         * You can use `cast_string` and `trap_exceptions` simultaneously.
+         * You can handle `cast_string` and `trap_exceptions` by defining the function
+           `__str__`. By the default, `__str__` is `str` in Python 3 (`unicode` in
+           Python 2).
+         * Spaces on the both sides of the expression will be stripped. But
+           '<?= feature' is a bad.
+         * You can insert a comment.
+        
+        Example::
+        
+            >>> _(b'''<html><body>
+            ... <?py
+            ...     def __str__(o):
+            ...         return '__str__(%s)' % o
+            ... ?>
+            ...     <?=feature cast_string="True" trap_exceptions="True"?>
+            ...     <?= 1 ?>
+            ...     <?= notfound # get an error ?>
+            ... </body></html>''')
+            <html><body>
+            <BLANKLINE>
+            <BLANKLINE>
+                __str__(1)
+                __str__(name 'notfound' is not defined)
+            </body></html>
+        
+        
+        Embed script
+        ------------
+        
+        All indentation will be arranged automatically::
+        
+            >>> _(b'''<html>
+            ... <?py
+            ...     # It is a top level here. This works fine.
+            ...     if 1:
+            ...         msg = 'message from indented script'
+            ... ?>
+            ... <body>
+            ...     <p><?=msg?></p>
+            ...     <?py msg = 'message from single line script' # This works fine too. ?>
+            ...     <p><?=msg?></p>
+            ...     <? if 1: {?>
+            ... <?py
+            ... # Is is nested here. This also works fine.
+            ... msg = 'message from nested indented script'
+            ... ?>
+            ...     <p><?=msg?></p>
+            ...     <?}?>
+            ... </body>
+            ... </html>''')
+            <html>
+            <BLANKLINE>
+            <body>
+                <p>message from indented script</p>
+            <BLANKLINE>
+                <p>message from single line script</p>
+            <BLANKLINE>
+            <BLANKLINE>
+                <p>message from nested indented script</p>
+            <BLANKLINE>
+            </body>
+            </html>
+        
+        
+        Block structure
+        ---------------
+        
+        Indentation with C-style block structure::
+        
+            >>> _(b'''<html>
+            ... <body>
+            ...     <p>hello,&nbsp;
+            ...     <? try: {?>
+            ...         <?=name?>
+            ...     <?} except NameError: {?>
+            ...         NameError
+            ...     <?} else: {?>
+            ...         never output here
+            ...     <?}?>
+            ...     </p>
+            ... </body>
+            ... </html>''')
+            <html>
+            <body>
+                <p>hello,&nbsp;
+            <BLANKLINE>
+            <BLANKLINE>
+                    NameError
+            <BLANKLINE>
+                </p>
+            </body>
+            </html>
+        
+        Note
+        ~~~~
+        
+         * '<? }' and '{ ?>' are wrong. Don't insert space. '<?}' and '{?>' are correct.
+         * Ending colon (':') is required.
+         * Block closing '<?}?>' is required.
+        
+        
+        Encoding detection
+        ------------------
+        
+        Encoding will be detected automatically::
+        
+            >>> _(b'''<html>
+            ... <head><meta charset="shift-jis"></head>
+            ... <body>\x93\xfa\x96{\x8c\xea</body>
+            ... </html>''', 'shift-jis')
+            <html>
+            <head><meta charset="shift-jis"></head>
+            <body>\u65e5\u672c\u8a9e</body>
+            </html>
+        
+        Supported formats:
+        
+         * <?xml encoding="ENCODING"?>
+         * <meta charset="ENCODING">
+         * <meta http-equiv="Content-Type" content="MIMETYPE; ENCODING">
+        
+        
+        API
+        ---
+        
+        katagami.render
+        ~~~~~~~~~~~~~~~
+        
+        katagami.render(__file__, __encoding__=None, \*\*locals)
+        
+         * `__file__` -- `file-like object` (use `io.BytesIO 
+           <http://docs.python.org/3/library/io.html?highlight=io.bytesio#io.BytesIO>`_
+           for string input) or filename.
+         * `__encoding__` -- Set encoding of `__file__` and the return value.
+           Automatically detect the encoding if None.
+         * `locals` -- local and global namespace values for template script.
+         * `return` -- `bytes` in Python 3, `str` in Python 2. The return value is
+           encoded by `__encoding__` or automatically detected encoding.
+        
+        Rendering template flow:
+        
+            1. detect encoding
+            2. decode to `str` in Python 3 (`unicode` in Python 2)
+            3. translate template to Python script
+            4. `compile` and `exec` the script
+            5. encode result to `bytes` in Python 3 (`str` in Python 2)
+        
+        
+        History
+        -------
+        
+         * 1.0.1 fix bugs, docs, speed
+         * 1.0.0 remove backward compatibility
+        
+        
+        
+Platform: UNKNOWN
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: Python Software Foundation License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 2.7
+Classifier: Programming Language :: Python :: 3
+Classifier: Topic :: Internet :: WWW/HTTP :: Dynamic Content :: CGI Tools/Libraries
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
+Classifier: Topic :: Text Processing :: Markup :: HTML
+Classifier: Topic :: Text Processing :: Markup :: XML
