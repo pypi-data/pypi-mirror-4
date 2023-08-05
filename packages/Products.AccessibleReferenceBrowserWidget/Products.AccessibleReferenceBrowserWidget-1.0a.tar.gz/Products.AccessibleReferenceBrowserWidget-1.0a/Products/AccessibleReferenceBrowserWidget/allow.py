@@ -1,0 +1,4 @@
+from AccessControl import allow_class, allow_module
+from implements_arbw import implements_arbw
+allow_module('Products.AccessibleReferenceBrowserWidget.implements_arbw')
+allow_class(implements_arbw)
