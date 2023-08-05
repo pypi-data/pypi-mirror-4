@@ -1,0 +1,265 @@
+<?xml version='1.0' encoding='utf-8'?>
+<spc:wrap xmlns="http://xmlns.livinglogic.de/xist/ns/doc" xmlns:spc="http://xmlns.livinglogic.de/xist/ns/specials">
+<section><h>The <meth>walk</meth> method</h>
+
+<p>There are three related methods available for iterating through an &xml;
+tree and finding nodes in the tree: The methods <meth>walk</meth>,
+<meth>walknodes</meth> and <meth>walkpaths</meth>.</p>
+
+<p>The method <pyref module="ll.xist.xsc" class="Node" method="walk"><meth>walk</meth></pyref>
+is a generator. You pass an <pyref module="ll.xist" class="WalkFilter"><class>WalkFilter</class></pyref>
+to <meth>walk</meth> which is used for determining which part of the tree
+should be searched and which nodes should be returned. The objects produced by
+the <meth>walk</meth> method are lists with the path from the root of the
+tree to the node in question (Actually it's always the some list objects, if you
+want distinct objects, use the <meth>walkpaths</meth> method). The method
+<meth>walknodes</meth> produces the nodes instead of the paths to the
+node.</p>
+
+<p>When <meth>walk</meth> iterates through the tree it calls the
+walkfilter's <meth>filterpath</meth> method with a list containing the path
+to the node in question as the only argument. (It's also possible to implement
+the method <meth>filternode</meth> in your own walkfilters instead of
+<meth>filterpath</meth>. Instead of the complete path it only gets the node
+itself as an argument.) <meth>filterpath</meth> (or <meth>filternode</meth>)
+must return a sequence of <z>node handling options</z>. A node handling option
+is one of the following:</p>
+
+<dl>
+<dt><lit>True</lit></dt><dd>This tells <meth>walk</meth> to
+yield this node from the generator;</dd>
+<dt><lit>False</lit></dt><dd>Don't yield this node from the generator;</dd>
+<dt><lit>enterattrs</lit></dt><dd>This is a global constant in
+<mod>ll.xist.xsc</mod> and tells <meth>walk</meth> to traverse
+the attributes of this node (if it's an
+<pyref class="Element"><class>Element</class></pyref>, otherwise this
+option will be ignored);</dd>
+<dt><lit>entercontent</lit></dt><dd>This is a global constant in
+<mod>ll.xist.xsc</mod> and tells <meth>walk</meth> to traverse
+the child nodes of this node (if it's an
+<pyref class="Element"><class>Element</class></pyref>, otherwise this
+option will be ignored);</dd>
+</dl>
+
+<p>These options will be executed in the order they are specified in the
+sequence, so by changing the order of the options in the sequence returned you
+can switch between top-down and bottom-up traversal. To get a top-down traversal
+of a tree and produce all table elements, the following code could be used:</p>
+
+<example><h>Using the <meth>walk</meth> method</h>
+<prog>
+from ll.xist import xsc, parse, xfind
+from ll.xist.ns import xml, html
+
+class IsTable(xfind.WalkFilter):
+	def filternode(self, node):
+		if isinstance(node, html.table):
+			return (True, xfind.entercontent)
+		else:
+			return (xfind.entercontent,)
+
+node = parse.tree(parse.URL("http://www.python.org"), parse.Tidy(), parse.NS(html), parse.Node(pool=xsc.Pool(xml, html)))
+
+for node in doc.walknodes(IsTable()):
+	<rep>...</rep>
+</prog>
+</example>
+
+<p><mod>ll.xist.xsc</mod> provides several useful walkfilter classes
+for specifying what should be returned from <meth>walk</meth>:
+<pyref module="ll.xist.xsc" class="FindType"><class>FindType</class></pyref>
+will search only the first level of the tree and will return any node that is an
+instance of one of the classes passed to the constructor. So if you have an
+instance of <class>ll.xist.ns.html.ul</class> named <lit>node</lit> you could
+search for all <class>ll.xist.ns.html.li</class> elements inside with the
+following code:</p>
+
+<example><h>Searching for <class>li</class> inside <class>ul</class> with <meth>walk</meth></h>
+<prog>
+for li in node.content.walknodes(xfind.FindType(html.li)):
+	<rep>...</rep>
+</prog>
+</example>
+
+<p><pyref module="ll.xist.xsc" class="FindTypeAll"><class>FindTypeAll</class></pyref>
+can be used when you want to search the complete tree. The following example
+extracts all the links on the
+<a href="http://www.python.org/">Python home page</a>:</p>
+
+<example><h>Finding all links on the Python home page</h>
+<prog>
+from ll.xist import xsc, parse
+from ll.xist.ns import xml, html
+
+node = parse.tree(parse.URL("http://www.python.org"), parse.Tidy(), parse.NS(html), parse.Node(pool=xsc.Pool(xml, html)))
+
+for node in doc.walknodes(xfind.FindTypeAll(html.a)):
+	print node.attrs.href
+</prog>
+</example>
+
+<p>This gives the output:</p>
+
+<tty>
+http://www.python.org/
+http://www.python.org/#left%2dhand%2dnavigation
+http://www.python.org/#content%2dbody
+http://www.python.org/search
+http://www.python.org/about/
+http://www.python.org/news/
+<rep>...</rep>
+</tty>
+
+<p>The following example will find all external links on the Python home
+page:</p>
+
+<example><h>Finding external links on the Python home page</h>
+<prog>
+from ll.xist import parse, xfind
+from ll.xist.ns import xml, html
+
+class IsExtLink(xfind.WalkFilter):
+	def filternode(self, node):
+		if isinstance(node, html.a) and not str(node.attrs.href).startswith(u"http://www.python.org"):
+			return (True, xfind.entercontent)
+		return (xfind.entercontent,)
+
+doc = parse.tree(parse.URL("http://www.python.org"), parse.Tidy(), parse.NS(html), parse.Node(pool=xsc.Pool(xml, html)))
+
+for node in doc.walknodes(IsExtLink()):
+	print node.attrs.href
+</prog>
+</example>
+
+<p>This gives the output:</p>
+
+<tty>
+http://docs.python.org/
+http://pypi.python.org/pypi
+http://wiki.python.org/moin/PythonWebsiteCreatingNewTickets
+http://youtube.com/
+http://wiki.python.org/moin/WebProgramming
+http://wiki.python.org/moin/CgiScripts
+<rep>...</rep>
+</tty>
+
+</section>
+
+
+<section><h><mod>xfind</mod> expressions</h>
+
+<p>A second method exists for iterating through a tree: xfind expressions.
+xfind expressions are special walkfilters that look somewhat like an XPath
+expressions, but are implemented as pure Python expressions (overloading various
+Python operators).</p>
+
+<p>Every subclass of
+<pyref module="ll.xist.xsc" class="Node"><class>ll.xist.xsc.Node</class></pyref>
+can be used as an xfind operator and combined with other xfind operators to get
+xfind expressions. For example searching for links that contain images works as
+follows:</p>
+
+<example><h>Searching for <class>img</class> inside <class>a</class> with an xfind expression</h>
+<prog>
+for path in node.walk(html.a/html.img):
+	print path[-2].attrs.href, path[-1].attrs.src
+</prog>
+</example>
+
+<p>The output looks like this:</p>
+
+<tty>
+http://www.python.org/ http://www.python.org/images/python-logo.gif
+http://www.python.org/#left%2dhand%2dnavigation http://www.python.org/images/trans.gif
+http://www.python.org/#content%2dbody http://www.python.org/images/trans.gif
+http://www.python.org/about/success/usa http://www.python.org/images/success/nasa.jpg
+</tty>
+
+<p>If the <class>img</class> elements are not immediate children of the
+<class>a</class> elements, the xfind expression above won't output then. In this
+case you can use a <z>decendant selector</z> instead of a <z>child selector</z>.
+To do this simply replace <lit>html.a/html.img</lit> with <lit>html.a//html.img</lit>.</p>
+
+<p>Apart from the <lit>/</lit> and <lit>//</lit> operators you can also use
+the <lit>|</lit> and <lit>&amp;</lit> operators to combine xfind expressions:</p>
+
+<prog>
+from ll.xist import xsc, parse, xfind
+from ll.xist.ns import xml, html
+
+doc = parse.tree(parse.URL("http://www.python.org"), parse.Tidy(), parse.NS(html), parse.Node(pool=xsc.Pool(xml, html)))
+
+for node in doc.walknodes((html.a | html.area) &amp; xfind.hasattr("href")):
+	print node.attrs.href
+</prog>
+
+<p>Here's another example that finds all elements that have an <lit>id</lit>
+attribute:</p>
+
+<prog>
+from ll.xist import xsc, parse, xfind
+from ll.xist.ns import xml, html
+
+doc = parse.tree(parse.URL("http://www.python.org"), parse.Tidy(), parse.NS(html), parse.Node(pool=xsc.Pool(xml, html)))
+
+for node in doc.walknodes(xfind.hasattr("id")):
+	print node.attrs.id
+</prog>
+
+<p>The output looks like this:</p>
+
+<tty>
+screen-switcher-stylesheet
+logoheader
+logolink
+logo
+skiptonav
+skiptocontent
+<rep>...</rep>
+</tty>
+
+<p>For more examples refer to the documentation of the <pyref module="ll.xist.xfind"><mod>xfind</mod></pyref>
+module.</p>
+
+</section>
+
+
+<section><h>&css; selectors</h>
+
+<p>It's also possible to use &css; selectors as walk filters. The module
+<pyref module="ll.xist.css"><mod>ll.xist.css</mod></pyref> provides a
+function <func>selector</func> that turns a &css; selector expression
+into a walk filter:</p>
+
+<example><h>Using &css; selectors as walk filters</h>
+<prog>
+from ll.xist import xsc, parse, css
+from ll.xist.ns import xml, html
+
+doc = parse.tree(parse.URL("http://www.python.org"), parse.Tidy(), parse.NS(html), parse.Node(pool=xsc.Pool(xml, html)))
+
+for node in doc.walknodes(css.selector("div#menu ul.level-one li > a")):
+	print node.attrs.href
+</prog>
+</example>
+
+<p>This outputs all the first level links in the navigation:</p>
+<tty>
+http://www.python.org/about/
+http://www.python.org/news/
+http://www.python.org/doc/
+http://www.python.org/download/
+http://www.python.org/community/
+http://www.python.org/psf/
+http://www.python.org/dev/
+http://www.python.org/links/
+</tty>
+
+<p>Most of the <a href="http://www.w3.org/TR/css3-selectors/">CSS 3 selectors</a>
+are supported.</p>
+
+<p>For more examples see the documentation of the
+<pyref module="ll.xist.css"><mod>css</mod></pyref> module.</p>
+
+</section>
+</spc:wrap>
