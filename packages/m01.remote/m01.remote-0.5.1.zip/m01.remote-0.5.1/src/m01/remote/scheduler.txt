@@ -1,0 +1,542 @@
+=========
+Scheduler
+=========
+
+The scheduler concept is implemented as an additional scheduler container which
+contains scheduler items.
+
+  >>> from m01.mongo import UTC
+  >>> import m01.remote.scheduler
+  >>> from m01.remote import interfaces
+  >>> from m01.remote import testing
+
+
+Usage
+-----
+
+Let's now start by get our test remote procesor which contains our scheduler
+container:
+
+  >>> remoteProcessor = root
+  >>> remoteProcessor
+  <TestProcessor None>
+
+  >>> scheduler = remoteProcessor._scheduler
+
+  >>> tuple(scheduler.values())
+  ()
+
+
+Delay
+-----
+
+We can add a scheduler item for delay a job processing. Let's add such an item:
+
+  >>> import datetime
+  >>> def getNextTime(dt, seconds):
+  ...     return dt + datetime.timedelta(seconds=seconds)
+
+  >>> now = datetime.datetime(2010, 10, 1, 0, 0, 0, tzinfo=UTC)
+  >>> now10 = getNextTime(now, 10)
+  >>> delay = 10
+  >>> data = {'jobName': u'echo 1', 'active': True, 'delay': delay,
+  ...         'retryDelay': 5, 'nextCallTime': now10}
+  >>> firstEcho = m01.remote.scheduler.Delay(data)
+  >>> interfaces.IDelay.providedBy(firstEcho)
+  True
+
+The delay is set to 10:
+
+  >>> firstEcho.delay
+  10
+
+and the retryDelay to 5
+
+  >>> firstEcho.retryDelay
+  5
+
+and we set an explicit nextCallTime of now + 10:
+
+  >>> firstEcho.nextCallTime == getNextTime(now, 10)
+  True
+
+and our retryTime is None:
+
+  >>> firstEcho.retryTime is None
+  True
+
+Now we can add the delay item to the scheduler:
+
+  >>> scheduler.add(firstEcho)
+  u'...'
+
+As you can see the scheduler contains on item:
+
+  >>> sorted(scheduler.values())
+  [<Delay ... for: u'echo 1'>]
+
+As next we'll test some scheduler AP methods. First check if we can update
+the retryTime for an item in our adding cache with ``updateRetryTime``::
+
+  >>> scheduler.updateRetryTime(firstEcho.dump(), now)
+  False
+
+As you can see we did not get a new retryTime. This happens because we didn't
+use the correct callTime. Let's try with the correct nextCallTime:
+
+  >>> now10 = getNextTime(now, 10)
+  >>> now15 = getNextTime(now, 15)
+  >>> retryTime = scheduler.updateRetryTime(firstEcho.dump(), now10)
+  >>> retryTime == now15
+  True
+
+As you can see the new retryTime is using the retryDelay of 5 second. This
+retryTime is used for lock an item. This means an item get not picked as long
+as this time get passed.
+
+
+Now let' try another internal API method hihc is able to get the next item
+from our adding cache:
+
+  >>> scheduler.getNextCachedItem(now)
+
+As you can see the method didn't return an item, let's try with the next
+scheduled call time:
+
+  >>> nextCallTime = firstEcho.nextCallTime
+  >>> scheduler.getNextCachedItem(now10)
+  <Delay ... for: u'echo 1'>
+
+As you can see the retryTime get set based on the nextCallTime and the
+retryDelay:
+
+  >>> firstEcho.retryTime == getNextTime(nextCallTime, 5)
+  True
+
+Now the important part. Let's test our method which is responsible for get
+a next item including items from mongo. This method uses the two methods above.
+Of corse with the current time we will not get any item:
+
+  >>> scheduler.pullNextSchedulerItem(now) is None
+  True
+
+But now we need another nextCallTime because the previous call update the 
+items nextCallTime. Let's first check the nextCallTime:
+
+  >>> firstEcho.nextCallTime == now10
+  True
+
+But as you can see, the retryTime is already set during our previous test. this
+means we only will get an item if we at least use a larger time if the
+retryTime:
+
+  >>> firstEcho.retryTime == now15
+  True
+
+  >>> scheduler.pullNextSchedulerItem(now10)
+
+  >>> scheduler.pullNextSchedulerItem(now15)
+  <Delay ... for: u'echo 1'>
+
+Now, let's check our scheduled item times:
+
+  >>> now20 = getNextTime(now15, 5)
+  >>> firstEcho.nextCallTime == now10
+  True
+
+Note, our retryTime get calculated with the current call time and retryDelay.
+It whould not make sense if we whould use the callTime as retryTime calculation
+base:
+
+  >>> firstEcho.retryTime == now20
+  True
+
+
+The method pullNextSchedulerItem returns a pending item or None since we don't
+have one pending:
+
+  >>> scheduler.pullNextSchedulerItem(now) is None
+  True
+
+Now let's add a second scheduler item within some scheduler time:
+
+  >>> import datetime
+  >>> delay = 10
+  >>> data = {'jobName': u'echo 2', 'active': True, 'delay': delay,
+  ...         'retryDelay': 5}
+  >>> secondEcho = m01.remote.scheduler.Delay(data)
+
+  >>> scheduler.add(secondEcho)
+  u'...'
+
+  >>> sorted(scheduler.values(), key=lambda x:(x.__name__, x.__name__))
+  [<Delay ... for: u'echo 1'>, <Delay ... for: u'echo 2'>]
+
+  >>> scheduler.remove(firstEcho)
+  >>> scheduler.remove(secondEcho)
+  >>> tuple(scheduler.values())
+  ()
+
+
+
+adjustCallTime
+--------------
+
+Before we test our cron item, let's test test our method which can reset a
+given datetime to the smalles starting point e.g. if hours are given as a
+calculation base, we need to start counting within the first minute:
+
+  >>> from m01.remote.scheduler import adjustCallTime
+
+  >>> now = datetime.datetime(2010, 10, 25, 16, 6, 5, 123, tzinfo=UTC)
+  >>> now
+  datetime.datetime(2010, 10, 25, 16, 6, 5, 123, tzinfo=UTC)
+
+  >>> item = m01.remote.scheduler.Cron({'jobName': u'bar', 'minute': [5]})
+  >>> adjustCallTime(item, now)
+  datetime.datetime(2010, 10, 25, 16, 6, 0, 123, tzinfo=UTC)
+
+Cron
+----
+
+A probably more interesting implementation is the cron scheduler item. This
+cron item can schedule jobs at a specific given time. Let's setup such a cron
+item:
+
+  >>> data = {'jobName': u'bar', 'active': True, 'retryDelay': 5}
+  >>> cronItem = m01.remote.scheduler.Cron(data)
+
+The cronItem provides the ISchedulerItem and ICron interface:
+
+  >>> interfaces.ISchedulerItem.providedBy(cronItem)
+  True
+
+  >>> interfaces.ICron.providedBy(cronItem)
+  True
+
+As you can see the cron item also provides a retryDelay:
+
+  >>> cronItem.retryDelay
+  5
+
+Let's first explain how this works. The cron scheduler provides a next call
+time stamp. If the calculated next call time is smaller then the last call time,
+the cron scheduler item will calculate the new next call time and store them
+as nextCallTime and at the same time the previous nextCallTime get returnd.
+This will makes sure that we have a minimum of time calculation calls because
+each time a cron scheduler item get asked about the next call time the stored
+nextCallTime is used. The cron schdeuler item only calculates the next call
+time if the existing next call time is smaller then the given call time.
+
+Now let's test a cron as a scheduler item. Setup a simple corn item with a
+5 minute period.
+
+
+  >>> now = datetime.datetime(2010, 10, 1, 0, 0, 0, tzinfo=UTC)
+  >>> now
+  datetime.datetime(2010, 10, 1, 0, 0, tzinfo=UTC)
+
+  >>> data = {'jobName': u'echo cron', 'active': True, 'retryDelay': 5,
+  ...         'minute': [5], 'nextCallTime': now}
+  >>> cronEcho = m01.remote.scheduler.Cron(data)
+
+Now add the item to the schdeuler:
+
+  >>> scheduler.add(cronEcho)
+  u'...'
+
+As you can see, our cron item get scheduled based on the given nextCallTime:
+
+  >>> cronEcho.nextCallTime
+  datetime.datetime(2010, 10, 1, 0, 0, tzinfo=UTC)
+
+the retrytime is empty
+
+  >>> cronEcho.retryTime is None
+  True
+
+
+and the minute list contains our 5 minute:
+
+  >>> cronEcho.minute
+  [5]
+
+  >>> cronEcho.hour
+  []
+
+  >>> cronEcho.dayOfMonth
+  []
+
+  >>> cronEcho.month
+  []
+
+  >>> cronEcho.dayOfWeek
+  []
+
+And the scheduler contains one cron item:
+
+  >>> tuple(scheduler.values())
+  (<Cron ... for: u'echo cron'>,)
+
+Now we can get the job based on the jobName ``echo`` defined by our cron
+scheduler item if we call pullNextSchedulerItem.
+
+  >>> scheduler.pullNextSchedulerItem(now)
+  <Cron ... for: u'echo cron'>
+
+During this call the retryTime get set based on the retryDelay:
+
+  >>> cronEcho.retryTime
+  datetime.datetime(2010, 10, 1, 0, 0, 5, tzinfo=UTC)
+
+Now let's test the the different cron settings. Note that we provide a list of
+values for minutes, hours, month, dayOfWeek and dayOfMonth. This means you can
+schedule a job for every 15 minutes if you will set the minutes to
+(0, 15, 30, 45) or if you like to set a job only each 15 minutes after an hour
+you can set minutes to (15,). If you will set more then one argument e.g.
+minute, hours or days etc. all arguments must fit the given time.
+
+Let's start with a cron scheduler for every first and second minute per hour.
+Normaly the corn scheduler item will set now ``int(time.time())`` as
+nextCallTime value. For test our cron scheduler items, we use a explicit
+startTime value of 0 (zero):
+
+  >>> data = {'jobName': u'bar', 'active': True, 'retryDelay': 5,
+  ...         'minute': [0, 1]}
+  >>> cronItem = m01.remote.scheduler.Cron(data)
+
+The next call time is set based on the given startTime value. This means the
+first call will be at 0 (zero) minute:
+
+  >>> cronItem.nextCallTime is None
+  True
+
+Now let's call getNextCallTime, as you can see we will get None as nextCallTime
+because we ddn't set a nextCallTime during cron initialization and the
+nextCallTime is set to the next minute:
+
+  >>> cronItem.getNextCallTime(now) is None
+  True
+
+  >>> cronItem.nextCallTime
+  datetime.datetime(2010, 10, 1, 0, 1, tzinfo=UTC)
+
+Now let's call getNextCallTime again, as you can see we will get the
+nextCallTime we calculated during object initialization which is the given
+call time and the nextCallTime is set to the next minute:
+
+If we use a call time + 5 seconds, we still will get the cached next call
+time of 1 minute and we will not generate a new next call time since this
+time is already in the future:
+
+  >>> cronItem.getNextCallTime(getNextTime(now, 5))
+  datetime.datetime(2010, 10, 1, 0, 1, tzinfo=UTC)
+
+  >>> cronItem.nextCallTime
+  datetime.datetime(2010, 10, 1, 0, 1, tzinfo=UTC)
+
+If we call the cron scheduler item with a call time equal or larger then our
+1 minute delay from the cached next call time, we will get the cached call time
+as value as we whould get similar to a smaller call time (see sample above).
+
+  >>> cronItem.getNextCallTime(getNextTime(now, 65))
+  datetime.datetime(2010, 10, 1, 0, 1, tzinfo=UTC)
+
+  >>> cronItem.nextCallTime
+  datetime.datetime(2010, 10, 1, 1, 0, tzinfo=UTC)
+
+All future calls with a smaller time then the nextCallTime will return the 
+current nextCallTime and not calculate any new time.
+
+  >>> cronItem.getNextCallTime(getNextTime(now, 125))
+  datetime.datetime(2010, 10, 1, 1, 0, tzinfo=UTC)
+
+  >>> cronItem.getNextCallTime(getNextTime(now, 1*60*60))
+  datetime.datetime(2010, 10, 1, 1, 0, tzinfo=UTC)
+
+
+Remember, getNextCallTime returns the previous calculated nextCallTime and the
+new calculated nextCallTime get stored as nextCallTime. For a simpler test
+output we define a test method which shows the time calculation:
+
+
+Minutes
+~~~~~~~
+
+Let's start testing the time tables.
+
+  >>> def getNextCallTime(cron, dt, seconds=None):
+  ...     """Return stored and new calculated nextCallTime"""
+  ...     if seconds is None:
+  ...         callTime = dt
+  ...     else:
+  ...         callTime = getNextTime(dt, seconds)
+  ...     nextCallTime = cron.getNextCallTime(callTime)
+  ...     return '%s --> %s' % (nextCallTime, cron.nextCallTime)
+
+  >>> now = datetime.datetime(1970, 1, 1, 0, 3, 0, tzinfo=UTC)
+  >>> data = {'jobName': u'bar', 'active': True, 'retryDelay': 5,
+  ...         'minute': [0, 10], 'nextCallTime':now}
+  >>> item = m01.remote.scheduler.Cron(data)
+
+  >>> str(now)
+  '1970-01-01 00:03:00+00:00'
+
+  >>> getNextCallTime(item, now)
+  '1970-01-01 00:03:00+00:00 --> 1970-01-01 00:10:00+00:00'
+
+  >>> getNextCallTime(item, now, 1)
+  '1970-01-01 00:10:00+00:00 --> 1970-01-01 00:10:00+00:00'
+
+  >>> getNextCallTime(item, now, 2*60)
+  '1970-01-01 00:10:00+00:00 --> 1970-01-01 00:10:00+00:00'
+
+  >>> getNextCallTime(item, now, 51*60)
+  '1970-01-01 00:10:00+00:00 --> 1970-01-01 01:00:00+00:00'
+
+  >>> getNextCallTime(item, now, 55*60)
+  '1970-01-01 01:00:00+00:00 --> 1970-01-01 01:00:00+00:00'
+
+
+Hour
+~~~~
+
+  >>> data = {'jobName': u'bar', 'active': True, 'retryDelay': 5,
+  ...         'hour': [2, 13], 'nextCallTime':now}
+  >>> item = m01.remote.scheduler.Cron(data)
+
+  >>> getNextCallTime(item, now)
+  '1970-01-01 00:03:00+00:00 --> 1970-01-01 02:00:00+00:00'
+
+  >>> getNextCallTime(item, now, 2*60*60)
+  '1970-01-01 02:00:00+00:00 --> 1970-01-01 13:00:00+00:00'
+
+  >>> getNextCallTime(item, now, 4*60*60)
+  '1970-01-01 13:00:00+00:00 --> 1970-01-01 13:00:00+00:00'
+
+  >>> getNextCallTime(item, now, 13*60*60)
+  '1970-01-01 13:00:00+00:00 --> 1970-01-02 02:00:00+00:00'
+
+  >>> getNextCallTime(item, now, 15*60*60)
+  '1970-01-02 02:00:00+00:00 --> 1970-01-02 02:00:00+00:00'
+
+
+Month
+~~~~~
+
+  >>> data = {'jobName': u'bar', 'active': True, 'retryDelay': 5,
+  ...         'month': [1, 2, 5, 12], 'nextCallTime':now}
+  >>> item = m01.remote.scheduler.Cron(data)
+
+  >>> getNextCallTime(item, now)
+  '1970-01-01 00:03:00+00:00 --> 1970-02-01 00:03:00+00:00'
+
+  >>> getNextCallTime(item, now, 90*24*60*60)
+  '1970-02-01 00:03:00+00:00 --> 1970-05-01 00:03:00+00:00'
+
+  >>> getNextCallTime(item, now, 120*24*60*60)
+  '1970-05-01 00:03:00+00:00 --> 1970-12-01 00:03:00+00:00'
+
+  >>> getNextCallTime(item, now, 130*24*60*60)
+  '1970-12-01 00:03:00+00:00 --> 1970-12-01 00:03:00+00:00'
+
+  >>> getNextCallTime(item, now, 360*24*60*60)
+  '1970-12-01 00:03:00+00:00 --> 1971-01-01 00:03:00+00:00'
+
+
+dayOfWeek [0..6]
+~~~~~~~~~~~~~~~~
+
+  >>> data = {'jobName': u'bar', 'active': True, 'retryDelay': 5,
+  ...         'dayOfWeek': [0, 2, 4, 5], 'nextCallTime':now}
+  >>> item = m01.remote.scheduler.Cron(data)
+
+The current weekday of now is:
+
+  >>> now.weekday()
+  3
+
+this means our nextCallTime should get changed using day 4 as our 
+nextCallTime if we call them with ``now``:
+
+  >>> getNextCallTime(item, now)
+  '1970-01-01 00:03:00+00:00 --> 1970-01-02 00:03:00+00:00'
+
+with a day more, we will get the weekday 4 (skip):
+
+  >>> getNextCallTime(item, now, 24*60*60)
+  '1970-01-02 00:03:00+00:00 --> 1970-01-03 00:03:00+00:00'
+
+with another day more, we will get the weekday 5 (incr):
+
+  >>> getNextCallTime(item, now, 2*24*60*60)
+  '1970-01-03 00:03:00+00:00 --> 1970-01-05 00:03:00+00:00'
+
+with another day more, we will get the weekday 6 (skip):
+
+  >>> getNextCallTime(item, now, 3*24*60*60)
+  '1970-01-05 00:03:00+00:00 --> 1970-01-05 00:03:00+00:00'
+
+with another day more, we will get the weekday 0 (inc):
+
+  >>> getNextCallTime(item, now, 4*24*60*60)
+  '1970-01-05 00:03:00+00:00 --> 1970-01-07 00:03:00+00:00'
+
+
+dayOfMonth [1..31]
+~~~~~~~~~~~~~~~~~~
+
+  >>> data = {'jobName': u'bar', 'active': True, 'retryDelay': 5,
+  ...         'dayOfMonth': [2, 12, 21, 30], 'nextCallTime': now}
+  >>> item = m01.remote.scheduler.Cron(data)
+
+  >>> getNextCallTime(item, now)
+  '1970-01-01 00:03:00+00:00 --> 1970-01-02 00:00:00+00:00'
+
+  >>> getNextCallTime(item, now, 12*24*60*60)
+  '1970-01-02 00:00:00+00:00 --> 1970-01-21 00:00:00+00:00'
+
+  >>> getNextCallTime(item, now, 31*24*60*60)
+  '1970-01-21 00:00:00+00:00 --> 1970-02-02 00:00:00+00:00'
+
+
+Combined
+~~~~~~~~
+
+combine some attributes:
+
+  >>> data = {'jobName': u'bar', 'active': True, 'retryDelay': 5,
+  ...         'minute': [10], 'dayOfMonth': [1, 10, 20, 30],
+  ...         'nextCallTime': now}
+  >>> item = m01.remote.scheduler.Cron(data)
+
+  >>> getNextCallTime(item, now)
+  '1970-01-01 00:03:00+00:00 --> 1970-01-01 00:10:00+00:00'
+
+  >>> getNextCallTime(item, now, 10*60)
+  '1970-01-01 00:10:00+00:00 --> 1970-01-01 01:10:00+00:00'
+
+  >>> getNextCallTime(item, now, 10*24*60*60)
+  '1970-01-01 01:10:00+00:00 --> 1970-01-20 00:10:00+00:00'
+
+  >>> getNextCallTime(item, now, 20*24*60*60)
+  '1970-01-20 00:10:00+00:00 --> 1970-01-30 00:10:00+00:00'
+
+another sample:
+
+  >>> data = {'jobName': u'bar', 'active': True, 'retryDelay': 5,
+  ...         'minute': [10], 'hour': [4], 'dayOfMonth': [1, 12, 21, 30],
+  ...         'nextCallTime': now}
+  >>> item = m01.remote.scheduler.Cron(data)
+
+  >>> getNextCallTime(item, now)
+  '1970-01-01 00:03:00+00:00 --> 1970-01-01 04:10:00+00:00'
+
+  >>> getNextCallTime(item, now, 10*60)
+  '1970-01-01 04:10:00+00:00 --> 1970-01-01 04:10:00+00:00'
+
+  >>> getNextCallTime(item, now, 4*60*60)
+  '1970-01-01 04:10:00+00:00 --> 1970-01-01 04:10:00+00:00'
+
+  >>> getNextCallTime(item, now, 5*60*60)
+  '1970-01-01 04:10:00+00:00 --> 1970-01-12 04:10:00+00:00'
