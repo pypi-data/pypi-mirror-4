@@ -1,0 +1,169 @@
+
+Comment configurer la journalisation horaire avec pywws
+*******************************************************
+
+
+Introduction
+============
+
+Pywws offre deux modes de fonctionnement très différents.
+Traditionellement le programme *Hourly* devrait être exécuté à
+intervale régulier (habituellement une heure) à partir d'une tâche
+cron. Ceci convient aux sites Web plutôt statiques, mais des mises à
+jour plus fréquentes peuvent être utiles pour des sites comme Weather
+Underground (http://www.wunderground.com/). Le plus récent programme
+*LiveLog* s'exécute continuellement et peut envoyer des données à
+chaque 48 secondes.
+
+Notez que bien que ce document (et le nom du programme) réfère à la
+journalisation horaire (hourly), vous pouvez exécuter le programme
+Hourly.py aussi souvent ou peu fréquemment que vous le souhaitez, mais
+n'essayez pas de l'exécuter plus souvent que le double de la fréquence
+d'historique. Par exemple, si votre intervale d'historique est de 10
+minutes, n'exécutez pas Hourly.py plus fréquemment qu'aux 20 minutes.
+
+
+Mise en route
+=============
+
+Avant tout, vous devez unstaller pywws et vous assurer qu'il recoit
+bien les informations de votre station météo. Voir *Comment démarrer
+avec pywws* pour plus de détails.
+
+Essayez d'exécuter Hourly.py à partir de la ligne de commande, avec un
+haut niveau de commentaires pour que vous puissiez voir ce qui se
+passe:
+
+   python Hourly.py -vvv ~/weather/data
+
+En moins de cinq minutes (assumant que vous avez un interval de relevé
+de 5 minutes) vous devriez voir le message 'live_data new ptr', suivi
+par la recherche et le traitement de nouvelles données de la station
+météorologique.
+
+
+Configurer la licalisation des fichiers
+=======================================
+
+Ouvrez votre fichier weather.ini avec un éditeur de texte. Vous
+devriez avoir une section "[paths]" similaire à ce qui suit (où "xxx"
+est votre nom d'usager):
+
+   [paths]
+   work = /tmp/weather
+   templates = /home/xxx/weather/templates/
+   graph_templates = /home/xxx/weather/graph_templates/
+
+Éditez pour correspondre à votre installation et à vos préférences.
+"work" est un dossier temporaire utilisé pour emmagasiner les fichiers
+intermédiaires, "templates" est le dossier où vous gardez vos fichiers
+de gabarit texte et "graph_templates" est le dossier où vous gardez
+vos fichiers de gabarit graphes. Ne pas utiliser les dossiers exemple
+de pywws pour celà, puisqu'ils seront écrasés lors de mise à jour de
+pywws.
+
+Copiez vos fichiers de gabarits texte et graphes dans les dossiers
+appropriés. Vous pouvez trouver quelques exemples fournis avec pywws
+fort utiles pour démarrer.
+
+
+Configurer les tâches périodiques
+=================================
+
+Dans weather.ini vous devriez avoir les sections "[logged]",
+"[hourly]", "[12 hourly]" et "[daily]" similaire à celle-ci:
+
+   [logged]
+   services = []
+   twitter = []
+   plot = []
+   text = []
+
+   [hourly]
+   ...
+
+Ces sections spécifient ce que devrait faire Hourly.py à chaque
+exécution. Les tâches dans la section "[logged]" sont réalisées à
+chaque fois qu'une donnée est enregistrée, les tâches dans la section
+"[hourly]" sont exécutées à chaque heure, les tâches dans la section
+"[12 hourly]" sont lancées deux fois par jour, tandis que les tâches
+dans la section "[daily]" sont réalisées une fois par jour.
+
+Les entrées dans "services" sont une liste de services météo en ligne
+sur lesquels envoyer vos données météo. Les entrées "plot" et "text"
+sont des listes de fichiers gabarits graphes et texte à téléverser sur
+votre site web, et l'entrée "twitter" est une liste de gabarits pour
+les messages à poster sur Twitter. Ajoutez les coms de vos fichiers de
+gabarit et de services météo à l'entrée correspondante, par exemple:
+
+   [logged]
+   services = ['underground', 'metoffice']
+   twitter = []
+   plot = []
+   text = []
+
+   [hourly]
+   services = []
+   twitter = ['tweet.txt']
+   plot = ['7days.png.xml', '24hrs.png.xml', 'rose_24hrs.png.xml']
+   text = ['24hrs.txt', '6hrs.txt', '7days.txt']
+
+   [12 hourly]
+   services = []
+   twitter = []
+   plot = []
+   text = []
+
+   [daily]
+   services = []
+   twitter = ['forecast.txt']
+   plot = ['28days.png.xml']
+   text = ['allmonths.txt']
+
+Vous pouvez réaliser un test de bon fonctionnement en enlevant toute
+les lignes "last update" du fichier weather.ini, puis exécutez
+Hourly.py de nouveau:
+
+   python Hourly.py -v ~/weather/data
+
+
+Exécuter en tant que tâche 'cron'
+=================================
+
+La plupart des systèmes UNIX/Linux possèdent un service 'cron' qui à
+pour tâche d'exécuter un programme spécifié à un intervale défini,
+même si vous n'êtes pas connecté à votre session. Vous éditez un
+fichier 'crontab' pour spécifier ce qui doit être exécuté et quand.
+Par exemple, pour exécuter Hourly.py à chaque heure, à zero minutes de
+l'heure:
+
+   0 * * * *       python /home/jim/pywws/Hourly.py /home/jim/weather/data
+
+Ceci devrait fonctionner, mais si ce n'Est pas le cas vous
+n'obtiendrez probablement pas de messages d'erreur vous indiquant ce
+qui ne va pas. Il est préférable d'exécuter un script qui lance
+Hourly.py puis vous envoi un courriel avec tout message qui aurait pu
+être produit. Voici le script que j'utilise:
+
+   #!/bin/sh
+   #
+   # weather station logger calling script
+
+   if [ ! -d /data/weather/ ]; then
+     exit
+     fi
+
+   log=/var/log/log-weather
+
+   cd /home/jim/weather/devel
+   python ./Hourly.py -v /data/weather >$log 2>&1
+
+   # mail the log file
+   /home/jim/scripts/email-log.sh $log "weather log"
+
+Vous devrez éditer beaucoup pour adapter à vos emplacements de dossier
+et ainsi de suite, mais il donne une certaine idée de ce qui peut être
+fait.
+
+Commentaires ou questions? SVP, souscrivez à la liste d'envoi de pywws
+http://groups.google.com/group/pywws et laissez-le nous savoir.

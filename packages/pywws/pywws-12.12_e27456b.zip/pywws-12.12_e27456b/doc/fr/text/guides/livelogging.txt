@@ -1,0 +1,189 @@
+
+Comment configurer le mode 'live' avec pywws
+********************************************
+
+
+Introduction
+============
+
+Pywws offre deux modes de fonctionnement très différents.
+Traditionellement le programme *Hourly* devrait être exécuté à
+intervale régulier (habituellement une heure) à partir d'une tâche
+cron. Ceci convient aux sites Web plutôt statiques, mais des mises à
+jour plus fréquentes peuvent être utiles pour des sites comme Weather
+Underground (http://www.wunderground.com/). Le plus récent programme
+*LiveLog* s'exécute continuellement et peut envoyer des données à
+chaque 48 secondes.
+
+
+Mise en route
+=============
+
+Avant tout, vous devez unstaller pywws et vous assurer qu'il recoit
+bien les informations de votre station météo. Voir *Comment démarrer
+avec pywws* pour plus de détails.
+
+Essayez d'exécuter LiveLog.py à partir de la ligne de commande, avec
+un haut niveau de commentaires pour que vous puissiez voir ce qui se
+passe:
+
+   python LiveLog.py -vvv ~/weather/data
+
+En moins de cinq minutes (assumant que vous avez un interval de relevé
+de 5 minutes) vous devriez voir le message 'live_data new ptr', suivi
+par la recherche et le traitement de nouvelles données de la station
+météorologique. Laissez LiveLog.py fonctionner une ou deux minutes de
+plus, puis arrêtez le processus en tapant '<Ctrl>C'.
+
+
+Configurer la licalisation des fichiers
+=======================================
+
+Ouvrez votre fichier weather.ini avec un éditeur de texte. Vous
+devriez avoir une section "[paths]" similaire à ce qui suit (où "xxx"
+est votre nom d'usager):
+
+   [paths]
+   work = /tmp/weather
+   templates = /home/xxx/weather/templates/
+   graph_templates = /home/xxx/weather/graph_templates/
+
+Éditez pour correspondre à votre installation et à vos préférences.
+"work" est un dossier temporaire utilisé pour emmagasiner les fichiers
+intermédiaires, "templates" est le dossier où vous gardez vos fichiers
+de gabarit texte et "graph_templates" est le dossier où vous gardez
+vos fichiers de gabarit graphes. Ne pas utiliser les dossiers exemple
+de pywws pour celà, puisqu'ils seront écrasés lors de mise à jour de
+pywws.
+
+Copiez vos fichiers de gabarits texte et graphes dans les dossiers
+appropriés. Vous pouvez trouver quelques exemples fournis avec pywws
+fort utiles pour démarrer.
+
+
+Configurer les tâches périodiques
+=================================
+
+Dans weather.ini vous devriez avoir une section "[live]" similaire à
+celle-ci:
+
+   [live]
+   services = []
+   twitter = []
+   plot = []
+   text = []
+
+Cette section spécifie ce que devrait faire pywws à chaque fois qu'il
+recoit une lecture de la station météo, ex. toutes les 48 secondes.
+Les entrées "services" est une liste de services météo en ligne sur
+lesquels envoyer vos données météo, ex. "['underground']". LEs entrées
+"plot" et "text" sont des listes de fichiers gabarits graphes et texte
+à téléverser sur votre site web, et l'entrée "twitter" est une liste
+de gabarits pour les messages à poster sur Twitter. Vous devriez
+probablement laisser toutes ces entrées vides, sauf pour "services".
+
+Si vous utilisez YoWindow (http://yowindow.com/) vous pouvez ajouter
+l'entrée à la section "[live]" pour spécifier votre fichier YoWindow,
+ex.:
+
+   [live]
+   yowindow = /home/jim/data/yowindow.xml
+   services = ['underground']
+   ...
+
+Si vous ne les avez pas déjà, créeez quatre sections supplémentaires
+dans votre fichier weather.ini : "[logged]", "[hourly]", "[12 hourly]"
+et "[daily]". Ces sections doivent avoir des entrées similaires à la
+section "[live]", et spécifiez ce qui doit être fait chaque fois
+qu'une donnée est enregistrée (5 à 30 minutes, dépendant de votre
+intervale), chaque heure, deux fois par jour et chaque jour. Ajoutez
+les noms de vos fichiers de gabarit à l'entrée appropriée, par
+exemple:
+
+   [logged]
+   services = ['underground', 'metoffice']
+   twitter = []
+   plot = []
+   text = []
+
+   [hourly]
+   services = []
+   twitter = ['tweet.txt']
+   plot = ['7days.png.xml', '24hrs.png.xml', 'rose_24hrs.png.xml']
+   text = ['24hrs.txt', '6hrs.txt', '7days.txt']
+
+   [12 hourly]
+   services = []
+   twitter = []
+   plot = []
+   text = []
+
+   [daily]
+   services = []
+   twitter = ['forecast.txt']
+   plot = ['28days.png.xml']
+   text = ['allmonths.txt']
+
+
+Exécuter en arrière-plan
+========================
+
+Afin que LiveLog.py continue de fonctionner après avoir fini
+d'utiliser votre ordinateur, vous devez exécuter ce programme en tant
+que 'tâche en arrière^plan'. Sur la plupart des systèmes Linux / UNIX
+vous pouvez faire celà en ajoutant simplement le symbole ('&') à la
+fin de la ligne de commande. Par exemple:
+
+   python LiveLog.py ~/weather/data &
+
+Cependant, il peut être utile de savoir ce qui ne va pas si le
+programme se bloque pour une raison quelconque. LiveLog.py peut
+enregistrer ces messages dans un fichier d'historique, pour ce faire
+spécifiez l'option -l:
+
+   python LiveLog.py -v -l ~/weather/data/pywws.log ~/weather/data &
+
+
+Redémarrage automatique
+=======================
+
+Il y a une variété de manière de configurer un système Linux pour
+lancer un programme au démarrage de l'ordinateur. Typiquement ceci
+vous devez mettre un fichier dans /etc/init.d/, ce qui requière les
+privilèges 'root'. S'arrurer du redémarrage d'un programme après
+'plamtage' est un problème légèrement plus difficile. Ma solution à
+ces problèmes est d'exécuter le script suivant à partir d'une tâche
+cron, à chaque heure.
+
+   #!/bin/sh
+
+   pidfile=/var/run/pywws.pid
+   datadir=/data/weather
+   logfile=$datadir/live_logger.log
+
+   # exit if process is running
+   [ -f $pidfile ] && kill -0 `cat $pidfile` && exit
+
+   # email last few lines of the logfile to see why it died
+   if [ -f $logfile ]; then
+     log=/var/log/log-weather
+     tail -40 $logfile >$log
+     /home/jim/scripts/email-log.sh $log "weather log"
+     rm $log
+     fi
+
+   # restart process
+   python /home/jim/weather/devel/LiveLog.py -v -l $logfile $datadir &
+   echo $! >$pidfile
+
+Ce script enregistre l'identificateur de processus exécutant
+LiveLog.py dans le pidfile. Si le processus fonctionne, le script ne
+fait rien. Si le processus a bloqué, il m'envoi un courriel contenant
+les 40 dernières lignes du fichier d'historique (en utilisant un
+script qui crée un message et l'envoi par sendmail) puis redémarre
+LiveLog.py. Vous devrez éditer beaucoup pour adapter à vos
+emplacements de dossier et ainsi de suite, mais il donne une certaine
+idée de ce qui doit être fait.
+
+Commentaires ou questions? SVP, souscrivez à la liste d'envoi de pywws
+http://groups.google.com/group/pywws et laissez-le nous savoir.
