@@ -1,0 +1,244 @@
+<metal:macro define-macro="searchresults_seminars"
+                tal:define=" result_url result/getURL;
+                        url result/getRemoteUrl | result_url;
+                        item_enddate result/end;
+                        item_startdate result/start;
+                        item_creator result/Creator;
+                        isAnon context/@@plone_portal_state/anonymous;
+                        mtool context/portal_membership;
+                        toLocalizedTime nocall:plone_view/toLocalizedTime;
+                        obj result/getObject">
+
+    <div tal:condition="obj/getLogo" class="seminars-preview-img">
+        <img tal:attributes="src string:${result/getURL}/logo" width="60" />
+    </div>
+    <dd>
+    <p>
+        <span tal:condition="result/location">
+        <em tal:content="result/location">location</em>
+        <br />
+        </span>
+        <em>
+            <span tal:condition="python: item_startdate and item_startdate.year() >= 1900"
+                tal:replace="python:toLocalizedTime(item_startdate, long_format=0)"
+                tal:on-error="nothing">
+                August 16, 2001 at 23:35:59
+            </span>
+            - 
+            <span tal:replace="python:toLocalizedTime(item_enddate, long_format=0)"
+                tal:on-error="nothing">
+                August 16, 2001 at 23:35:59
+            </span>
+        </em>
+    </p> 
+    <div>
+        <a href="#" tal:attributes="href result/getURL">
+            <strong tal:content="result/Title">title</strong></a>
+        </div>
+
+        <p tal:define="descr result/Description"
+            tal:content="python:view.cropHtmlText(descr, 200)" />
+
+        <tal:url condition="url">
+        <a tal:attributes="href string:$url"
+            rel="nofollow" tal:content="url">Remote URL</a>
+        </tal:url>
+
+        <span:notanon tal:condition="not:isAnon">
+        <div class="documentByLine" style="border-top: 1px dashed gray;margin-top:0.5em;">
+            <tal:creator define="author python:mtool.getMemberInfo(item_creator)" >
+            <span tal:replace="python:author and author['fullname'] or item_creator">
+                Creator
+            </span>
+            </tal:creator>
+            <tal:review_state define="state result/review_state">
+            | <span tal:attributes="class string:state-$state" tal:content="state">
+                review state
+            </span>
+            </tal:review_state>
+            | <a rel="nofollow" href="#" tal:attributes="href string:${result_url}/content_status_history">Modify workflow</a>
+            | <a rel="nofollow" href="#" tal:attributes="href string:${result_url}/edit">Edit</a>
+        <span tal:define="item_is_versionable item_is_versionable|nothing" tal:condition="item_is_versionable">
+            | <a rel="nofollow" href="#" tal:attributes="href string:${result_url}/versions_history_form">History</a>
+        </span>
+    </div>
+    </span:notanon>
+        <div class="visualClear" ></div>
+    </dd>
+</metal:macro>
+
+<!-- **************************************************************************************************************************** -->
+
+    <metal:macro define-macro="search">
+        <tal:get define="st request/st|string:spl;
+                        livesearch_enabled python:False;
+                        template_id view/template_id">
+        <a tal:attributes="href string:${template_id}?st=spl">
+            <span 
+                i18n:translate="heading_simple_seminars_search"
+                tal:attributes="class python:st == 'spl' and 'search-tab-selected' or 'search-tab'">
+                Simple Seminars Search
+            </span>
+        </a>
+        &nbsp;
+        <a tal:attributes="href string:${template_id}?st=adv">
+            <span 
+                i18n:translate="heading_advanced_seminars_search"
+                tal:attributes="class python:st == 'adv' and 'search-tab-selected' or 'search-tab'">
+                Advanced Seminars Search
+            </span>
+        </a>
+        <div style="background-color: #E6E8ED; padding:1em">
+            <tal:if condition="python:st == 'spl'">
+                <div metal:use-macro="context/@@seminar-macros/macros/simple-search" />
+            </tal:if>
+            <tal:if condition="python:st == 'adv'">
+                <div metal:use-macro="context/@@seminar-macros/macros/advanced-search" />
+            </tal:if>
+        </div>
+        </tal:get>
+    </metal:macro>
+
+<!-- **************************************************************************************************************************** -->
+
+<metal:macro define-macro="simple-search">
+    <div tal:define="
+        here_url here_url|view/here_url|portal_url;
+        template_id view/template_id">
+
+    <form name="searchform"
+        action="seminar-simple-search"
+        tal:define="livesearch livesearch_enabled|site_properties/enable_livesearch|nothing;"
+        tal:attributes="action string:${here_url}/${template_id};
+                        onsubmit python:livesearch==True and 'return liveSearchSubmit()' or ''"
+        style="white-space:nowrap">
+
+        <label for="searchGadget" 
+                class="hiddenStructure"
+                i18n:domain="plone"
+                i18n:translate="text_search">Search Site</label>
+
+        <input type="hidden" name="st" value="spl"/>
+
+        <div class="LSBox">
+        <input id="searchGadget"
+                name="SearchableText"
+                type="text"
+                size="15"
+                value=""
+                title="Search Site"
+                accesskey="4"
+                i18n:attributes="title title_search_site;"
+                tal:attributes="value request/SearchableText|nothing;"
+                class="visibility:visible" />
+
+        <input class="searchButton"
+                type="submit"
+                value="Search"
+                i18n:domain="plone"
+                i18n:attributes="value Search;" />
+
+        <div tal:condition="livesearch" 
+            class="LSResult" 
+            id="LSResult" 
+            style="">
+            <div class="LSShadow" 
+                id="LSShadow">
+            </div>
+        </div>
+        </div>
+    </form>
+    <br clear="all"/>
+    </div>
+</metal:macro>
+
+<!-- **************************************************************************************************************************** -->
+
+<metal:macro define-macro="advanced-search">
+    <br/>
+    <div tal:define="
+        use_types_blacklist request/use_types_blacklist | python:True;
+        pts request/portal_type|python:[];
+        date request/date|view/date;
+        start_date python:view.increment_date(date);
+        results python:here.portal_catalog(portal_type=pts, end={'query':date, 'range':'min'}, start={'query':start_date,'range':'max'});
+        Batch python:modules['Products.CMFPlone'].Batch;
+        b_size python:30;b_start python:0;b_start request/b_start | b_start;
+        desc_length site_properties/search_results_description_length;
+        desc_ellipsis site_properties/ellipsis;
+        searchterm request/SearchableText|nothing;
+        here_url here_url|portal_url;
+        use_view_action site_properties/typesUseViewActionInListings|python:();">
+
+    <form name="searchform"
+        action="seminar-advanced-search"
+        tal:define="livesearch site_properties/enable_livesearch|nothing;"
+        tal:attributes="action string:${here_url}/${template_id};
+                        onsubmit python:livesearch==True and 'return liveSearchSubmit()' or ''"
+        style="white-space:nowrap">
+
+        <label for="searchGadget" class="hiddenStructure"
+                    i18n:translate="text_search">Search Site</label>
+
+        <input type="hidden" name="st" value="adv"/>
+        <input type="hidden" name="show_results" value="1"/>
+        <input type="hidden" name="portal_type:list" value="Speaker"/>
+        <input type="hidden" name="portal_type:list" value="Speech"/>
+        <input type="hidden" name="portal_type:list" value="Seminar"/>
+
+        <div>
+            <strong
+                i18n:domain="slc.seminarportal"
+                i18n:translate="Date">Date</strong>
+            <br/>
+            <!-- XXX date should be in between start date and end date -->
+            <tal:define define="id string:date;
+                                show_hm nothing;
+                                show_ymd python:1;
+                                starting_year python:2000;
+                                ending_year python:view.date().year() + 5;
+                                future_years nothing;
+                                formname string:seminar-advanced-search;
+                                inputname string:date;
+                                inputvalue request/date|view/date">
+            <metal:box use-macro="here/calendar_macros/macros/calendarDatePickerBox">
+                a calendar, hopefully
+            </metal:box>
+            </tal:define>
+            <br/>
+        </div>
+        <div>
+            <strong
+                i18n:domain="plone"
+                i18n:translate="label_event_location">
+                Location
+            </strong>
+            <br/>
+            <span class="formHelp"
+                i18n:domain="plone"
+                i18n:translate="help_location_dc">
+                The geographical location associated with the item, if applicable.
+            </span>
+            <br/>
+            <input id="searchGadget"
+                name="SearchableText"
+                type="text"
+                size="30"
+                value=""
+                title="Search Site"
+                accesskey="4"
+                i18n:attributes="title title_search_site;"
+                tal:attributes="value request/SearchableText|nothing;"
+                class="visibility:visible" />
+            <br clear="all"/>
+        </div>
+        <br/>
+        <input class="searchButton"
+            type="submit"
+            i18n:domain="plone"
+            value="Search"
+            i18n:attributes="value label_search;" />
+    </form>
+    </div> 
+</metal:macro>
+
