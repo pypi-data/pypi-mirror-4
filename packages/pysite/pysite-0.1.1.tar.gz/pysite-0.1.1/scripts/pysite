@@ -1,0 +1,165 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+
+from optparse import OptionParser
+import sys
+from os import getcwd
+
+
+if __name__=='__main__':
+	subcommands = {
+		'testserve': {
+			'desc': '''Test our pysite on-the-fly. This will start a simple standalone webserver
+to test your site.''',
+			'args': [
+				{'name': 'sitedir', 'optional': True, 'desc': 'Path to site dir, if not given the PWD is used'}
+			]
+		},
+		'lupdate': {
+			'desc': '''extract translatable messages from Jinja2 templates and PySite subhandler
+source code. Extracted messages are stored in textual translation
+source files (TS XML). New and modified messages can be merged
+into existing TS files''',
+			'args': [
+				{'name': 'tsfile', 'optional': False, 'desc': 'Path to the Qt TS to create or update'},
+				{'name': 'langcode', 'optional': False, 'desc': 'ISO language code for your Qt TS file (ie. en_UK, jp, da)'}
+			]
+		},
+		'site-lupdate': {
+			'desc': '''Extract translatable messages from Jinja2 templates and PySite subhandler
+source code for all languages defined in a given sitedir. Extracted
+messages are stored in textual translation source files (TS XML).
+New and modified messages can be merged into existing TS files''',
+			'args': [
+				{'name': 'sitedir', 'optional': True, 'desc': 'Path to site dir, if not given the PWD is used'}
+			]
+		},
+		'lrelease': {
+			'desc': 'convert XML-based translation files in the TS format into the PySite translation modules.',
+			'args': [
+				{'name': 'tsfile', 'optional': False, 'desc': 'Path to the Qt TS file that should be parsed and released'}
+			]
+		},
+		'site-lrelease': {
+			'desc': '''convert XML-based translation files in the TS format into the PySite
+translation modules for all languages defined in a given sitedir''',
+			'args': [
+				{'name': 'sitedir', 'optional': True, 'desc': 'Path to site dir, if not given the PWD is used'}
+			]
+		},
+	}
+	
+	if len(sys.argv)<2 or sys.argv[1] not in subcommands.keys():
+		print("usage: %s <subcommand> [options] arg1 arg2 ...")
+		print("subcommands: %s" % ','.join(subcommands.keys()))
+		sys.exit(1)
+	cmd = sys.argv[1]
+	
+	parser = OptionParser()
+	argnames = []
+	argdescs = []
+	for ainfo in subcommands[cmd]['args']:
+		argnames += [ainfo['name']]
+		argdescs += ['  %-19.19s %s' % (ainfo['name'],ainfo['desc'])]
+	
+	usage = '%s [options] %s\n\n%s\n\nArguments:\n%s' % (sys.argv[0],' '.join(argnames),subcommands[cmd]['desc'],'\n'.join(argdescs))
+	
+	parser.set_usage(usage)
+	
+	if cmd=='testserve':
+		parser.add_option(
+			"-d", "--site-dir", dest="sitedir",
+			help="Path to the directory containing your site", metavar="SITEDIR")
+			
+	elif cmd=='lupdate':
+		parser.add_option(
+			"--no-obsolete",action="store_true", dest="no_obsolete", default=False,
+			help="Drop all obsolete strings")
+		parser.add_option(
+			"--ts-file", dest="tsfile",
+			help="Path to the Qt TS to create or update",metavar="TSFILE")
+		parser.add_option(
+			"--lang-code", dest="langcode",
+			help="ISO language code for your Qt TS file (ie. en_UK, jp, da)",metavar="TSFILE")
+			
+	elif cmd=='lrelease':
+		parser.add_option(
+			"--no-unfinished",action="store_true", dest="no_unfinished", default=False,
+			help="Do not include unfinished translations")
+		parser.add_option(
+			"--ts-file", dest="tsfile",
+			help="Path to the Qt TS file that should be parsed and released",metavar="TSFILE")
+
+	(options, args) = parser.parse_args()
+	
+	cmd_args = subcommands[cmd]['args']
+	
+	acnt = 0
+	for a in args[1:]:
+		locals()[cmd_args[acnt]['name']] = a
+		acnt += 1
+	
+	for option,val in eval(str(options)).items():
+		if val!=None and option not in locals():
+			locals()[option] = val
+	
+	missing_mandatory = []
+	for a in cmd_args:
+		if not a['optional'] and a['name'] not in locals():
+			missing_mandatory += [a['name']]
+		
+	if len(missing_mandatory):
+		parser.print_help()
+		print('\n(E) Missing mandatory arguments: %s' % ','.join(missing_mandatory))
+		sys.exit(1)
+	
+	if cmd=='testserve':
+		from wsgiref.util import setup_testing_defaults
+		from wsgiref.simple_server import make_server
+		from os.path import abspath,dirname
+		from pysite.wsgi import PySiteApplication
+		from os.path import dirname,abspath
+		
+		if 'sitedir' not in locals():
+			sitedir = abspath(getcwd())
+
+		application = PySiteApplication(sitedir)
+		httpd = make_server('', 8000, application)
+		print "Serving on port 8000..."
+		httpd.serve_forever()
+		
+	if cmd=='lupdate':
+		from pysite.tools.lupdate import lupdate
+		lupdate(tsfile,langcode)
+
+	if cmd=='site-lupdate':
+		from pysite.conf import getConfiguration
+		from pysite.tools.lupdate import lupdate
+		from os.path import abspath,dirname,join
+		if 'sitedir' not in locals():
+			sitedir = abspath(getcwd())
+		conf = getConfiguration(join(sitedir,'conf.py'))
+		translations = getattr(conf,'translations',[])
+		sitename = getattr(conf,'sitename')
+		translations_dir = join(sitedir,'translations')
+		for langcode in translations:
+			tsfile = join(translations_dir,langcode,'%s_%s.ts' % (sitename,langcode))
+			lupdate(tsfile,langcode)
+
+	if cmd=='lrelease':
+		from pysite.tools.lrelease import lrelease
+		lrelease(tsfile)
+
+	if cmd=='site-lrelease':
+		from pysite.conf import getConfiguration
+		from pysite.tools.lrelease import lrelease
+		from os.path import abspath,dirname,join
+		if 'sitedir' not in locals():
+			sitedir = abspath(getcwd())
+		conf = getConfiguration(join(sitedir,'conf.py'))
+		translations = getattr(conf,'translations',[])
+		sitename = getattr(conf,'sitename')
+		translations_dir = join(sitedir,'translations')
+		for langcode in translations:
+			tsfile = join(translations_dir,langcode,'%s_%s.ts' % (sitename,langcode))
+			lrelease(tsfile)
