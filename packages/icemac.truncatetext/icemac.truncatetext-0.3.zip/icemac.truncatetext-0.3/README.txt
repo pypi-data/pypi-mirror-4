@@ -1,0 +1,1 @@
+Nice, intelligent truncation of text.
