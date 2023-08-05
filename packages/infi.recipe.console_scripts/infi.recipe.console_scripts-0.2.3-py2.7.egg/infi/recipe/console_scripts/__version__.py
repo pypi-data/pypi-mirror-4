@@ -1,0 +1,10 @@
+__version__ = "0.2.3"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '76c21de51506b84a071824e99b01448a9325b71e'
+__git_head_subject__ = 'Finished release v0.2.3.'
+__git_head_message__ = '* release/v0.2.3:\n  TRIVIAL homepage\n  HIP-499\n  HOSTDEV-498 fixing CI job\n  HOSTDEV-498 making gui scripts wokr\n  HOSTDEV-498 making gui scripts wokr\n  HOSTDEV-498 test entry points\n  buildout.cfg: adding console-script-test to console_scripts\n  HOSTDEV-498 fixing previous commit\n  HOSTDEV-498 fixing previous comit\n  HOSTDEV-498 fixing previous comit\n  HOSTDEV-498 gui_scripts buildout recipe\n  HOSTDEV-498 new embed-*exe\n  HOSTDEV-498 preparions for compiling embed-gui-*.exe\n  empty commit after version v0.2.2'
+__git_dirty_diff__ = ''
