@@ -1,0 +1,86 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+##############################################################################
+#       Copyright (C) 2010, Joel B. Mohler <joel@kiwistrawberry.us>
+#
+#  Distributed under the terms of the GNU General Public License (GPL)
+#                  http://www.gnu.org/licenses/
+##############################################################################
+
+import sys
+
+from qtalchemy import xplatform
+#sys.excepthook = xplatform.guiexcepthook
+
+import baker
+import datetime
+from qtalchemy import *
+from PySide import QtCore, QtGui
+
+from pyhacc.PyHaccLib import *
+from pyhacc.PyHaccMainWindow import *
+
+# Default the Session (the source of all sqlite data) to nothing.
+# This will most likely be assigned in a call to global_kwargs
+Session = None
+
+def global_kwargs(kwargs):
+    global Session
+    if kwargs.has_key("conn"):
+        Session = init_session_maker(kwargs['conn'])
+        del kwargs['conn']
+
+@baker.command
+def initdb(conn,level=1):
+    s = SessionSource(conn,create_level=level)
+
+@baker.command
+def report(report=None,format='csv',outfile=None,pagesize=None,**kwargs):
+    """
+    Outputs a report.
+    
+    :param report: The class name of the report from reports.py (if None show a list of available reports)
+    :param format: The format of the report output, possible options are 'csv', 'pdf', 'html', and 'geraldo' (i.e. fancy pdf)
+    :param outfile: The name of the output file name.
+    :param pagesize: The page size with pdf output.  Examples include 'letter', 'landscape_letter', 'A4', 'B3' and 'landscape_A5'.
+    """
+    global_kwargs(kwargs)
+
+    import pyhacc.reports as reports
+
+    if report is None:
+        for r in reports.report_classes:
+            print "{0:22}:  {1}".format(r.__name__, r.name)
+            for x in r.prompt_order:
+                print "\t{0:16}:  {1}".format(x, getattr(r,x).label)
+            print
+        return
+
+    report_type = getattr(reports,report)
+    b = report_type(Session)
+    b.construct(**kwargs)
+    if format == 'csv':
+        b.csv(sys.stdout if outfile is None else open(outfile, 'w'))
+    elif format == 'html':
+        b.html(sys.stdout if outfile is None else open(outfile, 'w'))
+    elif format == 'pdf':
+        if outfile is None: raise ValueError("The outfile must be specified for pdf output.")
+        b.pdf(outfile, pagesize)
+    elif format == 'geraldo':
+        if outfile is None: raise ValueError("The outfile must be specified for pdf output.")
+        b.geraldo(outfile, pagesize)
+    else:
+        raise ValueError("invalid format:  {0}".format(format))
+
+@baker.command
+def util(**kwargs):
+    global_kwargs(kwargs)
+
+    Utilities(Session)
+
+@baker.command(default=True)
+def gui(conn=None, **kwargs):
+    gui_app(conn)
+
+if __name__ == "__main__":
+    baker.run()
