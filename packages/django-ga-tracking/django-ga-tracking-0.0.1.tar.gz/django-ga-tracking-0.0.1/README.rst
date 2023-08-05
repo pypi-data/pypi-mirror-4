@@ -1,0 +1,73 @@
+==================
+django-ga-tracking
+==================
+
+django-ga-tracking is a simple Django pluggable app that provides a context
+processor and template for adding `Google Analytics`_ tracking code to your
+pages.
+
+Alternatives and differences
+============================
+
+There are alternatives like `django-google-analytics`_ and `Django Analytics
+Middleware`_, but this project begun as both solutions seem to introduce
+unnecessary complexity and/or lack the ability to configure analytics via
+Django settings module. The latter factor was particularly important for this
+project because hard-coding configuration or storing configuration in a
+databaes column was something we absolutely wanted to avoid.
+
+Installation
+============
+
+Install using pip::
+
+    pip install django-ga-tracking
+
+Basic usage
+===========
+
+Add ``ga_tracking`` to ``INSTALLED_APPS``.
+
+Next, add the ``ga_tracking_id`` context processor to
+``TEMPLATE_CONTEXT_PROCESSORS``::
+
+    TEMPLATE_CONTEXT_PROCESSORS = (
+        ....
+        'ga_tracking.context_processors.ga_tracking_id',
+    )
+
+Define a ``GA_TRACKING_ID`` setting and assign your tracking ID to it.  For
+example::
+
+    GA_TRACKING_ID = 'UA-12345678-9'
+
+Finally, add the tracker code template somewhere in your own template::
+
+    {% include "ga_tracking/ga.html" %}
+
+Customization
+=============
+
+Because django-ga-tracking uses a simple template to add the code, you can
+customize it simply by overriding the template with your own. The ``ga.html``
+template contains the default ``<script>`` block as provided by Google. 
+
+The script block is *not* rendered at all if the ``GA_TRACKING_ID`` setting is
+not present, so you can, for example, set the setting only in production to
+avoid development sites from being tracked, or use different tracking codes on
+different deployments. For example::
+
+    # in settings.py
+    import os
+
+    GA_TRACKING_ID = os.environ.get('GA_TRACKING_ID')
+
+Reporting bugs
+==============
+
+Please report bugs to Bitbucket `issue tracker`_.
+
+.. _Google Analytics: http://google.com/analytics/
+.. _django-google-analytics: http://code.google.com/p/django-google-analytics/
+.. _Django Analytics Middleware: http://lethain.com/a-django-middleware-for-google-analytics-repost/
+.. _issue tracker: https://bitbucket.org/monwara/django-ga-tracking/issues
