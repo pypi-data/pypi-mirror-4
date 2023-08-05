@@ -1,0 +1,10 @@
+__version__ = "0.1"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '4f206c32b0c913b559ff13e95a04811d3891813c'
+__git_head_subject__ = 'Finished release v0.1.'
+__git_head_message__ = '* release/v0.1: (42 commits)\n  TRIVIAL comments and doc\n  TRIVIAL commenting\n  TRIVIAL parse event xml\n  TRIVIAL parse event xml\n  buildout.cfg: adding xmltodict to requirements\n  TRIVIAL render event\n  TRIVIAL render event\n  TRIVIAL render event\n  TRIVIAL render event\n  TRIVIAL render event\n  TRIVIAL event_render_context\n  TRIVIAL event_render_context\n  TRIVIAL event_render_context\n  TRIVIAL next_event_handle_context\n  TRIVIAL fix open\n  TRIVIAL fix open\n  TRIVIAL fix open\n  TRIVIAL fix open\n  TRIVIAL fix open\n  TRIVIAL fix close\n  ...'
+__git_dirty_diff__ = ''
