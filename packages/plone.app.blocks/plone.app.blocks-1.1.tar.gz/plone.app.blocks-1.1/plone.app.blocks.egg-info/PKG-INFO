@@ -1,0 +1,756 @@
+Metadata-Version: 1.1
+Name: plone.app.blocks
+Version: 1.1
+Summary: Implements the in-Plone blocks rendering process
+Home-page: https://github.com/plone/plone.app.blocks
+Author: Martin Aspeli, Laurence Rowe
+Author-email: optilude@gmail.com
+License: GPL
+Description: ======================
+        Introduction to Blocks
+        ======================
+        
+        This package implements the 'blocks' rendering model, by providing several
+        transform stages that hook into ``plone.transformchain``.
+        
+        The rendering stages are:
+        
+         plone.app.blocks.parsexml (order 8000)
+            Turns the response in a ``repoze.xmliter`` ``XMLSerializer`` object.
+            This is then used by the subsequent stages. If the input is not HTML,
+            the transformation is aborted.
+        
+         plone.app.blocks.mergepanels (order 8100)
+            Looks up the site layout and executes the panel merge algorithm. Sets a
+            request variable ('plone.app.blocks.merged') to indicate that it has
+            done its job.
+        
+         plone.app.blocks.tiles (order 8500)
+            Resolve tiles and place them directly into the merged layout. This is the
+            fallback for views that do not opt into ITilePageRendered.
+        
+         plone.app.blocks.esirender (order 8900)
+            Only executed if the request key ``plone.app.blocks.esi`` is set and
+            has a true value, as would be the case if any ESI-rendered tiles are
+            included and ESI rendering is enabled globally. This step will serialise
+            the response down to a string and perform some substitution to make ESI
+            rendering work.
+        
+        The package also registers the ``sitelayout`` ``plone.resource`` resource
+        type, allowing site layouts to be created easily as static HTML files served
+        from resource directories. The URL to a site layout is typically something
+        like::
+        
+            /++sitelayout++my.layout/site.html
+        
+        See ``plone.resource`` for more information about how to register resource
+        directories. For site layouts, the ``type`` of the resource directory is
+        ``sitelayout``.
+        
+        It is possible to provide a manifest file that gives a title, description and
+        alternative default file for a site layout HTML file in a resource directory.
+        To create such a manifest, put a ``manifest.cfg`` file in the layout directory
+        with the following structure::
+        
+            [sitelayout]
+            title = My layout title
+            description = Some description
+            file = some-html-file.html
+        
+        All keys are optional. The file defaults to ``site.html``.
+        
+        A vocabulary factory called ``plone.availableSiteLayouts`` is registered to
+        allow lookup of all registered site layouts.  The terms in this vocabulary
+        use the URL as a value, the resource directory name as a token, and the 
+        title from the manifest (falling back on a sanitised version of the resource
+        directory name) as the title.
+        
+        The current default site layout can be identified by the ``plone.registry``
+        key ``plone.defaultSiteLayout``, which is set to ``None`` by default. To
+        always use the current site default, use::
+        
+            <html data-layout="./@@default-site-layout">
+        
+        The ``@@default-site-layout`` view will render the current default site
+        layout.
+        
+        It is possible for the default site layout to be overridden per section,
+        by having parent objects provide or be adaptable to
+        ``plone.app.blocks.layoutbehavior.ILayoutAware``. As the module name implies,
+        this interface can be used as a ``plone.behavior`` behavior, but it can also
+        be implemented directly or used as a standard adapter.
+        
+        The ``ILayoutAware`` interface defines three properties:
+        
+        * ``content``, which contains the body of the page to be rendered
+        * ``pageSiteLayout``, which contains the path to the site layout to be used
+          for the given page. It can be ``None`` if the default is to be used.
+        * ``sectionSiteLayout``, which contains the path to the site layout to be
+          used for pages *underneath* the given page (but not for the page itself).
+          Again, it can be ``None`` if the default is to be used.
+        
+        To make use of the page site layout, use the following::
+        
+            <html data-layout="./@@default-site-layout">
+        
+        See ``rendering.txt`` for detailed examples of how the processing is applied,
+        and ``esi.txt`` for details about how Edge Side Includes can be supported.
+        
+        Blocks rendering in detail
+        ==========================
+        
+        This doctest illustrates the blocks rendering process. At a high level, it
+        consists of the following steps:
+        
+        0. Obtain the content page, an HTML document.
+        1. Look for a site layout link in the content page. This takes the form of an
+           attribute on the html tag like ``<html data-layout="..." />``.
+           
+           Usually, the site layout URL will refer to a resource in a resource
+           directory of type ``sitelayout``, e.g. ``/++sitelayout++foo/site.html``,
+           although the layout can be any URL. An absolute path like this will be
+           adjusted so that it is always relative to the Plone site root.
+        2. Resolve and obtain the site layout. This is another HTML document.
+        3. Extract panels from the site layout.
+        
+           A panel is an element (usually a ``<div />``) in the layout page with a
+           data-panel attribute, for example: ``<div data-panel="panel1" />``. The
+           attribute specifies an id which *may* be used in the content page.
+        4. Merge panels. This is the process which applies the layout to the
+           unstyled page. All panels in the layout page that have a matching
+           element in the content page, are replaced by the content page element.
+           The rest of the content page is discarded.
+        5. Resolve and obtain tiles. A tile is a placeholder element in the page
+           which will be replaced by the contents of a document referenced by a URL.
+           
+           A tile is identified by a placeholder element with a ``data-tile``
+           attribute containing the tile URL.
+           
+           Note that at this point, panel merging has taken place, so if a panel in
+           the content page contains tiles, they will be carried over into the merged
+           page. Also note that it is possible to have tiles outside of panels - the
+           two concepts are not directly related.
+        
+           The ``plone.tiles`` package provides a framework for writing tiles,
+           although in reality a tile can be any HTML page.
+        6. Place tiles into the page. The tile should resolve to a full HTML
+           document. Any content found in the ``<head />`` of the tile content will
+           be merged into the ``<head />`` of the rendered content. The contents of
+           the ``<body />`` of the tile content are put into the rendered document
+           at the tile placeholder.
+        
+        Rendering step-by-step
+        ----------------------
+        
+        Let us now illustrate the rendering process. We'll need a few variables
+        defined first:
+        
+            >>> from plone.testing.z2 import Browser
+            >>> import transaction
+            
+            >>> app = layer['app']
+            >>> portal = layer['portal']
+            
+            >>> browser = Browser(app)
+            >>> browser.handleErrors = False
+        
+        Creating a site layout
+        ~~~~~~~~~~~~~~~~~~~~~~
+        
+        The most common approach for managing site layouts is to use a resource
+        registered using a ``plone.resource`` directory of type ``sitelayout``, and
+        then use the ``@@default-site-layout`` view to reference the content. We will
+        illustrate this below, but it is important to realise that
+        ``plone.app.blocks`` works by post-processing responses rendered by Zope. The
+        content and layout pages could just as easily be created by views of content
+        objects, or even resources external to Zope/Plone.
+        
+        First, we will create a resource representing the site layout and its panels.
+        This includes some resources and other elements in the ``<head />``,
+        ``<link />`` tags which identify tile placeholders and panels, as well as
+        content inside and outside panels. The tiles in this case are managed by
+        ``plone.tiles``, and are both of the same type.
+        
+            >>> layoutHTML = """\
+            ... <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+            ... <html>
+            ...     <head>
+            ...         <title>Layout title</title>
+            ...         <link rel="stylesheet" href="/layout/style.css" />
+            ...         <script type="text/javascript">alert('layout');</script>
+            ... 
+            ...         <style type="text/css">
+            ...         div {
+            ...             margin: 5px;
+            ...             border: dotted black 1px;
+            ...             padding: 5px;
+            ...         }
+            ...         </style>
+            ... 
+            ...         <link rel="stylesheet" data-tile="./@@test.tile_nobody/tile_css" />
+            ...     </head>
+            ...     <body>
+            ...         <h1>Welcome!</h1>
+            ...         <div data-panel="panel1">Layout panel 1</div>
+            ...         <div data-panel="panel2">
+            ...             Layout panel 2
+            ...             <div id="layout-tile1" data-tile="./@@test.tile1/tile1">Layout tile 1 placeholder</div>
+            ...         </div>
+            ...         <div data-panel="panel3">
+            ...             Layout panel 3
+            ...             <div id="layout-tile2" data-tile="./@@test.tile1/tile2">Layout tile 2 placeholder</div>
+            ...         </div>
+            ...     </body>
+            ... </html>
+            ... """
+        
+        We can create an in-ZODB resource directory of type ``sitelayout`` that
+        contains this layout. Another way would be to register a resource directory
+        in a package using ZCML, or use a global resource directory. See
+        ``plone.resource`` for more details.
+        
+            >>> from Products.CMFCore.utils import getToolByName
+            >>> from Products.BTreeFolder2.BTreeFolder2 import BTreeFolder2
+            >>> from StringIO import StringIO
+            >>> from OFS.Image import File
+            
+            >>> resources = getToolByName(portal, 'portal_resources')
+            >>> resources._setOb('sitelayout', BTreeFolder2('sitelayout'))
+            >>> resources['sitelayout']._setOb('mylayout', BTreeFolder2('mylayout'))
+            >>> resources['sitelayout']['mylayout']._setOb('site.html', File('site.html', 'site.html', StringIO(layoutHTML)))
+            
+            >>> transaction.commit()
+            
+        This resource can now be accessed using the path
+        ``/++sitelayout++mylayout/site.html``. Let's render it on its own to verify
+        that.
+        
+            >>> browser.open(portal.absolute_url() + '/++sitelayout++mylayout/site.html')
+            >>> print browser.contents
+            <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+            <html xmlns="http://www.w3.org/1999/xhtml">
+              <head>
+                <meta http-equiv="Content-Type" content="text/html; charset=ASCII" />
+                <title>Layout title</title>
+                <link rel="stylesheet" href="/layout/style.css" />
+                <script type="text/javascript">alert('layout');</script>
+                <style type="text/css">
+                    div {
+                        margin: 5px;
+                        border: dotted black 1px;
+                        padding: 5px;
+                    }
+                    </style>
+                <link rel="stylesheet" data-tile="./@@test.tile_nobody/tile_css" />
+              </head>
+              <body>
+                    <h1>Welcome!</h1>
+                    <div data-panel="panel1">Layout panel 1</div>
+                    <div data-panel="panel2">
+                        Layout panel 2
+                        <div id="layout-tile1" data-tile="./@@test.tile1/tile1">Layout tile 1 placeholder</div>
+                    </div>
+                    <div data-panel="panel3">
+                        Layout panel 3
+                        <div id="layout-tile2" data-tile="./@@test.tile1/tile2">Layout tile 2 placeholder</div>
+                    </div>
+                </body>
+            </html>
+        
+        We can now set this as the site-wide default layout by setting the registry
+        key ``plone.defaultSiteLayout``. There are two indirection views,
+        ``@@default-site-layout`` and ``@@page-site-layout``, that respect this
+        registry setting. By using one of these views to reference the layout of
+        a given page, we can manage the default site layout centrally.
+        
+            >>> from zope.component import getUtility
+            >>> from plone.registry.interfaces import IRegistry
+            >>> registry = getUtility(IRegistry)
+            >>> registry['plone.defaultSiteLayout'] = '/++sitelayout++mylayout/site.html'
+            >>> transaction.commit()
+        
+        Creating a page layout and tiles
+        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        
+        Next, we will define the markup of a content page that uses this layout via
+        the ``@@default-site-layout`` indirection view:
+        
+            >>> pageHTML = """\
+            ... <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+            ... <html data-layout="./@@default-site-layout">
+            ...     <body>
+            ...         <h1>Welcome!</h1>
+            ...         <div data-panel="panel1">
+            ...             Page panel 1
+            ...             <div id="page-tile2" data-tile="./@@test.tile1/tile2?magicNumber:int=2">Page tile 2 placeholder</div>
+            ...         </div>
+            ...         <div data-panel="panel2">
+            ...             Page panel 2
+            ...             <div id="page-tile3" data-tile="./@@test.tile1/tile3">Page tile 3 placeholder</div>
+            ...         </div>
+            ...         <div data-panel="panel4">
+            ...             Page panel 4 (ignored)
+            ...             <div id="page-tile4" data-tile="./@@test.tile1/tile4">Page tile 4 placeholder</div>
+            ...         </div>
+            ...     </body>
+            ... </html>
+            ... """
+        
+        We then register a view that simply return this HTML, and a tile type
+        which we can use to test tile rendering.
+        
+        We do this in code for the purposes of the test, and we have to apply security
+        because we will shortly render those pages using the test publisher. In real
+        life, these could be registered using the standard ``<browser:page />`` and
+        ``<plone:tile />`` directives.
+        
+            >>> from zope.publisher.browser import BrowserView
+            >>> from zope.interface import Interface, implements
+            >>> from zope import schema
+            >>> from plone.tiles import Tile
+        
+            >>> class Page(BrowserView):
+            ...     __name__ = 'test-page'
+            ...     def __call__(self):
+            ...         return pageHTML
+        
+            >>> class ITestTile(Interface):
+            ...     magicNumber = schema.Int(title=u"Magic number", required=False)
+            
+            >>> class TestTile(Tile):
+            ...     __name__ = 'test.tile1' # normally set by ZCML handler
+            ...
+            ...     def __call__(self):
+            ...         # fake a page template to keep things simple in the test
+            ...         return """\
+            ... <html>
+            ...     <head>
+            ...         <meta name="tile-name" content="%(name)s" />
+            ...     </head>
+            ...     <body>
+            ...         <p>
+            ...             This is a demo tile with id %(name)s
+            ...         </p>
+            ...         <p>
+            ...             Magic number: %(number)d; Form: %(form)s; Query string: %(queryString)s
+            ...         </p>
+            ...     </body>
+            ... </html>""" % dict(name=self.id, number=self.data['magicNumber'] or -1,
+            ...                   form=sorted(self.request.form.items()), queryString=self.request['QUERY_STRING'])
+        
+        Let's add another tile, this time only a head part. This could for example
+        be a tile that only needs to insert some CSS.
+        
+            >>> class TestTileNoBody(Tile):
+            ...     __name__ = 'test.tile_nobody'
+            ...
+            ...     def __call__(self):
+            ...         return """\
+            ... <html>
+            ...     <head>
+            ...         <link rel="stylesheet" type="text/css" href="tiled.css" />
+            ...     </head>
+            ... </html>"""
+        
+        We register these views and tiles in the same way the ZCML handlers for
+        ``<browser:page />`` and ``<plone:tile />`` would:
+            
+            >>> from plone.tiles.type import TileType
+            >>> from Products.Five.security import protectClass
+            >>> from App.class_init import InitializeClass
+            >>> from zope.component import provideAdapter, provideUtility
+            >>> from zope.interface import Interface
+            
+            >>> testTileType = TileType(
+            ...     name=u'test.tile1',
+            ...     title=u"Test tile",
+            ...     description=u"A tile used for testing",
+            ...     add_permission="cmf.ManagePortal",
+            ...     schema=ITestTile)
+        
+            >>> testTileTypeNoBody = TileType(
+            ...     name=u'test.tile_nobody',
+            ...     title=u"Test tile using only a header",
+            ...     description=u"Another tile used for testing",
+            ...     add_permission="cmf.ManagePortal")
+            
+            >>> protectClass(Page, 'zope2.View')
+            >>> protectClass(TestTile, 'zope2.View')
+        
+            >>> InitializeClass(Page)
+            >>> InitializeClass(TestTile)
+        
+            >>> provideAdapter(Page, (Interface, Interface,), Interface, u'test-page')
+            >>> provideAdapter(TestTile, (Interface, Interface,), Interface, u'test.tile1',)
+            >>> provideAdapter(TestTileNoBody, (Interface, Interface,), Interface, u'test.tile_nobody',)
+            >>> provideUtility(testTileType, name=u'test.tile1')
+            >>> provideUtility(testTileTypeNoBody, name=u'test.tile_nobody')
+        
+        Rendering the page
+        ~~~~~~~~~~~~~~~~~~
+        
+        We can now render the page. Provided ``plone.app.blocks`` is installed and
+        working, it should perform its magic. We make sure that Zope is in
+        "development mode" to get pretty-printed output.
+        
+            >>> browser.open(portal.absolute_url() + '/@@test-page')
+            >>> print browser.contents
+            <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+            <html xmlns="http://www.w3.org/1999/xhtml">
+              <head>
+                <meta http-equiv="Content-Type" content="text/html; charset=ASCII" />
+                <title>Layout title</title>
+                <link rel="stylesheet" href="/layout/style.css" />
+                <script type="text/javascript">alert('layout');</script>
+                <style type="text/css">
+                    div {
+                        margin: 5px;
+                        border: dotted black 1px;
+                        padding: 5px;
+                    }
+                    </style>
+                <link rel="stylesheet" data-tile="./@@test.tile_nobody/tile_css">
+                  <link rel="stylesheet" type="text/css" href="tiled.css" />
+                </link>
+                <meta name="tile-name" content="tile2" />
+                <meta name="tile-name" content="tile3" />
+                <meta name="tile-name" content="tile2" />
+              </head>
+              <body>
+                    <h1>Welcome!</h1>
+                    <div data-panel="panel1">
+                        Page panel 1
+                        <div id="page-tile2" data-tile="./@@test.tile1/tile2?magicNumber:int=2">
+                    <p>
+                        This is a demo tile with id tile2
+                    </p>
+                    <p>
+                        Magic number: 2; Form: [('magicNumber', 2)]; Query string: magicNumber:int=2
+                    </p>
+                </div>
+                    </div>
+                    <div data-panel="panel2">
+                        Page panel 2
+                        <div id="page-tile3" data-tile="./@@test.tile1/tile3">
+                    <p>
+                        This is a demo tile with id tile3
+                    </p>
+                    <p>
+                        Magic number: -1; Form: []; Query string: 
+                    </p>
+                </div>
+                    </div>
+                    <div data-panel="panel3">
+                        Layout panel 3
+                        <div id="layout-tile2" data-tile="./@@test.tile1/tile2">
+                    <p>
+                        This is a demo tile with id tile2
+                    </p>
+                    <p>
+                        Magic number: -1; Form: []; Query string: 
+                    </p>
+                </div>
+                    </div>
+                </body>
+            </html>
+            <BLANKLINE>
+        
+        Notice how:
+        
+        * Panels from the page have been merged into the layout, replacing the
+          corresponding panels there.
+        * The ``<head />`` sections of the two documents have been merged
+        * The rest of the layout page is intact
+        * The rest of the content page is discarded
+        * The tiles have been rendered, replacing the relevant placeholders
+        * The ``<head />`` section from the rendered tiles has been merged into the
+          ``<head />`` of the output page.
+        
+        ESI rendering
+        =============
+        
+        Blocks supports rendering of tiles for Edge Side Includes (ESI). A tile
+        will be rendered to ESI provided that:
+        
+        * The tile itself is marked with the ``IESIRendered`` marker interface. See
+          `plone.tiles`_ for more details.
+        * The ``plone.app.blocks.interfaces.IBlocksSettings.esi`` record in the
+          registry is set to True. It is False by default. To switch this through-the-
+          web, you can visit the configuration registry control panel in Plone.
+        
+        Note that if a tile is rendered using ESI, it's <head /> contents are ignored,
+        instead of being merged into the final page. That is, only the ``@@esi-body``
+        view form `plone.tiles`_ is used by default.
+        
+        An ESI link looks like this::
+        
+            <esi:include src="http://example.com/plone/@@some.tile/tile-1/@@esi-body?param1=value1" />
+        
+        A fronting server such as Varnish will be able to load this on demand and
+        compose the page from fragments that may be cached individually.
+        
+        Test setup
+        ----------
+        
+        Let's first register a two very simple tiles. One uses ESI, one does not.
+        
+            >>> from plone.tiles.esi import ESITile
+            >>> from plone.tiles import Tile
+            >>> from plone.tiles.type import TileType
+        
+            >>> class NonESITile(Tile):
+            ...     __name__ = 'test.tile2' # normally set by ZCML handler
+            ...
+            ...     def __call__(self):
+            ...         return """\
+            ... <html>
+            ...     <head>
+            ...         <meta name="tile-name" content="%(name)s" />
+            ...     </head>
+            ...     <body>
+            ...         <p>
+            ...             Non-ESI tile with query string %(queryString)s
+            ...         </p>
+            ...     </body>
+            ... </html>""" % dict(name=self.id, queryString=self.request['QUERY_STRING'])
+        
+            >>> testTile2Type = TileType(
+            ...     name=u'test.tile2',
+            ...     title=u"Test tile 2",
+            ...     description=u"A tile used for testing",
+            ...     add_permission="cmf.ManagePortal")
+        
+            >>> class SimpleESITile(ESITile):
+            ...     __name__ = 'test.tile3' # normally set by ZCML handler
+            ...
+            ...     def render(self):
+            ...         return """\
+            ... <html>
+            ...     <head>
+            ...         <meta name="tile-name" content="%(name)s" />
+            ...     </head>
+            ...     <body>
+            ...         <p>
+            ...             ESI tile with query string %(queryString)s
+            ...         </p>
+            ...     </body>
+            ... </html>""" % dict(name=self.id, queryString=self.request['QUERY_STRING'])
+        
+            >>> testTile3Type = TileType(
+            ...     name=u'test.tile3',
+            ...     title=u"Test tile 3",
+            ...     description=u"A tile used for testing",
+            ...     add_permission="cmf.ManagePortal")
+        
+        Register these in the same way that the ZCML handlers would, more or less.
+        
+            >>> from Products.Five.security import protectClass
+            >>> protectClass(NonESITile, 'zope2.View')
+            >>> protectClass(SimpleESITile, 'zope2.View')
+        
+            >>> from App.class_init import InitializeClass
+            >>> InitializeClass(NonESITile)
+            >>> InitializeClass(SimpleESITile)
+        
+            >>> from zope.component import provideAdapter, provideUtility
+            >>> from zope.interface import Interface
+            >>> provideAdapter(NonESITile, (Interface, Interface,), Interface, u'test.tile2',)
+            >>> provideUtility(testTile2Type, name=u'test.tile2')
+            >>> provideAdapter(SimpleESITile, (Interface, Interface,), Interface, u'test.tile3',)
+            >>> provideUtility(testTile3Type, name=u'test.tile3')
+        
+        We will also register a simple layout and a simple page using these tiles.
+        
+            >>> layoutHTML = u"""\
+            ... <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+            ... <html>
+            ...     <head>
+            ...         <title>Layout title</title>
+            ...     </head>
+            ...     <body>
+            ...         <h1>Welcome!</h1>
+            ...         <div data-panel="panel1">Content goes here</div>
+            ...         <div id="layout-non-esi-tile" data-tile="./@@test.tile2/tile1">Layout tile 1 placeholder</div>
+            ...         <div id="layout-esi-tile" data-tile="./@@test.tile3/tile2">Layout tile 2 placeholder</div>
+            ...     </body>
+            ... </html>
+            ... """
+        
+        To keep things simple, we'll skip the resource directory and layout
+        indirection view, instead just referencing a view containing the layout
+        directly.
+        
+            >>> from zope.publisher.browser import BrowserView
+            >>> class Layout(BrowserView):
+            ...     __name__ = 'test-layout'
+            ...     def __call__(self):
+            ...         return layoutHTML
+            
+            >>> protectClass(Layout, 'zope2.View')
+            >>> InitializeClass(Layout)
+            >>> provideAdapter(Layout, (Interface, Interface,), Interface, u'test-layout',)
+        
+            >>> pageHTML = u"""\
+            ... <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+            ... <html data-layout="./@@test-layout">
+            ...     <body>
+            ...         <div data-panel="panel1">
+            ...             <div id="page-non-esi-tile" data-tile="./@@test.tile2/tile3?foo=bar">Page tile 3 placeholder</div>
+            ...             <div id="page-esi-tile" data-tile="./@@test.tile3/tile4?foo=bar">Page tile 4 placeholder</div>
+            ...         </div>
+            ...     </body>
+            ... </html>
+            ... """
+        
+            >>> class Page(BrowserView):
+            ...     __name__ = 'test-page'
+            ...     def __call__(self):
+            ...         return pageHTML
+            
+            >>> protectClass(Page, 'zope2.View')
+            >>> InitializeClass(Page)
+            >>> provideAdapter(Page, (Interface, Interface,), Interface, u'test-page',)
+        
+        ESI disabled
+        ------------
+        
+        We first render the page without enabling ESI. The ESI-capable tiles should
+        be rendered as normal.
+        
+            >>> from plone.testing.z2 import Browser
+            >>> app = layer['app']
+            >>> browser = Browser(app)
+            >>> browser.handleErrors = False
+        
+            >>> portal = layer['portal']
+            >>> browser.open(portal.absolute_url() + '/@@test-page')
+            >>> print browser.contents
+            <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+            <html xmlns="http://www.w3.org/1999/xhtml">
+              <head>
+                <meta http-equiv="Content-Type" content="text/html; charset=ASCII" />
+                <title>Layout title</title>
+                <meta name="tile-name" content="tile3" />
+                <meta name="tile-name" content="tile4" />
+                <meta name="tile-name" content="tile1" />
+                <meta name="tile-name" content="tile2" />
+              </head>
+              <body>
+                    <h1>Welcome!</h1>
+                    <div data-panel="panel1">
+                        <div id="page-non-esi-tile" data-tile="./@@test.tile2/tile3?foo=bar">
+                    <p>
+                        Non-ESI tile with query string foo=bar
+                    </p>
+                </div>
+                        <div id="page-esi-tile" data-tile="./@@test.tile3/tile4?foo=bar">
+                    <p>
+                        ESI tile with query string foo=bar
+                    </p>
+                </div>
+                    </div>
+                    <div id="layout-non-esi-tile" data-tile="./@@test.tile2/tile1">
+                    <p>
+                        Non-ESI tile with query string 
+                    </p>
+                </div>
+                    <div id="layout-esi-tile" data-tile="./@@test.tile3/tile2">
+                    <p>
+                        ESI tile with query string 
+                    </p>
+                </div>
+                </body>
+            </html>
+            <BLANKLINE>
+        
+        ESI enabled
+        -----------
+        
+        We can now enable ESI. This could be done using GenericSetup (with the
+        ``registry.xml`` import step), or through the configuration registry
+        control panel. In code, it is done like so:
+        
+            >>> from zope.component import getUtility
+            >>> from plone.registry.interfaces import IRegistry
+            >>> from plone.app.blocks.interfaces import IBlocksSettings
+            >>> registry = getUtility(IRegistry)
+            >>> registry.forInterface(IBlocksSettings).esi = True
+            >>> import transaction; transaction.commit()
+        
+        We can now perform the same rendering again. This time, the ESI-capable
+        tiles should be rendered as ESI links. See `plone.tiles`_ for more details.
+        
+            >>> browser.open(portal.absolute_url() + '/@@test-page')
+            >>> print browser.contents
+            <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+            <html xmlns:esi="http://www.edge-delivery.org/esi/1.0" xmlns="http://www.w3.org/1999/xhtml">
+              <head>
+                <meta http-equiv="Content-Type" content="text/html; charset=ASCII" />
+                <title>Layout title</title>
+                <meta name="tile-name" content="tile3" />
+                <meta name="tile-name" content="tile1" />
+              </head>
+              <body>
+                    <h1>Welcome!</h1>
+                    <div data-panel="panel1">
+                        <div id="page-non-esi-tile" data-tile="./@@test.tile2/tile3?foo=bar">
+                    <p>
+                        Non-ESI tile with query string foo=bar
+                    </p>
+                </div>
+                        <div id="page-esi-tile" data-tile="./@@test.tile3/tile4?foo=bar">
+                    <esi:include src="http://nohost/plone/@@test.tile3/tile4/@@esi-body?foo=bar" />
+                </div>
+                    </div>
+                    <div id="layout-non-esi-tile" data-tile="./@@test.tile2/tile1">
+                    <p>
+                        Non-ESI tile with query string 
+                    </p>
+                </div>
+                    <div id="layout-esi-tile" data-tile="./@@test.tile3/tile2">
+                    <esi:include src="http://nohost/plone/@@test.tile3/tile2/@@esi-body?" />
+                </div>
+                </body>
+            </html>
+            <BLANKLINE>
+        
+        When ESI rendering takes place, the following URLs will be called:
+        
+            >>> browser.open("http://nohost/plone/@@test.tile3/tile4/@@esi-body?foo=bar")
+            >>> print browser.contents
+            <p>
+                ESI tile with query string foo=bar
+            </p>
+        
+            >>> browser.open("http://nohost/plone/@@test.tile3/tile2/@@esi-body?")
+            >>> print browser.contents
+             <p>
+                ESI tile with query string 
+            </p>
+            
+        .. _plone.tiles: http://pypi.python.org/pypi/plone.tiles
+        
+        Changelog
+        =========
+        
+        1.1 (unreleased)
+        ----------------
+        
+        - make sure to use correct url of tile
+          [vangheem]
+        
+        - handle not found errors while rendering tiles so layout
+          isn't borked
+          [vangheem]
+        
+        1.0 (2012-06-23)
+        ----------------
+        
+        - initial release.
+          [garbas]
+        
+Keywords: plone blocks deco
+Platform: UNKNOWN
+Classifier: Framework :: Plone
+Classifier: Programming Language :: Python
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
