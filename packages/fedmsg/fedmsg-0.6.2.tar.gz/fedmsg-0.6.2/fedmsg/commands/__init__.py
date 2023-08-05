@@ -1,0 +1,100 @@
+# This file is part of fedmsg.
+# Copyright (C) 2012 Red Hat, Inc.
+#
+# fedmsg is free software; you can redistribute it and/or
+# modify it under the terms of the GNU Lesser General Public
+# License as published by the Free Software Foundation; either
+# version 2.1 of the License, or (at your option) any later version.
+#
+# fedmsg is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public
+# License along with fedmsg; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+#
+# Authors:  Ralph Bean <rbean@redhat.com>
+#
+import fedmsg
+import fedmsg.config
+import warnings
+import logging.config
+import sys
+
+
+class BaseCommand(object):
+    daemonizable = False
+    extra_args = None
+
+    def __init__(self):
+        if not self.extra_args:
+            self.extra_args = []
+
+        if self.daemonizable:
+            self.extra_args.append(
+                (['--daemon'], {
+                    'dest': 'daemon',
+                    'help': 'Run in the background as a daemon.',
+                    'action': 'store_true',
+                    'default': False,
+                })
+            )
+
+        self.config = self.get_config()
+        logging.config.dictConfig(self.config.get('logging', {}))
+        self.log = logging.getLogger("fedmsg")
+
+    def get_config(self):
+        return fedmsg.config.load_config(
+            self.extra_args,
+            self.usage,
+            fedmsg_command=True,
+        )
+
+    def _handle_signal(self, signum, stackframe):
+        from moksha.hub.reactor import reactor
+        from moksha.hub import hub
+        from twisted.internet.error import ReactorNotRunning
+
+        if hub._hub:
+            hub._hub.stop()
+
+        try:
+            reactor.stop()
+        except ReactorNotRunning, e:
+            warnings.warn(str(e))
+
+    def _daemonize(self):
+        from daemon import DaemonContext
+        try:
+            from daemon.pidfile import TimeoutPIDLockFile as PIDLockFile
+        except:
+            from daemon.pidlockfile import PIDLockFile
+
+        pidlock = PIDLockFile('/var/run/fedmsg/%s.pid' % self.name)
+        output = file('/var/log/fedmsg/%s.log' % self.name, 'a')
+        daemon = DaemonContext(pidfile=pidlock, stdout=output, stderr=output)
+        daemon.terminate = self._handle_signal
+
+        with daemon:
+            return self.run()
+
+    @property
+    def usage(self):
+        parser = fedmsg.config.build_parser(
+            self.extra_args,
+            self.__doc__,
+            prog=self.name,
+        )
+        return parser.format_help()
+
+    def execute(self):
+        if self.daemonizable and self.config['daemon'] is True:
+            return self._daemonize()
+        else:
+            try:
+                return self.run()
+            except KeyboardInterrupt:
+                print
