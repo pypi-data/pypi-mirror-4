@@ -1,0 +1,1 @@
+from quicklog import QuickLog 
