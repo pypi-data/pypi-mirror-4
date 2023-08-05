@@ -1,0 +1,1 @@
+imap = 'ssl:host=smtp.gmail.com:port=993'
