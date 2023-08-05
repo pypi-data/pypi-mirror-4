@@ -1,0 +1,622 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Sample Implementation: sync-notes &mdash; pysyncml 0.1 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/haiku.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/print.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="../../_static/theme_extras.js"></script>
+    <link rel="top" title="pysyncml 0.1 documentation" href="../../index.html" />
+    <link rel="next" title="Implementing a SyncML Client" href="../client.html" />
+    <link rel="prev" title="Implementing a SyncML Command-Line Interface" href="engine.html" /> 
+  </head>
+  <body>
+      <div class="header"><h1 class="heading"><a href="../../index.html">
+          <span>pysyncml 0.1 documentation</span></a></h1>
+        <h2 class="heading"><span>Sample Implementation: sync-notes</span></h2>
+      </div>
+      <div class="topnav">
+      
+        <p>
+        «&#160;&#160;<a href="engine.html">Implementing a SyncML Command-Line Interface</a>
+        &#160;&#160;::&#160;&#160;
+        <a class="uplink" href="../../index.html">Contents</a>
+        &#160;&#160;::&#160;&#160;
+        <a href="../client.html">Implementing a SyncML Client</a>&#160;&#160;»
+        </p>
+
+      </div>
+      <div class="content">
+        
+        
+  <div class="section" id="sample-implementation-sync-notes">
+<h1>Sample Implementation: sync-notes<a class="headerlink" href="#sample-implementation-sync-notes" title="Permalink to this headline">¶</a></h1>
+<p>Below is a sample implementation of a pysyncml peer which synchronizes
+notes. Notes are the most basic data type as they are a simple
+octet-stream, but it is a valuable sample as it demonstrates tho
+following aspects of a pysyncml client:</p>
+<ul class="simple">
+<li>Use the <tt class="xref py py-class docutils literal"><span class="pre">pysyncml.cli.DirectorySyncEngine</span></tt> command-line
+interface helper class.</li>
+<li>Maintain local state and detecting changes.</li>
+<li>Support Funambol servers (which do not support hierarchical sync).</li>
+<li>Enable both client-side and server-side SyncML roles by subclassing
+<cite>DirectorySyncEngine</cite>.</li>
+</ul>
+<div class="section" id="approach">
+<h2>Approach<a class="headerlink" href="#approach" title="Permalink to this headline">¶</a></h2>
+<p>The <cite>sync-notes</cite> program maintains the synchronization of a set of
+files in a given directory with a remote &#8220;Note&#8221; storage SyncML server.
+When launched, it scans the directory for any changes, such as new
+files, deleted files, or modified files and reports those changes to
+the local <a class="reference internal" href="../context.html#pysyncml.context.Context.Adapter" title="pysyncml.context.Context.Adapter"><tt class="xref py py-meth docutils literal"><span class="pre">pysyncml.Context.Adapter</span></tt></a>. Then, it engages in one of the
+following activities:</p>
+<ul class="simple">
+<li>Describe local configurations or pending changes.</li>
+<li>Synchronize with a (potentially previously configured) remote SyncML
+peer.</li>
+<li>Launch a (potentially previously configured) server that will
+listen on an HTTP port and accept and engage in synchronization
+sessions.</li>
+</ul>
+<p>Most of the structure of this functionality is implemented by the
+<tt class="xref py py-class docutils literal"><span class="pre">pysyncml.cli.DirectorySyncEngine</span></tt> command-line interface
+helper class. Thus the <tt class="docutils literal"><span class="pre">sync-notes</span></tt> program only needs to provide
+the following functionality:</p>
+<ul class="simple">
+<li>A subclass of the <tt class="xref py py-class docutils literal"><span class="pre">pysyncml.cli.DirectorySyncEngine</span></tt> which
+defines some local device information and the model for how the
+state of a NoteItem, a subclass of <a class="reference internal" href="../items/index.html#pysyncml.items.base.Item" title="pysyncml.items.base.Item"><tt class="xref py py-class docutils literal"><span class="pre">pysyncml.Item</span></tt></a>, is stored.</li>
+<li>Scanning the local directory for changes (additions, modifications
+and deletions).</li>
+<li>A subclass of <a class="reference internal" href="../agents/index.html#pysyncml.agents.base.Agent" title="pysyncml.agents.base.Agent"><tt class="xref py py-class docutils literal"><span class="pre">pysyncml.Agent</span></tt></a>,
+which provides the glue between the pysyncml Adapter and the
+peer-specific item datastore that is being synchronized.</li>
+</ul>
+</div>
+<div class="section" id="code">
+<h2>Code<a class="headerlink" href="#code" title="Permalink to this headline">¶</a></h2>
+<div class="code python highlight-python"><div class="highlight"><pre><span class="c">#!/usr/bin/env python</span>
+<span class="c"># -*- coding: utf-8 -*-</span>
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="c"># file: $Id: notes.py 59 2012-09-16 18:20:43Z griff1n $</span>
+<span class="c"># lib:  pysyncml.cli.notes</span>
+<span class="c"># auth: griffin &lt;griffin@uberdev.org&gt;</span>
+<span class="c"># date: 2012/05/19</span>
+<span class="c"># copy: (C) CopyLoose 2012 UberDev &lt;hardcore@uberdev.org&gt;, No Rights Reserved.</span>
+<span class="c">#------------------------------------------------------------------------------</span>
+
+<span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">A &quot;note&quot; synchronization engine that stores notes in a</span>
+<span class="sd">directory. Each note is stored in a separate file - although the</span>
+<span class="sd">filename is tracked, it may be lost depending on the SyncML server</span>
+<span class="sd">that is being contacted (if it correctly supports content-type</span>
+<span class="sd">&quot;text/x-s4j-sifn&quot;, then the filename will be preserved).</span>
+
+<span class="sd">This program is capable of running as either a client or as a server -</span>
+<span class="sd">for now however, for any given note directory it is recommended to</span>
+<span class="sd">only be used as one or the other, not both. When run in server mode,</span>
+<span class="sd">it currently only supports a single optional authenticated username.</span>
+
+<span class="sd">When running in server mode, it currently expects to be run BY a</span>
+<span class="sd">single user, FOR a single user. In other words, it is not a server</span>
+<span class="sd">intended to be used by multiple users. The expected scenario is that a</span>
+<span class="sd">user has multiple sync clients that they would like to centrally</span>
+<span class="sd">synchronize. Anytime the user wants to sync any of the clients, they</span>
+<span class="sd">would fire up a server, synchronize, and bring it down again.</span>
+
+<span class="sd">Example first-time usage (see &quot;--help&quot; for details) as a client::</span>
+
+<span class="sd">  sync-notes --remote https://example.com/funambol/ds \</span>
+<span class="sd">             --username USERNAME --password PASSWORD \</span>
+<span class="sd">             NOTE_DIRECTORY</span>
+
+<span class="sd">Follow-up synchronizations::</span>
+
+<span class="sd">  sync-notes NOTE_DIRECTORY</span>
+
+<span class="sd">Example first-time usage as a server (listen port defaults to 80)::</span>
+
+<span class="sd">  sync-notes --server --listen 8080 NOTE_DIRECTORY</span>
+
+<span class="sd">Follow-up synchronizations::</span>
+
+<span class="sd">  sync-notes NOTE_DIRECTORY</span>
+
+<span class="sd">For the full documentation of all options, use::</span>
+
+<span class="sd">  sync-notes --help</span>
+
+<span class="sd">&#39;&#39;&#39;</span>
+
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="c"># IMPORTS</span>
+<span class="c">#------------------------------------------------------------------------------</span>
+
+<span class="kn">import</span> <span class="nn">sys</span><span class="o">,</span> <span class="nn">os</span><span class="o">,</span> <span class="nn">re</span><span class="o">,</span> <span class="nn">logging</span><span class="o">,</span> <span class="nn">hashlib</span>
+<span class="kn">import</span> <span class="nn">sqlalchemy</span>
+<span class="kn">from</span> <span class="nn">sqlalchemy</span> <span class="kn">import</span> <span class="n">orm</span>
+<span class="kn">from</span> <span class="nn">sqlalchemy.orm.exc</span> <span class="kn">import</span> <span class="n">NoResultFound</span>
+<span class="kn">import</span> <span class="nn">pysyncml</span>
+<span class="kn">import</span> <span class="nn">pysyncml.cli</span>
+<span class="kn">from</span> <span class="nn">pysyncml</span> <span class="kn">import</span> <span class="n">adict</span>
+
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="c"># GLOBALS</span>
+<span class="c">#------------------------------------------------------------------------------</span>
+
+<span class="c"># setup a logger</span>
+<span class="n">log</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="n">__name__</span><span class="p">)</span>
+
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="c"># SYNC ENGINE</span>
+<span class="c">#------------------------------------------------------------------------------</span>
+
+<span class="c"># create a command-line interface synchronization engine. the key aspects here</span>
+<span class="c"># are to subclass :class:`pysyncml.cli.DirectorySyncEngine`, and invoke the</span>
+<span class="c"># constructor with parameters that define:</span>
+<span class="c">#   - the application name</span>
+<span class="c">#   - the local device information</span>
+<span class="c">#   - the Agent that will act as glue between pysyncml and the local data</span>
+
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="k">class</span> <span class="nc">NotesEngine</span><span class="p">(</span><span class="n">pysyncml</span><span class="o">.</span><span class="n">cli</span><span class="o">.</span><span class="n">DirectorySyncEngine</span><span class="p">):</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="nb">super</span><span class="p">(</span><span class="n">NotesEngine</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span>
+      <span class="n">appLabel</span>          <span class="o">=</span> <span class="s">&#39;notes&#39;</span><span class="p">,</span>
+      <span class="n">appDisplay</span>        <span class="o">=</span> <span class="s">&#39;Note Synchronizer&#39;</span><span class="p">,</span>
+      <span class="n">devinfoParams</span>     <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+        <span class="n">softwareVersion</span>   <span class="o">=</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">versionString</span><span class="p">,</span>
+        <span class="n">manufacturerName</span>  <span class="o">=</span> <span class="s">&#39;pysyncml&#39;</span><span class="p">,</span>
+        <span class="n">modelName</span>         <span class="o">=</span> <span class="s">&#39;pysyncml.cli.notes&#39;</span><span class="p">,</span>
+        <span class="p">),</span>
+      <span class="n">agent</span>             <span class="o">=</span> <span class="n">NotesAgent</span><span class="p">(</span><span class="bp">self</span><span class="p">),</span>
+      <span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="nd">@pysyncml.cli.hook</span><span class="p">(</span><span class="s">&#39;describe&#39;</span><span class="p">)</span>
+  <span class="k">def</span> <span class="nf">describe_notes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">stream</span><span class="p">):</span>
+    <span class="c"># when the program is called with &quot;--describe&quot;, it is supposed to report</span>
+    <span class="c"># current configuration and state. any program-specific output can be</span>
+    <span class="c"># added to the default output by hooking into the &quot;describe&quot; event.</span>
+    <span class="n">stream</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&#39;Sync filename-only changes: </span><span class="si">%s</span><span class="se">\n</span><span class="s">&#39;</span>
+                 <span class="o">%</span> <span class="p">(</span><span class="s">&#39;yes&#39;</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">syncFilename</span> <span class="k">else</span> <span class="s">&#39;no&#39;</span><span class="p">,))</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="nd">@pysyncml.cli.hook</span><span class="p">(</span><span class="s">&#39;options.setup.term&#39;</span><span class="p">)</span>
+  <span class="k">def</span> <span class="nf">_syncFilenameOption</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="c"># the command-line parsing can be tweaked by hooking into the</span>
+    <span class="c"># &quot;options.setup.*&quot; events and modifying the engine ``self.parser``</span>
+    <span class="c"># attribute. for example, here an extra parameter &quot;--no-filename-sync&quot;</span>
+    <span class="c"># is being added to the end of the standard parameters.</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+      <span class="s">&#39;-F&#39;</span><span class="p">,</span> <span class="s">&#39;--no-filename-sync&#39;</span><span class="p">,</span>
+      <span class="n">dest</span><span class="o">=</span><span class="s">&#39;syncFilename&#39;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;store_false&#39;</span><span class="p">,</span>
+      <span class="n">help</span><span class="o">=</span><span class="s">&#39;by default, a change in a note</span><span class="se">\&#39;</span><span class="s">s filename will cause the item&#39;</span>
+      <span class="s">&#39; to be synchronized, even if there was no change to the content. This&#39;</span>
+      <span class="s">&#39; option overrides this behavior to only synchronize filename changes&#39;</span>
+      <span class="s">&#39; if there are also content changes (this is primarily useful to reduce&#39;</span>
+      <span class="s">&#39; the overhead when synchronizing with a peer that does not properly&#39;</span>
+      <span class="s">&#39; support filename synchronization, such as funambol).&#39;</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">description</span> <span class="o">=</span> \
+      <span class="s">&#39;Synchronizes notes stored as files in a directory&#39;</span> \
+      <span class="s">&#39; using the SyncML protocol - see&#39;</span> \
+      <span class="s">&#39; http://packages.python.org/pysyncml/pysyncml/cli/index.html&#39;</span> \
+      <span class="s">&#39; for details.&#39;</span>
+
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="nd">@pysyncml.cli.hook</span><span class="p">(</span><span class="s">&#39;options.persist.save&#39;</span><span class="p">)</span>
+  <span class="k">def</span> <span class="nf">_options_persist_save_filename</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">options</span><span class="p">):</span>
+    <span class="c"># by default, the options parsed from the command line (and stored into</span>
+    <span class="c"># ``self.options``) are not persisted, so if the user calls the program</span>
+    <span class="c"># without the option, then the option will not be automatically set to</span>
+    <span class="c"># the previous value. by hooking into the &quot;options.persist.save&quot; event,</span>
+    <span class="c"># the program can alter this behavior and persist any values.</span>
+
+    <span class="c"># todo: it would be great if in &#39;options.setup.term&#39; i could somehow tell</span>
+    <span class="c">#       the SyncEngine that syncFilename should be persisted...</span>
+    <span class="n">options</span><span class="p">[</span><span class="s">&#39;syncFilename&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">syncFilename</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="nd">@pysyncml.cli.hook</span><span class="p">(</span><span class="s">&#39;model.setup.extend&#39;</span><span class="p">)</span>
+  <span class="k">def</span> <span class="nf">_createNoteItemModel</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="c"># extending the standard sync engine model to keep track of meta</span>
+    <span class="c"># information about note files, so that changes to the files can</span>
+    <span class="c"># be detected from run to run. if a SyncEngine program does not</span>
+    <span class="c"># need to save state, or if it is already handled externally, then</span>
+    <span class="c"># this is not necessary.</span>
+    <span class="n">engine</span> <span class="o">=</span> <span class="bp">self</span>
+    <span class="k">class</span> <span class="nc">NoteItem</span><span class="p">(</span><span class="n">engine</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">DatabaseObject</span><span class="p">,</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">NoteItem</span><span class="p">):</span>
+      <span class="n">inode</span>   <span class="o">=</span> <span class="n">sqlalchemy</span><span class="o">.</span><span class="n">Column</span><span class="p">(</span><span class="n">sqlalchemy</span><span class="o">.</span><span class="n">Integer</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+      <span class="n">name</span>    <span class="o">=</span> <span class="n">sqlalchemy</span><span class="o">.</span><span class="n">Column</span><span class="p">(</span><span class="n">sqlalchemy</span><span class="o">.</span><span class="n">String</span><span class="p">)</span>
+      <span class="n">sha256</span>  <span class="o">=</span> <span class="n">sqlalchemy</span><span class="o">.</span><span class="n">Column</span><span class="p">(</span><span class="n">sqlalchemy</span><span class="o">.</span><span class="n">String</span><span class="p">(</span><span class="mi">64</span><span class="p">))</span>
+      <span class="n">lastmod</span> <span class="o">=</span> <span class="n">sqlalchemy</span><span class="o">.</span><span class="n">Column</span><span class="p">(</span><span class="n">sqlalchemy</span><span class="o">.</span><span class="n">Integer</span><span class="p">)</span>
+      <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+        <span class="n">engine</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">DatabaseObject</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+        <span class="c"># TODO: check this (and __dbinit__ too)...</span>
+        <span class="c"># NOTE: not calling NoteItem.__init__ as it can conflict with the</span>
+        <span class="c">#       sqlalchemy stuff done here...</span>
+        <span class="c"># todo: is this really necessary?...</span>
+        <span class="n">skw</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
+        <span class="n">skw</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">kw</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">__table__</span><span class="o">.</span><span class="n">c</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+          <span class="k">if</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">skw</span><span class="p">:</span>
+            <span class="k">del</span> <span class="n">skw</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
+        <span class="n">pysyncml</span><span class="o">.</span><span class="n">Ext</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">skw</span><span class="p">)</span>
+      <span class="nd">@orm.reconstructor</span>
+      <span class="k">def</span> <span class="nf">__dbinit__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># note: not calling ``NoteItem.__init__`` - see ``__init__`` notes.</span>
+        <span class="n">pysyncml</span><span class="o">.</span><span class="n">Ext</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+      <span class="k">def</span> <span class="nf">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s">&#39;Note &quot;</span><span class="si">%s</span><span class="s">&quot;&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">,)</span>
+      <span class="k">def</span> <span class="nf">dump</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">stream</span><span class="p">,</span> <span class="n">contentType</span><span class="p">,</span> <span class="n">version</span><span class="p">):</span>
+        <span class="c"># todo: convert this to a .body @property?...</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">engine</span><span class="o">.</span><span class="n">rootDir</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">),</span> <span class="s">&#39;rb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fp</span><span class="p">:</span>
+          <span class="bp">self</span><span class="o">.</span><span class="n">body</span> <span class="o">=</span> <span class="n">fp</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+        <span class="n">pysyncml</span><span class="o">.</span><span class="n">NoteItem</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">stream</span><span class="p">,</span> <span class="n">contentType</span><span class="p">,</span> <span class="n">version</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">body</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">return</span> <span class="bp">self</span>
+      <span class="nd">@classmethod</span>
+      <span class="k">def</span> <span class="nf">load</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="n">stream</span><span class="p">,</span> <span class="n">contentType</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="n">base</span> <span class="o">=</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">NoteItem</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">stream</span><span class="p">,</span> <span class="n">contentType</span><span class="p">,</span> <span class="n">version</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">contentType</span> <span class="o">==</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">TYPE_TEXT_PLAIN</span><span class="p">:</span>
+          <span class="c"># remove special characters, windows illegal set: \/:*?&quot;&lt;&gt;|</span>
+          <span class="n">base</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="s">r&#39;[^a-zA-Z0-9,_+=!@#$%^&amp;() -]+&#39;</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">,</span> <span class="n">base</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+          <span class="c"># collapse white space and replace with &#39;_&#39;</span>
+          <span class="n">base</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="s">r&#39;\s+&#39;</span><span class="p">,</span> <span class="s">&#39;_&#39;</span><span class="p">,</span> <span class="n">base</span><span class="o">.</span><span class="n">name</span><span class="p">)</span> <span class="o">+</span> <span class="s">&#39;.txt&#39;</span>
+        <span class="n">ret</span> <span class="o">=</span> <span class="n">NoteItem</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">base</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">sha256</span><span class="o">=</span><span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">(</span><span class="n">base</span><span class="o">.</span><span class="n">body</span><span class="p">)</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">())</span>
+        <span class="c"># temporarily storing the content in &quot;body&quot; attribute (until addItem()</span>
+        <span class="c"># is called)</span>
+        <span class="n">ret</span><span class="o">.</span><span class="n">body</span> <span class="o">=</span> <span class="n">base</span><span class="o">.</span><span class="n">body</span>
+        <span class="k">return</span> <span class="n">ret</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">NoteItem</span> <span class="o">=</span> <span class="n">NoteItem</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="nd">@pysyncml.cli.hook</span><span class="p">(</span><span class="s">&#39;adapter.create.store&#39;</span><span class="p">)</span>
+  <span class="k">def</span> <span class="nf">_scanNotes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">adapter</span><span class="p">,</span> <span class="n">store</span><span class="p">):</span>
+    <span class="c"># adding a hook to when the pysyncml store is created to detect and</span>
+    <span class="c"># register changes on the filesystem.</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">agent</span><span class="o">.</span><span class="n">scan</span><span class="p">(</span><span class="n">store</span><span class="p">)</span>
+
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="c"># SYNC AGENT</span>
+<span class="c">#------------------------------------------------------------------------------</span>
+
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="k">def</span> <span class="nf">hashstream</span><span class="p">(</span><span class="nb">hash</span><span class="p">,</span> <span class="n">stream</span><span class="p">):</span>
+  <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+    <span class="n">buf</span> <span class="o">=</span> <span class="n">stream</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="mi">8192</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">buf</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+      <span class="k">return</span> <span class="nb">hash</span>
+    <span class="nb">hash</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">buf</span><span class="p">)</span>
+
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="k">class</span> <span class="nc">NotesAgent</span><span class="p">(</span><span class="n">pysyncml</span><span class="o">.</span><span class="n">BaseNoteAgent</span><span class="p">):</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">engine</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+    <span class="nb">super</span><span class="p">(</span><span class="n">NotesAgent</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">engine</span>     <span class="o">=</span> <span class="n">engine</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">ignoreRoot</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">ignoreAll</span>  <span class="o">=</span> <span class="bp">None</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">mfactory</span>   <span class="o">=</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">CompositeMergerFactory</span><span class="p">(</span>
+      <span class="n">mergers</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">body</span><span class="o">=</span><span class="n">pysyncml</span><span class="o">.</span><span class="n">TextMergerFactory</span><span class="p">()))</span>
+    <span class="c"># note: overriding contentTypes to remove multiple versions for funambol</span>
+    <span class="c">#       compatibility...</span>
+    <span class="c"># TODO: remove this! pysyncml should auto-detect the remote server&#39;s</span>
+    <span class="c">#       idiosyncracies and adjust!...</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">contentTypes</span> <span class="o">=</span> <span class="p">[</span>
+      <span class="n">pysyncml</span><span class="o">.</span><span class="n">ContentTypeInfo</span><span class="p">(</span><span class="n">pysyncml</span><span class="o">.</span><span class="n">TYPE_SIF_NOTE</span><span class="p">,</span> <span class="s">&#39;1.1&#39;</span><span class="p">,</span> <span class="n">preferred</span><span class="o">=</span><span class="bp">True</span><span class="p">),</span>
+      <span class="n">pysyncml</span><span class="o">.</span><span class="n">ContentTypeInfo</span><span class="p">(</span><span class="n">pysyncml</span><span class="o">.</span><span class="n">TYPE_SIF_NOTE</span><span class="p">,</span> <span class="s">&#39;1.0&#39;</span><span class="p">),</span>
+      <span class="c"># pysyncml.ContentTypeInfo(pysyncml.TYPE_TEXT_PLAIN, [&#39;1.1&#39;, &#39;1.0&#39;]),</span>
+      <span class="n">pysyncml</span><span class="o">.</span><span class="n">ContentTypeInfo</span><span class="p">(</span><span class="n">pysyncml</span><span class="o">.</span><span class="n">TYPE_TEXT_PLAIN</span><span class="p">,</span> <span class="s">&#39;1.0&#39;</span><span class="p">),</span>
+      <span class="p">]</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">scan</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">store</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Scans the local files for changes (either additions, modifications or</span>
+<span class="sd">    deletions) and reports them to the `store` object, which is expected to</span>
+<span class="sd">    implement the :class:`pysyncml.Store` interface.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="c"># steps:</span>
+    <span class="c">#   1) generate a table of all store files, with filename,</span>
+    <span class="c">#      inode, checksum</span>
+    <span class="c">#   2) generate a table of all current files, with filename,</span>
+    <span class="c">#      inode, checksum</span>
+    <span class="c">#   3) iterate over all stored values and find matches, delete</span>
+    <span class="c">#      them from the &quot;not-matched-yet&quot; table, and record the</span>
+    <span class="c">#      change</span>
+
+    <span class="c"># TODO: if this engine is running as the client, i think the best</span>
+    <span class="c">#       strategy is to delete all pending changes before starting</span>
+    <span class="c">#       the scan process. that way, any left-over gunk from a</span>
+    <span class="c">#       previous sync that did not terminate well is cleaned up...</span>
+
+    <span class="c"># TODO: this algorithm, although better than the last, has the</span>
+    <span class="c">#       inconvenient downside of being very memory-hungry: it</span>
+    <span class="c">#       assumes that the entire list of notes (with sha256</span>
+    <span class="c">#       checksums - not the entire body) fits in memory. although</span>
+    <span class="c">#       it is not a ridiculous assumption (these are &quot;notes&quot; after</span>
+    <span class="c">#       all...), it would be nice if it did not rely on that.</span>
+
+    <span class="c"># todo: by tracking inode&#39;s, this *could* also potentially reduce</span>
+    <span class="c">#       some &quot;del/add&quot; operations with a single &quot;mod&quot;</span>
+
+    <span class="c"># todo: should this make use of lastmod timestamps?... that may</span>
+    <span class="c">#       help to reduce the number of checksums calculated and the</span>
+    <span class="c">#       number of entries loaded into memory...</span>
+
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">ignoreRoot</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">ignoreRoot</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">&#39;^(</span><span class="si">%s</span><span class="s">)$&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">re</span><span class="o">.</span><span class="n">escape</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">engine</span><span class="o">.</span><span class="n">syncSubdir</span><span class="p">),))</span>
+
+    <span class="n">dbnotes</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">engine</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">NoteItem</span><span class="o">.</span><span class="n">q</span><span class="p">())</span>
+    <span class="n">dbnames</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">((</span><span class="n">e</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">dbnotes</span><span class="p">)</span>
+
+    <span class="n">fsnotes</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_scandir</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">))</span>
+    <span class="n">fsnames</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">((</span><span class="n">e</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">fsnotes</span><span class="p">)</span>
+
+    <span class="c"># first pass: eliminate all entries with matching filenames &amp; checksum</span>
+
+    <span class="k">for</span> <span class="n">fsent</span> <span class="ow">in</span> <span class="n">fsnames</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+      <span class="k">if</span> <span class="n">fsent</span><span class="o">.</span><span class="n">name</span> <span class="ow">in</span> <span class="n">dbnames</span> <span class="ow">and</span> <span class="n">dbnames</span><span class="p">[</span><span class="n">fsent</span><span class="o">.</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">sha256</span> <span class="o">==</span> <span class="n">fsent</span><span class="o">.</span><span class="n">sha256</span><span class="p">:</span>
+        <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;entry &quot;</span><span class="si">%s</span><span class="s">&quot; not modified&#39;</span><span class="p">,</span> <span class="n">fsent</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+        <span class="c"># todo: update db inode and lastmod if needed...</span>
+        <span class="k">del</span> <span class="n">dbnames</span><span class="p">[</span><span class="n">fsent</span><span class="o">.</span><span class="n">name</span><span class="p">]</span>
+        <span class="k">del</span> <span class="n">fsnames</span><span class="p">[</span><span class="n">fsent</span><span class="o">.</span><span class="n">name</span><span class="p">]</span>
+
+    <span class="c"># second pass: find entries that were moved to override another entry</span>
+
+    <span class="n">dbskip</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">dbent</span> <span class="ow">in</span> <span class="n">dbnames</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+      <span class="k">if</span> <span class="n">dbent</span><span class="o">.</span><span class="n">id</span> <span class="ow">in</span> <span class="n">dbskip</span> <span class="ow">or</span> <span class="n">dbent</span><span class="o">.</span><span class="n">name</span> <span class="ow">in</span> <span class="n">fsnames</span><span class="p">:</span>
+        <span class="k">continue</span>
+      <span class="k">for</span> <span class="n">fsent</span> <span class="ow">in</span> <span class="n">fsnames</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+        <span class="k">if</span> <span class="n">fsent</span><span class="o">.</span><span class="n">sha256</span> <span class="o">!=</span> <span class="n">dbent</span><span class="o">.</span><span class="n">sha256</span> <span class="ow">or</span> <span class="n">fsent</span><span class="o">.</span><span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">dbnames</span><span class="p">:</span>
+          <span class="k">continue</span>
+        <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;entry &quot;</span><span class="si">%s</span><span class="s">&quot; deleted and replaced by &quot;</span><span class="si">%s</span><span class="s">&quot;&#39;</span><span class="p">,</span> <span class="n">fsent</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">dbent</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+        <span class="n">dbother</span> <span class="o">=</span> <span class="n">dbnames</span><span class="p">[</span><span class="n">fsent</span><span class="o">.</span><span class="n">name</span><span class="p">]</span>
+        <span class="k">del</span> <span class="n">dbnames</span><span class="p">[</span><span class="n">dbent</span><span class="o">.</span><span class="n">name</span><span class="p">]</span>
+        <span class="k">del</span> <span class="n">dbnames</span><span class="p">[</span><span class="n">fsent</span><span class="o">.</span><span class="n">name</span><span class="p">]</span>
+        <span class="k">del</span> <span class="n">fsnames</span><span class="p">[</span><span class="n">fsent</span><span class="o">.</span><span class="n">name</span><span class="p">]</span>
+        <span class="n">dbskip</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">dbother</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+        <span class="n">store</span><span class="o">.</span><span class="n">registerChange</span><span class="p">(</span><span class="n">dbent</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">ITEM_DELETED</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">fsent</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+          <span class="nb">setattr</span><span class="p">(</span><span class="n">dbother</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">val</span><span class="p">)</span>
+        <span class="c"># the digest didn&#39;t change, so this is just a filename change...</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">engine</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">syncFilename</span><span class="p">:</span>
+          <span class="n">store</span><span class="o">.</span><span class="n">registerChange</span><span class="p">(</span><span class="n">dbother</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">ITEM_MODIFIED</span><span class="p">)</span>
+        <span class="k">break</span>
+
+    <span class="c"># third pass: find entries that were renamed</span>
+
+    <span class="n">dbskip</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">dbent</span> <span class="ow">in</span> <span class="n">dbnames</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+      <span class="k">if</span> <span class="n">dbent</span><span class="o">.</span><span class="n">id</span> <span class="ow">in</span> <span class="n">dbskip</span><span class="p">:</span>
+        <span class="k">continue</span>
+      <span class="k">for</span> <span class="n">fsent</span> <span class="ow">in</span> <span class="n">fsnames</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+        <span class="k">if</span> <span class="n">fsent</span><span class="o">.</span><span class="n">sha256</span> <span class="o">!=</span> <span class="n">dbent</span><span class="o">.</span><span class="n">sha256</span><span class="p">:</span>
+          <span class="k">continue</span>
+        <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;entry &quot;</span><span class="si">%s</span><span class="s">&quot; renamed to &quot;</span><span class="si">%s</span><span class="s">&quot;&#39;</span><span class="p">,</span> <span class="n">dbent</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">fsent</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+        <span class="k">del</span> <span class="n">dbnames</span><span class="p">[</span><span class="n">dbent</span><span class="o">.</span><span class="n">name</span><span class="p">]</span>
+        <span class="k">del</span> <span class="n">fsnames</span><span class="p">[</span><span class="n">fsent</span><span class="o">.</span><span class="n">name</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">fsent</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+          <span class="nb">setattr</span><span class="p">(</span><span class="n">dbent</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">val</span><span class="p">)</span>
+        <span class="c"># the digest didn&#39;t change, so this is just a filename change...</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">engine</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">syncFilename</span><span class="p">:</span>
+          <span class="n">store</span><span class="o">.</span><span class="n">registerChange</span><span class="p">(</span><span class="n">dbent</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">ITEM_MODIFIED</span><span class="p">)</span>
+        <span class="k">break</span>
+
+    <span class="c"># fourth pass: find new and modified entries</span>
+
+    <span class="k">for</span> <span class="n">fsent</span> <span class="ow">in</span> <span class="n">fsnames</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+      <span class="k">if</span> <span class="n">fsent</span><span class="o">.</span><span class="n">name</span> <span class="ow">in</span> <span class="n">dbnames</span><span class="p">:</span>
+        <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;entry &quot;</span><span class="si">%s</span><span class="s">&quot; modified&#39;</span><span class="p">,</span> <span class="n">fsent</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+        <span class="n">dbent</span> <span class="o">=</span> <span class="n">dbnames</span><span class="p">[</span><span class="n">fsent</span><span class="o">.</span><span class="n">name</span><span class="p">]</span>
+        <span class="k">del</span> <span class="n">dbnames</span><span class="p">[</span><span class="n">fsent</span><span class="o">.</span><span class="n">name</span><span class="p">]</span>
+        <span class="n">store</span><span class="o">.</span><span class="n">registerChange</span><span class="p">(</span><span class="n">dbent</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">ITEM_MODIFIED</span><span class="p">)</span>
+      <span class="k">else</span><span class="p">:</span>
+        <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;entry &quot;</span><span class="si">%s</span><span class="s">&quot; added&#39;</span><span class="p">,</span> <span class="n">fsent</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+        <span class="n">dbent</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">engine</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">NoteItem</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">engine</span><span class="o">.</span><span class="n">dbsession</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">dbent</span><span class="p">)</span>
+        <span class="n">store</span><span class="o">.</span><span class="n">registerChange</span><span class="p">(</span><span class="n">dbent</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">)</span>
+      <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">fsent</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="nb">setattr</span><span class="p">(</span><span class="n">dbent</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">val</span><span class="p">)</span>
+      <span class="k">del</span> <span class="n">fsnames</span><span class="p">[</span><span class="n">fsent</span><span class="o">.</span><span class="n">name</span><span class="p">]</span>
+
+    <span class="c"># fifth pass: find deleted entries</span>
+
+    <span class="k">for</span> <span class="n">dbent</span> <span class="ow">in</span> <span class="n">dbnames</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+      <span class="n">store</span><span class="o">.</span><span class="n">registerChange</span><span class="p">(</span><span class="n">dbent</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">ITEM_DELETED</span><span class="p">)</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">engine</span><span class="o">.</span><span class="n">dbsession</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">dbent</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">_scandir</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dirname</span><span class="p">):</span>
+    <span class="n">curdir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">normcase</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">normpath</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">engine</span><span class="o">.</span><span class="n">rootDir</span><span class="p">,</span> <span class="n">dirname</span><span class="p">)))</span>
+    <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;scanning directory &quot;</span><span class="si">%s</span><span class="s">&quot;...&#39;</span><span class="p">,</span> <span class="n">curdir</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">listdir</span><span class="p">(</span><span class="n">curdir</span><span class="p">):</span>
+      <span class="c"># apply the &quot;ignoreRoot&quot; and &quot;ignoreAll&quot; regex&#39;s - this is primarily to</span>
+      <span class="c"># ignore the pysyncml storage file in the root directory</span>
+      <span class="k">if</span> <span class="n">dirname</span> <span class="o">==</span> <span class="s">&#39;.&#39;</span><span class="p">:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">ignoreRoot</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">ignoreRoot</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">name</span><span class="p">):</span>
+          <span class="k">continue</span>
+      <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">ignoreAll</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">ignoreAll</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">name</span><span class="p">):</span>
+        <span class="k">continue</span>
+      <span class="n">path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">curdir</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+      <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">islink</span><span class="p">(</span><span class="n">path</span><span class="p">):</span>
+        <span class="c"># TODO: should i special-handle?... ie. use SyncML &quot;Ext&quot; nodes...</span>
+        <span class="k">continue</span>
+      <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isfile</span><span class="p">(</span><span class="n">path</span><span class="p">):</span>
+        <span class="k">yield</span> <span class="bp">self</span><span class="o">.</span><span class="n">_scanfile</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">dirname</span><span class="p">,</span> <span class="n">name</span><span class="p">))</span>
+      <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="n">path</span><span class="p">):</span>
+        <span class="c"># and recurse!...</span>
+        <span class="k">for</span> <span class="n">fsnote</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_scandir</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">dirname</span><span class="p">,</span> <span class="n">name</span><span class="p">)):</span>
+          <span class="k">yield</span> <span class="n">fsnote</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">_scanfile</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+    <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;analyzing file &quot;</span><span class="si">%s</span><span class="s">&quot;...&#39;</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span><span class="s">&#39;rb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fp</span><span class="p">:</span>
+      <span class="k">return</span> <span class="n">adict</span><span class="p">(</span>
+        <span class="n">inode</span>   <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">stat</span><span class="p">(</span><span class="n">path</span><span class="p">)</span><span class="o">.</span><span class="n">st_ino</span><span class="p">,</span>
+        <span class="n">name</span>    <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">normpath</span><span class="p">(</span><span class="n">name</span><span class="p">),</span>
+        <span class="n">sha256</span>  <span class="o">=</span> <span class="n">hashstream</span><span class="p">(</span><span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">(),</span> <span class="n">fp</span><span class="p">)</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">(),</span>
+        <span class="c"># todo: implement lastmod...</span>
+        <span class="n">lastmod</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+        <span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">getAllItems</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">note</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">engine</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">NoteItem</span><span class="o">.</span><span class="n">q</span><span class="p">():</span>
+      <span class="k">yield</span> <span class="n">note</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">dumpItem</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">item</span><span class="p">,</span> <span class="n">stream</span><span class="p">,</span> <span class="n">contentType</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="n">item</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">stream</span><span class="p">,</span> <span class="n">contentType</span><span class="p">,</span> <span class="n">version</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">loadItem</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">stream</span><span class="p">,</span> <span class="n">contentType</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">engine</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">NoteItem</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">stream</span><span class="p">,</span> <span class="n">contentType</span><span class="p">,</span> <span class="n">version</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">getItem</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">itemID</span><span class="p">):</span>
+    <span class="k">try</span><span class="p">:</span>
+      <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">engine</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">NoteItem</span><span class="o">.</span><span class="n">q</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="n">itemID</span><span class="p">)</span><span class="o">.</span><span class="n">one</span><span class="p">()</span>
+    <span class="k">except</span> <span class="n">NoResultFound</span><span class="p">:</span>
+      <span class="k">raise</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">InvalidItem</span><span class="p">(</span><span class="s">&#39;could not find note ID &quot;</span><span class="si">%s</span><span class="s">&quot;&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">itemID</span><span class="p">,))</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">addItem</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">item</span><span class="p">):</span>
+    <span class="n">path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">engine</span><span class="o">.</span><span class="n">rootDir</span><span class="p">,</span> <span class="n">item</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+    <span class="k">if</span> <span class="s">&#39;.&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">item</span><span class="o">.</span><span class="n">name</span><span class="p">:</span>
+      <span class="n">pbase</span> <span class="o">=</span> <span class="n">item</span><span class="o">.</span><span class="n">name</span>
+      <span class="n">psufx</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+    <span class="k">else</span><span class="p">:</span>
+      <span class="n">pbase</span> <span class="o">=</span> <span class="n">item</span><span class="o">.</span><span class="n">name</span><span class="p">[:</span><span class="n">item</span><span class="o">.</span><span class="n">name</span><span class="o">.</span><span class="n">rindex</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">)]</span>
+      <span class="n">psufx</span> <span class="o">=</span> <span class="n">item</span><span class="o">.</span><span class="n">name</span><span class="p">[</span><span class="n">item</span><span class="o">.</span><span class="n">name</span><span class="o">.</span><span class="n">rindex</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">):]</span>
+    <span class="n">count</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">while</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">path</span><span class="p">):</span>
+      <span class="n">count</span> <span class="o">+=</span> <span class="mi">1</span>
+      <span class="n">item</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s</span><span class="s">(</span><span class="si">%d</span><span class="s">)</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">pbase</span><span class="p">,</span> <span class="n">count</span><span class="p">,</span> <span class="n">psufx</span><span class="p">)</span>
+      <span class="n">path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">engine</span><span class="o">.</span><span class="n">rootDir</span><span class="p">,</span> <span class="n">item</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="s">&#39;wb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fp</span><span class="p">:</span>
+      <span class="n">fp</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">item</span><span class="o">.</span><span class="n">body</span><span class="p">)</span>
+    <span class="n">item</span><span class="o">.</span><span class="n">inode</span>  <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">stat</span><span class="p">(</span><span class="n">path</span><span class="p">)</span><span class="o">.</span><span class="n">st_ino</span>
+    <span class="nb">delattr</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="s">&#39;body&#39;</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">engine</span><span class="o">.</span><span class="n">dbsession</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">item</span><span class="p">)</span>
+    <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;added: </span><span class="si">%s</span><span class="s">&#39;</span><span class="p">,</span> <span class="n">item</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">item</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">replaceItem</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">item</span><span class="p">,</span> <span class="n">reportChanges</span><span class="p">):</span>
+    <span class="n">curitem</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">getItem</span><span class="p">(</span><span class="n">item</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+    <span class="n">opath</span>   <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">engine</span><span class="o">.</span><span class="n">rootDir</span><span class="p">,</span> <span class="n">curitem</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">reportChanges</span><span class="p">:</span>
+      <span class="n">orig</span> <span class="o">=</span> <span class="n">adict</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">curitem</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+      <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">opath</span><span class="p">,</span> <span class="s">&#39;rb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fp</span><span class="p">:</span>
+        <span class="n">orig</span><span class="o">.</span><span class="n">body</span> <span class="o">=</span> <span class="n">fp</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+    <span class="n">npath</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">engine</span><span class="o">.</span><span class="n">rootDir</span><span class="p">,</span> <span class="n">item</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">npath</span><span class="p">,</span> <span class="s">&#39;wb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fp</span><span class="p">:</span>
+      <span class="n">fp</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">item</span><span class="o">.</span><span class="n">body</span><span class="p">)</span>
+    <span class="n">curitem</span><span class="o">.</span><span class="n">name</span>   <span class="o">=</span> <span class="n">item</span><span class="o">.</span><span class="n">name</span>
+    <span class="n">curitem</span><span class="o">.</span><span class="n">inode</span>  <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">stat</span><span class="p">(</span><span class="n">npath</span><span class="p">)</span><span class="o">.</span><span class="n">st_ino</span>
+    <span class="n">curitem</span><span class="o">.</span><span class="n">sha256</span> <span class="o">=</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">(</span><span class="n">item</span><span class="o">.</span><span class="n">body</span><span class="p">)</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span>
+    <span class="n">cspec</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="k">if</span> <span class="n">reportChanges</span><span class="p">:</span>
+      <span class="n">merger</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">mfactory</span><span class="o">.</span><span class="n">newMerger</span><span class="p">()</span>
+      <span class="n">merger</span><span class="o">.</span><span class="n">pushChange</span><span class="p">(</span><span class="s">&#39;name&#39;</span><span class="p">,</span> <span class="n">orig</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">item</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+      <span class="n">merger</span><span class="o">.</span><span class="n">pushChange</span><span class="p">(</span><span class="s">&#39;body&#39;</span><span class="p">,</span> <span class="n">orig</span><span class="o">.</span><span class="n">body</span><span class="p">,</span> <span class="n">item</span><span class="o">.</span><span class="n">body</span><span class="p">)</span>
+      <span class="n">cspec</span> <span class="o">=</span> <span class="n">merger</span><span class="o">.</span><span class="n">getChangeSpec</span><span class="p">()</span>
+      <span class="nb">delattr</span><span class="p">(</span><span class="n">orig</span><span class="p">,</span> <span class="s">&#39;body&#39;</span><span class="p">)</span>
+    <span class="nb">delattr</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="s">&#39;body&#39;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">npath</span> <span class="o">!=</span> <span class="n">opath</span><span class="p">:</span>
+      <span class="n">os</span><span class="o">.</span><span class="n">unlink</span><span class="p">(</span><span class="n">opath</span><span class="p">)</span>
+    <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;updated: </span><span class="si">%s</span><span class="s">&#39;</span><span class="p">,</span> <span class="n">curitem</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">cspec</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">deleteItem</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">itemID</span><span class="p">):</span>
+    <span class="n">item</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">getItem</span><span class="p">(</span><span class="n">itemID</span><span class="p">)</span>
+    <span class="n">path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">engine</span><span class="o">.</span><span class="n">rootDir</span><span class="p">,</span> <span class="n">item</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">path</span><span class="p">):</span>
+      <span class="n">os</span><span class="o">.</span><span class="n">unlink</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+    <span class="c"># note: writing log before actual delete as otherwise object is invalid</span>
+    <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;deleted: </span><span class="si">%s</span><span class="s">&#39;</span><span class="p">,</span> <span class="n">item</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">engine</span><span class="o">.</span><span class="n">dbsession</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="n">item</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">mergeItems</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">localItem</span><span class="p">,</span> <span class="n">remoteItem</span><span class="p">,</span> <span class="n">changeSpec</span><span class="p">):</span>
+    <span class="n">opath</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">engine</span><span class="o">.</span><span class="n">rootDir</span><span class="p">,</span> <span class="n">localItem</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">opath</span><span class="p">,</span> <span class="s">&#39;rb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fp</span><span class="p">:</span>
+      <span class="n">oldbody</span> <span class="o">=</span> <span class="n">fp</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+    <span class="n">merger</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">mfactory</span><span class="o">.</span><span class="n">newMerger</span><span class="p">(</span><span class="n">changeSpec</span><span class="p">)</span>
+    <span class="c"># the merger will raise ConflictError in the case of conflicts...</span>
+    <span class="n">newname</span> <span class="o">=</span> <span class="n">merger</span><span class="o">.</span><span class="n">mergeChanges</span><span class="p">(</span><span class="s">&#39;name&#39;</span><span class="p">,</span> <span class="n">localItem</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">remoteItem</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+    <span class="n">newbody</span> <span class="o">=</span> <span class="n">merger</span><span class="o">.</span><span class="n">mergeChanges</span><span class="p">(</span><span class="s">&#39;body&#39;</span><span class="p">,</span> <span class="n">oldbody</span><span class="p">,</span> <span class="n">remoteItem</span><span class="o">.</span><span class="n">body</span><span class="p">)</span>
+    <span class="n">newItem</span> <span class="o">=</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">NoteItem</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">remoteItem</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">body</span><span class="o">=</span><span class="n">newbody</span><span class="p">)</span>
+    <span class="n">newItem</span><span class="o">.</span><span class="n">id</span> <span class="o">=</span> <span class="n">localItem</span><span class="o">.</span><span class="n">id</span>
+    <span class="c"># todo: optimize this a bit because replaceItem is just going to</span>
+    <span class="c">#       read the note file again...</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">replaceItem</span><span class="p">(</span><span class="n">newItem</span><span class="p">,</span> <span class="bp">True</span><span class="p">)</span>
+
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="k">def</span> <span class="nf">main</span><span class="p">(</span><span class="n">argv</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+  <span class="n">engine</span> <span class="o">=</span> <span class="n">NotesEngine</span><span class="p">()</span>
+  <span class="k">return</span> <span class="n">engine</span><span class="o">.</span><span class="n">configure</span><span class="p">(</span><span class="n">argv</span><span class="p">)</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&#39;__main__&#39;</span><span class="p">:</span>
+  <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="n">main</span><span class="p">())</span>
+
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="c"># end of $Id: notes.py 59 2012-09-16 18:20:43Z griff1n $</span>
+<span class="c">#------------------------------------------------------------------------------</span>
+</pre></div>
+</div>
+</div>
+</div>
+
+
+      </div>
+      <div class="bottomnav">
+      
+        <p>
+        «&#160;&#160;<a href="engine.html">Implementing a SyncML Command-Line Interface</a>
+        &#160;&#160;::&#160;&#160;
+        <a class="uplink" href="../../index.html">Contents</a>
+        &#160;&#160;::&#160;&#160;
+        <a href="../client.html">Implementing a SyncML Client</a>&#160;&#160;»
+        </p>
+
+      </div>
+
+    <div class="footer">
+        &copy; Copyright 2012-2012, UberDev, No Rights Reserved.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

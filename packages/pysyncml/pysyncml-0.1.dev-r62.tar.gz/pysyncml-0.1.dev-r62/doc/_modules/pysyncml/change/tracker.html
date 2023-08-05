@@ -1,0 +1,873 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>pysyncml.change.tracker &mdash; pysyncml 0.1 documentation</title>
+    
+    <link rel="stylesheet" href="../../../_static/haiku.css" type="text/css" />
+    <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="../../../_static/print.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../../',
+        VERSION:     '0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../../_static/doctools.js"></script>
+    <script type="text/javascript" src="../../../_static/theme_extras.js"></script>
+    <link rel="top" title="pysyncml 0.1 documentation" href="../../../index.html" />
+    <link rel="up" title="Module code" href="../../index.html" /> 
+  </head>
+  <body>
+      <div class="header"><h1 class="heading"><a href="../../../index.html">
+          <span>pysyncml 0.1 documentation</span></a></h1>
+        <h2 class="heading"><span>pysyncml.change.tracker</span></h2>
+      </div>
+      <div class="topnav">
+      
+        <p>
+        <a class="uplink" href="../../../index.html">Contents</a>
+        </p>
+
+      </div>
+      <div class="content">
+        
+        
+  <h1>Source code for pysyncml.change.tracker</h1><div class="highlight"><pre>
+<span class="c"># -*- coding: utf-8 -*-</span>
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="c"># file: $Id$</span>
+<span class="c"># lib:  pysyncml.change.tracker</span>
+<span class="c"># auth: griffin &lt;griffin@uberdev.org&gt;</span>
+<span class="c"># date: 2012/08/29</span>
+<span class="c"># copy: (C) CopyLoose 2012 UberDev &lt;hardcore@uberdev.org&gt;, No Rights Reserved.</span>
+<span class="c">#------------------------------------------------------------------------------</span>
+
+<span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">The ``pysyncml.change.tracker`` is a helper package that provides</span>
+<span class="sd">routines to generate and parse change-specs that are compliant with</span>
+<span class="sd">pysyncml&#39;s change tracking system.</span>
+<span class="sd">&#39;&#39;&#39;</span>
+
+<span class="kn">import</span> <span class="nn">urllib</span><span class="o">,</span> <span class="nn">hashlib</span>
+<span class="kn">from</span> <span class="nn">..</span> <span class="kn">import</span> <span class="n">constants</span>
+<span class="kn">from</span> <span class="nn">..common</span> <span class="kn">import</span> <span class="n">adict</span><span class="p">,</span> <span class="n">state2string</span><span class="p">,</span> <span class="n">ConflictError</span>
+
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="k">class</span> <span class="nc">InvalidChangeSpec</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span> <span class="k">pass</span>
+
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="k">def</span> <span class="nf">uu</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>
+  <span class="k">return</span> <span class="n">urllib</span><span class="o">.</span><span class="n">unquote</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="k">def</span> <span class="nf">u</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>
+  <span class="k">return</span> <span class="n">urllib</span><span class="o">.</span><span class="n">quote</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="k">def</span> <span class="nf">isMd5Equal</span><span class="p">(</span><span class="n">val1</span><span class="p">,</span> <span class="n">md51</span><span class="p">,</span> <span class="n">val2</span><span class="p">,</span> <span class="n">md52</span><span class="p">):</span>
+  <span class="k">if</span> <span class="n">md51</span> <span class="ow">or</span> <span class="n">md52</span><span class="p">:</span>
+    <span class="n">val1</span> <span class="o">=</span> <span class="n">val1</span> <span class="k">if</span> <span class="n">md51</span> <span class="k">else</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">md5</span><span class="p">(</span><span class="n">val1</span><span class="p">)</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span>
+    <span class="n">val2</span> <span class="o">=</span> <span class="n">val2</span> <span class="k">if</span> <span class="n">md52</span> <span class="k">else</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">md5</span><span class="p">(</span><span class="n">val2</span><span class="p">)</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">val1</span> <span class="o">==</span> <span class="n">val2</span>
+  <span class="k">return</span> <span class="n">val1</span> <span class="o">==</span> <span class="n">val2</span>
+
+<span class="c">#------------------------------------------------------------------------------</span>
+<div class="viewcode-block" id="ChangeTracker"><a class="viewcode-back" href="../../../pysyncml/change/tracker.html#pysyncml.change.tracker.ChangeTracker">[docs]</a><span class="k">class</span> <span class="nc">ChangeTracker</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+  <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">  A ChangeTracker is an abstract interface to help with generating, parsing,</span>
+<span class="sd">  and managing pysyncml change-specs. See :doc:`../merging` for details on</span>
+<span class="sd">  change-spec handling.</span>
+<span class="sd">  &#39;&#39;&#39;</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">changeSpec</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+    <span class="nb">super</span><span class="p">(</span><span class="n">ChangeTracker</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">pushChangeSpec</span><span class="p">(</span><span class="n">changeSpec</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">pushChangeSpec</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">changeSpec</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">changeSpec</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+      <span class="k">return</span>
+    <span class="k">if</span> <span class="s">&#39;;&#39;</span> <span class="ow">in</span> <span class="n">changeSpec</span><span class="p">:</span>
+      <span class="k">for</span> <span class="n">spec</span> <span class="ow">in</span> <span class="n">changeSpec</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;;&#39;</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pushChangeSpec</span><span class="p">(</span><span class="n">spec</span><span class="p">)</span>
+      <span class="k">return</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_pushChangeSpec</span><span class="p">(</span><span class="n">changeSpec</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">_pushChangeSpec</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">changeSpec</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">opspec</span> <span class="ow">in</span> <span class="n">changeSpec</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;|&#39;</span><span class="p">):</span>
+      <span class="n">op</span><span class="p">,</span> <span class="n">flist</span> <span class="o">=</span> <span class="n">opspec</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;:&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+      <span class="k">if</span> <span class="n">op</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&#39;add&#39;</span><span class="p">,</span> <span class="s">&#39;mod&#39;</span><span class="p">,</span> <span class="s">&#39;del&#39;</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="n">InvalidChangeSpec</span><span class="p">(</span><span class="n">opspec</span><span class="p">)</span>
+      <span class="n">op</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;add&#39;</span><span class="p">:</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">,</span>
+            <span class="s">&#39;mod&#39;</span><span class="p">:</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_MODIFIED</span><span class="p">,</span>
+            <span class="s">&#39;del&#39;</span><span class="p">:</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_DELETED</span><span class="p">,</span>
+            <span class="p">}[</span><span class="n">op</span><span class="p">]</span>
+      <span class="k">for</span> <span class="n">fspec</span> <span class="ow">in</span> <span class="n">flist</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;,&#39;</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">op</span> <span class="o">==</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">:</span>
+          <span class="bp">self</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">uu</span><span class="p">(</span><span class="n">fspec</span><span class="p">),</span> <span class="n">op</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+          <span class="n">fname</span><span class="p">,</span> <span class="n">init</span> <span class="o">=</span> <span class="n">fspec</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;@&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+          <span class="k">if</span> <span class="n">init</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;m&#39;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">init</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">33</span><span class="p">:</span>
+              <span class="k">raise</span> <span class="n">InvalidChangeSpec</span><span class="p">(</span><span class="s">&#39;bad initial value md5 in field spec: </span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">fspec</span><span class="p">,))</span>
+            <span class="n">ismd5</span> <span class="o">=</span> <span class="bp">True</span>
+            <span class="n">init</span>  <span class="o">=</span> <span class="n">init</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span>
+          <span class="k">elif</span> <span class="n">init</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;v&#39;</span><span class="p">:</span>
+            <span class="n">ismd5</span> <span class="o">=</span> <span class="bp">False</span>
+            <span class="n">init</span>  <span class="o">=</span> <span class="n">uu</span><span class="p">(</span><span class="n">init</span><span class="p">[</span><span class="mi">1</span><span class="p">:])</span>
+          <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">InvalidChangeSpec</span><span class="p">(</span><span class="s">&#39;bad initial value encoding in field spec: </span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">fspec</span><span class="p">,))</span>
+          <span class="bp">self</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">uu</span><span class="p">(</span><span class="n">fname</span><span class="p">),</span> <span class="n">op</span><span class="p">,</span> <span class="n">initialValue</span><span class="o">=</span><span class="n">init</span><span class="p">,</span> <span class="n">isMd5</span><span class="o">=</span><span class="n">ismd5</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+<div class="viewcode-block" id="ChangeTracker.append"><a class="viewcode-back" href="../../../pysyncml/change/tracker.html#pysyncml.change.tracker.ChangeTracker.append">[docs]</a>  <span class="k">def</span> <span class="nf">append</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fieldname</span><span class="p">,</span> <span class="n">changeType</span><span class="p">,</span> <span class="n">initialValue</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">isMd5</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Add a change to this ChangeTracker.</span>
+
+<span class="sd">    :param fieldname:</span>
+
+<span class="sd">      The item attribute that was changed in some way. The type of</span>
+<span class="sd">      `fieldname` is dependent on which subclass of ChangeTracker is</span>
+<span class="sd">      being used.</span>
+
+<span class="sd">    :param changeType:</span>
+
+<span class="sd">      The type of change that was applied to `fieldname`, which can be</span>
+<span class="sd">      one of ``pysyncml.ITEM_ADDED``, ``pysyncml.ITEM_MODIFIED``, or</span>
+<span class="sd">      ``pysyncml.ITEM_DELETED``.</span>
+
+<span class="sd">    :param initialValue:</span>
+
+<span class="sd">      For non-ADDED change types, specifies the *initial* value of the</span>
+<span class="sd">      field, before the change was applied. Note that if the</span>
+<span class="sd">      `initialValue` is very large, an MD5 checksum can be provided</span>
+<span class="sd">      instead, in which case `isMd5` should be set to ``True``.</span>
+
+<span class="sd">    :param isMd5:</span>
+
+<span class="sd">      Specifies whether `initialValue` is an MD5 checksum or not. For</span>
+<span class="sd">      large values of `initialValue` the ChangeTrackers will</span>
+<span class="sd">      automatically convert it to a checksum, but this allows the</span>
+<span class="sd">      caller to potentially do some additional optimizations.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">()</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span></div>
+<div class="viewcode-block" id="ChangeTracker.isChange"><a class="viewcode-back" href="../../../pysyncml/change/tracker.html#pysyncml.change.tracker.ChangeTracker.isChange">[docs]</a>  <span class="k">def</span> <span class="nf">isChange</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fieldname</span><span class="p">,</span> <span class="n">changeType</span><span class="p">,</span> <span class="n">newValue</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">isMd5</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Checks to see if the specified field should be changed to the</span>
+<span class="sd">    `newValue`, first checking to see if the change conflicts with the</span>
+<span class="sd">    change-spec stored by this ChangeTracker. IMPORTANT: the</span>
+<span class="sd">    `changeType` is relative to the **current** local value, as</span>
+<span class="sd">    recorded by the changes stored by this tracker from the</span>
+<span class="sd">    **initial** value.</span>
+
+<span class="sd">    See :meth:`update` for a layer above.</span>
+
+<span class="sd">    This method will terminate in one of the following three ways:</span>
+
+<span class="sd">    * returns None:</span>
+
+<span class="sd">      The `newValue` is actually outdated, but does not conflict.</span>
+<span class="sd">      The field should be left as-is.</span>
+
+<span class="sd">    * returns `changeObject`:</span>
+
+<span class="sd">      If any form of change should be applied as a result of this</span>
+<span class="sd">      change request, then `changeObject` will be non-None and will</span>
+<span class="sd">      define how. The exact nature of the object is ChangeTracker</span>
+<span class="sd">      subclass dependent.</span>
+
+<span class="sd">    * raises `pysyncml.ConflictError`:</span>
+
+<span class="sd">      The `newValue` conflicts with a change made by another source</span>
+<span class="sd">      and should be handled by following conflict resolution policy.</span>
+
+<span class="sd">    For example, if two clients and a server are tracking changes</span>
+<span class="sd">    made to the following fields::</span>
+
+<span class="sd">      initial values (on server, client 1 and client 2):</span>
+<span class="sd">        field &quot;a&quot; =&gt; &quot;A&quot;    (will not change)</span>
+<span class="sd">        field &quot;b&quot; =&gt; &quot;B&quot;    (will be modified by client 1)</span>
+<span class="sd">        field &quot;c&quot; =&gt; &quot;C&quot;    (will be deleted by client 1)</span>
+<span class="sd">        field &quot;d&quot; =&gt; &quot;D&quot;    (will be modified by client 2)</span>
+<span class="sd">        field &quot;e&quot; =&gt; &quot;E&quot;    (will be a conflict)</span>
+<span class="sd">        field &quot;f&quot; =&gt; &quot;F&quot;    (will be modified identically)</span>
+
+<span class="sd">      client 1 changes:</span>
+<span class="sd">        does not alter field &quot;a&quot;</span>
+<span class="sd">        modifies field &quot;b&quot; to &quot;Bmod&quot;</span>
+<span class="sd">        deletes field &quot;c&quot;</span>
+<span class="sd">        does not alter field &quot;d&quot;</span>
+<span class="sd">        deletes field &quot;e&quot;</span>
+<span class="sd">        modifies field &quot;f&quot; to &quot;Fmod&quot;</span>
+
+<span class="sd">      client 2 changes (simultaneous to client 1 changes):</span>
+<span class="sd">        does not alter field &quot;a&quot;</span>
+<span class="sd">        does not alter field &quot;b&quot;</span>
+<span class="sd">        does not alter field &quot;c&quot;</span>
+<span class="sd">        modifies field &quot;d&quot; to &quot;Dmod&quot;</span>
+<span class="sd">        modifies field &quot;e&quot; to &quot;Emod&quot;</span>
+<span class="sd">        modifies field &quot;f&quot; to &quot;Fmod&quot;</span>
+
+<span class="sd">      client 1 synchronizes with server ==&gt; server values:</span>
+<span class="sd">        field &quot;b&quot; =&gt; &quot;Bmod&quot;</span>
+<span class="sd">        deletes fields &quot;c&quot; and &quot;e&quot;</span>
+<span class="sd">        field &quot;f&quot; =&gt; &quot;Fmod&quot;</span>
+<span class="sd">        change-spec for client 2: &quot;mod:b@vB,f@vF|del:c@vC,e@vE&quot;</span>
+
+<span class="sd">      when client 2 synchronizes, the framework detects a conflict and</span>
+<span class="sd">      requests a merge attempt by the agent. the agent then compares the</span>
+<span class="sd">      current values and those presented by client 2 and determines:</span>
+<span class="sd">        - field &quot;a&quot; is unchanged</span>
+<span class="sd">        - field &quot;b&quot; differs: changed to &quot;B&quot;</span>
+<span class="sd">        - field &quot;c&quot; differs: added as &quot;C&quot;</span>
+<span class="sd">        - field &quot;d&quot; differs: change to &quot;Dmod&quot;</span>
+<span class="sd">        - field &quot;e&quot; differs: added as &quot;Dmod&quot;</span>
+<span class="sd">        - field &quot;f&quot; is unchanged</span>
+
+<span class="sd">      for the fields that are mismatches (i.e. fields &quot;b&quot;, &quot;c&quot;, &quot;d&quot;,</span>
+<span class="sd">      and &quot;e&quot;), the agent checks with this change tracker (&quot;ct&quot;) to</span>
+<span class="sd">      see if it was actually a change, and if so, if it conflicts:</span>
+
+<span class="sd">        - ct.isChange(&#39;b&#39;, &#39;B&#39;)    ==&gt; None</span>
+<span class="sd">        - ct.isChange(&#39;c&#39;, &#39;C&#39;)    ==&gt; None</span>
+<span class="sd">        - ct.isChange(&#39;d&#39;, &#39;Dmod&#39;) ==&gt; &#39;d&#39;</span>
+<span class="sd">        - ct.isChange(&#39;e&#39;, &#39;Emod&#39;) ==&gt; raises ConflictError</span>
+
+<span class="sd">    Note that this assumes that the caller will have verified that the</span>
+<span class="sd">    remote `currentValue` is **not** equal to the local active value -</span>
+<span class="sd">    i.e. that there is some difference between the `fieldname` values,</span>
+<span class="sd">    and a resolution needs to be negotiated.</span>
+
+<span class="sd">    :param newValue:</span>
+
+<span class="sd">      A string representing the value that is being tested for</span>
+<span class="sd">      conflicts or outdated-ness.</span>
+
+<span class="sd">    .. TODO:: perhaps rename this method?...</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">()</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span></div>
+<div class="viewcode-block" id="ChangeTracker.update"><a class="viewcode-back" href="../../../pysyncml/change/tracker.html#pysyncml.change.tracker.ChangeTracker.update">[docs]</a>  <span class="k">def</span> <span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fieldname</span><span class="p">,</span> <span class="n">localValue</span><span class="p">,</span> <span class="n">remoteValue</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Returns the appropriate current value, based on the changes</span>
+<span class="sd">    recorded by this ChangeTracker, the value stored by the server</span>
+<span class="sd">    (`localValue`), and the value stored by the synchronizing client</span>
+<span class="sd">    (`remoteValue`). If `remoteValue` conflicts with changes stored</span>
+<span class="sd">    locally, then a `pysyncml.ConflictError` is raised.</span>
+
+<span class="sd">    If a change needs to be applied because `remoteValue` has been</span>
+<span class="sd">    updated, then the new value will be returned, and this</span>
+<span class="sd">    ChangeTracker will be updated such that a call to</span>
+<span class="sd">    :meth:`getChangeSpec` will incorporate the change.</span>
+
+<span class="sd">    :param fieldname:</span>
+
+<span class="sd">      The name of the fieldname being evaluated.</span>
+
+<span class="sd">    :param localValue:</span>
+
+<span class="sd">      The value of the field as stored by the server, usually the one that</span>
+<span class="sd">      also stored the current change-spec. If `localValue` is ``None``,</span>
+<span class="sd">      then it is assumed that the field was potentially added (this will</span>
+<span class="sd">      first be verified against the stored change-spec).</span>
+
+<span class="sd">    :param remoteValue:</span>
+
+<span class="sd">      The new value being presented that may or may not be a source of</span>
+<span class="sd">      conflict. If `remoteValue` is ``None``, then it is assumed that</span>
+<span class="sd">      the field was potentially deleted (this will first be verified</span>
+<span class="sd">      against the stored change-spec).</span>
+
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">if</span> <span class="n">localValue</span> <span class="o">==</span> <span class="n">remoteValue</span><span class="p">:</span>
+      <span class="k">return</span> <span class="n">localValue</span>
+    <span class="n">ct</span> <span class="o">=</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_DELETED</span> <span class="k">if</span> <span class="n">remoteValue</span> <span class="ow">is</span> <span class="bp">None</span> <span class="k">else</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_MODIFIED</span>
+    <span class="k">if</span> <span class="n">localValue</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+      <span class="n">ct</span> <span class="o">=</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span>
+
+    <span class="c"># todo: i should probably trap irep errors. for example, if this</span>
+    <span class="c">#       cspec has a field &quot;x&quot; marked as deleted, then `localValue`</span>
+    <span class="c">#       must be None... etc.</span>
+
+    <span class="c"># TODO: i think this kind of handling would break in ListChangeTracker!...</span>
+
+    <span class="n">changed</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">isChange</span><span class="p">(</span><span class="n">fieldname</span><span class="p">,</span> <span class="n">ct</span><span class="p">,</span> <span class="n">remoteValue</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">changed</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+      <span class="k">return</span> <span class="n">localValue</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">changed</span><span class="p">,</span> <span class="n">ct</span><span class="p">,</span> <span class="n">initialValue</span><span class="o">=</span><span class="n">localValue</span><span class="p">,</span> <span class="n">isMd5</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">remoteValue</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span></div>
+<div class="viewcode-block" id="ChangeTracker.getFullChangeSpec"><a class="viewcode-back" href="../../../pysyncml/change/tracker.html#pysyncml.change.tracker.ChangeTracker.getFullChangeSpec">[docs]</a>  <span class="k">def</span> <span class="nf">getFullChangeSpec</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Returns a string-representation of *all* changes recorded by this</span>
+<span class="sd">    ChangeTracker, including those provided in the constructor and any</span>
+<span class="sd">    calls to `pushChangeSpec()`. Note that this is usually *NOT* what</span>
+<span class="sd">    you are looking for when reporting changes to the pysyncml</span>
+<span class="sd">    framework -- for that, see :meth:`getChangeSpec`.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_changes2spec</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">allchanges</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span></div>
+<div class="viewcode-block" id="ChangeTracker.getChangeSpec"><a class="viewcode-back" href="../../../pysyncml/change/tracker.html#pysyncml.change.tracker.ChangeTracker.getChangeSpec">[docs]</a>  <span class="k">def</span> <span class="nf">getChangeSpec</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Returns a string-representation of the changes recorded by this</span>
+<span class="sd">    ChangeTracker that were reported since construction (or calls to</span>
+<span class="sd">    pushChangeSpec()) by calls to :meth:`append` or :meth:`update`.</span>
+
+<span class="sd">    This is similar to, but distinct from, :meth:`getFullChangeSpec`.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_changes2spec</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">changes</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span></div>
+  <span class="k">def</span> <span class="nf">_changes2spec</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">changes</span><span class="p">):</span>
+    <span class="n">clist</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(((</span><span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">,</span> <span class="p">[]),</span>
+                  <span class="p">(</span><span class="n">constants</span><span class="o">.</span><span class="n">ITEM_MODIFIED</span><span class="p">,</span> <span class="p">[]),</span>
+                  <span class="p">(</span><span class="n">constants</span><span class="o">.</span><span class="n">ITEM_DELETED</span><span class="p">,</span> <span class="p">[])))</span>
+    <span class="k">for</span> <span class="n">optype</span><span class="p">,</span> <span class="n">field</span><span class="p">,</span> <span class="n">spec</span> <span class="ow">in</span> <span class="n">changes</span><span class="p">:</span>
+      <span class="n">clist</span><span class="p">[</span><span class="n">optype</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">field</span><span class="p">,</span> <span class="n">spec</span><span class="p">))</span>
+    <span class="n">ret</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">clist</span><span class="p">[</span><span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">])</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+      <span class="n">ret</span> <span class="o">+=</span> <span class="s">&#39;add:&#39;</span> <span class="o">+</span> <span class="s">&#39;,&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="n">e</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">clist</span><span class="p">[</span><span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">]])</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">clist</span><span class="p">[</span><span class="n">constants</span><span class="o">.</span><span class="n">ITEM_MODIFIED</span><span class="p">])</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+      <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">ret</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">ret</span> <span class="o">+=</span> <span class="s">&#39;|&#39;</span>
+      <span class="n">ret</span> <span class="o">+=</span> <span class="s">&#39;mod:&#39;</span> <span class="o">+</span> <span class="s">&#39;,&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="n">e</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="n">e</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">clist</span><span class="p">[</span><span class="n">constants</span><span class="o">.</span><span class="n">ITEM_MODIFIED</span><span class="p">]])</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">clist</span><span class="p">[</span><span class="n">constants</span><span class="o">.</span><span class="n">ITEM_DELETED</span><span class="p">])</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+      <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">ret</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">ret</span> <span class="o">+=</span> <span class="s">&#39;|&#39;</span>
+      <span class="n">ret</span> <span class="o">+=</span> <span class="s">&#39;del:&#39;</span> <span class="o">+</span> <span class="s">&#39;,&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="n">e</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="n">e</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">clist</span><span class="p">[</span><span class="n">constants</span><span class="o">.</span><span class="n">ITEM_DELETED</span><span class="p">]])</span>
+    <span class="k">return</span> <span class="n">ret</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">getFullChangeSpec</span><span class="p">()</span>
+
+<span class="c">#------------------------------------------------------------------------------</span></div>
+<div class="viewcode-block" id="AttributeChangeTracker"><a class="viewcode-back" href="../../../pysyncml/change/tracker.html#pysyncml.change.tracker.AttributeChangeTracker">[docs]</a><span class="k">class</span> <span class="nc">AttributeChangeTracker</span><span class="p">(</span><span class="n">ChangeTracker</span><span class="p">):</span>
+  <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">  A ChangeTracker implementation that manages changes made to attributes</span>
+<span class="sd">  that are completely independent of each other.</span>
+<span class="sd">  &#39;&#39;&#39;</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">changeSpec</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Initializes this AttributeChangeTracker with the provided</span>
+<span class="sd">    `changeSpec`, which is expected to be in the same format as what</span>
+<span class="sd">    would have been returned by a call to ``str()`` on this</span>
+<span class="sd">    object. The change-spec will look similar to::</span>
+
+<span class="sd">      add:tel-home|mod:firstname@m68b329d...,lastname@mh4d9...|del:tel-pager@mba45...</span>
+
+<span class="sd">    If `changeSpec` is not specified, this AttributeChangeTracker will</span>
+<span class="sd">    start assuming no prior changes were made to any fields.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">baseline</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">current</span>  <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
+    <span class="nb">super</span><span class="p">(</span><span class="n">AttributeChangeTracker</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="n">changeSpec</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="nd">@property</span>
+  <span class="k">def</span> <span class="nf">allchanges</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="n">changes</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_collapseChanges</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">baseline</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">current</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">changes</span><span class="o">.</span><span class="n">keys</span><span class="p">()):</span>
+      <span class="n">val</span> <span class="o">=</span> <span class="n">changes</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
+      <span class="k">if</span> <span class="n">val</span><span class="o">.</span><span class="n">op</span> <span class="o">==</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">:</span>
+        <span class="k">yield</span> <span class="p">(</span><span class="n">val</span><span class="o">.</span><span class="n">op</span><span class="p">,</span> <span class="n">u</span><span class="p">(</span><span class="n">key</span><span class="p">),</span> <span class="bp">None</span><span class="p">)</span>
+      <span class="k">else</span><span class="p">:</span>
+        <span class="k">yield</span> <span class="p">(</span><span class="n">val</span><span class="o">.</span><span class="n">op</span><span class="p">,</span> <span class="n">u</span><span class="p">(</span><span class="n">key</span><span class="p">),</span> <span class="s">&#39;@&#39;</span> <span class="o">+</span> <span class="p">(</span> <span class="s">&#39;m&#39;</span> <span class="k">if</span> <span class="n">val</span><span class="o">.</span><span class="n">md5</span> <span class="k">else</span> <span class="s">&#39;v&#39;</span> <span class="p">)</span> <span class="o">+</span> <span class="n">u</span><span class="p">(</span><span class="n">val</span><span class="o">.</span><span class="n">ival</span><span class="p">))</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="nd">@property</span>
+  <span class="k">def</span> <span class="nf">changes</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="n">changes</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">current</span>
+    <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">changes</span><span class="o">.</span><span class="n">keys</span><span class="p">()):</span>
+      <span class="n">val</span> <span class="o">=</span> <span class="n">changes</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
+      <span class="k">if</span> <span class="n">val</span><span class="o">.</span><span class="n">op</span> <span class="o">==</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">:</span>
+        <span class="k">yield</span> <span class="p">(</span><span class="n">val</span><span class="o">.</span><span class="n">op</span><span class="p">,</span> <span class="n">u</span><span class="p">(</span><span class="n">key</span><span class="p">),</span> <span class="bp">None</span><span class="p">)</span>
+      <span class="k">else</span><span class="p">:</span>
+        <span class="k">yield</span> <span class="p">(</span><span class="n">val</span><span class="o">.</span><span class="n">op</span><span class="p">,</span> <span class="n">u</span><span class="p">(</span><span class="n">key</span><span class="p">),</span> <span class="s">&#39;@&#39;</span> <span class="o">+</span> <span class="p">(</span> <span class="s">&#39;m&#39;</span> <span class="k">if</span> <span class="n">val</span><span class="o">.</span><span class="n">md5</span> <span class="k">else</span> <span class="s">&#39;v&#39;</span> <span class="p">)</span> <span class="o">+</span> <span class="n">u</span><span class="p">(</span><span class="n">val</span><span class="o">.</span><span class="n">ival</span><span class="p">))</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">pushChangeSpec</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">changeSpec</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">current</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">baseline</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_collapseChanges</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">baseline</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">current</span><span class="p">)</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">current</span>  <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
+    <span class="nb">super</span><span class="p">(</span><span class="n">AttributeChangeTracker</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">pushChangeSpec</span><span class="p">(</span><span class="n">changeSpec</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">current</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">baseline</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_collapseChanges</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">baseline</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">current</span><span class="p">)</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">current</span>  <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">_collapseChanges</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">baseline</span><span class="p">,</span> <span class="n">current</span><span class="p">):</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">baseline</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+      <span class="k">return</span> <span class="n">current</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">current</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+      <span class="k">return</span> <span class="n">baseline</span>
+    <span class="n">ret</span> <span class="o">=</span> <span class="n">baseline</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">current</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+      <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">ret</span><span class="p">:</span>
+        <span class="n">ret</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">val</span>
+        <span class="k">continue</span>
+      <span class="n">nval</span> <span class="o">=</span> <span class="n">ret</span><span class="p">[</span><span class="n">key</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+      <span class="n">ret</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">nval</span>
+      <span class="k">if</span> <span class="n">val</span><span class="o">.</span><span class="n">op</span> <span class="o">!=</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_DELETED</span><span class="p">:</span>
+        <span class="k">continue</span>
+      <span class="k">if</span> <span class="n">nval</span><span class="o">.</span><span class="n">op</span> <span class="o">==</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">:</span>
+        <span class="k">del</span> <span class="n">ret</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
+        <span class="k">continue</span>
+      <span class="n">nval</span><span class="o">.</span><span class="n">op</span> <span class="o">=</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_DELETED</span>
+    <span class="k">return</span> <span class="n">ret</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">append</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fieldname</span><span class="p">,</span> <span class="n">changeType</span><span class="p">,</span> <span class="n">initialValue</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">isMd5</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+
+    <span class="c"># todo: if a field is changed: &quot;a&quot; =&gt; &quot;b&quot; =&gt; &quot;a&quot;, then the change-spec</span>
+    <span class="c">#       should not include any changes to that field. unfortunately, i</span>
+    <span class="c">#       do not have access to what the field was changed *to*, so</span>
+    <span class="c">#       therefore cannot implement that. :(</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">isMd5</span> <span class="ow">and</span> <span class="n">initialValue</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">initialValue</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">32</span><span class="p">:</span>
+      <span class="n">initialValue</span> <span class="o">=</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">md5</span><span class="p">(</span><span class="n">initialValue</span><span class="p">)</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span>
+      <span class="n">isMd5</span>        <span class="o">=</span> <span class="bp">True</span>
+    <span class="k">if</span> <span class="n">fieldname</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">current</span><span class="p">:</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">current</span><span class="p">[</span><span class="n">fieldname</span><span class="p">]</span> <span class="o">=</span> <span class="n">adict</span><span class="p">(</span><span class="n">op</span>   <span class="o">=</span> <span class="n">changeType</span><span class="p">,</span>
+                                      <span class="n">ival</span> <span class="o">=</span> <span class="n">initialValue</span><span class="p">,</span>
+                                      <span class="n">md5</span>  <span class="o">=</span> <span class="n">isMd5</span><span class="p">)</span>
+      <span class="k">return</span>
+    <span class="n">cur</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">current</span><span class="p">[</span><span class="n">fieldname</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">cur</span><span class="o">.</span><span class="n">op</span> <span class="o">==</span> <span class="n">changeType</span><span class="p">:</span>
+      <span class="k">return</span>
+    <span class="k">if</span> <span class="n">changeType</span> <span class="o">==</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_DELETED</span><span class="p">:</span>
+      <span class="k">if</span> <span class="n">cur</span><span class="o">.</span><span class="n">op</span> <span class="o">==</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">:</span>
+        <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">current</span><span class="p">[</span><span class="n">fieldname</span><span class="p">]</span>
+        <span class="k">return</span>
+      <span class="n">cur</span><span class="o">.</span><span class="n">op</span> <span class="o">=</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_DELETED</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+<div class="viewcode-block" id="AttributeChangeTracker.isChange"><a class="viewcode-back" href="../../../pysyncml/change/tracker.html#pysyncml.change.tracker.AttributeChangeTracker.isChange">[docs]</a>  <span class="k">def</span> <span class="nf">isChange</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fieldname</span><span class="p">,</span> <span class="n">changeType</span><span class="p">,</span> <span class="n">newValue</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">isMd5</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Implements as specified in :meth:`.ChangeTracker.isChange` where</span>
+<span class="sd">    the `changeObject` is simply the fieldname that needs to be</span>
+<span class="sd">    updated with the `newValue`. Currently, this is always equal to</span>
+<span class="sd">    `fieldname`.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="c"># todo: this seems inefficient...</span>
+    <span class="n">changes</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_collapseChanges</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">baseline</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">current</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">fieldname</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">changes</span><span class="p">:</span>
+      <span class="k">return</span> <span class="n">fieldname</span>
+    <span class="n">cur</span> <span class="o">=</span> <span class="n">changes</span><span class="p">[</span><span class="n">fieldname</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">changeType</span> <span class="o">==</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_DELETED</span><span class="p">:</span>
+      <span class="k">if</span> <span class="n">cur</span><span class="o">.</span><span class="n">op</span> <span class="o">==</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span> <span class="ow">or</span> <span class="n">cur</span><span class="o">.</span><span class="n">op</span> <span class="o">==</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_DELETED</span><span class="p">:</span>
+        <span class="c"># the field is deleted because it hasn&#39;t been added yet</span>
+        <span class="c"># (the check for cur.op == constants.ITEM_DELETED should</span>
+        <span class="c"># never be true, so just here for paranoia...)</span>
+        <span class="k">return</span> <span class="bp">None</span>
+      <span class="c"># we are requiring that the current/new values are different,</span>
+      <span class="c"># thus there is a collision between the added values</span>
+      <span class="k">raise</span> <span class="n">ConflictError</span><span class="p">(</span><span class="s">&#39;conflicting deletion of field &quot;</span><span class="si">%s</span><span class="s">&quot;&#39;</span>
+                                 <span class="o">%</span> <span class="p">(</span><span class="n">fieldname</span><span class="p">,))</span>
+
+    <span class="c"># the `newValue` is different than the current value (otherwise</span>
+    <span class="c"># this method should not have been called) -- either it was added</span>
+    <span class="c"># or modified.</span>
+
+    <span class="c"># if it appears to be &quot;added&quot;, then it may be because it was</span>
+    <span class="c"># deleted in this tracker.</span>
+
+    <span class="c"># if it appears to be &quot;modified&quot;, then it may be because it</span>
+    <span class="c"># was modified in this tracker.</span>
+
+    <span class="c"># in either case, check to see if it is equal to the initial</span>
+    <span class="c"># value, and if it was, then there was actually no change.</span>
+
+    <span class="k">if</span> <span class="n">isMd5Equal</span><span class="p">(</span><span class="n">newValue</span><span class="p">,</span> <span class="n">isMd5</span><span class="p">,</span> <span class="n">cur</span><span class="o">.</span><span class="n">ival</span><span class="p">,</span> <span class="n">cur</span><span class="o">.</span><span class="n">md5</span><span class="p">):</span>
+      <span class="c"># the new value is equal to the initial value, so this</span>
+      <span class="c"># field was not changed (but has local changes)</span>
+      <span class="k">return</span> <span class="bp">None</span>
+
+    <span class="c"># the new value is not equal to the initial value, which means</span>
+    <span class="c"># that they were both changed and/or added.</span>
+    <span class="k">raise</span> <span class="n">ConflictError</span><span class="p">(</span>
+      <span class="s">&#39;conflicting addition or modification of field &quot;</span><span class="si">%s</span><span class="s">&quot;&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">fieldname</span><span class="p">,))</span>
+
+<span class="c">#------------------------------------------------------------------------------</span></div></div>
+<div class="viewcode-block" id="ListChangeTracker"><a class="viewcode-back" href="../../../pysyncml/change/tracker.html#pysyncml.change.tracker.ListChangeTracker">[docs]</a><span class="k">class</span> <span class="nc">ListChangeTracker</span><span class="p">(</span><span class="n">ChangeTracker</span><span class="p">):</span>
+  <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">  A ChangeTracker implementation that manages changes made to an</span>
+<span class="sd">  ordered sequence of elements. This tracker is aware that (and</span>
+<span class="sd">  adjusts for the fact that) the addition or deletion of an element in</span>
+<span class="sd">  the list can impact the indexing of elements that come sequentially</span>
+<span class="sd">  after the change. The most common use of the ListChangeTracker is to</span>
+<span class="sd">  track changes to text that has been broken down into sequences of</span>
+<span class="sd">  lines or words.</span>
+<span class="sd">  &#39;&#39;&#39;</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">changeSpec</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Initializes this ListChangeTracker with the provided `changeSpec`,</span>
+<span class="sd">    which is expected to be in the same format as what would have been</span>
+<span class="sd">    returned by a call to ``str()`` on this object. The change-spec</span>
+<span class="sd">    will look similar to::</span>
+
+<span class="sd">      2:a,1:M68b329d...,1:mh4d9,2:Dba45...,3:a</span>
+
+<span class="sd">    If `changeSpec` is not specified, this ListChangeTracker will</span>
+<span class="sd">    start assuming no prior changes were made to any content and will</span>
+<span class="sd">    expect changes to be reported via :meth:`pushChange`.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">baseline</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">current</span>  <span class="o">=</span> <span class="p">[]</span>
+    <span class="nb">super</span><span class="p">(</span><span class="n">ListChangeTracker</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="n">changeSpec</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="nd">@property</span>
+  <span class="k">def</span> <span class="nf">allchanges</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_changes2struct</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_collapseChanges</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">baseline</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">current</span><span class="p">))</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="nd">@property</span>
+  <span class="k">def</span> <span class="nf">changes</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_changes2struct</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">current</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">_changes2struct</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">changes</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">changes</span><span class="p">:</span>
+      <span class="n">op</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">:</span>    <span class="s">&#39;a&#39;</span><span class="p">,</span>
+        <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_MODIFIED</span><span class="p">:</span> <span class="s">&#39;M&#39;</span> <span class="k">if</span> <span class="n">val</span><span class="o">.</span><span class="n">md5</span> <span class="k">else</span> <span class="s">&#39;m&#39;</span><span class="p">,</span>
+        <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_DELETED</span><span class="p">:</span>  <span class="s">&#39;D&#39;</span> <span class="k">if</span> <span class="n">val</span><span class="o">.</span><span class="n">md5</span> <span class="k">else</span> <span class="s">&#39;d&#39;</span><span class="p">,</span>
+        <span class="p">}[</span><span class="n">val</span><span class="o">.</span><span class="n">op</span><span class="p">]</span>
+      <span class="k">if</span> <span class="n">val</span><span class="o">.</span><span class="n">op</span> <span class="o">==</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">:</span>
+        <span class="k">yield</span> <span class="p">(</span><span class="n">val</span><span class="o">.</span><span class="n">op</span><span class="p">,</span> <span class="n">val</span><span class="o">.</span><span class="n">index</span><span class="p">,</span> <span class="n">op</span><span class="p">)</span>
+      <span class="k">else</span><span class="p">:</span>
+        <span class="k">yield</span> <span class="p">(</span><span class="n">val</span><span class="o">.</span><span class="n">op</span><span class="p">,</span> <span class="n">val</span><span class="o">.</span><span class="n">index</span><span class="p">,</span> <span class="n">op</span> <span class="o">+</span> <span class="n">u</span><span class="p">(</span><span class="n">val</span><span class="o">.</span><span class="n">ival</span><span class="p">))</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">_changes2spec</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">changes</span><span class="p">):</span>
+    <span class="n">last</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">ret</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+    <span class="k">for</span> <span class="n">optype</span><span class="p">,</span> <span class="n">index</span><span class="p">,</span> <span class="n">fspec</span> <span class="ow">in</span> <span class="n">changes</span><span class="p">:</span>
+      <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">ret</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">ret</span> <span class="o">+=</span> <span class="s">&#39;,&#39;</span>
+      <span class="n">ret</span> <span class="o">+=</span> <span class="nb">str</span><span class="p">(</span><span class="n">index</span> <span class="o">-</span> <span class="n">last</span><span class="p">)</span> <span class="o">+</span> <span class="s">&#39;:&#39;</span> <span class="o">+</span> <span class="n">fspec</span>
+      <span class="n">last</span> <span class="o">=</span> <span class="n">index</span>
+    <span class="k">return</span> <span class="n">ret</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">pushChangeSpec</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">changeSpec</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">current</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">baseline</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_collapseChanges</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">baseline</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">current</span><span class="p">)</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">current</span>  <span class="o">=</span> <span class="p">[]</span>
+    <span class="nb">super</span><span class="p">(</span><span class="n">ListChangeTracker</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">pushChangeSpec</span><span class="p">(</span><span class="n">changeSpec</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">current</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">baseline</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_collapseChanges</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">baseline</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">current</span><span class="p">)</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">current</span>  <span class="o">=</span> <span class="p">[]</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">_pushChangeSpec</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">changeSpec</span><span class="p">):</span>
+    <span class="n">last</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">for</span> <span class="n">opspec</span> <span class="ow">in</span> <span class="n">changeSpec</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;,&#39;</span><span class="p">):</span>
+      <span class="n">index</span><span class="p">,</span> <span class="n">spec</span> <span class="o">=</span> <span class="n">opspec</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;:&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+      <span class="n">index</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">index</span><span class="p">)</span> <span class="o">+</span> <span class="n">last</span>
+      <span class="n">op</span><span class="p">,</span> <span class="n">md5</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;a&#39;</span><span class="p">:</span> <span class="p">(</span><span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">,</span> <span class="bp">True</span><span class="p">),</span>
+                 <span class="s">&#39;m&#39;</span><span class="p">:</span> <span class="p">(</span><span class="n">constants</span><span class="o">.</span><span class="n">ITEM_MODIFIED</span><span class="p">,</span> <span class="bp">False</span><span class="p">),</span>
+                 <span class="s">&#39;M&#39;</span><span class="p">:</span> <span class="p">(</span><span class="n">constants</span><span class="o">.</span><span class="n">ITEM_MODIFIED</span><span class="p">,</span> <span class="bp">True</span><span class="p">),</span>
+                 <span class="s">&#39;d&#39;</span><span class="p">:</span> <span class="p">(</span><span class="n">constants</span><span class="o">.</span><span class="n">ITEM_DELETED</span><span class="p">,</span> <span class="bp">False</span><span class="p">),</span>
+                 <span class="s">&#39;D&#39;</span><span class="p">:</span> <span class="p">(</span><span class="n">constants</span><span class="o">.</span><span class="n">ITEM_DELETED</span><span class="p">,</span> <span class="bp">True</span><span class="p">),</span>
+                 <span class="p">}[</span><span class="n">spec</span><span class="p">[</span><span class="mi">0</span><span class="p">]]</span>
+      <span class="k">if</span> <span class="n">op</span> <span class="o">==</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">index</span><span class="p">,</span> <span class="n">op</span><span class="p">)</span>
+      <span class="k">else</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">index</span><span class="p">,</span> <span class="n">op</span><span class="p">,</span> <span class="n">uu</span><span class="p">(</span><span class="n">spec</span><span class="p">[</span><span class="mi">1</span><span class="p">:]),</span> <span class="n">md5</span><span class="p">)</span>
+      <span class="n">last</span> <span class="o">=</span> <span class="n">index</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+<div class="viewcode-block" id="ListChangeTracker.append"><a class="viewcode-back" href="../../../pysyncml/change/tracker.html#pysyncml.change.tracker.ListChangeTracker.append">[docs]</a>  <span class="k">def</span> <span class="nf">append</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">listIndex</span><span class="p">,</span> <span class="n">changeType</span><span class="p">,</span> <span class="n">initialValue</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">isMd5</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Adds a change spec to the current list of changes. The `listIndex`</span>
+<span class="sd">    represents the line number (in multi-line mode) or word number (in</span>
+<span class="sd">    single-line mode), and must be **INCLUSIVE** of both additions and</span>
+<span class="sd">    deletions.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">isMd5</span> <span class="ow">and</span> <span class="n">initialValue</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">initialValue</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">32</span><span class="p">:</span>
+      <span class="n">initialValue</span> <span class="o">=</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">md5</span><span class="p">(</span><span class="n">initialValue</span><span class="p">)</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span>
+      <span class="n">isMd5</span>        <span class="o">=</span> <span class="bp">True</span>
+    <span class="n">cur</span> <span class="o">=</span> <span class="n">adict</span><span class="p">(</span><span class="n">index</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">listIndex</span><span class="p">),</span>
+                <span class="n">op</span>    <span class="o">=</span> <span class="n">changeType</span><span class="p">,</span>
+                <span class="n">ival</span>  <span class="o">=</span> <span class="n">initialValue</span><span class="p">,</span>
+                <span class="n">md5</span>   <span class="o">=</span> <span class="n">isMd5</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">current</span><span class="p">):</span>
+      <span class="k">if</span> <span class="n">val</span><span class="o">.</span><span class="n">index</span> <span class="o">&lt;</span> <span class="n">cur</span><span class="o">.</span><span class="n">index</span><span class="p">:</span>
+        <span class="k">continue</span>
+      <span class="k">if</span> <span class="n">val</span><span class="o">.</span><span class="n">index</span> <span class="o">&gt;</span> <span class="n">cur</span><span class="o">.</span><span class="n">index</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">current</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="n">idx</span><span class="p">,</span> <span class="n">cur</span><span class="p">)</span>
+        <span class="k">break</span>
+      <span class="c"># todo: this should never happen... (there should not be a change</span>
+      <span class="c">#       reported for the same line without a `pushChangeSpec()` between)</span>
+      <span class="c"># todo: perhaps attempt a merging?...</span>
+      <span class="k">raise</span> <span class="n">InvalidChangeSpec</span><span class="p">(</span><span class="s">&#39;conflicting changes for index </span><span class="si">%d</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">cur</span><span class="o">.</span><span class="n">index</span><span class="p">,))</span>
+    <span class="k">else</span><span class="p">:</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">current</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">cur</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span></div>
+<div class="viewcode-block" id="ListChangeTracker.isChange"><a class="viewcode-back" href="../../../pysyncml/change/tracker.html#pysyncml.change.tracker.ListChangeTracker.isChange">[docs]</a>  <span class="k">def</span> <span class="nf">isChange</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">listIndex</span><span class="p">,</span> <span class="n">changeType</span><span class="p">,</span> <span class="n">newValue</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">isMd5</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">token</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Implements as specified in :meth:`.ChangeTracker.isChange` where</span>
+<span class="sd">    the `changeObject` is a two-element tuple. The first element is</span>
+<span class="sd">    the index at which the change should be applied, and the second</span>
+<span class="sd">    element is an abstract token that should be passed back into this</span>
+<span class="sd">    method at every iteration.</span>
+
+<span class="sd">    IMPORTANT: unlike the AttributeChangeTracker, the</span>
+<span class="sd">    ListChangeTracker&#39;s `isChange()` method is sensitive to order</span>
+<span class="sd">    (which is why it uses the `changeObject` and `token`</span>
+<span class="sd">    mechanisms. Therefore, it is important to call `isChange()`</span>
+<span class="sd">    sequentially with all changes in the order that they occur in the</span>
+<span class="sd">    change list.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+
+    <span class="c"># THE INDEX PASSED TO ListChangeTracker.isChange() DOES NOT INCLUDE:</span>
+    <span class="c">#   - local deletions</span>
+    <span class="c">#   - remote additions</span>
+
+    <span class="n">adjust</span>  <span class="o">=</span> <span class="mi">0</span>               <span class="c"># tracks local deletes</span>
+    <span class="n">token</span>   <span class="o">=</span> <span class="n">token</span>           <span class="c"># tracks consecutive addition adjustments</span>
+    <span class="n">index</span>   <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">listIndex</span><span class="p">)</span>
+    <span class="n">ret</span>     <span class="o">=</span> <span class="n">index</span>
+
+    <span class="c"># todo: this should reduce complexity later on, but something</span>
+    <span class="c">#       went wrong...</span>
+    <span class="c"># if changeType != constants.ITEM_ADDED:</span>
+    <span class="c">#   token = None</span>
+    <span class="c"># else:</span>
+    <span class="c">#   if token is None or token[0] != index:</span>
+    <span class="c">#     token = (ret, 0)</span>
+    <span class="c">#   token = (ret, token[1] + 1)</span>
+
+    <span class="c"># todo: this seems inefficient...</span>
+    <span class="n">changes</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_collapseChanges</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">baseline</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">current</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">cur</span> <span class="ow">in</span> <span class="n">changes</span><span class="p">:</span>
+      <span class="k">if</span> <span class="n">cur</span><span class="o">.</span><span class="n">index</span> <span class="o">&gt;</span> <span class="n">index</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">changeType</span> <span class="o">!=</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">:</span>
+          <span class="k">return</span> <span class="p">(</span><span class="n">ret</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">token</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">or</span> <span class="n">token</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">!=</span> <span class="n">index</span> <span class="o">-</span> <span class="n">adjust</span><span class="p">:</span>
+          <span class="n">token</span> <span class="o">=</span> <span class="p">(</span><span class="n">ret</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="n">token</span> <span class="o">=</span> <span class="p">(</span><span class="n">ret</span><span class="p">,</span> <span class="n">token</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">ret</span><span class="p">,</span> <span class="n">token</span><span class="p">)</span>
+
+      <span class="k">if</span> <span class="n">cur</span><span class="o">.</span><span class="n">index</span> <span class="o">!=</span> <span class="n">index</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">cur</span><span class="o">.</span><span class="n">op</span> <span class="o">==</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_DELETED</span><span class="p">:</span>
+          <span class="n">index</span>  <span class="o">+=</span> <span class="mi">1</span>
+          <span class="n">adjust</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">continue</span>
+
+      <span class="k">if</span> <span class="n">token</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="n">token</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="n">index</span> <span class="o">-</span> <span class="n">adjust</span><span class="p">:</span>
+        <span class="n">index</span> <span class="o">+=</span> <span class="n">token</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="k">continue</span>
+
+      <span class="k">if</span> <span class="n">changeType</span> <span class="o">==</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_DELETED</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">cur</span><span class="o">.</span><span class="n">op</span> <span class="o">==</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">:</span>
+          <span class="c"># the field is deleted because it hasn&#39;t been added yet</span>
+          <span class="k">return</span> <span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="c"># we are requiring that the current/new values are different,</span>
+        <span class="c"># thus there is a collision between the added values</span>
+        <span class="k">raise</span> <span class="n">ConflictError</span><span class="p">(</span>
+          <span class="s">&#39;conflicting deletion of list index </span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">index</span><span class="p">,))</span>
+
+      <span class="k">if</span> <span class="n">changeType</span> <span class="o">==</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">token</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+          <span class="n">token</span> <span class="o">=</span> <span class="p">(</span><span class="n">ret</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="n">token</span> <span class="o">=</span> <span class="p">(</span><span class="n">ret</span><span class="p">,</span> <span class="n">token</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">cur</span><span class="o">.</span><span class="n">op</span> <span class="o">==</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_DELETED</span><span class="p">:</span>
+          <span class="k">if</span> <span class="n">isMd5Equal</span><span class="p">(</span><span class="n">newValue</span><span class="p">,</span> <span class="n">isMd5</span><span class="p">,</span> <span class="n">cur</span><span class="o">.</span><span class="n">ival</span><span class="p">,</span> <span class="n">cur</span><span class="o">.</span><span class="n">md5</span><span class="p">):</span>
+            <span class="k">return</span> <span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="n">token</span><span class="p">)</span>
+          <span class="c"># todo: this *could* be a del-mod *conflict*... but not</span>
+          <span class="c">#       *NECESSARILY* so, since it could be a</span>
+          <span class="c">#       del-adjacent-add, which is not a problem. in the</span>
+          <span class="c">#       conflict case, the resolution will cause the</span>
+          <span class="c">#       modified line to silently win.</span>
+          <span class="c"># TODO: perhaps i should err on the side of safety and</span>
+          <span class="c">#       issue a ConflictError?...</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">ret</span><span class="p">,</span> <span class="n">token</span><span class="p">)</span>
+
+      <span class="k">if</span> <span class="n">cur</span><span class="o">.</span><span class="n">op</span> <span class="o">==</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_DELETED</span><span class="p">:</span>
+        <span class="n">index</span>  <span class="o">+=</span> <span class="mi">1</span>
+        <span class="n">adjust</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">continue</span>
+
+      <span class="c"># changeType = mod, op = add/mod</span>
+
+      <span class="k">if</span> <span class="n">cur</span><span class="o">.</span><span class="n">op</span> <span class="o">==</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">:</span>
+        <span class="c"># todo: i&#39;m not sure if this case is even possible...</span>
+        <span class="k">raise</span> <span class="n">ConflictError</span><span class="p">(</span>
+          <span class="s">&#39;conflicting addition of list index </span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">index</span><span class="p">,))</span>
+
+      <span class="c"># mod/mod - check initvalue</span>
+
+      <span class="k">if</span> <span class="n">isMd5Equal</span><span class="p">(</span><span class="n">newValue</span><span class="p">,</span> <span class="n">isMd5</span><span class="p">,</span> <span class="n">cur</span><span class="o">.</span><span class="n">ival</span><span class="p">,</span> <span class="n">cur</span><span class="o">.</span><span class="n">md5</span><span class="p">):</span>
+        <span class="c"># the new value is equal to the initial value, so this</span>
+        <span class="c"># line was not changed (but has local changes)</span>
+        <span class="k">return</span> <span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+      <span class="c"># the new value is not equal to the initial value, which means</span>
+      <span class="c"># that they were both changed and/or added.</span>
+      <span class="k">raise</span> <span class="n">ConflictError</span><span class="p">(</span>
+        <span class="s">&#39;conflicting modification of list index </span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">index</span><span class="p">,))</span>
+
+    <span class="k">if</span> <span class="n">changeType</span> <span class="o">!=</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">:</span>
+      <span class="k">return</span> <span class="p">(</span><span class="n">ret</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">token</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">or</span> <span class="n">token</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">!=</span> <span class="n">index</span> <span class="o">-</span> <span class="n">adjust</span><span class="p">:</span>
+      <span class="n">token</span> <span class="o">=</span> <span class="p">(</span><span class="n">ret</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="n">token</span> <span class="o">=</span> <span class="p">(</span><span class="n">ret</span><span class="p">,</span> <span class="n">token</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="k">return</span> <span class="p">(</span><span class="n">ret</span><span class="p">,</span> <span class="n">token</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span></div>
+  <span class="k">def</span> <span class="nf">_collapseChanges</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">baseline</span><span class="p">,</span> <span class="n">current</span><span class="p">):</span>
+
+    <span class="c"># TODO: collapseChanges gets called many times... perhaps it</span>
+    <span class="c">#       would make sense to cache it...</span>
+
+    <span class="n">baseline</span> <span class="o">=</span> <span class="p">[</span><span class="n">e</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">baseline</span><span class="p">]</span>
+    <span class="n">current</span>  <span class="o">=</span> <span class="p">[</span><span class="n">e</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">current</span><span class="p">]</span>
+    <span class="n">baseline</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">e</span><span class="p">:</span> <span class="n">e</span><span class="o">.</span><span class="n">index</span><span class="p">)</span>
+    <span class="n">current</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">e</span><span class="p">:</span> <span class="n">e</span><span class="o">.</span><span class="n">index</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">current</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+      <span class="k">return</span> <span class="n">baseline</span>
+
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">baseline</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+      <span class="k">return</span> <span class="n">current</span>
+
+    <span class="c"># first pass: adjust all indices so that they refer to the same</span>
+    <span class="c"># values by adjusting for DELETEs in baseline and ADDs in current</span>
+
+    <span class="n">bidx</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">cidx</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="k">while</span> <span class="n">bidx</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">baseline</span><span class="p">)</span> <span class="ow">and</span> <span class="n">cidx</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">current</span><span class="p">):</span>
+      <span class="n">curinc</span> <span class="o">=</span> <span class="bp">False</span>
+      <span class="n">basinc</span> <span class="o">=</span> <span class="bp">False</span>
+      <span class="k">if</span> <span class="n">baseline</span><span class="p">[</span><span class="n">bidx</span><span class="p">]</span><span class="o">.</span><span class="n">index</span> <span class="o">&lt;</span> <span class="n">current</span><span class="p">[</span><span class="n">cidx</span><span class="p">]</span><span class="o">.</span><span class="n">index</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">baseline</span><span class="p">[</span><span class="n">bidx</span><span class="p">]</span><span class="o">.</span><span class="n">op</span> <span class="o">!=</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_DELETED</span><span class="p">:</span>
+          <span class="n">bidx</span> <span class="o">+=</span> <span class="mi">1</span>
+          <span class="k">continue</span>
+        <span class="n">curinc</span> <span class="o">=</span> <span class="bp">True</span>
+      <span class="k">elif</span> <span class="n">baseline</span><span class="p">[</span><span class="n">bidx</span><span class="p">]</span><span class="o">.</span><span class="n">index</span> <span class="o">&gt;</span> <span class="n">current</span><span class="p">[</span><span class="n">cidx</span><span class="p">]</span><span class="o">.</span><span class="n">index</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">current</span><span class="p">[</span><span class="n">cidx</span><span class="p">]</span><span class="o">.</span><span class="n">op</span> <span class="o">!=</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">:</span>
+          <span class="n">cidx</span> <span class="o">+=</span> <span class="mi">1</span>
+          <span class="k">continue</span>
+        <span class="n">basinc</span> <span class="o">=</span> <span class="bp">True</span>
+      <span class="k">else</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">baseline</span><span class="p">[</span><span class="n">bidx</span><span class="p">]</span><span class="o">.</span><span class="n">op</span> <span class="o">!=</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_DELETED</span> \
+           <span class="ow">and</span> <span class="n">current</span><span class="p">[</span><span class="n">cidx</span><span class="p">]</span><span class="o">.</span><span class="n">op</span> <span class="o">!=</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">:</span>
+          <span class="n">bidx</span> <span class="o">+=</span> <span class="mi">1</span>
+          <span class="n">cidx</span> <span class="o">+=</span> <span class="mi">1</span>
+          <span class="k">continue</span>
+        <span class="n">curinc</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="n">basinc</span> <span class="o">=</span> <span class="bp">True</span>
+      <span class="k">if</span> <span class="n">curinc</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">cidx</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">current</span><span class="p">)):</span>
+          <span class="k">if</span> <span class="n">current</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span><span class="o">.</span><span class="n">index</span> <span class="o">&gt;=</span> <span class="n">baseline</span><span class="p">[</span><span class="n">bidx</span><span class="p">]</span><span class="o">.</span><span class="n">index</span><span class="p">:</span>
+            <span class="n">current</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span><span class="o">.</span><span class="n">index</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="n">bidx</span> <span class="o">+=</span> <span class="mi">1</span>
+      <span class="k">if</span> <span class="n">basinc</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">bidx</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">baseline</span><span class="p">)):</span>
+          <span class="k">if</span> <span class="n">baseline</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span><span class="o">.</span><span class="n">index</span> <span class="o">&gt;=</span> <span class="n">current</span><span class="p">[</span><span class="n">cidx</span><span class="p">]</span><span class="o">.</span><span class="n">index</span><span class="p">:</span>
+            <span class="n">baseline</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span><span class="o">.</span><span class="n">index</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="n">cidx</span> <span class="o">+=</span> <span class="mi">1</span>
+
+    <span class="c"># second pass: merge changes, negotiating changes to the same</span>
+    <span class="c"># line, and removing changes that cancel each other out.</span>
+
+    <span class="n">hasNone</span> <span class="o">=</span> <span class="bp">False</span>
+    <span class="k">for</span> <span class="n">change</span> <span class="ow">in</span> <span class="n">current</span><span class="p">:</span>
+
+      <span class="n">handled</span> <span class="o">=</span> <span class="bp">False</span>
+
+      <span class="n">insert</span> <span class="o">=</span> <span class="bp">None</span>
+      <span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">bchange</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">baseline</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">bchange</span><span class="o">.</span><span class="n">index</span> <span class="o">&gt;</span> <span class="n">change</span><span class="o">.</span><span class="n">index</span><span class="p">:</span>
+          <span class="n">insert</span> <span class="o">=</span> <span class="n">idx</span>
+          <span class="k">break</span>
+        <span class="k">if</span> <span class="n">bchange</span><span class="o">.</span><span class="n">index</span> <span class="o">==</span> <span class="n">change</span><span class="o">.</span><span class="n">index</span><span class="p">:</span>
+          <span class="k">if</span> <span class="n">change</span><span class="o">.</span><span class="n">op</span> <span class="o">==</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s">&#39;internal error: ADDED state on existing index </span><span class="si">%d</span><span class="s">&#39;</span>
+                            <span class="o">%</span> <span class="p">(</span><span class="n">bchange</span><span class="o">.</span><span class="n">index</span><span class="p">,))</span>
+          <span class="k">elif</span> <span class="n">change</span><span class="o">.</span><span class="n">op</span> <span class="o">==</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_MODIFIED</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">bchange</span><span class="o">.</span><span class="n">op</span> <span class="ow">in</span> <span class="p">(</span><span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">,</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_MODIFIED</span><span class="p">):</span>
+              <span class="n">handled</span> <span class="o">=</span> <span class="bp">True</span>
+              <span class="k">break</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s">&#39;unexpected MODIFIED state on DELETED index on </span><span class="si">%d</span><span class="s">&#39;</span>
+                            <span class="o">%</span> <span class="p">(</span><span class="n">bchange</span><span class="o">.</span><span class="n">index</span><span class="p">,))</span>
+          <span class="k">elif</span> <span class="n">change</span><span class="o">.</span><span class="n">op</span> <span class="o">==</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_DELETED</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">bchange</span><span class="o">.</span><span class="n">op</span> <span class="o">==</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">:</span>
+              <span class="n">bchange</span><span class="o">.</span><span class="n">op</span> <span class="o">=</span> <span class="bp">None</span>
+              <span class="n">hasNone</span> <span class="o">=</span> <span class="bp">True</span>
+            <span class="k">else</span><span class="p">:</span>
+              <span class="n">bchange</span><span class="o">.</span><span class="n">op</span> <span class="o">=</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_DELETED</span>
+            <span class="n">handled</span> <span class="o">=</span> <span class="bp">True</span>
+            <span class="k">break</span>
+          <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s">&#39;unexpected change type </span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">change</span><span class="o">.</span><span class="n">op</span><span class="p">,))</span>
+
+      <span class="k">if</span> <span class="n">handled</span><span class="p">:</span>
+        <span class="k">continue</span>
+
+      <span class="k">if</span> <span class="n">insert</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">baseline</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">change</span><span class="p">)</span>
+      <span class="k">else</span><span class="p">:</span>
+        <span class="n">baseline</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="n">insert</span><span class="p">,</span> <span class="n">change</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">hasNone</span><span class="p">:</span>
+      <span class="k">return</span> <span class="n">baseline</span>
+
+    <span class="n">remcnt</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">for</span> <span class="n">change</span> <span class="ow">in</span> <span class="n">baseline</span><span class="p">:</span>
+      <span class="k">if</span> <span class="n">change</span><span class="o">.</span><span class="n">op</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">remcnt</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">continue</span>
+      <span class="n">change</span><span class="o">.</span><span class="n">index</span> <span class="o">-=</span> <span class="n">remcnt</span>
+
+    <span class="k">return</span> <span class="p">[</span><span class="n">e</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">baseline</span> <span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">op</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">]</span>
+
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="c"># end of $Id$</span>
+<span class="c">#------------------------------------------------------------------------------</span></div>
+</pre></div>
+
+      </div>
+      <div class="bottomnav">
+      
+        <p>
+        <a class="uplink" href="../../../index.html">Contents</a>
+        </p>
+
+      </div>
+
+    <div class="footer">
+        &copy; Copyright 2012-2012, UberDev, No Rights Reserved.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

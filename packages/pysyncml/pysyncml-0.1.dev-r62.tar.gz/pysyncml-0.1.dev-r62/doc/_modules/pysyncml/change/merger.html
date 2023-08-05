@@ -1,0 +1,441 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>pysyncml.change.merger &mdash; pysyncml 0.1 documentation</title>
+    
+    <link rel="stylesheet" href="../../../_static/haiku.css" type="text/css" />
+    <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="../../../_static/print.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../../',
+        VERSION:     '0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../../_static/doctools.js"></script>
+    <script type="text/javascript" src="../../../_static/theme_extras.js"></script>
+    <link rel="top" title="pysyncml 0.1 documentation" href="../../../index.html" />
+    <link rel="up" title="Module code" href="../../index.html" /> 
+  </head>
+  <body>
+      <div class="header"><h1 class="heading"><a href="../../../index.html">
+          <span>pysyncml 0.1 documentation</span></a></h1>
+        <h2 class="heading"><span>pysyncml.change.merger</span></h2>
+      </div>
+      <div class="topnav">
+      
+        <p>
+        <a class="uplink" href="../../../index.html">Contents</a>
+        </p>
+
+      </div>
+      <div class="content">
+        
+        
+  <h1>Source code for pysyncml.change.merger</h1><div class="highlight"><pre>
+<span class="c"># -*- coding: utf-8 -*-</span>
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="c"># file: $Id$</span>
+<span class="c"># lib:  pysyncml.change.merger</span>
+<span class="c"># auth: griffin &lt;griffin@uberdev.org&gt;</span>
+<span class="c"># date: 2012/08/30</span>
+<span class="c"># copy: (C) CopyLoose 2012 UberDev &lt;hardcore@uberdev.org&gt;, No Rights Reserved.</span>
+<span class="c">#------------------------------------------------------------------------------</span>
+
+<span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">The ``pysyncml.change.merger`` is a helper package that provides</span>
+<span class="sd">routines to help with managing change-specs on a slightly higher level</span>
+<span class="sd">than `pysyncml.change.tracker` by actually detecting changes,</span>
+<span class="sd">reporting them to a tracker and merging them back</span>
+<span class="sd">together. Furthermore, it provides routines to help with the detection</span>
+<span class="sd">and merging of text-based changes, either multi-line or singl-line</span>
+<span class="sd">based.</span>
+<span class="sd">&#39;&#39;&#39;</span>
+
+<span class="kn">import</span> <span class="nn">urllib</span><span class="o">,</span> <span class="nn">hashlib</span><span class="o">,</span> <span class="nn">difflib</span>
+<span class="kn">from</span> <span class="nn">..</span> <span class="kn">import</span> <span class="n">constants</span>
+<span class="kn">from</span> <span class="nn">..common</span> <span class="kn">import</span> <span class="n">adict</span><span class="p">,</span> <span class="n">state2string</span>
+<span class="kn">from</span> <span class="nn">.tracker</span> <span class="kn">import</span> <span class="o">*</span>
+
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="k">def</span> <span class="nf">uu</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>
+  <span class="k">return</span> <span class="n">urllib</span><span class="o">.</span><span class="n">unquote</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="k">def</span> <span class="nf">u</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>
+  <span class="k">return</span> <span class="n">urllib</span><span class="o">.</span><span class="n">quote</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+
+<span class="c">#------------------------------------------------------------------------------</span>
+<div class="viewcode-block" id="Merger"><a class="viewcode-back" href="../../../pysyncml/change/merger.html#pysyncml.change.merger.Merger">[docs]</a><span class="k">class</span> <span class="nc">Merger</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+  <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">  Abstract base class for objects returned by the MergerFactory subclasses.</span>
+<span class="sd">  &#39;&#39;&#39;</span>
+  <span class="k">def</span> <span class="nf">pushChangeSpec</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">changeSpec</span><span class="p">):</span>
+    <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">()</span>
+<div class="viewcode-block" id="Merger.pushChange"><a class="viewcode-back" href="../../../pysyncml/change/merger.html#pysyncml.change.merger.Merger.pushChange">[docs]</a>  <span class="k">def</span> <span class="nf">pushChange</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attribute</span><span class="p">,</span> <span class="n">currentValue</span><span class="p">,</span> <span class="n">newValue</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Record the change to the specified `attribute` from the original</span>
+<span class="sd">    value `currentValue` to `newValue`. The merger object itself</span>
+<span class="sd">    (i.e. ``self``) is returned, allowing multiple changes to be</span>
+<span class="sd">    chained. The change-spec returned by :meth:`getChangeSpec` will be</span>
+<span class="sd">    updated according to this merger&#39;s change detection strategy.</span>
+
+<span class="sd">    If `currentValue` is ``None``, the field is assumed to be *added*.</span>
+<span class="sd">    Conversely, if `newValue` is ``None``, the field is assumed to be</span>
+<span class="sd">    *deleted*. If both are ``None`` (or, more generally speaking,</span>
+<span class="sd">    equal), the request is ignored.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">()</span></div>
+<div class="viewcode-block" id="Merger.getChangeSpec"><a class="viewcode-back" href="../../../pysyncml/change/merger.html#pysyncml.change.merger.Merger.getChangeSpec">[docs]</a>  <span class="k">def</span> <span class="nf">getChangeSpec</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Returns the current change-spec representing all calls to</span>
+<span class="sd">    :meth:`pushChange` since construction of this merger.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">()</span></div>
+<div class="viewcode-block" id="Merger.mergeChanges"><a class="viewcode-back" href="../../../pysyncml/change/merger.html#pysyncml.change.merger.Merger.mergeChanges">[docs]</a>  <span class="k">def</span> <span class="nf">mergeChanges</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attribute</span><span class="p">,</span> <span class="n">localValue</span><span class="p">,</span> <span class="n">remoteValue</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Returns the value of the specified `attribute` as determined by</span>
+<span class="sd">    the change-spec stored by this, the current `localValue` of this</span>
+<span class="sd">    SyncML peer (i.e. the serve-side) and the client-provided</span>
+<span class="sd">    `remoteValue` (i.e. of the remote client-side). Raises a</span>
+<span class="sd">    `pysyncml.ConflictError` if the local changes conflict with the</span>
+<span class="sd">    value provided by the remote peer.</span>
+
+<span class="sd">    If `localValue` is ``None``, the field is assumed to not exist</span>
+<span class="sd">    locally. Conversely, if `remoteValue` is ``None``, the field is</span>
+<span class="sd">    assumed to not exist on the remote peer. If both are ``None`` (or,</span>
+<span class="sd">    more generally speaking, equal), the value is returned as-is</span>
+<span class="sd">    without further investigation.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">()</span>
+
+<span class="c">#------------------------------------------------------------------------------</span></div></div>
+<div class="viewcode-block" id="MergerFactory"><a class="viewcode-back" href="../../../pysyncml/change/merger.html#pysyncml.change.merger.MergerFactory">[docs]</a><span class="k">class</span> <span class="nc">MergerFactory</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+  <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">  Abstract base class for factories to help with reporting and merging</span>
+<span class="sd">  pysyncml change-specs.</span>
+<span class="sd">  &#39;&#39;&#39;</span>
+<div class="viewcode-block" id="MergerFactory.newMerger"><a class="viewcode-back" href="../../../pysyncml/change/merger.html#pysyncml.change.merger.MergerFactory.newMerger">[docs]</a>  <span class="k">def</span> <span class="nf">newMerger</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">changeSpec</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Returns a :class:`Merger` for the specified `changeSpec` which can</span>
+<span class="sd">    be ``None`` if the merger is intended to generate a change-spec.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">()</span>
+
+<span class="c">#------------------------------------------------------------------------------</span></div></div>
+<div class="viewcode-block" id="AttributeMergerFactory"><a class="viewcode-back" href="../../../pysyncml/change/merger.html#pysyncml.change.merger.AttributeMergerFactory">[docs]</a><span class="k">class</span> <span class="nc">AttributeMergerFactory</span><span class="p">(</span><span class="n">MergerFactory</span><span class="p">):</span>
+  <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">  A merger factory for generating :class:`AttributeMerger` merger</span>
+<span class="sd">  objects.</span>
+<span class="sd">  &#39;&#39;&#39;</span>
+  <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+    <span class="nb">super</span><span class="p">(</span><span class="n">AttributeMergerFactory</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+  <span class="k">def</span> <span class="nf">newMerger</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">changeSpec</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">AttributeMerger</span><span class="p">(</span><span class="n">changeSpec</span><span class="p">)</span>
+
+<span class="c">#------------------------------------------------------------------------------</span></div>
+<div class="viewcode-block" id="AttributeMerger"><a class="viewcode-back" href="../../../pysyncml/change/merger.html#pysyncml.change.merger.AttributeMerger">[docs]</a><span class="k">class</span> <span class="nc">AttributeMerger</span><span class="p">(</span><span class="n">Merger</span><span class="p">):</span>
+  <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">  A merger that simplifies usage of the</span>
+<span class="sd">  :class:`pysyncml.AttributeChangeTracker</span>
+<span class="sd">  &lt;pysyncml.change.tracker.AttributeChangeTracker&gt;` and allows it to</span>
+<span class="sd">  be used by a CompositeMerger.</span>
+<span class="sd">  &#39;&#39;&#39;</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">changeSpec</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+    <span class="nb">super</span><span class="p">(</span><span class="n">AttributeMerger</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">tracker</span> <span class="o">=</span> <span class="n">AttributeChangeTracker</span><span class="p">(</span><span class="n">changeSpec</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">pushChangeSpec</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">changeSpec</span><span class="p">):</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">tracker</span><span class="o">.</span><span class="n">pushChangeSpec</span><span class="p">(</span><span class="n">changeSpec</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">pushChange</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attribute</span><span class="p">,</span> <span class="n">currentValue</span><span class="p">,</span> <span class="n">newValue</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">currentValue</span> <span class="o">==</span> <span class="n">newValue</span><span class="p">:</span>
+      <span class="k">return</span> <span class="bp">self</span>
+    <span class="k">if</span> <span class="n">currentValue</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">tracker</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">attribute</span><span class="p">,</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">newValue</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">tracker</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">attribute</span><span class="p">,</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_DELETED</span><span class="p">,</span> <span class="n">currentValue</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">tracker</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">attribute</span><span class="p">,</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_MODIFIED</span><span class="p">,</span> <span class="n">currentValue</span><span class="p">)</span>
+    <span class="k">return</span> <span class="bp">self</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">getChangeSpec</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">tracker</span><span class="o">.</span><span class="n">getChangeSpec</span><span class="p">()</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">mergeChanges</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attribute</span><span class="p">,</span> <span class="n">localValue</span><span class="p">,</span> <span class="n">remoteValue</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">localValue</span> <span class="o">==</span> <span class="n">remoteValue</span><span class="p">:</span>
+      <span class="k">return</span> <span class="n">localValue</span>
+    <span class="c"># this will raise ConflictError if there is a conflict</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">tracker</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">attribute</span><span class="p">,</span> <span class="n">localValue</span><span class="p">,</span> <span class="n">remoteValue</span><span class="p">)</span>
+
+<span class="c">#------------------------------------------------------------------------------</span></div>
+<div class="viewcode-block" id="TextMergerFactory"><a class="viewcode-back" href="../../../pysyncml/change/merger.html#pysyncml.change.merger.TextMergerFactory">[docs]</a><span class="k">class</span> <span class="nc">TextMergerFactory</span><span class="p">(</span><span class="n">MergerFactory</span><span class="p">):</span>
+  <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">  A merger factory for generating :class:`TextMerger` merger objects.</span>
+<span class="sd">  &#39;&#39;&#39;</span>
+  <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">multiLine</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+    <span class="nb">super</span><span class="p">(</span><span class="n">TextMergerFactory</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">multiLine</span> <span class="o">=</span> <span class="n">multiLine</span>
+  <span class="k">def</span> <span class="nf">newMerger</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">changeSpec</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">TextMerger</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">multiLine</span><span class="p">,</span> <span class="n">changeSpec</span><span class="p">)</span>
+
+<span class="c">#------------------------------------------------------------------------------</span></div>
+<div class="viewcode-block" id="TextMerger"><a class="viewcode-back" href="../../../pysyncml/change/merger.html#pysyncml.change.merger.TextMerger">[docs]</a><span class="k">class</span> <span class="nc">TextMerger</span><span class="p">(</span><span class="n">Merger</span><span class="p">):</span>
+  <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">  A merger that simplifies usage of the</span>
+<span class="sd">  :class:`pysyncml.ListChangeTracker</span>
+<span class="sd">  &lt;pysyncml.change.tracker.ListChangeTracker&gt;` and allows it to be</span>
+<span class="sd">  used by a CompositeMerger.</span>
+
+<span class="sd">  TODO: currently, the merging algorithm is fairly aggressive (i.e. it may</span>
+<span class="sd">  merge changes that should probably be conflicts). This should be made an</span>
+<span class="sd">  option to provide either aggressive or conservative merging.</span>
+<span class="sd">  &#39;&#39;&#39;</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">multiLine</span><span class="p">,</span> <span class="n">changeSpec</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+    <span class="nb">super</span><span class="p">(</span><span class="n">TextMerger</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">sep</span>     <span class="o">=</span> <span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span> <span class="k">if</span> <span class="n">multiLine</span> <span class="k">else</span> <span class="s">&#39; &#39;</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">tracker</span> <span class="o">=</span> <span class="n">ListChangeTracker</span><span class="p">(</span><span class="n">changeSpec</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">pushChangeSpec</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">changeSpec</span><span class="p">):</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">tracker</span><span class="o">.</span><span class="n">pushChangeSpec</span><span class="p">(</span><span class="n">changeSpec</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">pushChange</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">currentText</span><span class="p">,</span> <span class="n">newText</span><span class="p">):</span>
+    <span class="n">cur</span> <span class="o">=</span> <span class="n">currentText</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sep</span><span class="p">)</span>
+    <span class="n">new</span> <span class="o">=</span> <span class="n">newText</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sep</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">offset</span><span class="p">,</span> <span class="n">changeType</span><span class="p">,</span> <span class="n">curValue</span><span class="p">,</span> <span class="n">newValue</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_getChangeSets</span><span class="p">(</span><span class="n">cur</span><span class="p">,</span> <span class="n">new</span><span class="p">):</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">tracker</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">index</span> <span class="o">+</span> <span class="n">offset</span><span class="p">,</span> <span class="n">changeType</span><span class="p">,</span> <span class="n">curValue</span><span class="p">)</span>
+    <span class="k">return</span> <span class="bp">self</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">getChangeSpec</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">tracker</span><span class="o">.</span><span class="n">getChangeSpec</span><span class="p">()</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">_getChangeSets</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">currentList</span><span class="p">,</span> <span class="n">newList</span><span class="p">):</span>
+    <span class="n">sm</span> <span class="o">=</span> <span class="n">difflib</span><span class="o">.</span><span class="n">SequenceMatcher</span><span class="p">(</span><span class="n">a</span><span class="o">=</span><span class="n">currentList</span><span class="p">,</span> <span class="n">b</span><span class="o">=</span><span class="n">newList</span><span class="p">)</span>
+    <span class="n">idxoffset</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">for</span> <span class="n">opcode</span> <span class="ow">in</span> <span class="n">sm</span><span class="o">.</span><span class="n">get_opcodes</span><span class="p">():</span>
+      <span class="k">if</span> <span class="n">opcode</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;equal&#39;</span><span class="p">:</span>
+        <span class="k">continue</span>
+      <span class="k">if</span> <span class="n">opcode</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;insert&#39;</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">opcode</span><span class="p">[</span><span class="mi">3</span><span class="p">],</span> <span class="n">opcode</span><span class="p">[</span><span class="mi">4</span><span class="p">]):</span>
+          <span class="k">yield</span> <span class="n">opcode</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">idxoffset</span><span class="p">,</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span> <span class="n">newList</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+          <span class="n">idxoffset</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">continue</span>
+      <span class="k">if</span> <span class="n">opcode</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;replace&#39;</span><span class="p">:</span>
+        <span class="n">c0</span> <span class="o">=</span> <span class="n">opcode</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">c1</span> <span class="o">=</span> <span class="n">opcode</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span>
+        <span class="n">cD</span> <span class="o">=</span> <span class="n">c1</span> <span class="o">-</span> <span class="n">c0</span>
+        <span class="n">c1</span> <span class="o">=</span> <span class="n">c0</span> <span class="o">+</span> <span class="nb">min</span><span class="p">(</span><span class="n">cD</span><span class="p">,</span> <span class="n">opcode</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span> <span class="o">-</span> <span class="n">opcode</span><span class="p">[</span><span class="mi">3</span><span class="p">])</span>
+        <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">c0</span><span class="p">,</span> <span class="n">c1</span><span class="p">):</span>
+          <span class="k">yield</span> <span class="n">idx</span><span class="p">,</span> <span class="n">idxoffset</span><span class="p">,</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_MODIFIED</span><span class="p">,</span> \
+            <span class="n">currentList</span><span class="p">[</span><span class="n">idx</span><span class="p">],</span> <span class="n">newList</span><span class="p">[</span><span class="n">opcode</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">+</span> <span class="n">idx</span> <span class="o">-</span> <span class="n">c0</span><span class="p">]</span>
+        <span class="c"># pseudo-inserts</span>
+        <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">opcode</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span> <span class="o">-</span> <span class="n">opcode</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">-</span> <span class="p">(</span> <span class="n">cD</span> <span class="p">)):</span>
+          <span class="k">yield</span> <span class="n">c1</span><span class="p">,</span> <span class="n">idxoffset</span><span class="p">,</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span> <span class="n">newList</span><span class="p">[</span><span class="n">opcode</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">+</span> <span class="n">cD</span> <span class="o">+</span> <span class="n">idx</span><span class="p">]</span>
+          <span class="n">idxoffset</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="c"># pseudo-deletes</span>
+        <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">c1</span><span class="p">,</span> <span class="n">opcode</span><span class="p">[</span><span class="mi">2</span><span class="p">]):</span>
+          <span class="k">yield</span> <span class="n">idx</span><span class="p">,</span> <span class="n">idxoffset</span><span class="p">,</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_DELETED</span><span class="p">,</span> <span class="n">currentList</span><span class="p">[</span><span class="n">idx</span><span class="p">],</span> <span class="bp">None</span>
+        <span class="k">continue</span>
+      <span class="k">if</span> <span class="n">opcode</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;delete&#39;</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">opcode</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">opcode</span><span class="p">[</span><span class="mi">2</span><span class="p">]):</span>
+          <span class="k">yield</span> <span class="n">idx</span><span class="p">,</span> <span class="n">idxoffset</span><span class="p">,</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_DELETED</span><span class="p">,</span> <span class="n">currentList</span><span class="p">[</span><span class="n">idx</span><span class="p">],</span> <span class="bp">None</span>
+        <span class="k">continue</span>
+      <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s">&#39;unexpected difflib opcode &quot;</span><span class="si">%s</span><span class="s">&quot;&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">opcode</span><span class="p">[</span><span class="mi">0</span><span class="p">],))</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">mergeChanges</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">localText</span><span class="p">,</span> <span class="n">remoteText</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">localText</span> <span class="o">==</span> <span class="n">remoteText</span><span class="p">:</span>
+      <span class="k">return</span> <span class="n">localText</span>
+    <span class="n">cur</span>  <span class="o">=</span> <span class="n">localText</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sep</span><span class="p">)</span>
+    <span class="n">new</span>  <span class="o">=</span> <span class="n">remoteText</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sep</span><span class="p">)</span>
+    <span class="n">ret</span>  <span class="o">=</span> <span class="n">cur</span><span class="p">[:]</span>
+    <span class="n">tok</span>  <span class="o">=</span> <span class="bp">None</span>
+    <span class="n">roff</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">offset</span><span class="p">,</span> <span class="n">changeType</span><span class="p">,</span> <span class="n">curValue</span><span class="p">,</span> <span class="n">newValue</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_getChangeSets</span><span class="p">(</span><span class="n">cur</span><span class="p">,</span> <span class="n">new</span><span class="p">):</span>
+      <span class="n">change</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">tracker</span><span class="o">.</span><span class="n">isChange</span><span class="p">(</span><span class="n">index</span><span class="p">,</span> <span class="n">changeType</span><span class="p">,</span> <span class="n">newValue</span><span class="p">,</span> <span class="n">token</span><span class="o">=</span><span class="n">tok</span><span class="p">)</span>
+      <span class="k">if</span> <span class="n">change</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="k">continue</span>
+      <span class="n">change</span><span class="p">,</span> <span class="n">tok</span> <span class="o">=</span> <span class="n">change</span>
+      <span class="k">if</span> <span class="n">change</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="k">continue</span>
+      <span class="k">if</span> <span class="n">changeType</span> <span class="o">==</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_DELETED</span><span class="p">:</span>
+        <span class="n">ret</span><span class="p">[</span><span class="n">change</span> <span class="o">+</span> <span class="n">roff</span><span class="p">]</span> <span class="o">=</span> <span class="bp">None</span>
+      <span class="k">elif</span> <span class="n">changeType</span> <span class="o">==</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_MODIFIED</span><span class="p">:</span>
+        <span class="n">ret</span><span class="p">[</span><span class="n">change</span> <span class="o">+</span> <span class="n">roff</span><span class="p">]</span> <span class="o">=</span> <span class="n">newValue</span>
+      <span class="k">elif</span> <span class="n">changeType</span> <span class="o">==</span> <span class="n">constants</span><span class="o">.</span><span class="n">ITEM_ADDED</span><span class="p">:</span>
+        <span class="n">ret</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="n">change</span> <span class="o">+</span> <span class="n">roff</span><span class="p">,</span> <span class="n">newValue</span><span class="p">)</span>
+        <span class="n">roff</span> <span class="o">+=</span> <span class="mi">1</span>
+      <span class="k">else</span><span class="p">:</span>
+        <span class="ne">Exception</span><span class="p">(</span><span class="s">&#39;received unexpected change type </span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">changeType</span><span class="p">,))</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">sep</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="n">e</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">ret</span> <span class="k">if</span> <span class="n">e</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">])</span>
+
+<span class="c">#------------------------------------------------------------------------------</span></div>
+<div class="viewcode-block" id="CompositeMergerFactory"><a class="viewcode-back" href="../../../pysyncml/change/merger.html#pysyncml.change.merger.CompositeMergerFactory">[docs]</a><span class="k">class</span> <span class="nc">CompositeMergerFactory</span><span class="p">(</span><span class="n">MergerFactory</span><span class="p">):</span>
+  <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">  A merger factory for generating :class:`CompositeMerger` merger</span>
+<span class="sd">  objects, which allows control of what kind of merger to use on a</span>
+<span class="sd">  per-attribute basis.</span>
+<span class="sd">  &#39;&#39;&#39;</span>
+
+  <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sharedDefault</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">mergers</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    The CompositeMergerFactory constructor accepts the following</span>
+<span class="sd">    parameters:</span>
+
+<span class="sd">    :param default:</span>
+
+<span class="sd">      The default merger factory (if unspecified, defaults to an</span>
+<span class="sd">      AttributeMergerFactory). See `sharedDefault` if the default</span>
+<span class="sd">      is not an attribute-based merger factory.</span>
+
+<span class="sd">    :param mergers:</span>
+
+<span class="sd">      A dictionary of (attribute =&gt; MergerFactory) that override the</span>
+<span class="sd">      default merger factory for the specified attribute. If</span>
+<span class="sd">      unspecified, all attributes will use the default merger factory.</span>
+
+<span class="sd">    :param sharedDefault:</span>
+
+<span class="sd">      The `sharedDefault` parameter controls how default attributes</span>
+<span class="sd">      get handled. When ``True`` (the default), then all default</span>
+<span class="sd">      attributes will share a Merger and the Merger will be passed the</span>
+<span class="sd">      attribute name during operations. When ``False``, then each</span>
+<span class="sd">      attribute will get its own Merger and operations will not get</span>
+<span class="sd">      the attribute name. It is important that the `default` and</span>
+<span class="sd">      `sharedDefault` parameters match - for example, if `default` is</span>
+<span class="sd">      set to a ``TextMergerFactory``, then `sharedDefault` must be set</span>
+<span class="sd">      to ``False``.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">shared</span>  <span class="o">=</span> <span class="n">sharedDefault</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">default</span> <span class="o">=</span> <span class="n">default</span> <span class="ow">or</span> <span class="n">AttributeMergerFactory</span><span class="p">()</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">mergers</span> <span class="o">=</span> <span class="n">mergers</span> <span class="ow">or</span> <span class="nb">dict</span><span class="p">()</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">mergers</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">kw</span><span class="p">)</span>
+
+  <span class="k">def</span> <span class="nf">newMerger</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">changeSpec</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">CompositeMerger</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">changeSpec</span><span class="p">)</span>
+
+<span class="c">#------------------------------------------------------------------------------</span></div>
+<div class="viewcode-block" id="CompositeMerger"><a class="viewcode-back" href="../../../pysyncml/change/merger.html#pysyncml.change.merger.CompositeMerger">[docs]</a><span class="k">class</span> <span class="nc">CompositeMerger</span><span class="p">(</span><span class="n">Merger</span><span class="p">):</span>
+  <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">  A composite merger is an attribute-based merger that allows a default</span>
+<span class="sd">  merger for attributes to be specified, which can then be overridden for</span>
+<span class="sd">  specific attributes.</span>
+
+<span class="sd">    TODO: is there perhaps a better way to define when a subsidiary</span>
+<span class="sd">    merger is a dispatch merger (i.e. takes the attribute name as</span>
+<span class="sd">    operational parameter) than to use the factory &quot;sharedDefault&quot;</span>
+<span class="sd">    parameter?</span>
+<span class="sd">  &#39;&#39;&#39;</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">factory</span><span class="p">,</span> <span class="n">changeSpec</span><span class="p">):</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">factory</span> <span class="o">=</span> <span class="n">factory</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">cspec</span>   <span class="o">=</span> <span class="n">changeSpec</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">default</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">factory</span><span class="o">.</span><span class="n">default</span><span class="o">.</span><span class="n">newMerger</span><span class="p">()</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">attrs</span>   <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">changeSpec</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+      <span class="k">for</span> <span class="n">cspec</span> <span class="ow">in</span> <span class="n">changeSpec</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;;&#39;</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pushChangeSpec</span><span class="p">(</span><span class="n">cspec</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">pushChangeSpec</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">changeSpec</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">cspec</span> <span class="ow">in</span> <span class="n">changeSpec</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;&amp;&#39;</span><span class="p">):</span>
+      <span class="k">if</span> <span class="s">&#39;=&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">cspec</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">default</span><span class="o">.</span><span class="n">pushChangeSpec</span><span class="p">(</span><span class="n">uu</span><span class="p">(</span><span class="n">cspec</span><span class="p">))</span>
+        <span class="k">continue</span>
+      <span class="n">attr</span><span class="p">,</span> <span class="n">cspec</span> <span class="o">=</span> <span class="n">cspec</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;=&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">_getMerger</span><span class="p">(</span><span class="n">uu</span><span class="p">(</span><span class="n">attr</span><span class="p">))</span><span class="o">.</span><span class="n">pushChangeSpec</span><span class="p">(</span><span class="n">uu</span><span class="p">(</span><span class="n">cspec</span><span class="p">))</span>
+    <span class="k">return</span> <span class="bp">self</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">_getMerger</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attribute</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">attribute</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">attrs</span><span class="p">:</span>
+      <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">attrs</span><span class="p">[</span><span class="n">attribute</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">attribute</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">factory</span><span class="o">.</span><span class="n">mergers</span><span class="p">:</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">attrs</span><span class="p">[</span><span class="n">attribute</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">factory</span><span class="o">.</span><span class="n">mergers</span><span class="p">[</span><span class="n">attribute</span><span class="p">]</span><span class="o">.</span><span class="n">newMerger</span><span class="p">()</span>
+      <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">attrs</span><span class="p">[</span><span class="n">attribute</span><span class="p">]</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">factory</span><span class="o">.</span><span class="n">shared</span><span class="p">:</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">attrs</span><span class="p">[</span><span class="n">attribute</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">factory</span><span class="o">.</span><span class="n">default</span><span class="o">.</span><span class="n">newMerger</span><span class="p">()</span>
+      <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">attrs</span><span class="p">[</span><span class="n">attribute</span><span class="p">]</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">default</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">pushChange</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attribute</span><span class="p">,</span> <span class="n">currentValue</span><span class="p">,</span> <span class="n">newValue</span><span class="p">):</span>
+    <span class="n">merger</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_getMerger</span><span class="p">(</span><span class="n">attribute</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">merger</span> <span class="ow">is</span> <span class="bp">self</span><span class="o">.</span><span class="n">default</span><span class="p">:</span>
+      <span class="n">merger</span><span class="o">.</span><span class="n">pushChange</span><span class="p">(</span><span class="n">attribute</span><span class="p">,</span> <span class="n">currentValue</span><span class="p">,</span> <span class="n">newValue</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+      <span class="n">merger</span><span class="o">.</span><span class="n">pushChange</span><span class="p">(</span><span class="n">currentValue</span><span class="p">,</span> <span class="n">newValue</span><span class="p">)</span>
+    <span class="k">return</span> <span class="bp">self</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">getChangeSpec</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="n">ret</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">cspec</span> <span class="ow">or</span> <span class="s">&#39;&#39;</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">ret</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+      <span class="n">ret</span> <span class="o">+=</span> <span class="s">&#39;;&#39;</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">default</span><span class="o">.</span><span class="n">getChangeSpec</span><span class="p">()</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+      <span class="k">return</span> <span class="bp">None</span>
+    <span class="n">ret</span> <span class="o">+=</span> <span class="n">u</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">default</span><span class="o">.</span><span class="n">getChangeSpec</span><span class="p">())</span>
+    <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">attrs</span><span class="o">.</span><span class="n">iterkeys</span><span class="p">()):</span>
+      <span class="n">cspec</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">attrs</span><span class="p">[</span><span class="n">attr</span><span class="p">]</span><span class="o">.</span><span class="n">getChangeSpec</span><span class="p">()</span>
+      <span class="k">if</span> <span class="n">cspec</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">None</span>
+      <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">cspec</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">continue</span>
+      <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">ret</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">ret</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">!=</span> <span class="s">&#39;;&#39;</span><span class="p">:</span>
+        <span class="n">ret</span> <span class="o">+=</span> <span class="s">&#39;&amp;&#39;</span>
+      <span class="n">ret</span> <span class="o">+=</span> <span class="n">u</span><span class="p">(</span><span class="n">attr</span><span class="p">)</span> <span class="o">+</span> <span class="s">&#39;=&#39;</span> <span class="o">+</span> <span class="n">u</span><span class="p">(</span><span class="n">cspec</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">ret</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">mergeChanges</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attribute</span><span class="p">,</span> <span class="n">localValue</span><span class="p">,</span> <span class="n">remoteValue</span><span class="p">):</span>
+    <span class="n">merger</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_getMerger</span><span class="p">(</span><span class="n">attribute</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">merger</span> <span class="ow">is</span> <span class="bp">self</span><span class="o">.</span><span class="n">default</span><span class="p">:</span>
+      <span class="k">return</span> <span class="n">merger</span><span class="o">.</span><span class="n">mergeChanges</span><span class="p">(</span><span class="n">attribute</span><span class="p">,</span> <span class="n">localValue</span><span class="p">,</span> <span class="n">remoteValue</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">merger</span><span class="o">.</span><span class="n">mergeChanges</span><span class="p">(</span><span class="n">localValue</span><span class="p">,</span> <span class="n">remoteValue</span><span class="p">)</span>
+
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="c"># end of $Id$</span>
+<span class="c">#------------------------------------------------------------------------------</span></div>
+</pre></div>
+
+      </div>
+      <div class="bottomnav">
+      
+        <p>
+        <a class="uplink" href="../../../index.html">Contents</a>
+        </p>
+
+      </div>
+
+    <div class="footer">
+        &copy; Copyright 2012-2012, UberDev, No Rights Reserved.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

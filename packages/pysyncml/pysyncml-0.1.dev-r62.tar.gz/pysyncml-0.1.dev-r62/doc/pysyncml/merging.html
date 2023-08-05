@@ -1,0 +1,526 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Matching, Merging, and Conflict Resolution &mdash; pysyncml 0.1 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/haiku.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/print.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <script type="text/javascript" src="../_static/theme_extras.js"></script>
+    <link rel="top" title="pysyncml 0.1 documentation" href="../index.html" />
+    <link rel="next" title="Module: pysyncml.agents" href="agents/index.html" />
+    <link rel="prev" title="Implementing a SyncML Server" href="server.html" /> 
+  </head>
+  <body>
+      <div class="header"><h1 class="heading"><a href="../index.html">
+          <span>pysyncml 0.1 documentation</span></a></h1>
+        <h2 class="heading"><span>Matching, Merging, and Conflict Resolution</span></h2>
+      </div>
+      <div class="topnav">
+      
+        <p>
+        «&#160;&#160;<a href="server.html">Implementing a SyncML Server</a>
+        &#160;&#160;::&#160;&#160;
+        <a class="uplink" href="../index.html">Contents</a>
+        &#160;&#160;::&#160;&#160;
+        <a href="agents/index.html">Module: pysyncml.agents</a>&#160;&#160;»
+        </p>
+
+      </div>
+      <div class="content">
+        
+        
+  <div class="section" id="matching-merging-and-conflict-resolution">
+<h1>Matching, Merging, and Conflict Resolution<a class="headerlink" href="#matching-merging-and-conflict-resolution" title="Permalink to this headline">¶</a></h1>
+<p>In an ideal world, SyncML peers would instantly synchronize globally
+whenever a change occurred on any client. This would mean that
+regardless of which device was accessing, displaying, and modifying
+data, it would always be the most recent version. In the real world,
+however, this rarely happens and certainly cannot be depended
+on. Instead, devices lose network connectivity, some devices may not
+auto-synchronize when there are pending changes, bugs cause
+synchronization software to fail and other conditions may arise that
+result in changes being made to distributed data that is
+out-of-sync. When changes are made to the exact same item, we have a
+SyncML <strong>conflict</strong>.</p>
+<p>Certain kinds of conflicts can be resolved by the SyncML framework,
+others require a <em>merging</em> of the changes by the agent, and finally
+some kinds of changes cannot be automatically resolved at all.</p>
+<p>There are two conditions in which the SyncML protocol can result in
+the necessity to merge items:</p>
+<ul>
+<li><p class="first">Matching items during a slow-sync:</p>
+<p>When two SyncML peers synchronize for the first time, they engage in
+a so-called &#8220;slow-sync&#8221;, where all items are sent to the server,
+which then analyzes them and attempts to establish a common baseline
+of synchronized items. In this process, the server will attempt to
+match identical items and not duplicate them. See <a class="reference internal" href="#matching">Matching</a> for
+details.</p>
+</li>
+<li><p class="first">Concurrent changes made to the same item:</p>
+<p>When two SyncML peers that have synchronized before make changes to
+the same item, and then synchronize, the two items will be in a
+conflict state. Many kinds of changes are mergeable and pysyncml
+tries to identify and execute on these situations. See <a class="reference internal" href="#conflicts">Conflicts</a>
+for details.</p>
+</li>
+</ul>
+<p>In either situation, pysyncml (when operating as the server) will call
+on special <a class="reference internal" href="agents/index.html#pysyncml.agents.base.Agent" title="pysyncml.agents.base.Agent"><tt class="xref py py-class docutils literal"><span class="pre">pysyncml.Agent</span></tt></a>
+methods to help negotiate the resolution - without these methods,
+pysyncml will err on the side of caution and will not automatically
+take any action that may result in the loss of data unless specified
+by the conflict resolution policy, see <a class="reference internal" href="#conflicts">Conflicts</a> for details.</p>
+<div class="section" id="matching">
+<h2>Matching<a class="headerlink" href="#matching" title="Permalink to this headline">¶</a></h2>
+<p>The first time two SyncML peers synchronize, the pysyncml framework
+(when operating as the server role), will try to avoid duplicating
+items by associating matching items. It does this by first calling
+<a class="reference internal" href="agents/index.html#pysyncml.agents.base.Agent.matchItem" title="pysyncml.agents.base.Agent.matchItem"><tt class="xref py py-meth docutils literal"><span class="pre">pysyncml.Agent.matchItem</span></tt></a> on an item (coming from the
+remote peer) being synchronized. If this yields an object, then it is
+compared using <tt class="docutils literal"><span class="pre">cmp()</span></tt>. If that comparison returns 0 (i.e. they are
+identical), then the two objects are assumed to be identical and are
+associated with each other and will by synchronized normally going
+forward.</p>
+<p>If <tt class="docutils literal"><span class="pre">cmp()</span></tt> results in a non-zero value, then the items are assumed
+to represent the same item, but in different states or having
+different sub-properties. In this scenario, pysyncml will then call
+<a class="reference internal" href="agents/index.html#pysyncml.agents.base.Agent.mergeItems" title="pysyncml.agents.base.Agent.mergeItems"><tt class="xref py py-meth docutils literal"><span class="pre">pysyncml.Agent.mergeItems</span></tt></a> to merge the state from the
+remote peer&#8217;s item into the local item. If, for any reason, the two
+items cannot be merged, then a <cite>pysyncml.ConflictError</cite> should be
+raised. When that happens, pysyncml will duplicate the items, and it
+is up to the user to perform a manual merge.</p>
+<p>An example of when matched items may need to be merged: in the context
+of a contact manager, two devices may manage different aspects of the
+same contact: a phone may only store the telephone numbers and an
+address labeling device may only store addresses. As a result,
+pysyncml can be used to match the items on both devices using the
+contact name, and the server agent will then merge the phone numbers
+and the address into a single contact without duplication.</p>
+</div>
+<div class="section" id="conflicts">
+<h2>Conflicts<a class="headerlink" href="#conflicts" title="Permalink to this headline">¶</a></h2>
+<p>When two SyncML peers make changes to the same object without first
+synchronizing the object, there ensues a conflict. It is the SyncML
+peer that is operating as the server role that assumes the
+responsibility for managing such a conflict. Please note that change
+management and conflict resolution are difficult concepts to master,
+especially in distributed environments! For this reason, do not
+hesitate to ask questions on the pysyncml discussion forum if the
+following documentation is not clear!</p>
+<p>The pysyncml server framework will first attempt to merge such
+conflicts (see below for details on how this is accomplished), then
+allow the agents to attempt a merge, and failing that, will take one
+of the following actions, based on the <cite>conflictPolicy</cite> setting (which
+can be set on a per-datastore basis as well as a default policy for
+the adapter):</p>
+<ul>
+<li><p class="first"><strong>pysyncml.POLICY_ERROR</strong>:</p>
+<p>The conflict will result in a terminal error, from which the
+pysyncml server will not be able recover. It is up to the client to
+remove the conflicting change and re-synchronize, or for the
+server&#8217;s <cite>conflictPolicy</cite> to be updated. This is the default policy.</p>
+</li>
+<li><p class="first"><strong>pysyncml.POLICY_CLIENT_WINS</strong>:</p>
+<p>The conflict is resolved by ignoring the change on the server and
+overriding it with the change from the client.</p>
+</li>
+<li><p class="first"><strong>pysyncml.POLICY_SERVER_WINS</strong>:</p>
+<p>The conflict is resolved by ignoring the change from the client and
+overriding it with the change on the server.</p>
+</li>
+</ul>
+</div>
+<div class="section" id="merging-with-pysyncml">
+<h2>Merging with pysyncml<a class="headerlink" href="#merging-with-pysyncml" title="Permalink to this headline">¶</a></h2>
+<p>Matching, conflict resolution and merging are only performed by the
+server-side of a SyncML synchronization. When using pysyncml for the
+server implementation, the pysyncml.Agent provided by the calling
+environment must therefore be prepared to assist in this
+process. Although it is possible for the agent to not provide any
+merging functionality whatsoever, this is not recommended as it means
+that very limited conflict resolution will be possible.</p>
+<p>To help in the process of conflict resolution, the agent must
+primarily help in the merging of modifications made to the same object
+&#8211; all other conflicting changes (such as simultaneous deletion and
+modification of the same object) are usually handled by the
+framework. The pysyncml framework helps agents with this merging by
+providing two features:</p>
+<ul class="simple">
+<li>When an <cite>Agent.replaceItem()</cite> call is made and the flag
+<cite>reportChanges</cite> is set to True, then the framework will
+expect a &#8220;change-spec&#8221; to be returned.</li>
+<li>When an <cite>Agent.mergeItems()</cite> is called, it will be provided an
+aggregation of all of the &#8220;change-spec&#8221;s that have accumulated since
+the last sync and are applicable to the current merging.</li>
+</ul>
+<p>These &#8220;change-specs&#8221; are opaque strings that are agent-specific and
+should describe how the item was changed such that a merging of
+changes to unrelated sections of the item can be merged. With the
+exception that multiple change-specs are concatenated with a semicolon
+(&#8221;;&#8221;) as delimiting separator, the pysyncml framework treats these
+change-specs as opaque strings. Because of this, each agent is free to
+implement them as needed.</p>
+<p>However, pysyncml does provide many helper classes to help with
+generating, parsing and applying change-spec strings, which is the
+recommended approach. Here follows a discussion of how to use the most
+common helper, the <a class="reference internal" href="change/merger.html#pysyncml.change.merger.CompositeMergerFactory" title="pysyncml.change.merger.CompositeMergerFactory"><tt class="xref py py-class docutils literal"><span class="pre">pysyncml.CompositeMergerFactory</span></tt></a>. If for any reason
+you need access to lower-level API&#8217;s, please see the more detailed
+discussion on <a class="reference internal" href="#merging-helpers">Merging Helpers</a>, <a class="reference internal" href="#change-tracking-helpers">Change Tracking Helpers</a>, and
+<a class="reference internal" href="#change-spec-details">Change-Spec Details</a> sections.</p>
+<p>The most common SyncML item merging requirements can usually be
+handled by the <a class="reference internal" href="change/merger.html#pysyncml.change.merger.CompositeMerger" title="pysyncml.change.merger.CompositeMerger"><tt class="xref py py-class docutils literal"><span class="pre">pysyncml.CompositeMerger</span></tt></a>. This class assumes that any
+given changes to an item can be broken down to changes to an
+independent set of fields, each of which can have different merging
+strategies. The <cite>CompositeMergerFactory</cite> is given a dictionary of
+which Merger to use for which field as well as a default merger for
+all unspecified fields. Currently, there exist the following types of
+mergers that can be used for this purpose:</p>
+<ul>
+<li><p class="first"><a class="reference internal" href="change/merger.html#pysyncml.change.merger.AttributeMerger" title="pysyncml.change.merger.AttributeMerger"><tt class="xref py py-class docutils literal"><span class="pre">pysyncml.AttributeMerger</span></tt></a>:</p>
+<p>which is used for atomic string-based fields, where it is assumed
+that any change to that field cannot be merged with another change
+to the exact same field.</p>
+</li>
+<li><p class="first"><a class="reference internal" href="change/merger.html#pysyncml.change.merger.TextMerger" title="pysyncml.change.merger.TextMerger"><tt class="xref py py-class docutils literal"><span class="pre">pysyncml.TextMerger</span></tt></a>:</p>
+<p>which is used for text, i.e. sequences of words or lines, where
+multiple changes to the same field can be merged as long as they
+occur in different parts of the text.</p>
+</li>
+</ul>
+<p>An example of the &#8220;atomic&#8221; fields would be a contact&#8217;s phone number. If
+the number is changed from &#8220;555-1212&#8221; to &#8220;555-<em>9999</em>&#8221; on one client and
+to &#8220;<em>111</em>-1212&#8221; on another, it is unlikely that a merging of these two
+changes (e.g. &#8220;111-9999&#8221;) would result in the desired behavior.</p>
+<p>An example of the &#8220;non-atomic&#8221; field would be a contact&#8217;s &#8220;comments&#8221;
+field, where the user could add multiple lines of free-form text. In
+that case, changes made to different parts of the comments may be
+merged. For example, if the comments for a fictional contact &#8220;Lionel&#8221;
+starts out with:</p>
+<div class="highlight-python"><pre>Lionel's sister went to some boarding school.
+He owes me $150.00 (car rental).</pre>
+</div>
+<p>Then, on one client, the comments&#8217; first line is modified, as
+follows:</p>
+<div class="highlight-python"><pre>Lionel's sister went to the "The Governor's Academy" boarding school.
+He owes me $150.00 (car rental).</pre>
+</div>
+<p>And on another client, the second line is modified, as follows:</p>
+<div class="highlight-python"><pre>Lionel's sister went to some boarding school.
+He owes me $50.00 (car rental - paid back $100 in August).</pre>
+</div>
+<p>Then, since neither change is to the same line, the changes could be
+merged together to yield:</p>
+<div class="highlight-python"><pre>Lionel's sister went to the "The Governor's Academy" boarding school.
+He owes me $50.00 (car rental - paid back $100 in August).</pre>
+</div>
+<p>The following example agent demonstrates the code that would be used
+to implement these two examples with an item that has a &#8220;phone&#8221; and a
+&#8220;comments&#8221; attribute. The &#8220;phone&#8221; attribute is an atomic field and the
+&#8220;comments&#8221; attribute is a multi-line text field:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="kn">import</span> <span class="nn">pysyncml</span>
+
+<span class="k">class</span> <span class="nc">MyAgent</span><span class="p">(</span><span class="n">pysyncml</span><span class="o">.</span><span class="n">Agent</span><span class="p">):</span>
+
+  <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">...</span><span class="p">):</span>
+
+    <span class="o">...</span>
+
+    <span class="c"># construct a composite merger factory that uses an AttributeMerger for</span>
+    <span class="c"># all attributes except the &quot;comments&quot; field, which uses a TextMerger (in</span>
+    <span class="c"># mult-line mode). note that the &quot;default&quot; is redundant here since the</span>
+    <span class="c"># AttributeMerger is the fallback default if not specified.</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">mergerFactory</span> <span class="o">=</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">CompositeMergerFactory</span><span class="p">(</span>
+      <span class="n">default</span>  <span class="o">=</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">AttributeMergerFactory</span><span class="p">(),</span>
+      <span class="n">comments</span> <span class="o">=</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">TextMergerFactory</span><span class="p">())</span>
+
+  <span class="o">...</span>
+
+  <span class="k">def</span> <span class="nf">replaceItem</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">item</span><span class="p">,</span> <span class="n">reportChanges</span><span class="p">):</span>
+
+    <span class="n">current</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">getItem</span><span class="p">(</span><span class="n">item</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+    <span class="n">cspec</span>   <span class="o">=</span> <span class="bp">None</span>
+
+    <span class="k">if</span> <span class="n">reportChanges</span><span class="p">:</span>
+      <span class="n">merger</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">mergerFactory</span><span class="o">.</span><span class="n">newMerger</span><span class="p">()</span>
+      <span class="n">merger</span><span class="o">.</span><span class="n">pushChanges</span><span class="p">(</span><span class="s">&#39;phone&#39;</span><span class="p">,</span> <span class="n">current</span><span class="o">.</span><span class="n">phone</span><span class="p">,</span> <span class="n">item</span><span class="o">.</span><span class="n">phone</span><span class="p">)</span>
+      <span class="n">merger</span><span class="o">.</span><span class="n">pushChanges</span><span class="p">(</span><span class="s">&#39;comments&#39;</span><span class="p">,</span> <span class="n">current</span><span class="o">.</span><span class="n">comments</span><span class="p">,</span> <span class="n">item</span><span class="o">.</span><span class="n">comments</span><span class="p">)</span>
+      <span class="n">cspec</span> <span class="o">=</span> <span class="n">merger</span><span class="o">.</span><span class="n">getChangeSpec</span><span class="p">()</span>
+
+    <span class="c"># here, the local item would get updated with the new values</span>
+    <span class="o">...</span>
+
+    <span class="k">return</span> <span class="n">cspec</span>
+
+  <span class="k">def</span> <span class="nf">mergeItems</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">localItem</span><span class="p">,</span> <span class="n">remoteItem</span><span class="p">,</span> <span class="n">changeSpec</span><span class="p">):</span>
+
+    <span class="n">merger</span>  <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">mergerFactory</span><span class="o">.</span><span class="n">newMerger</span><span class="p">(</span><span class="n">changeSpec</span><span class="p">)</span>
+    <span class="n">tmpItem</span> <span class="o">=</span> <span class="n">localItem</span><span class="o">.</span><span class="n">clone</span><span class="p">()</span>
+
+    <span class="c"># the following calls to mergeChanges() will raise a ConflictError if</span>
+    <span class="c"># there are unmergeable changes.</span>
+
+    <span class="n">tmpItem</span><span class="o">.</span><span class="n">phone</span>    <span class="o">=</span> <span class="n">merger</span><span class="o">.</span><span class="n">mergeChanges</span><span class="p">(</span><span class="s">&#39;phone&#39;</span><span class="p">,</span> <span class="n">localItem</span><span class="o">.</span><span class="n">phone</span><span class="p">,</span> <span class="n">item</span><span class="o">.</span><span class="n">phone</span><span class="p">)</span>
+    <span class="n">tmpItem</span><span class="o">.</span><span class="n">comments</span> <span class="o">=</span> <span class="n">merger</span><span class="o">.</span><span class="n">mergeChanges</span><span class="p">(</span><span class="s">&#39;comments&#39;</span><span class="p">,</span> <span class="n">localItem</span><span class="o">.</span><span class="n">comments</span><span class="p">,</span> <span class="n">item</span><span class="o">.</span><span class="n">comments</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">replaceItem</span><span class="p">(</span><span class="n">tmpItem</span><span class="p">,</span> <span class="bp">True</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="section" id="merging-helpers">
+<h2>Merging Helpers<a class="headerlink" href="#merging-helpers" title="Permalink to this headline">¶</a></h2>
+<p>Although the CompositeMerger is flexible enough to handle a very
+diverse set of requirements, there are inevitably scenarios that
+require more control. For those situations, it is possible to bypass
+the CompositeMerger and use lower-level APIs to manage changes and
+perform merges. The following sections document these APIs.</p>
+<p>The <a class="reference internal" href="change/merger.html#pysyncml.change.merger.Merger" title="pysyncml.change.merger.Merger"><tt class="xref py py-class docutils literal"><span class="pre">pysyncml.Merger</span></tt></a>
+sub-classes are designed to opaquely generate and apply change-specs
+to several different situations:</p>
+<ul>
+<li><p class="first"><a class="reference internal" href="change/merger.html#pysyncml.change.merger.Merger" title="pysyncml.change.merger.Merger"><tt class="xref py py-class docutils literal"><span class="pre">pysyncml.Merger</span></tt></a>:</p>
+<p>The base class for all mergers &#8211; generally not directly useful, as
+it is primarily intended to be useful for aggregate merger
+factories, such as the <a class="reference internal" href="change/merger.html#pysyncml.change.merger.CompositeMergerFactory" title="pysyncml.change.merger.CompositeMergerFactory"><tt class="xref py py-class docutils literal"><span class="pre">pysyncml.CompositeMergerFactory</span></tt></a>.</p>
+</li>
+<li><p class="first"><a class="reference internal" href="change/merger.html#pysyncml.change.merger.AttributeMerger" title="pysyncml.change.merger.AttributeMerger"><tt class="xref py py-class docutils literal"><span class="pre">pysyncml.AttributerMerger</span></tt></a>:</p>
+<p>Tracks changes to, and merges change-specs into, independent fields
+of an item. The merger expects the values to be strings.</p>
+</li>
+<li><p class="first"><a class="reference internal" href="change/merger.html#pysyncml.change.merger.TextMerger" title="pysyncml.change.merger.TextMerger"><tt class="xref py py-class docutils literal"><span class="pre">pysyncml.TextMerger</span></tt></a>:</p>
+<p>Used with text-based content, either single-line or multi-line
+sequences. In single-line mode, changes are tracked with word-level
+granularity. In multi-line mode, changes are tracked with line-level
+granularity, which means that changes to the same line of the text
+will conflict and will not be auto-mergeable.</p>
+</li>
+</ul>
+<p>The <cite>TextMerger</cite> implements the entire process of comparing and
+merging blocks of text and uses the <cite>ListChangeTracker</cite> (see below)
+under the hood to keep track of these changes and detect conflicts. It
+can be used either with items that are entirely composed of a single
+text block (notes, for example), or with individual fields within an
+item that are text blocks (for example, a &#8220;comments&#8221; field in a
+contact), and is then usually combined with the <cite>CompositeMerger</cite>.</p>
+<p>All of the <cite>Merger</cite> subclasses rely on having access to the entire
+field value to simplify change detection and merge application. This
+is not always feasible, for example when dealing with multi-terabyte
+files, and in such scenarios it may be necessary to use the <a class="reference internal" href="#change-tracking-helpers">Change
+Tracking Helpers</a>, which is what the mergers use under the hood.</p>
+</div>
+<div class="section" id="change-tracking-helpers">
+<h2>Change Tracking Helpers<a class="headerlink" href="#change-tracking-helpers" title="Permalink to this headline">¶</a></h2>
+<p>The change tracking helpers provided by pysyncml offer low-level
+control over the generation, parsing, and utilization of change-specs.
+Unlike the <a class="reference internal" href="#merging-helpers">Merging Helpers</a>, the change tracking family of objects
+typically do not require the complete value of a field. Instead, they
+can be given the MD5 checksum of a field, which is most useful when
+the field values are very large or otherwise not accessible.</p>
+<p>The following change trackers exist:</p>
+<ul>
+<li><p class="first"><a class="reference internal" href="change/tracker.html#pysyncml.change.tracker.ChangeTracker" title="pysyncml.change.tracker.ChangeTracker"><tt class="xref py py-class docutils literal"><span class="pre">pysyncml.ChangeTracker</span></tt></a>:</p>
+<p>The base class for all low-level change-spec management classes.</p>
+</li>
+<li><p class="first"><a class="reference internal" href="change/tracker.html#pysyncml.change.tracker.AttributeChangeTracker" title="pysyncml.change.tracker.AttributeChangeTracker"><tt class="xref py py-class docutils literal"><span class="pre">pysyncml.AttributeChangeTracker</span></tt></a>:</p>
+<p>A change tracker that manages changes made to key-value based,
+independent attributes. For example, the attributes of a contact,
+such as &#8220;firstname&#8221;, &#8220;lastname&#8221;, etc.</p>
+</li>
+<li><p class="first"><a class="reference internal" href="change/tracker.html#pysyncml.change.tracker.ListChangeTracker" title="pysyncml.change.tracker.ListChangeTracker"><tt class="xref py py-class docutils literal"><span class="pre">pysyncml.ListChangeTracker</span></tt></a>:</p>
+<p>A change tracker that manages changes to an ordered sequence of
+values, where each element in that order can be added, modified
+or deleted atomically. An example application of this tracker is
+when detecting and merging changes to text blocks: when text is
+broken down into lines (in multi-line mode) or into words (in
+single-line mode).</p>
+</li>
+</ul>
+<p>These change trackers expose the following functionality:</p>
+<ul class="simple">
+<li>Generating and parsing change-spec strings.</li>
+<li>Appending a change, and collapsing multiple change-specs together.</li>
+<li>Change collision detection.</li>
+</ul>
+<p>An example usage of the AttributeChangeTracker: assuming that fields
+within an item are completely independent and that the item exposes a
+dict-like interface to the attributes, then the agent&#8217;s <cite>mergeItems()</cite>
+could look something similar to:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="k">class</span> <span class="nc">MyAgent</span><span class="p">(</span><span class="n">pysyncml</span><span class="o">.</span><span class="n">Agent</span><span class="p">):</span>
+
+  <span class="o">...</span>
+
+  <span class="k">def</span> <span class="nf">mergeItems</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">localItem</span><span class="p">,</span> <span class="n">remoteItem</span><span class="p">,</span> <span class="n">changeSpec</span><span class="p">):</span>
+
+    <span class="c"># create a change tracker primed with the current change-spec</span>
+    <span class="n">tracker</span> <span class="o">=</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">AttributeChangeTracker</span><span class="p">(</span><span class="n">changeSpec</span><span class="p">)</span>
+
+    <span class="c"># create a temporary item that will hold the result of the merging</span>
+    <span class="n">tmpItem</span> <span class="o">=</span> <span class="n">MyItem</span><span class="p">()</span>
+
+    <span class="k">for</span> <span class="n">attr</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">remoteItem</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+
+      <span class="c"># this call will raise pysyncml.ConflictErrer on conflict</span>
+      <span class="n">tmpItem</span><span class="p">[</span><span class="n">attr</span><span class="p">]</span> <span class="o">=</span> <span class="n">tracker</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">attr</span><span class="p">,</span> <span class="n">localItem</span><span class="p">[</span><span class="n">attr</span><span class="p">],</span> <span class="n">value</span><span class="p">)</span>
+
+    <span class="c"># search for deleted fields</span>
+    <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="n">localItem</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+
+      <span class="k">if</span> <span class="n">attr</span> <span class="ow">in</span> <span class="n">remoteItem</span><span class="p">:</span>
+        <span class="c"># this will have been checked in the first loop</span>
+        <span class="k">continue</span>
+
+      <span class="c"># this call will raise pysyncml.ConflictErrer on conflict</span>
+      <span class="n">tmpItem</span><span class="p">[</span><span class="n">attr</span><span class="p">]</span> <span class="o">=</span> <span class="n">tracker</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">attr</span><span class="p">,</span> <span class="n">localItem</span><span class="p">[</span><span class="n">attr</span><span class="p">],</span> <span class="bp">None</span><span class="p">)</span>
+
+      <span class="k">if</span> <span class="n">tmpItem</span><span class="p">[</span><span class="n">attr</span><span class="p">]</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="k">del</span> <span class="n">tmpItem</span><span class="p">[</span><span class="n">attr</span><span class="p">]</span>
+
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">replaceItem</span><span class="p">(</span><span class="n">tmpItem</span><span class="p">,</span> <span class="bp">True</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Note that this example used the <a class="reference internal" href="change/tracker.html#pysyncml.change.tracker.ChangeTracker.update" title="pysyncml.change.tracker.ChangeTracker.update"><tt class="xref py py-meth docutils literal"><span class="pre">pysyncml.ChangeTracker.update</span></tt></a> method, which
+simplifies the value checking, but does result in potentially
+redundant changes to the item. If more granular information is
+required for optimization reasons, you can use the
+<a class="reference internal" href="change/tracker.html#pysyncml.change.tracker.ChangeTracker.isChange" title="pysyncml.change.tracker.ChangeTracker.isChange"><tt class="xref py py-meth docutils literal"><span class="pre">pysyncml.ChangeTracker.isChange</span></tt></a> method. This,
+however, requires that you check the values for equality before hand,
+and treat the return value dependent on what kind of tracker is being
+used.</p>
+</div>
+<div class="section" id="change-spec-details">
+<h2>Change-Spec Details<a class="headerlink" href="#change-spec-details" title="Permalink to this headline">¶</a></h2>
+<p>As mentioned above, a &#8220;change-spec&#8221; is an opaque string which may be
+concatenated with other change-specs and separated via a semicolon
+(&#8221;;&#8221;). Such a change-spec should be generated whenever a change is
+made to the server-side of an item during a SyncML transaction. These
+change-specs are intended to summarize and represent those changes and
+attached to the change event, such that when another change is made,
+it can be evaluated against the changes concurrently made by another
+peer.</p>
+<p>Changes are typically used to only track which &#8220;field&#8221; within an item
+is changed so that merging of multiple changes to a single item can be
+done. These changes typically include a checksum for the initial
+value, not the actual changed value - this is used to minimize how
+much storage is required to track changes. The reason that a checksum
+of the initial value is needed is that the agent performing a merge
+must be able to identify fields with competing changes and which ones
+are actually a no-change change by comparing them to their initial
+value. Note that the checksum is not needed for <em>added</em> fields, only
+for modified and deleted fields.</p>
+<p>For example, a contact agent may only record which fields of a contact
+were modified along with the MD5
+(e.g. &#8220;mod:lastname&#64;d3b07384d113edec49eaa6238ad5ff00&#8221;) and a file
+agent may only record which lines of a file changed
+(e.g. &#8220;mod:14&#64;dd43af56ff406a8cf89fae4e1ac86722&#8221;). Note that in many
+cases the MD5 of a changed field may actually be longer than the
+actual value - it is up to the agent implementing the change-spec to
+detect this and to potentially make some relevant optimizations (such
+an optimization is already implemented by the <a class="reference internal" href="#change-tracking-helpers">Change Tracking
+Helpers</a>).</p>
+<p>Then, when resolving a conflict, the agent checks to see if the same
+field was modified, and if not, a merge can happen. If the same field
+was modified, then an automated merge is not possible, and the change
+request falls back to being handled by the <cite>conflictPolicy</cite> (as
+documented above).</p>
+<p>When pysyncml is tracking changes (i.e. when running as the server
+role), the agent will be called with <cite>reportChanges</cite> set to <tt class="docutils literal"><span class="pre">True</span></tt>
+in the call to <a class="reference internal" href="agents/index.html#pysyncml.agents.base.Agent.replaceItem" title="pysyncml.agents.base.Agent.replaceItem"><tt class="xref py py-meth docutils literal"><span class="pre">pysyncml.Agent.replaceItem</span></tt></a>. This indicates to the agent
+that it should (if possible) return a change-spec that will later be
+used when resolving conflicts. This change-spec should be a string (or
+an object that supports coercion via <tt class="docutils literal"><span class="pre">str()</span></tt>). If multiple changes
+accumulate for the same item, they will be concatenated and separated
+with a semicolon (&#8221;;&#8221;). Semicolons used in the change-spec will <em>not</em>
+be escaped &#8211; it is the responsibility of the change-spec generator
+to be aware of this. The reason is that this allows the change-spec
+generator to create pre-aggregated change-specs.</p>
+<p>During a merge attempt, pysyncml will call the agent&#8217;s
+<a class="reference internal" href="agents/index.html#pysyncml.agents.base.Agent.mergeItems" title="pysyncml.agents.base.Agent.mergeItems"><tt class="xref py py-meth docutils literal"><span class="pre">pysyncml.Agent.mergeItems</span></tt></a> method, with the current
+local item, the new conflicting remote item and the accumulated
+change-spec that is the source of the conflict. The agent must then
+analyze the change-spec in the context of the local and remote item
+states, and either refuse or perform the merge. If it cannot perform
+the merge, it should raise a <cite>pysyncml.ConflictError</cite>, detailing which
+field or fields caused the failure, such that the user can engage a
+manual correction.</p>
+</div>
+<div class="section" id="example-merge">
+<h2>Example Merge<a class="headerlink" href="#example-merge" title="Permalink to this headline">¶</a></h2>
+<p>To illustrate the general workflow, let us assume that we are
+implementing a contact agent, where each item is a contact that can
+have fields such as &#8220;firstname&#8221;, &#8220;lastname&#8221;, &#8220;tel-mobile&#8221;, &#8220;tel-home&#8221;,
+and &#8220;tel-pager&#8221;.</p>
+<p>At some point, the pysyncml server and two clients are completely
+synchronized. Then, the first client modifies a particular record by
+updating both the &#8220;lastname&#8221; and the &#8220;tel-pager&#8221; fields, and
+synchronizes with the server. The server stores the new item and the
+contact agent running on the server reports the following change-spec
+for the item:</p>
+<div class="highlight-python"><pre>mod:lastname@MD5,tel-pager@MD5</pre>
+</div>
+<p>where the &#8220;MD5&#8221; is the MD5 checksum of the <em>initial</em> value before the
+change was made. Then, before the second client synchronizes, the
+first client modifies the record again, this time deleting the
+&#8220;tel-pager&#8221; and adding a &#8220;tel-home&#8221; field. The client synchronizes
+this change with the server, and the server contact agent reports the
+following change-spec:</p>
+<div class="highlight-python"><pre>del:tel-pager@MD5|add:tel-home</pre>
+</div>
+<p>The server then notices that there is still a pending change on this
+item for the second client, and concatenates the change-spec to:</p>
+<div class="highlight-python"><pre>mod:lastname@MD5,tel-pager@MD5;del:tel-pager@MD5|add:tel-home</pre>
+</div>
+<p>Now, the second client makes some changes to the contact and synchronizes
+with the server. Now, the agent is provided with the above change-spec,
+analyzes the changes requested by the second client, and either applies
+them or cancels the operation.</p>
+<p>For example, if the second client had modified &#8220;firstname&#8221; only, then
+there is no conflict, and the agent can perform the merge. If,
+however, there was a change to &#8220;lastname&#8221;, then new value provided by
+the remote client must be inspected. If the new value is not identical
+to either the initial value stored on the change-spec (i.e. no change)
+or the current value (i.e. it was changed the exact same way), then
+the merge should raise a <cite>pysyncml.ConflictError</cite>.</p>
+</div>
+</div>
+
+
+      </div>
+      <div class="bottomnav">
+      
+        <p>
+        «&#160;&#160;<a href="server.html">Implementing a SyncML Server</a>
+        &#160;&#160;::&#160;&#160;
+        <a class="uplink" href="../index.html">Contents</a>
+        &#160;&#160;::&#160;&#160;
+        <a href="agents/index.html">Module: pysyncml.agents</a>&#160;&#160;»
+        </p>
+
+      </div>
+
+    <div class="footer">
+        &copy; Copyright 2012-2012, UberDev, No Rights Reserved.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

@@ -1,0 +1,952 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>pysyncml.cli.base &mdash; pysyncml 0.1 documentation</title>
+    
+    <link rel="stylesheet" href="../../../_static/haiku.css" type="text/css" />
+    <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="../../../_static/print.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../../',
+        VERSION:     '0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../../_static/doctools.js"></script>
+    <script type="text/javascript" src="../../../_static/theme_extras.js"></script>
+    <link rel="top" title="pysyncml 0.1 documentation" href="../../../index.html" />
+    <link rel="up" title="Module code" href="../../index.html" /> 
+  </head>
+  <body>
+      <div class="header"><h1 class="heading"><a href="../../../index.html">
+          <span>pysyncml 0.1 documentation</span></a></h1>
+        <h2 class="heading"><span>pysyncml.cli.base</span></h2>
+      </div>
+      <div class="topnav">
+      
+        <p>
+        <a class="uplink" href="../../../index.html">Contents</a>
+        </p>
+
+      </div>
+      <div class="content">
+        
+        
+  <h1>Source code for pysyncml.cli.base</h1><div class="highlight"><pre>
+<span class="c"># -*- coding: utf-8 -*-</span>
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="c"># file: $Id: files.py 2 2012-05-17 04:39:55Z griff1n $</span>
+<span class="c"># lib:  pysyncml.cli.base</span>
+<span class="c"># auth: griffin &lt;griffin@uberdev.org&gt;</span>
+<span class="c"># date: 2012/08/02</span>
+<span class="c"># copy: (C) CopyLoose 2012 UberDev &lt;hardcore@uberdev.org&gt;, No Rights Reserved.</span>
+<span class="c">#------------------------------------------------------------------------------</span>
+
+<span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">The ``pysyncml.cli.base`` is a helper module that provides commonly used</span>
+<span class="sd">functionality when implementing a pysyncml command line interface</span>
+<span class="sd">synchronization engine.</span>
+<span class="sd">&#39;&#39;&#39;</span>
+
+<span class="kn">import</span> <span class="nn">sys</span><span class="o">,</span> <span class="nn">os</span><span class="o">,</span> <span class="nn">re</span><span class="o">,</span> <span class="nn">time</span><span class="o">,</span> <span class="nn">uuid</span><span class="o">,</span> <span class="nn">hashlib</span><span class="o">,</span> <span class="nn">logging</span><span class="o">,</span> <span class="nn">getpass</span><span class="o">,</span> <span class="nn">traceback</span>
+<span class="kn">import</span> <span class="nn">BaseHTTPServer</span><span class="o">,</span> <span class="nn">Cookie</span><span class="o">,</span> <span class="nn">urlparse</span><span class="o">,</span> <span class="nn">urllib</span><span class="o">,</span> <span class="nn">yaml</span><span class="o">,</span> <span class="nn">argparse</span>
+<span class="kn">import</span> <span class="nn">xml.etree.ElementTree</span> <span class="kn">as</span> <span class="nn">ET</span>
+<span class="kn">import</span> <span class="nn">sqlalchemy</span> <span class="kn">as</span> <span class="nn">sa</span>
+<span class="kn">from</span> <span class="nn">sqlalchemy</span> <span class="kn">import</span> <span class="n">orm</span>
+<span class="kn">from</span> <span class="nn">sqlalchemy.ext.declarative</span> <span class="kn">import</span> <span class="n">declarative_base</span><span class="p">,</span> <span class="n">declared_attr</span>
+<span class="kn">from</span> <span class="nn">sqlalchemy.ext.declarative</span> <span class="kn">import</span> <span class="n">_declarative_constructor</span> <span class="k">as</span> <span class="n">SaInit</span>
+<span class="kn">from</span> <span class="nn">sqlalchemy.orm</span> <span class="kn">import</span> <span class="n">relation</span><span class="p">,</span> <span class="n">synonym</span><span class="p">,</span> <span class="n">backref</span><span class="p">,</span> <span class="n">sessionmaker</span>
+<span class="kn">from</span> <span class="nn">sqlalchemy.orm.exc</span> <span class="kn">import</span> <span class="n">NoResultFound</span>
+<span class="kn">import</span> <span class="nn">pysyncml</span>
+
+<span class="n">log</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="n">__name__</span><span class="p">)</span>
+
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="k">class</span> <span class="nc">LogFormatter</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">Formatter</span><span class="p">):</span>
+  <span class="n">levelString</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="n">logging</span><span class="o">.</span><span class="n">DEBUG</span><span class="p">:</span>       <span class="s">&#39;[  ] DEBUG   &#39;</span><span class="p">,</span>
+    <span class="n">logging</span><span class="o">.</span><span class="n">INFO</span><span class="p">:</span>        <span class="s">&#39;[--] INFO    &#39;</span><span class="p">,</span>
+    <span class="n">logging</span><span class="o">.</span><span class="n">WARNING</span><span class="p">:</span>     <span class="s">&#39;[++] WARNING &#39;</span><span class="p">,</span>
+    <span class="n">logging</span><span class="o">.</span><span class="n">ERROR</span><span class="p">:</span>       <span class="s">&#39;[**] ERROR   &#39;</span><span class="p">,</span>
+    <span class="n">logging</span><span class="o">.</span><span class="n">CRITICAL</span><span class="p">:</span>    <span class="s">&#39;[**] CRITICAL&#39;</span><span class="p">,</span>
+    <span class="p">}</span>
+  <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">logsource</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+    <span class="n">logging</span><span class="o">.</span><span class="n">Formatter</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">logsource</span> <span class="o">=</span> <span class="n">logsource</span>
+  <span class="k">def</span> <span class="nf">format</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">record</span><span class="p">):</span>
+    <span class="n">msg</span> <span class="o">=</span> <span class="n">record</span><span class="o">.</span><span class="n">getMessage</span><span class="p">()</span>
+    <span class="n">pfx</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s</span><span class="s">|</span><span class="si">%s</span><span class="s">: &#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">LogFormatter</span><span class="o">.</span><span class="n">levelString</span><span class="p">[</span><span class="n">record</span><span class="o">.</span><span class="n">levelno</span><span class="p">],</span> <span class="n">record</span><span class="o">.</span><span class="n">name</span><span class="p">)</span> \
+          <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">logsource</span> <span class="k">else</span> \
+          <span class="s">&#39;</span><span class="si">%s</span><span class="s"> &#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">LogFormatter</span><span class="o">.</span><span class="n">levelString</span><span class="p">[</span><span class="n">record</span><span class="o">.</span><span class="n">levelno</span><span class="p">],)</span>
+    <span class="k">if</span> <span class="n">msg</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+      <span class="k">return</span> <span class="s">&#39;</span><span class="si">%s%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">pfx</span><span class="p">,</span> <span class="n">record</span><span class="o">.</span><span class="n">getMessage</span><span class="p">())</span>
+    <span class="k">return</span> <span class="n">pfx</span> <span class="o">+</span> <span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span> <span class="o">+</span> <span class="n">pfx</span><span class="p">)</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">msg</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">))</span>
+
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="k">def</span> <span class="nf">makeModel</span><span class="p">(</span><span class="n">engine</span><span class="p">):</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">class</span> <span class="nc">DatabaseObject</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="nd">@declared_attr</span>
+    <span class="k">def</span> <span class="nf">__tablename__</span><span class="p">(</span><span class="n">cls</span><span class="p">):</span>
+      <span class="k">return</span> <span class="n">cls</span><span class="o">.</span><span class="n">__name__</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+    <span class="nb">id</span> <span class="o">=</span> <span class="n">sa</span><span class="o">.</span><span class="n">Column</span><span class="p">(</span><span class="n">sa</span><span class="o">.</span><span class="n">String</span><span class="p">(</span><span class="mi">32</span><span class="p">),</span> <span class="n">primary_key</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+      <span class="k">if</span> <span class="s">&#39;id&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">kw</span><span class="p">:</span>
+        <span class="n">kw</span><span class="p">[</span><span class="s">&#39;id&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">())</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&#39;-&#39;</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">)</span>
+      <span class="n">SaInit</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">q</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+      <span class="k">return</span> <span class="n">engine</span><span class="o">.</span><span class="n">dbsession</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">cls</span><span class="p">)</span><span class="o">.</span><span class="n">filter_by</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">class</span> <span class="nc">Model</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span> <span class="k">pass</span>
+  <span class="n">model</span> <span class="o">=</span> <span class="n">Model</span><span class="p">()</span>
+  <span class="n">model</span><span class="o">.</span><span class="n">engine</span> <span class="o">=</span> <span class="n">engine</span>
+  <span class="n">model</span><span class="o">.</span><span class="n">DatabaseObject</span> <span class="o">=</span> <span class="n">declarative_base</span><span class="p">(</span><span class="n">cls</span><span class="o">=</span><span class="n">DatabaseObject</span><span class="p">,</span> <span class="n">constructor</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">class</span> <span class="nc">Server</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">DatabaseObject</span><span class="p">):</span>
+    <span class="n">port</span>   <span class="o">=</span> <span class="n">sa</span><span class="o">.</span><span class="n">Column</span><span class="p">(</span><span class="n">sa</span><span class="o">.</span><span class="n">Integer</span><span class="p">)</span>
+    <span class="n">policy</span> <span class="o">=</span> <span class="n">sa</span><span class="o">.</span><span class="n">Column</span><span class="p">(</span><span class="n">sa</span><span class="o">.</span><span class="n">Integer</span><span class="p">)</span>
+  <span class="n">model</span><span class="o">.</span><span class="n">Server</span> <span class="o">=</span> <span class="n">Server</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">class</span> <span class="nc">User</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">DatabaseObject</span><span class="p">):</span>
+    <span class="n">username</span>  <span class="o">=</span> <span class="n">sa</span><span class="o">.</span><span class="n">Column</span><span class="p">(</span><span class="n">sa</span><span class="o">.</span><span class="n">String</span><span class="p">)</span>
+    <span class="n">password</span>  <span class="o">=</span> <span class="n">sa</span><span class="o">.</span><span class="n">Column</span><span class="p">(</span><span class="n">sa</span><span class="o">.</span><span class="n">String</span><span class="p">)</span>
+    <span class="n">server_id</span> <span class="o">=</span> <span class="n">sa</span><span class="o">.</span><span class="n">Column</span><span class="p">(</span><span class="n">sa</span><span class="o">.</span><span class="n">String</span><span class="p">(</span><span class="mi">32</span><span class="p">),</span>
+                          <span class="n">sa</span><span class="o">.</span><span class="n">ForeignKey</span><span class="p">(</span><span class="s">&#39;server.id&#39;</span><span class="p">,</span>
+                                        <span class="n">onupdate</span><span class="o">=</span><span class="s">&#39;CASCADE&#39;</span><span class="p">,</span> <span class="n">ondelete</span><span class="o">=</span><span class="s">&#39;CASCADE&#39;</span><span class="p">),</span>
+                          <span class="n">nullable</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+    <span class="n">server</span>    <span class="o">=</span> <span class="n">relation</span><span class="p">(</span><span class="s">&#39;Server&#39;</span><span class="p">,</span> <span class="n">backref</span><span class="o">=</span><span class="n">backref</span><span class="p">(</span><span class="s">&#39;users&#39;</span><span class="p">,</span> <span class="c"># order_by=id,</span>
+                                                   <span class="n">cascade</span><span class="o">=</span><span class="s">&#39;all, delete-orphan&#39;</span><span class="p">,</span>
+                                                   <span class="n">passive_deletes</span><span class="o">=</span><span class="bp">True</span><span class="p">))</span>
+  <span class="n">model</span><span class="o">.</span><span class="n">User</span> <span class="o">=</span> <span class="n">User</span>
+
+  <span class="k">return</span> <span class="n">model</span>
+
+<span class="c">#------------------------------------------------------------------------------</span>
+<div class="viewcode-block" id="hook"><a class="viewcode-back" href="../../../pysyncml/cli/base.html#pysyncml.cli.base.hook">[docs]</a><span class="k">def</span> <span class="nf">hook</span><span class="p">(</span><span class="n">name</span><span class="p">):</span>
+  <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">  Decorator used to tag a method that should be used as a hook for the</span>
+<span class="sd">  specified `name` hook type.</span>
+<span class="sd">  &#39;&#39;&#39;</span>
+  <span class="k">def</span> <span class="nf">hookTarget</span><span class="p">(</span><span class="n">wrapped</span><span class="p">):</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">wrapped</span><span class="p">,</span> <span class="s">&#39;__hook__&#39;</span><span class="p">):</span>
+      <span class="n">wrapped</span><span class="o">.</span><span class="n">__hook__</span> <span class="o">=</span> <span class="p">[</span><span class="n">name</span><span class="p">]</span>
+    <span class="k">else</span><span class="p">:</span>
+      <span class="n">wrapped</span><span class="o">.</span><span class="n">__hook__</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">wrapped</span>
+  <span class="k">return</span> <span class="n">hookTarget</span>
+
+<span class="c">#------------------------------------------------------------------------------</span></div>
+<div class="viewcode-block" id="CommandLineSyncEngine"><a class="viewcode-back" href="../../../pysyncml/cli/base.html#pysyncml.cli.base.CommandLineSyncEngine">[docs]</a><span class="k">class</span> <span class="nc">CommandLineSyncEngine</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+  <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">  The `CommandLineEngine` class helps ease the burden of creating a command</span>
+<span class="sd">  line sync engine by implementing the following functionality:</span>
+
+<span class="sd">  * Selection and allocation of pysyncml storage repository.</span>
+<span class="sd">  * Generation of an extensible sqlalchemy model.</span>
+<span class="sd">  * Support for client-side and/or server-side operation.</span>
+<span class="sd">  * Configuration of commonly used command line options.</span>
+
+<span class="sd">  There are different subclasses that exist to support different operation</span>
+<span class="sd">  styles:</span>
+
+<span class="sd">  * :class:`DirectorySyncEngine`:</span>
+
+<span class="sd">    A directory-based approach, where the items being synchronized are</span>
+<span class="sd">    stored in a directory, and different directories can have different</span>
+<span class="sd">    application and synchronization profiles.</span>
+
+<span class="sd">  * :class:`LocalUserSyncEngine`:</span>
+
+<span class="sd">    A more centralized approach, where the items being synchronized are stored</span>
+<span class="sd">    in some host-local per-user location (for example, in another application\&#39;s</span>
+<span class="sd">    settings). In this case, the user must specifically request a different</span>
+<span class="sd">    configuration in order to choose a different application or synchronization</span>
+<span class="sd">    profile.</span>
+<span class="sd">  &#39;&#39;&#39;</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+               <span class="n">appLabel</span>         <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+               <span class="n">appDisplay</span>       <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+               <span class="n">appModelVersion</span>  <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+               <span class="n">defaultDevID</span>     <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+               <span class="n">defaultListen</span>    <span class="o">=</span> <span class="mi">80</span><span class="p">,</span>
+               <span class="n">devinfoParams</span>    <span class="o">=</span> <span class="nb">dict</span><span class="p">(),</span>
+               <span class="n">storeParams</span>      <span class="o">=</span> <span class="nb">dict</span><span class="p">(),</span>
+               <span class="n">agent</span>            <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+               <span class="n">hooks</span>            <span class="o">=</span> <span class="bp">None</span><span class="p">,</span>
+               <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    The CommandLineClient base constructor accepts the following parameters:</span>
+
+<span class="sd">    :param appLabel:</span>
+
+<span class="sd">      A short unique identifier for this application, typically set to</span>
+<span class="sd">      the program\&#39;s name, for example &quot;sync-notes&quot;. This label should not</span>
+<span class="sd">      contain any special characters, especially those that are not allowed</span>
+<span class="sd">      as part of a filename. Amongst other things, it is used to:</span>
+
+<span class="sd">      * generate the default device ID, if not specified,</span>
+<span class="sd">      * create application-specific configuration directory/file names,</span>
+<span class="sd">      * default datastore URI,</span>
+<span class="sd">      * and much more.</span>
+
+<span class="sd">    :param appDisplay:</span>
+
+<span class="sd">      The name of the application when displayed to the user, for</span>
+<span class="sd">      example &quot;Note Synchronizer&quot;.</span>
+
+<span class="sd">    The CommandLineClient also has the following additional attributes:</span>
+
+<span class="sd">    :param dataDir:</span>
+
+<span class="sd">      The directory that contains all of the database files - this</span>
+<span class="sd">      is usually taken care of by one of the pre-existing subclasses.</span>
+<span class="sd">      It is expected to end with a &quot;/&quot;.</span>
+
+<span class="sd">    TODO: document all options...</span>
+
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="nb">super</span><span class="p">(</span><span class="n">CommandLineSyncEngine</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__init__</span><span class="p">()</span><span class="c">#*args, **kw)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">appLabel</span>         <span class="o">=</span> <span class="n">appLabel</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">appDisplay</span>       <span class="o">=</span> <span class="n">appDisplay</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">appModelVersion</span>  <span class="o">=</span> <span class="n">appModelVersion</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">defaultDevID</span>     <span class="o">=</span> <span class="n">defaultDevID</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">defaultListen</span>    <span class="o">=</span> <span class="n">defaultListen</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">devinfoParams</span>    <span class="o">=</span> <span class="n">devinfoParams</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">storeParams</span>      <span class="o">=</span> <span class="n">storeParams</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">agent</span>            <span class="o">=</span> <span class="n">agent</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">dataDir</span>          <span class="o">=</span> <span class="bp">None</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_hooks</span>           <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
+
+    <span class="c"># create a default device ID that is fairly certain to be globally unique. for</span>
+    <span class="c"># example, the IMEI number for a mobile phone. in this case, we are using</span>
+    <span class="c"># uuid.getnode() which generates a hash based on the local MAC address.</span>
+    <span class="c"># note that this is only used the first time an app is used with a</span>
+    <span class="c"># given dataDir - after that, the device ID is retrieved from the sync database.</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">defaultDevID</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">defaultDevID</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s</span><span class="s">:</span><span class="si">%x</span><span class="s">:</span><span class="si">%x</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">appLabel</span><span class="p">,</span> <span class="n">uuid</span><span class="o">.</span><span class="n">getnode</span><span class="p">(),</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">())</span>
+
+    <span class="k">for</span> <span class="n">meth</span> <span class="ow">in</span> <span class="nb">dir</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+      <span class="n">meth</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">meth</span><span class="p">)</span>
+      <span class="k">if</span> <span class="ow">not</span> <span class="nb">callable</span><span class="p">(</span><span class="n">meth</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">meth</span><span class="p">,</span> <span class="s">&#39;__hook__&#39;</span><span class="p">):</span>
+        <span class="k">continue</span>
+      <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">meth</span><span class="o">.</span><span class="n">__hook__</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">addHook</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">meth</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">funcs</span> <span class="ow">in</span> <span class="n">hooks</span> <span class="ow">or</span> <span class="p">[]:</span>
+      <span class="k">for</span> <span class="n">func</span> <span class="ow">in</span> <span class="n">funcs</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">addHook</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">func</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+<div class="viewcode-block" id="CommandLineSyncEngine.addHook"><a class="viewcode-back" href="../../../pysyncml/cli/base.html#pysyncml.cli.base.CommandLineSyncEngine.addHook">[docs]</a>  <span class="k">def</span> <span class="nf">addHook</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="nb">callable</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Subscribes `callable` to listen to events of `name` type. The</span>
+<span class="sd">    parameters passed to `callable` are dependent on the specific</span>
+<span class="sd">    event being triggered.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">if</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_hooks</span><span class="p">:</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">_hooks</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_hooks</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">callable</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span></div>
+  <span class="k">def</span> <span class="nf">getHooks</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_hooks</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">default</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">_callHooks</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+    <span class="n">methname</span> <span class="o">=</span> <span class="s">&#39;_callHooks_&#39;</span> <span class="o">+</span> <span class="n">name</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">,</span> <span class="s">&#39;_&#39;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">methname</span><span class="p">):</span>
+      <span class="k">return</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">methname</span><span class="p">)(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">hook</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">getHooks</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="p">[]):</span>
+      <span class="n">hook</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">_setupOptions</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">parser</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">()</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_callHooks</span><span class="p">(</span><span class="s">&#39;options.setup.init&#39;</span><span class="p">)</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+      <span class="s">&#39;-V&#39;</span><span class="p">,</span> <span class="s">&#39;--version&#39;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;version&#39;</span><span class="p">,</span>
+      <span class="n">version</span><span class="o">=</span><span class="s">&#39;</span><span class="si">%(prog)s</span><span class="s"> &#39;</span> <span class="o">+</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">versionString</span><span class="p">,</span>
+      <span class="n">help</span><span class="o">=</span><span class="s">&#39;displays the program version and exits&#39;</span><span class="p">)</span>
+
+    <span class="c"># TODO: i18n!...</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+      <span class="s">&#39;-v&#39;</span><span class="p">,</span> <span class="s">&#39;--verbose&#39;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;count&#39;</span><span class="p">,</span>
+      <span class="n">help</span><span class="o">=</span><span class="s">&#39;enable verbose output to STDERR, mostly for diagnostic&#39;</span>
+      <span class="s">&#39; purposes (multiple invocations increase verbosity)&#39;</span><span class="p">)</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+      <span class="s">&#39;-q&#39;</span><span class="p">,</span> <span class="s">&#39;--quiet&#39;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;store_true&#39;</span><span class="p">,</span>
+      <span class="n">help</span><span class="o">=</span><span class="s">&#39;do not display sync summary&#39;</span><span class="p">)</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">_callHooks</span><span class="p">(</span><span class="s">&#39;options.setup.generic&#39;</span><span class="p">)</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+      <span class="s">&#39;-d&#39;</span><span class="p">,</span> <span class="s">&#39;--describe&#39;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;store_true&#39;</span><span class="p">,</span>
+      <span class="n">help</span><span class="o">=</span><span class="s">&#39;configure the local SyncML adapter, display a summary&#39;</span>
+      <span class="s">&#39; and exit without actually synchronizing&#39;</span><span class="p">)</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+      <span class="s">&#39;-l&#39;</span><span class="p">,</span> <span class="s">&#39;--local&#39;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;store_true&#39;</span><span class="p">,</span>
+      <span class="n">help</span><span class="o">=</span><span class="s">&#39;display the pending local changes and exit&#39;</span>
+      <span class="s">&#39; without actually synchronizing&#39;</span><span class="p">)</span>
+
+    <span class="c"># todo: this &quot;generated based on...&quot; is potentially not accurate</span>
+    <span class="c">#       if the subclass overrides it...</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+      <span class="s">&#39;-i&#39;</span><span class="p">,</span> <span class="s">&#39;--id&#39;</span><span class="p">,</span> <span class="n">dest</span><span class="o">=</span><span class="s">&#39;devid&#39;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;store&#39;</span><span class="p">,</span>
+      <span class="n">help</span><span class="o">=</span><span class="s">&#39;overrides the default device ID, either the stored&#39;</span>
+      <span class="s">&#39; value from a previous sync or the generated default&#39;</span>
+      <span class="s">&#39; (currently &quot;</span><span class="si">%s</span><span class="s">&quot; - generated based on local MAC address&#39;</span>
+      <span class="s">&#39; and current time)&#39;</span>
+      <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">defaultDevID</span><span class="p">,))</span>
+
+    <span class="c"># todo: perhaps display the default from persisted values?...</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+      <span class="s">&#39;-n&#39;</span><span class="p">,</span> <span class="s">&#39;--name&#39;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;store&#39;</span><span class="p">,</span>
+      <span class="n">help</span><span class="o">=</span><span class="s">&#39;sets the local adapter/store name (default: &quot;</span><span class="si">%s</span><span class="s">&quot;)&#39;</span>
+      <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">appDisplay</span><span class="p">,))</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+      <span class="s">&#39;-m&#39;</span><span class="p">,</span> <span class="s">&#39;--mode&#39;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="s">&#39;sync&#39;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;store&#39;</span><span class="p">,</span>
+      <span class="n">help</span><span class="o">=</span><span class="s">&#39;set the synchronization mode - can be one of &quot;sync&quot;&#39;</span>
+      <span class="s">&#39; (for two-way synchronization), &quot;full&quot; (for a complete&#39;</span>
+      <span class="s">&#39; re-synchronization), &quot;pull&quot; (for fetching remote&#39;</span>
+      <span class="s">&#39; changes only), &quot;push&quot; (for pushing local changes only),&#39;</span>
+      <span class="s">&#39; or &quot;pull-over&quot; (to obliterate the local data and&#39;</span>
+      <span class="s">&#39; download the remote data) or &quot;push-over&quot; (to obliterate&#39;</span>
+      <span class="s">&#39; the remote data and upload the local data) - the default&#39;</span>
+      <span class="s">&#39; is &quot;</span><span class="si">%(default)s</span><span class="s">&quot;&#39;</span><span class="p">)</span>
+
+    <span class="c"># todo: this &quot;only required...&quot; is potentially not accurate</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+      <span class="s">&#39;-r&#39;</span><span class="p">,</span> <span class="s">&#39;--remote&#39;</span><span class="p">,</span> <span class="n">metavar</span><span class="o">=</span><span class="s">&#39;URL&#39;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;store&#39;</span><span class="p">,</span>
+      <span class="n">help</span><span class="o">=</span><span class="s">&#39;specifies the remote URL of the SyncML synchronization&#39;</span>
+      <span class="s">&#39; server - only required if the target DIRECTORY has never&#39;</span>
+      <span class="s">&#39; been synchronized, or the synchronization meta information&#39;</span>
+      <span class="s">&#39; was lost&#39;</span><span class="p">)</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+      <span class="s">&#39;-R&#39;</span><span class="p">,</span> <span class="s">&#39;--remote-uri&#39;</span><span class="p">,</span> <span class="n">metavar</span><span class="o">=</span><span class="s">&#39;URI&#39;</span><span class="p">,</span>
+      <span class="n">dest</span><span class="o">=</span><span class="s">&#39;remoteUri&#39;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;store&#39;</span><span class="p">,</span>
+      <span class="n">help</span><span class="o">=</span><span class="s">&#39;specifies the remote datastore URI to bind to. if&#39;</span>
+      <span class="s">&#39; left unspecified, pysyncml will attempt to identify it&#39;</span>
+      <span class="s">&#39; automatically&#39;</span><span class="p">)</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+      <span class="s">&#39;-s&#39;</span><span class="p">,</span> <span class="s">&#39;--server&#39;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;store_true&#39;</span><span class="p">,</span>
+      <span class="n">help</span><span class="o">=</span><span class="s">&#39;enables HTTP server mode. NOTE: currently, a given&#39;</span>
+      <span class="s">&#39; directory should not be used for both client and server&#39;</span>
+      <span class="s">&#39; modes (this can and will eventually be resolved).&#39;</span><span class="p">)</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+      <span class="s">&#39;-L&#39;</span><span class="p">,</span> <span class="s">&#39;--listen&#39;</span><span class="p">,</span> <span class="n">metavar</span><span class="o">=</span><span class="s">&#39;PORT&#39;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;store&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span>
+      <span class="n">help</span><span class="o">=</span><span class="s">&#39;specifies the port to listen on for server mode&#39;</span>
+      <span class="s">&#39; (implies --server and defaults to port </span><span class="si">%d</span><span class="s">)&#39;</span>
+      <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">defaultListen</span><span class="p">,))</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+      <span class="s">&#39;-P&#39;</span><span class="p">,</span> <span class="s">&#39;--policy&#39;</span><span class="p">,</span> <span class="n">metavar</span><span class="o">=</span><span class="s">&#39;POLICY&#39;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;store&#39;</span><span class="p">,</span>
+      <span class="n">help</span><span class="o">=</span><span class="s">&#39;specifies the conflict resolution policy that this&#39;</span>
+      <span class="s">&#39; SyncML peer (when operating as the server role) should use&#39;</span>
+      <span class="s">&#39; to resolve conflicts that cannot be merged or otherwise&#39;</span>
+      <span class="s">&#39; resolved -- can be one of &quot;error&quot; (default), &quot;client-wins&quot;&#39;</span>
+      <span class="s">&#39; or &quot;server-wins&quot;&#39;</span><span class="p">)</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+      <span class="s">&#39;-u&#39;</span><span class="p">,</span> <span class="s">&#39;--username&#39;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;store&#39;</span><span class="p">,</span>
+      <span class="n">help</span><span class="o">=</span><span class="s">&#39;specifies the remote server username to log in with&#39;</span>
+      <span class="s">&#39; (in client mode) or to require authorization for (in&#39;</span>
+      <span class="s">&#39; server mode)&#39;</span><span class="p">)</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+      <span class="s">&#39;-p&#39;</span><span class="p">,</span> <span class="s">&#39;--password&#39;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;store&#39;</span><span class="p">,</span>
+      <span class="n">help</span><span class="o">=</span><span class="s">&#39;specifies the remote server password to log in with&#39;</span>
+      <span class="s">&#39; in client mode (if &quot;--remote&quot; and &quot;--username&quot; is&#39;</span>
+      <span class="s">&#39; specified, but not &quot;--password&quot;, the password will be&#39;</span>
+      <span class="s">&#39; prompted for to avoid leaking the password into the&#39;</span>
+      <span class="s">&#39; local hosts environment, which is the recommended&#39;</span>
+      <span class="s">&#39; approach). in server mode, specifies the password for&#39;</span>
+      <span class="s">&#39; the required username (a present &quot;--username&quot; and missing&#39;</span>
+      <span class="s">&#39; &quot;--password&quot; is handled the same way as in client&#39;</span>
+      <span class="s">&#39; mode)&#39;</span><span class="p">)</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">_callHooks</span><span class="p">(</span><span class="s">&#39;options.setup.term&#39;</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">_loadOptions</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="n">optfile</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dataDir</span><span class="p">,</span> <span class="s">&#39;options.yaml&#39;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isfile</span><span class="p">(</span><span class="n">optfile</span><span class="p">):</span>
+      <span class="k">return</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">optfile</span><span class="p">,</span> <span class="s">&#39;rb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fp</span><span class="p">:</span>
+      <span class="n">options</span> <span class="o">=</span> <span class="n">yaml</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">fp</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">set_defaults</span><span class="p">(</span><span class="o">**</span><span class="n">options</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_callHooks</span><span class="p">(</span><span class="s">&#39;options.persist.load&#39;</span><span class="p">,</span> <span class="n">options</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">_saveOptions</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="n">optfile</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dataDir</span><span class="p">,</span> <span class="s">&#39;options.yaml&#39;</span><span class="p">)</span>
+    <span class="n">options</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">server</span><span class="p">:</span>
+      <span class="n">options</span><span class="p">[</span><span class="s">&#39;server&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">True</span>
+      <span class="n">options</span><span class="p">[</span><span class="s">&#39;listen&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">listen</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_callHooks</span><span class="p">(</span><span class="s">&#39;options.persist.save&#39;</span><span class="p">,</span> <span class="n">options</span><span class="p">)</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">optfile</span><span class="p">,</span> <span class="s">&#39;wb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fp</span><span class="p">:</span>
+      <span class="n">yaml</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">options</span><span class="p">,</span> <span class="n">stream</span><span class="o">=</span><span class="n">fp</span><span class="p">,</span> <span class="n">default_flow_style</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">_parseOptions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">argv</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">argv</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+      <span class="n">argv</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_callHooks</span><span class="p">(</span><span class="s">&#39;options.parse.init&#39;</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">options</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">(</span><span class="n">argv</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_callHooks</span><span class="p">(</span><span class="s">&#39;options.parse.datadir&#39;</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_loadOptions</span><span class="p">()</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">options</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">(</span><span class="n">argv</span><span class="p">)</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">server</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">listen</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">server</span> <span class="o">=</span> <span class="bp">True</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_callHooks</span><span class="p">(</span><span class="s">&#39;options.parse.term&#39;</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_saveOptions</span><span class="p">()</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">_setupLogging</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="c"># setup logging (based on requested verbosity)</span>
+    <span class="n">rootlog</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">()</span>
+    <span class="n">handler</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">StreamHandler</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
+    <span class="n">handler</span><span class="o">.</span><span class="n">setFormatter</span><span class="p">(</span><span class="n">LogFormatter</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">verbose</span> <span class="o">&gt;=</span> <span class="mi">2</span><span class="p">))</span>
+    <span class="n">rootlog</span><span class="o">.</span><span class="n">addHandler</span><span class="p">(</span><span class="n">handler</span><span class="p">)</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">verbose</span> <span class="o">&gt;=</span> <span class="mi">3</span><span class="p">:</span>   <span class="n">rootlog</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">DEBUG</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">verbose</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span> <span class="n">rootlog</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">INFO</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">verbose</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span> <span class="n">rootlog</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">INFO</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>                           <span class="n">rootlog</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">FATAL</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">_setupModel</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="n">createDb</span> <span class="o">=</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isfile</span><span class="p">(</span><span class="s">&#39;</span><span class="si">%s%s</span><span class="s">.db&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dataDir</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">appLabel</span><span class="p">))</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">dbengine</span>  <span class="o">=</span> <span class="n">sa</span><span class="o">.</span><span class="n">create_engine</span><span class="p">(</span><span class="s">&#39;sqlite:///</span><span class="si">%s%s</span><span class="s">.db&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dataDir</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">appLabel</span><span class="p">))</span>
+    <span class="n">pysyncml</span><span class="o">.</span><span class="n">enableSqliteCascadingDeletes</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dbengine</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">dbsession</span> <span class="o">=</span> <span class="n">sessionmaker</span><span class="p">(</span><span class="n">bind</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dbengine</span><span class="p">)()</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_callHooks</span><span class="p">(</span><span class="s">&#39;model.setup.init&#39;</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">makeModel</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_callHooks</span><span class="p">(</span><span class="s">&#39;model.setup.extend&#39;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">createDb</span><span class="p">:</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">DatabaseObject</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">create_all</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dbengine</span><span class="p">)</span>
+    <span class="c"># TODO: implement detection of the schema changing...</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_callHooks</span><span class="p">(</span><span class="s">&#39;model.setup.term&#39;</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">_makeAdapter</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Creates a tuple of ( Context, Adapter ) based on the options</span>
+<span class="sd">    specified by `self.options`. The Context is the pysyncml.Context created for</span>
+<span class="sd">    the storage location specified in `self.options`, and the Adapter is a newly</span>
+<span class="sd">    created Adapter if a previously created one was not found.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">_callHooks</span><span class="p">(</span><span class="s">&#39;adapter.create.init&#39;</span><span class="p">)</span>
+
+    <span class="c"># create a new pysyncml.Context. the main function that this provides is</span>
+    <span class="c"># to give the Adapter a storage engine to store state information across</span>
+    <span class="c"># synchronizations.</span>
+    <span class="n">context</span> <span class="o">=</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">Context</span><span class="p">(</span><span class="n">storage</span><span class="o">=</span><span class="s">&#39;sqlite:///</span><span class="si">%s</span><span class="s">syncml.db&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dataDir</span><span class="p">,),</span>
+                               <span class="n">owner</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">autoCommit</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">_callHooks</span><span class="p">(</span><span class="s">&#39;adapter.create.context&#39;</span><span class="p">,</span> <span class="n">context</span><span class="p">)</span>
+
+    <span class="c"># create an Adapter from the current context. this will either create</span>
+    <span class="c"># a new adapter, or load the current local adapter for the specified</span>
+    <span class="c"># context storage location. if it is new, then lots of required</span>
+    <span class="c"># information (such as device info) will not be set, so we need to</span>
+    <span class="c"># check that and specify it if missing.</span>
+
+    <span class="n">adapter</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">Adapter</span><span class="p">()</span>
+
+    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s">&#39;serverConf&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">serverConf</span><span class="o">.</span><span class="n">policy</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+      <span class="n">adapter</span><span class="o">.</span><span class="n">conflictPolicy</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">serverConf</span><span class="o">.</span><span class="n">policy</span>
+
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">name</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">appDisplay</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+      <span class="n">adapter</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">name</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">appDisplay</span>
+
+    <span class="c"># TODO: stop ignoring ``self.options.remoteUri``... (the router must first support</span>
+    <span class="c">#       manual routes...)</span>
+    <span class="c"># if self.options.remoteUri is not None:</span>
+    <span class="c">#   adapter.router.addRoute(self.agent.uri, self.options.remoteUri)</span>
+
+    <span class="k">if</span> <span class="n">adapter</span><span class="o">.</span><span class="n">devinfo</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+      <span class="n">log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&#39;adapter has no device info - registering new device&#39;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+      <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">devid</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">devid</span> <span class="o">!=</span> <span class="n">adapter</span><span class="o">.</span><span class="n">devinfo</span><span class="o">.</span><span class="n">devID</span><span class="p">:</span>
+        <span class="n">log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&#39;adapter has different device ID - overwriting with new device info&#39;</span><span class="p">)</span>
+        <span class="n">adapter</span><span class="o">.</span><span class="n">devinfo</span> <span class="o">=</span> <span class="bp">None</span>
+
+    <span class="k">if</span> <span class="n">adapter</span><span class="o">.</span><span class="n">devinfo</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+      <span class="c"># setup some information about the local device, most importantly the</span>
+      <span class="c"># device ID, which the remote peer will use to uniquely identify this peer</span>
+      <span class="n">devinfoParams</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+        <span class="n">devID</span>             <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">devid</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">defaultDevID</span><span class="p">,</span>
+        <span class="n">devType</span>           <span class="o">=</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">DEVTYPE_SERVER</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">server</span> <span class="k">else</span> \
+                            <span class="n">pysyncml</span><span class="o">.</span><span class="n">DEVTYPE_WORKSTATION</span><span class="p">,</span>
+        <span class="n">manufacturerName</span>  <span class="o">=</span> <span class="s">&#39;pysyncml&#39;</span><span class="p">,</span>
+        <span class="n">modelName</span>         <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">appLabel</span><span class="p">,</span>
+        <span class="n">softwareVersion</span>   <span class="o">=</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">versionString</span><span class="p">,</span>
+        <span class="n">hierarchicalSync</span>  <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">agent</span><span class="o">.</span><span class="n">hierarchicalSync</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">agent</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="k">else</span> <span class="bp">False</span><span class="p">,</span>
+        <span class="p">)</span>
+      <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">devinfoParams</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">devinfoParams</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">devinfoParams</span><span class="p">)</span>
+      <span class="n">adapter</span><span class="o">.</span><span class="n">devinfo</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">DeviceInfo</span><span class="p">(</span><span class="o">**</span><span class="n">devinfoParams</span><span class="p">)</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">_callHooks</span><span class="p">(</span><span class="s">&#39;adapter.create.adapter&#39;</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">adapter</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">server</span><span class="p">:</span>
+
+      <span class="c"># servers don&#39;t have a fixed peer; i.e. the SyncML message itself</span>
+      <span class="c"># defines which peer is connecting.</span>
+
+      <span class="k">if</span> <span class="n">adapter</span><span class="o">.</span><span class="n">peer</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">remote</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+          <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">remote</span> <span class="o">=</span> <span class="nb">raw_input</span><span class="p">(</span><span class="s">&#39;SyncML remote URL: &#39;</span><span class="p">)</span>
+          <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">username</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">username</span> <span class="o">=</span> <span class="nb">raw_input</span><span class="p">(</span><span class="s">&#39;SyncML remote username (leave empty if none): &#39;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">username</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+              <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">username</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="n">log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&#39;adapter has no remote info - registering new remote adapter&#39;</span><span class="p">)</span>
+      <span class="k">else</span><span class="p">:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">remote</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+          <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">remote</span> <span class="o">!=</span> <span class="n">adapter</span><span class="o">.</span><span class="n">peer</span><span class="o">.</span><span class="n">url</span> \
+             <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">username</span> <span class="o">!=</span> <span class="n">adapter</span><span class="o">.</span><span class="n">peer</span><span class="o">.</span><span class="n">username</span> \
+             <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">password</span> <span class="o">!=</span> <span class="n">adapter</span><span class="o">.</span><span class="n">peer</span><span class="o">.</span><span class="n">password</span><span class="p">:</span>
+            <span class="c">#or self.options.password is not None:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&#39;adapter has invalid or rejected remote info - overwriting with new remote info&#39;</span><span class="p">)</span>
+            <span class="n">adapter</span><span class="o">.</span><span class="n">peer</span> <span class="o">=</span> <span class="bp">None</span>
+
+      <span class="k">if</span> <span class="n">adapter</span><span class="o">.</span><span class="n">peer</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">auth</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">username</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+          <span class="n">auth</span> <span class="o">=</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">NAMESPACE_AUTH_BASIC</span>
+          <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">password</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">password</span> <span class="o">=</span> <span class="n">getpass</span><span class="o">.</span><span class="n">getpass</span><span class="p">(</span><span class="s">&#39;SyncML remote password: &#39;</span><span class="p">)</span>
+        <span class="c"># setup the remote connection parameters, if not already stored in</span>
+        <span class="c"># the adapter sync tables or the URL has changed.</span>
+        <span class="n">adapter</span><span class="o">.</span><span class="n">peer</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">RemoteAdapter</span><span class="p">(</span>
+          <span class="n">url</span>      <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">remote</span><span class="p">,</span>
+          <span class="n">auth</span>     <span class="o">=</span> <span class="n">auth</span><span class="p">,</span>
+          <span class="n">username</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">username</span><span class="p">,</span>
+          <span class="n">password</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">password</span><span class="p">,</span>
+          <span class="p">)</span>
+
+      <span class="bp">self</span><span class="o">.</span><span class="n">_callHooks</span><span class="p">(</span><span class="s">&#39;adapter.create.peer&#39;</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">adapter</span><span class="p">,</span> <span class="n">adapter</span><span class="o">.</span><span class="n">peer</span><span class="p">)</span>
+
+    <span class="c"># add a datastore attached to the URI &quot;note&quot;. the actual value of</span>
+    <span class="c"># the URI is irrelevant - it is only an identifier for this item</span>
+    <span class="c"># synchronization channel. it must be unique within this adapter</span>
+    <span class="c"># and must stay consistent across synchronizations.</span>
+
+    <span class="c"># TODO: this check should be made redundant... (ie. once the</span>
+    <span class="c">#       implementation of Store.merge() is fixed this will</span>
+    <span class="c">#       become a single &quot;addStore()&quot; call without the check first).</span>
+    <span class="n">uri</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">storeParams</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;uri&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">appLabel</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">uri</span> <span class="ow">in</span> <span class="n">adapter</span><span class="o">.</span><span class="n">stores</span><span class="p">:</span>
+      <span class="n">store</span> <span class="o">=</span> <span class="n">adapter</span><span class="o">.</span><span class="n">stores</span><span class="p">[</span><span class="n">uri</span><span class="p">]</span>
+      <span class="n">store</span><span class="o">.</span><span class="n">agent</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">agent</span>
+    <span class="k">else</span><span class="p">:</span>
+      <span class="n">storeParams</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+        <span class="n">uri</span>         <span class="o">=</span> <span class="n">uri</span><span class="p">,</span>
+        <span class="n">displayName</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">name</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">appDisplay</span><span class="p">,</span>
+        <span class="n">agent</span>       <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">agent</span><span class="p">,</span>
+        <span class="c"># TODO: adding this for funambol-compatibility...</span>
+        <span class="n">maxObjSize</span>  <span class="o">=</span> <span class="bp">None</span><span class="p">)</span>
+      <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">storeParams</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">storeParams</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">storeParams</span><span class="p">)</span>
+      <span class="n">store</span> <span class="o">=</span> <span class="n">adapter</span><span class="o">.</span><span class="n">addStore</span><span class="p">(</span><span class="n">context</span><span class="o">.</span><span class="n">Store</span><span class="p">(</span><span class="o">**</span><span class="n">storeParams</span><span class="p">))</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">_callHooks</span><span class="p">(</span><span class="s">&#39;adapter.create.store&#39;</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">adapter</span><span class="p">,</span> <span class="n">store</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">local</span><span class="p">:</span>
+      <span class="k">def</span> <span class="nf">locprint</span><span class="p">(</span><span class="n">msg</span><span class="p">):</span>
+        <span class="k">print</span> <span class="n">msg</span>
+    <span class="k">else</span><span class="p">:</span>
+      <span class="n">locprint</span> <span class="o">=</span> <span class="n">log</span><span class="o">.</span><span class="n">info</span>
+    <span class="k">def</span> <span class="nf">showChanges</span><span class="p">(</span><span class="n">changes</span><span class="p">,</span> <span class="n">prefix</span><span class="p">):</span>
+      <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">changes</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">c</span><span class="o">.</span><span class="n">state</span> <span class="o">!=</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">ITEM_DELETED</span><span class="p">:</span>
+          <span class="n">item</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">agent</span><span class="o">.</span><span class="n">getItem</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">itemID</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+          <span class="n">item</span> <span class="o">=</span> <span class="s">&#39;Item ID </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">itemID</span><span class="p">,)</span>
+        <span class="n">locprint</span><span class="p">(</span><span class="s">&#39;</span><span class="si">%s</span><span class="s">  - </span><span class="si">%s</span><span class="s">: </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">prefix</span><span class="p">,</span> <span class="n">item</span><span class="p">,</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">state2string</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">state</span><span class="p">)))</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">server</span><span class="p">:</span>
+      <span class="n">peers</span> <span class="o">=</span> <span class="n">adapter</span><span class="o">.</span><span class="n">getKnownPeers</span><span class="p">()</span>
+      <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">peers</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">locprint</span><span class="p">(</span><span class="s">&#39;Pending changes to propagate:&#39;</span><span class="p">)</span>
+      <span class="k">else</span><span class="p">:</span>
+        <span class="n">locprint</span><span class="p">(</span><span class="s">&#39;No pending changes to propagate (no peers yet)&#39;</span><span class="p">)</span>
+      <span class="k">for</span> <span class="n">peer</span> <span class="ow">in</span> <span class="n">peers</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">puri</span><span class="p">,</span> <span class="n">pstore</span> <span class="ow">in</span> <span class="n">peer</span><span class="o">.</span><span class="n">stores</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+          <span class="k">if</span> <span class="n">pstore</span><span class="o">.</span><span class="n">binding</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">or</span> <span class="n">pstore</span><span class="o">.</span><span class="n">binding</span><span class="o">.</span><span class="n">uri</span> <span class="o">!=</span> <span class="n">store</span><span class="o">.</span><span class="n">uri</span><span class="p">:</span>
+            <span class="k">continue</span>
+          <span class="n">changes</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">pstore</span><span class="o">.</span><span class="n">getRegisteredChanges</span><span class="p">())</span>
+          <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">changes</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">locprint</span><span class="p">(</span><span class="s">&#39;  Registered to peer &quot;</span><span class="si">%s</span><span class="s">&quot; URI &quot;</span><span class="si">%s</span><span class="s">&quot;: (none)&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">peer</span><span class="o">.</span><span class="n">devID</span><span class="p">,</span> <span class="n">puri</span><span class="p">))</span>
+          <span class="k">else</span><span class="p">:</span>
+            <span class="n">locprint</span><span class="p">(</span><span class="s">&#39;  Registered to peer &quot;</span><span class="si">%s</span><span class="s">&quot; URI &quot;</span><span class="si">%s</span><span class="s">&quot;:&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">peer</span><span class="o">.</span><span class="n">devID</span><span class="p">,</span> <span class="n">puri</span><span class="p">))</span>
+          <span class="n">showChanges</span><span class="p">(</span><span class="n">changes</span><span class="p">,</span> <span class="s">&#39;  &#39;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+      <span class="k">if</span> <span class="n">store</span><span class="o">.</span><span class="n">peer</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">locprint</span><span class="p">(</span><span class="s">&#39;No pending local changes (not associated yet).&#39;</span><span class="p">)</span>
+      <span class="k">else</span><span class="p">:</span>
+        <span class="n">changes</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">store</span><span class="o">.</span><span class="n">peer</span><span class="o">.</span><span class="n">getRegisteredChanges</span><span class="p">())</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">changes</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+          <span class="n">locprint</span><span class="p">(</span><span class="s">&#39;No pending local changes to synchronize.&#39;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+          <span class="n">locprint</span><span class="p">(</span><span class="s">&#39;Pending local changes:&#39;</span><span class="p">)</span>
+        <span class="n">showChanges</span><span class="p">(</span><span class="n">changes</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">)</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">_callHooks</span><span class="p">(</span><span class="s">&#39;adapter.create.term&#39;</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">adapter</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="p">(</span><span class="n">context</span><span class="p">,</span> <span class="n">adapter</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">_runServer</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span><span class="p">):</span>
+    <span class="k">try</span><span class="p">:</span>
+      <span class="n">sconf</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">Server</span><span class="o">.</span><span class="n">q</span><span class="p">()</span><span class="o">.</span><span class="n">one</span><span class="p">()</span>
+    <span class="k">except</span> <span class="n">NoResultFound</span><span class="p">:</span>
+      <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;no prior server - creating new server configuration&#39;</span><span class="p">)</span>
+      <span class="n">sconf</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">Server</span><span class="p">()</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">dbsession</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">sconf</span><span class="p">)</span>
+
+    <span class="c"># TODO: moves this conversion of command-line options to storage</span>
+    <span class="c">#       into the &quot;configure&quot; phase...</span>
+
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">policy</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+      <span class="n">sconf</span><span class="o">.</span><span class="n">policy</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s">&#39;error&#39;</span><span class="p">:</span>          <span class="n">pysyncml</span><span class="o">.</span><span class="n">POLICY_ERROR</span><span class="p">,</span>
+        <span class="s">&#39;client-wins&#39;</span><span class="p">:</span>    <span class="n">pysyncml</span><span class="o">.</span><span class="n">POLICY_CLIENT_WINS</span><span class="p">,</span>
+        <span class="s">&#39;server-wins&#39;</span><span class="p">:</span>    <span class="n">pysyncml</span><span class="o">.</span><span class="n">POLICY_SERVER_WINS</span><span class="p">,</span>
+        <span class="p">}[</span><span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">policy</span><span class="p">]</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">listen</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+      <span class="n">sconf</span><span class="o">.</span><span class="n">port</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">listen</span>
+    <span class="k">if</span> <span class="n">sconf</span><span class="o">.</span><span class="n">port</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+      <span class="n">sconf</span><span class="o">.</span><span class="n">port</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">defaultListen</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">username</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+      <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">password</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">password</span> <span class="o">=</span> <span class="n">getpass</span><span class="o">.</span><span class="n">getpass</span><span class="p">(</span><span class="s">&#39;SyncML remote password: &#39;</span><span class="p">)</span>
+      <span class="c"># todo: support multiple credentials?...</span>
+      <span class="n">sconf</span><span class="o">.</span><span class="n">users</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">User</span><span class="p">(</span><span class="n">username</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">username</span><span class="p">,</span>
+                                     <span class="n">password</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">password</span><span class="p">)]</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">serverConf</span> <span class="o">=</span> <span class="n">sconf</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">dbsession</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+    <span class="n">sessions</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
+    <span class="n">syncengine</span> <span class="o">=</span> <span class="bp">self</span>
+    <span class="k">class</span> <span class="nc">Handler</span><span class="p">(</span><span class="n">BaseHTTPServer</span><span class="o">.</span><span class="n">BaseHTTPRequestHandler</span><span class="p">):</span>
+      <span class="k">def</span> <span class="nf">version_string</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s">&#39;pysyncml/&#39;</span> <span class="o">+</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">versionString</span>
+      <span class="k">def</span> <span class="nf">_parsePathParameters</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">path_params</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
+        <span class="n">pairs</span> <span class="o">=</span> <span class="p">[</span><span class="n">e</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;=&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;;&#39;</span><span class="p">)[</span><span class="mi">1</span><span class="p">:]]</span>
+        <span class="k">for</span> <span class="n">pair</span> <span class="ow">in</span> <span class="n">pairs</span><span class="p">:</span>
+          <span class="n">key</span> <span class="o">=</span> <span class="n">urllib</span><span class="o">.</span><span class="n">unquote_plus</span><span class="p">(</span><span class="n">pair</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+          <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">pair</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">path_params</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="bp">True</span>
+          <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">path_params</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">urllib</span><span class="o">.</span><span class="n">unquote_plus</span><span class="p">(</span><span class="n">pair</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+      <span class="k">def</span> <span class="nf">do_POST</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_parsePathParameters</span><span class="p">()</span>
+        <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;handling POST request to &quot;</span><span class="si">%s</span><span class="s">&quot; (parameters: </span><span class="si">%r</span><span class="s">)&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">path</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">path_params</span><span class="p">)</span>
+        <span class="n">sid</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">session</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">if</span> <span class="s">&#39;Cookie&#39;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="p">:</span>
+          <span class="n">cks</span> <span class="o">=</span> <span class="n">Cookie</span><span class="o">.</span><span class="n">SimpleCookie</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s">&quot;Cookie&quot;</span><span class="p">])</span>
+          <span class="k">if</span> <span class="s">&#39;sessionid&#39;</span> <span class="ow">in</span> <span class="n">cks</span><span class="p">:</span>
+            <span class="n">sid</span> <span class="o">=</span> <span class="n">cks</span><span class="p">[</span><span class="s">&#39;sessionid&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">value</span>
+            <span class="k">if</span> <span class="n">sid</span> <span class="ow">in</span> <span class="n">sessions</span><span class="p">:</span>
+              <span class="bp">self</span><span class="o">.</span><span class="n">session</span> <span class="o">=</span> <span class="n">sessions</span><span class="p">[</span><span class="n">sid</span><span class="p">]</span>
+              <span class="bp">self</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">count</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="k">else</span><span class="p">:</span>
+              <span class="n">sid</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">if</span> <span class="n">sid</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+          <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;no valid session ID found in cookies - checking path parameters&#39;</span><span class="p">)</span>
+          <span class="n">sid</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">path_params</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;sessionid&#39;</span><span class="p">)</span>
+          <span class="k">if</span> <span class="n">sid</span> <span class="ow">in</span> <span class="n">sessions</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">session</span> <span class="o">=</span> <span class="n">sessions</span><span class="p">[</span><span class="n">sid</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">count</span> <span class="o">+=</span> <span class="mi">1</span>
+          <span class="k">else</span><span class="p">:</span>
+            <span class="n">sid</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">if</span> <span class="n">sid</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+          <span class="k">while</span> <span class="n">sid</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">or</span> <span class="n">sid</span> <span class="ow">in</span> <span class="n">sessions</span><span class="p">:</span>
+            <span class="n">sid</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">())</span>
+          <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;request without valid session ID - creating new session: </span><span class="si">%s</span><span class="s">&#39;</span><span class="p">,</span> <span class="n">sid</span><span class="p">)</span>
+          <span class="bp">self</span><span class="o">.</span><span class="n">session</span> <span class="o">=</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">adict</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="n">sid</span><span class="p">,</span> <span class="n">count</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">syncml</span><span class="o">=</span><span class="n">pysyncml</span><span class="o">.</span><span class="n">Session</span><span class="p">())</span>
+          <span class="n">sessions</span><span class="p">[</span><span class="n">sid</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">session</span>
+        <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;session: id=</span><span class="si">%s</span><span class="s">, count=</span><span class="si">%d</span><span class="s">&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">count</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+          <span class="n">response</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">handleRequest</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">,</span> <span class="n">e</span><span class="p">:</span>
+          <span class="bp">self</span><span class="o">.</span><span class="n">send_response</span><span class="p">(</span><span class="mi">500</span><span class="p">)</span>
+          <span class="bp">self</span><span class="o">.</span><span class="n">end_headers</span><span class="p">()</span>
+          <span class="bp">self</span><span class="o">.</span><span class="n">wfile</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">traceback</span><span class="o">.</span><span class="n">format_exc</span><span class="p">())</span>
+          <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">send_response</span><span class="p">(</span><span class="mi">200</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">count</span> <span class="o">&lt;=</span> <span class="mi">1</span><span class="p">:</span>
+          <span class="n">cks</span> <span class="o">=</span> <span class="n">Cookie</span><span class="o">.</span><span class="n">SimpleCookie</span><span class="p">()</span>
+          <span class="n">cks</span><span class="p">[</span><span class="s">&#39;sessionid&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">sid</span>
+          <span class="bp">self</span><span class="o">.</span><span class="n">send_header</span><span class="p">(</span><span class="s">&#39;Set-Cookie&#39;</span><span class="p">,</span> <span class="n">cks</span><span class="o">.</span><span class="n">output</span><span class="p">(</span><span class="n">header</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">response</span><span class="o">.</span><span class="n">contentType</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+          <span class="bp">self</span><span class="o">.</span><span class="n">send_header</span><span class="p">(</span><span class="s">&#39;Content-Type&#39;</span><span class="p">,</span> <span class="n">response</span><span class="o">.</span><span class="n">contentType</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">send_header</span><span class="p">(</span><span class="s">&#39;Content-Length&#39;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">response</span><span class="o">.</span><span class="n">body</span><span class="p">)))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">send_header</span><span class="p">(</span><span class="s">&#39;X-PySyncML-Session&#39;</span><span class="p">,</span> <span class="s">&#39;id=</span><span class="si">%s</span><span class="s">, count=</span><span class="si">%d</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">count</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">end_headers</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">wfile</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">response</span><span class="o">.</span><span class="n">body</span><span class="p">)</span>
+      <span class="k">def</span> <span class="nf">handleRequest</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">syncengine</span><span class="o">.</span><span class="n">dbsession</span> <span class="o">=</span> <span class="n">sessionmaker</span><span class="p">(</span><span class="n">bind</span><span class="o">=</span><span class="n">syncengine</span><span class="o">.</span><span class="n">dbengine</span><span class="p">)()</span>
+        <span class="c"># TODO: enforce authentication...</span>
+        <span class="c"># if len(sconf.users) &gt; 0:</span>
+        <span class="c">#   ...</span>
+        <span class="c">#   self.assertEqual(adict(auth=pysyncml.NAMESPACE_AUTH_BASIC,</span>
+        <span class="c">#                          username=&#39;guest&#39;, password=&#39;guest&#39;),</span>
+        <span class="c">#                    pysyncml.Context.getAuthInfo(request, None))</span>
+        <span class="n">context</span><span class="p">,</span> <span class="n">adapter</span> <span class="o">=</span> <span class="n">syncengine</span><span class="o">.</span><span class="n">_makeAdapter</span><span class="p">()</span>
+        <span class="n">clen</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">if</span> <span class="s">&#39;Content-Length&#39;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="p">:</span>
+          <span class="n">clen</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s">&#39;Content-Length&#39;</span><span class="p">])</span>
+        <span class="n">request</span> <span class="o">=</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">adict</span><span class="p">(</span><span class="n">headers</span><span class="o">=</span><span class="nb">dict</span><span class="p">(((</span><span class="s">&#39;content-type&#39;</span><span class="p">,</span> <span class="s">&#39;application/vnd.syncml+xml&#39;</span><span class="p">),)),</span>
+                                 <span class="n">body</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">rfile</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">clen</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">syncml</span><span class="o">.</span><span class="n">effectiveID</span> <span class="o">=</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">Context</span><span class="o">.</span><span class="n">getTargetID</span><span class="p">(</span><span class="n">request</span><span class="p">)</span>
+        <span class="c"># todo: this should be a bit more robust...</span>
+        <span class="n">urlparts</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">urlparse</span><span class="o">.</span><span class="n">urlsplit</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">syncml</span><span class="o">.</span><span class="n">effectiveID</span><span class="p">))</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">path_params</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;sessionid&#39;</span><span class="p">)</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">id</span><span class="p">:</span>
+          <span class="n">urlparts</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">+=</span> <span class="s">&#39;;sessionid=&#39;</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">id</span>
+          <span class="bp">self</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">syncml</span><span class="o">.</span><span class="n">returnUrl</span> <span class="o">=</span> <span class="n">urlparse</span><span class="o">.</span><span class="n">SplitResult</span><span class="p">(</span><span class="o">*</span><span class="n">urlparts</span><span class="p">)</span><span class="o">.</span><span class="n">geturl</span><span class="p">()</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">Response</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stats</span> <span class="o">=</span> <span class="n">adapter</span><span class="o">.</span><span class="n">handleRequest</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">syncml</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">response</span><span class="p">)</span>
+        <span class="n">syncengine</span><span class="o">.</span><span class="n">dbsession</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">response</span>
+
+    <span class="n">server</span> <span class="o">=</span> <span class="n">BaseHTTPServer</span><span class="o">.</span><span class="n">HTTPServer</span><span class="p">((</span><span class="s">&#39;&#39;</span><span class="p">,</span> <span class="n">sconf</span><span class="o">.</span><span class="n">port</span><span class="p">),</span> <span class="n">Handler</span><span class="p">)</span>
+    <span class="n">log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&#39;starting server on port </span><span class="si">%d</span><span class="s">&#39;</span><span class="p">,</span> <span class="n">sconf</span><span class="o">.</span><span class="n">port</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+      <span class="n">server</span><span class="o">.</span><span class="n">serve_forever</span><span class="p">()</span>
+    <span class="k">except</span> <span class="ne">KeyboardInterrupt</span><span class="p">:</span>
+      <span class="n">log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&#39;shutting down server (stopped by user)&#39;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="mi">0</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">_runClient</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span><span class="p">):</span>
+    <span class="n">context</span><span class="p">,</span> <span class="n">adapter</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_makeAdapter</span><span class="p">()</span>
+    <span class="n">mode</span> <span class="o">=</span> <span class="p">{</span>
+      <span class="s">&#39;sync&#39;</span><span class="p">:</span>      <span class="n">pysyncml</span><span class="o">.</span><span class="n">SYNCTYPE_TWO_WAY</span><span class="p">,</span>
+      <span class="s">&#39;full&#39;</span><span class="p">:</span>      <span class="n">pysyncml</span><span class="o">.</span><span class="n">SYNCTYPE_SLOW_SYNC</span><span class="p">,</span>
+      <span class="s">&#39;pull&#39;</span><span class="p">:</span>      <span class="n">pysyncml</span><span class="o">.</span><span class="n">SYNCTYPE_ONE_WAY_FROM_SERVER</span><span class="p">,</span>
+      <span class="s">&#39;push&#39;</span><span class="p">:</span>      <span class="n">pysyncml</span><span class="o">.</span><span class="n">SYNCTYPE_ONE_WAY_FROM_CLIENT</span><span class="p">,</span>
+      <span class="s">&#39;pull-over&#39;</span><span class="p">:</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">SYNCTYPE_REFRESH_FROM_SERVER</span><span class="p">,</span>
+      <span class="s">&#39;push-over&#39;</span><span class="p">:</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">SYNCTYPE_REFRESH_FROM_CLIENT</span><span class="p">,</span>
+      <span class="p">}[</span><span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">mode</span><span class="p">]</span>
+    <span class="n">stats</span> <span class="o">=</span> <span class="n">adapter</span><span class="o">.</span><span class="n">sync</span><span class="p">(</span><span class="n">mode</span><span class="o">=</span><span class="n">mode</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">quiet</span><span class="p">:</span>
+      <span class="c"># TODO: i18n!...</span>
+      <span class="n">pysyncml</span><span class="o">.</span><span class="n">describeStats</span><span class="p">(</span><span class="n">stats</span><span class="p">,</span> <span class="n">stdout</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="s">&#39;Synchronization Summary&#39;</span><span class="p">)</span>
+    <span class="n">context</span><span class="o">.</span><span class="n">save</span><span class="p">()</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">dbsession</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+    <span class="k">return</span> <span class="mi">0</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">describe</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">stream</span><span class="p">):</span>
+    <span class="c"># TODO: i18n!...</span>
+    <span class="n">stream</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&#39;</span><span class="si">%s</span><span class="s"> configuration:</span><span class="se">\n</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">appDisplay</span><span class="p">,))</span>
+    <span class="n">s2</span> <span class="o">=</span> <span class="n">pysyncml</span><span class="o">.</span><span class="n">IndentStream</span><span class="p">(</span><span class="n">stream</span><span class="p">)</span>
+    <span class="n">s2</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&#39;Role: </span><span class="si">%s</span><span class="se">\n</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="s">&#39;server&#39;</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">server</span> <span class="k">else</span> <span class="s">&#39;client&#39;</span><span class="p">,))</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">server</span><span class="p">:</span>
+      <span class="k">print</span> <span class="o">&gt;&gt;</span><span class="n">s2</span><span class="p">,</span> <span class="s">&#39;Listen port:&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">listen</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">defaultListen</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_callHooks</span><span class="p">(</span><span class="s">&#39;describe&#39;</span><span class="p">,</span> <span class="n">s2</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+<div class="viewcode-block" id="CommandLineSyncEngine.configure"><a class="viewcode-back" href="../../../pysyncml/cli/base.html#pysyncml.cli.base.CommandLineSyncEngine.configure">[docs]</a>  <span class="k">def</span> <span class="nf">configure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">argv</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Configures this engine based on the options array passed into</span>
+<span class="sd">    `argv`. If `argv` is ``None``, then ``sys.argv`` is used instead.</span>
+<span class="sd">    During configuration, the command line options are merged with</span>
+<span class="sd">    previously stored values. Then the logging subsystem and the</span>
+<span class="sd">    database model are initialized, and all storable settings are</span>
+<span class="sd">    serialized to configurations files.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_setupOptions</span><span class="p">()</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_parseOptions</span><span class="p">(</span><span class="n">argv</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_setupLogging</span><span class="p">()</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_setupModel</span><span class="p">()</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">dbsession</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+    <span class="k">return</span> <span class="bp">self</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span></div>
+<div class="viewcode-block" id="CommandLineSyncEngine.run"><a class="viewcode-back" href="../../../pysyncml/cli/base.html#pysyncml.cli.base.CommandLineSyncEngine.run">[docs]</a>  <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">stdout</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Runs this SyncEngine by executing one of the following functions</span>
+<span class="sd">    (as controlled by command-line options or stored parameters):</span>
+
+<span class="sd">    * Display local pending changes.</span>
+<span class="sd">    * Describe local configuration.</span>
+<span class="sd">    * Run an HTTP server and engage server-side mode.</span>
+<span class="sd">    * Connect to a remote SyncML peer and engage client-side mode.</span>
+
+<span class="sd">    NOTE: when running in the first two modes, all database interactions</span>
+<span class="sd">    are rolled back in order to keep the SyncEngine idempotent.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">local</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">describe</span><span class="p">:</span>
+      <span class="n">context</span><span class="p">,</span> <span class="n">adapter</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_makeAdapter</span><span class="p">()</span>
+      <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">describe</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">describe</span><span class="p">(</span><span class="n">stdout</span><span class="p">)</span>
+        <span class="n">adapter</span><span class="o">.</span><span class="n">describe</span><span class="p">(</span><span class="n">stdout</span><span class="p">)</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">dbsession</span><span class="o">.</span><span class="n">rollback</span><span class="p">()</span>
+      <span class="k">return</span> <span class="mi">0</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">server</span><span class="p">:</span>
+      <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_runServer</span><span class="p">(</span><span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span><span class="p">)</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_runClient</span><span class="p">(</span><span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span><span class="p">)</span>
+
+<span class="c">#------------------------------------------------------------------------------</span></div></div>
+<div class="viewcode-block" id="DirectorySyncEngine"><a class="viewcode-back" href="../../../pysyncml/cli/base.html#pysyncml.cli.base.DirectorySyncEngine">[docs]</a><span class="k">class</span> <span class="nc">DirectorySyncEngine</span><span class="p">(</span><span class="n">CommandLineSyncEngine</span><span class="p">):</span>
+  <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">  The `DirectorySyncEngine` is a helper peer environment where</span>
+<span class="sd">  synchronized items are stored in a directory (or subdirectories thereof). A special</span>
+<span class="sd">  (configurable) ``.sync`` subdirectory is created to contain configuration,</span>
+<span class="sd">  state and synchronization data, which must be ignored by the calling</span>
+<span class="sd">  framework. Moving the directory and its contents, as a unit, will not affect</span>
+<span class="sd">  the functionality of the sync.</span>
+<span class="sd">  &#39;&#39;&#39;</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">syncSubdir</span><span class="o">=</span><span class="s">&#39;.sync&#39;</span><span class="p">,</span> <span class="n">defaultDir</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+               <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    In addition to the :class:`CommandLineSyncEngine` constructor parameters,</span>
+<span class="sd">    the `DirectorySyncEngine` accepts the following:</span>
+
+<span class="sd">    :param syncSubdir:</span>
+
+<span class="sd">      Specifies the name of the immediate subdirectory of the base</span>
+<span class="sd">      directory that should be created to contain configuration, state</span>
+<span class="sd">      and synchronization data. Removal of this directory will reset</span>
+<span class="sd">      all client/server states, and synchronization will need to resume</span>
+<span class="sd">      via a &quot;slow-sync&quot;. The application should ignore this directory</span>
+<span class="sd">      when manipulating any data. The default is ``&quot;.sync&quot;``.</span>
+
+<span class="sd">    :param defaultDir:</span>
+
+<span class="sd">      If specified, will allow the user to invoke the application without</span>
+<span class="sd">      needing to identify the directory to synchronize, and instead will</span>
+<span class="sd">      default to this value. If used, this `CommandLineSyncEngine` begins to</span>
+<span class="sd">      resemble how the :class:`LocalUserSyncEngine` operates, but diverges in</span>
+<span class="sd">      the fact that the synchronization data is kept in the same directory</span>
+<span class="sd">      as the synchronized items.</span>
+
+<span class="sd">    In addition to the :class:`CommandLineSyncEngine` attributes,</span>
+<span class="sd">    the `DirectorySyncEngine` also provides the following:</span>
+
+<span class="sd">    :param rootDir:</span>
+
+<span class="sd">      The path (potentially either relative or absolute) to the</span>
+<span class="sd">      directory under control by this synchronization engine. The path,</span>
+<span class="sd">      if valid, ends with a slash (&quot;/&quot;).</span>
+
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="nb">super</span><span class="p">(</span><span class="n">DirectorySyncEngine</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">syncSubdir</span> <span class="o">=</span> <span class="n">syncSubdir</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">defaultDir</span> <span class="o">=</span> <span class="n">defaultDir</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">rootDir</span>    <span class="o">=</span> <span class="bp">None</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="nd">@hook</span><span class="p">(</span><span class="s">&#39;options.setup.term&#39;</span><span class="p">)</span>
+  <span class="k">def</span> <span class="nf">_options_setup_term_rootDir</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+      <span class="s">&#39;rootDir&#39;</span><span class="p">,</span> <span class="n">metavar</span><span class="o">=</span><span class="s">&#39;DIRECTORY&#39;</span><span class="p">,</span>
+      <span class="n">nargs</span><span class="o">=</span><span class="s">&#39;?&#39;</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">defaultDir</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="k">else</span> <span class="bp">None</span><span class="p">,</span>
+      <span class="n">help</span><span class="o">=</span><span class="s">&#39;path to the directory to be synchronized (can be either&#39;</span>
+      <span class="s">&#39; relative or absolute)&#39;</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="nd">@hook</span><span class="p">(</span><span class="s">&#39;options.parse.datadir&#39;</span><span class="p">)</span>
+  <span class="k">def</span> <span class="nf">_options_parse_term_rootDir</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">rootDir</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">rootDir</span>
+    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">defaultDir</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">rootDir</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">rootDir</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">defaultDir</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">rootDir</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">rootDir</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">):</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">rootDir</span> <span class="o">=</span> <span class="s">&#39;./&#39;</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">rootDir</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">rootDir</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">):</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">rootDir</span> <span class="o">+=</span> <span class="s">&#39;/&#39;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">rootDir</span><span class="p">):</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&#39;directory &quot;</span><span class="si">%s</span><span class="s">&quot; does not exist&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">rootDir</span><span class="p">,))</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">rootDir</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">rootDir</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">dataDir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">rootDir</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">syncSubdir</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">dataDir</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">):</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">dataDir</span> <span class="o">+=</span> <span class="s">&#39;/&#39;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dataDir</span><span class="p">):</span>
+      <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dataDir</span><span class="p">)</span>
+
+<span class="c">#------------------------------------------------------------------------------</span></div>
+<span class="k">class</span> <span class="nc">LocalUserSyncEngine</span><span class="p">(</span><span class="n">CommandLineSyncEngine</span><span class="p">):</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+               <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    TODO: document &amp; implement...</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="nb">super</span><span class="p">(</span><span class="n">LocalUserSyncEngine</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+
+    <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">()</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="nd">@hook</span><span class="p">(</span><span class="s">&#39;options.setup.generic&#39;</span><span class="p">)</span>
+  <span class="k">def</span> <span class="nf">_addOption_config</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+      <span class="s">&#39;-c&#39;</span><span class="p">,</span> <span class="s">&#39;--config&#39;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="s">&#39;default&#39;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s">&#39;store&#39;</span><span class="p">,</span>
+      <span class="n">help</span><span class="o">=</span><span class="s">&#39;sets the configuration name (default: &quot;</span><span class="si">%(default)s</span><span class="s">&quot;)&#39;</span><span class="p">)</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="nd">@hook</span><span class="p">(</span><span class="s">&#39;options.parse.datadir&#39;</span><span class="p">)</span>
+  <span class="k">def</span> <span class="nf">_configure_dataDir</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="c"># TODO: there must be python options for evaluating &quot;~&quot;...</span>
+    <span class="c"># TODO: and make this sensitive to &quot;OS&#39;isms&quot;...</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">dataDir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="s">&#39;~&#39;</span><span class="p">,</span> <span class="s">&#39;.config&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">appLabel</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">config</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">dataDir</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">):</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">dataDir</span> <span class="o">+=</span> <span class="s">&#39;/&#39;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dataDir</span><span class="p">):</span>
+      <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dataDir</span><span class="p">)</span>
+
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="c"># end of $Id: files.py 2 2012-05-17 04:39:55Z griff1n $</span>
+<span class="c">#------------------------------------------------------------------------------</span>
+</pre></div>
+
+      </div>
+      <div class="bottomnav">
+      
+        <p>
+        <a class="uplink" href="../../../index.html">Contents</a>
+        </p>
+
+      </div>
+
+    <div class="footer">
+        &copy; Copyright 2012-2012, UberDev, No Rights Reserved.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

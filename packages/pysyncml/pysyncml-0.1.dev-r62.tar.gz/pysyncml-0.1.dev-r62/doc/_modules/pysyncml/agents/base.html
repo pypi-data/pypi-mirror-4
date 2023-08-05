@@ -1,0 +1,338 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>pysyncml.agents.base &mdash; pysyncml 0.1 documentation</title>
+    
+    <link rel="stylesheet" href="../../../_static/haiku.css" type="text/css" />
+    <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="../../../_static/print.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../../',
+        VERSION:     '0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../../_static/doctools.js"></script>
+    <script type="text/javascript" src="../../../_static/theme_extras.js"></script>
+    <link rel="top" title="pysyncml 0.1 documentation" href="../../../index.html" />
+    <link rel="up" title="Module code" href="../../index.html" /> 
+  </head>
+  <body>
+      <div class="header"><h1 class="heading"><a href="../../../index.html">
+          <span>pysyncml 0.1 documentation</span></a></h1>
+        <h2 class="heading"><span>pysyncml.agents.base</span></h2>
+      </div>
+      <div class="topnav">
+      
+        <p>
+        <a class="uplink" href="../../../index.html">Contents</a>
+        </p>
+
+      </div>
+      <div class="content">
+        
+        
+  <h1>Source code for pysyncml.agents.base</h1><div class="highlight"><pre>
+<span class="c"># -*- coding: utf-8 -*-</span>
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="c"># file: $Id: base.py 57 2012-09-04 00:16:40Z griff1n $</span>
+<span class="c"># lib:  pysyncml.agents.base</span>
+<span class="c"># auth: griffin &lt;griffin@uberdev.org&gt;</span>
+<span class="c"># date: 2012/04/21</span>
+<span class="c"># copy: (C) CopyLoose 2012 UberDev &lt;hardcore@uberdev.org&gt;, No Rights Reserved.</span>
+<span class="c">#------------------------------------------------------------------------------</span>
+
+<span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">This module defines the abstract interface :class:`pysyncml.Agent</span>
+<span class="sd">&lt;pysyncml.agents.base.Agent&gt;`, the base class for all pysyncml</span>
+<span class="sd">synchronization agents.</span>
+<span class="sd">&#39;&#39;&#39;</span>
+
+<span class="kn">import</span> <span class="nn">sys</span><span class="o">,</span> <span class="nn">json</span><span class="o">,</span> <span class="nn">StringIO</span>
+<span class="kn">import</span> <span class="nn">xml.etree.ElementTree</span> <span class="kn">as</span> <span class="nn">ET</span>
+<span class="kn">from</span> <span class="nn">..common</span> <span class="kn">import</span> <span class="n">ConflictError</span>
+
+<span class="c">#------------------------------------------------------------------------------</span>
+<div class="viewcode-block" id="Agent"><a class="viewcode-back" href="../../../pysyncml/agents/index.html#pysyncml.agents.base.Agent">[docs]</a><span class="k">class</span> <span class="nc">Agent</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+  <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">  The ``Agent`` interface is how the pysyncml Adapter interacts with</span>
+<span class="sd">  the actual objects being synchronized.  The data is expected to be</span>
+<span class="sd">  stored by the calling framework, and pysyncml manages the protocol</span>
+<span class="sd">  for synchronization. This API defines the core required methods that</span>
+<span class="sd">  need to be implemented (:meth:`addItem`, :meth:`getItem`,</span>
+<span class="sd">  :meth:`replaceItem`, :meth:`deleteItem`, :meth:`getAllItems`,</span>
+<span class="sd">  :meth:`loadItem`, :meth:`dumpItem`), as well as several optional</span>
+<span class="sd">  methods that can be implemented for optimization purposes.</span>
+
+<span class="sd">  Hierarchical Item Support</span>
+
+<span class="sd">  To enable hierarchical item support for an Agent, set the attribute</span>
+<span class="sd">  (or constructor parameter) `hierarchicalSync` to true. This will</span>
+<span class="sd">  then cause pysyncml to process parent/child relationships. Note,</span>
+<span class="sd">  however, that pysyncml does NOT enforce any kind of integrity</span>
+<span class="sd">  checking. Specifically, pysyncml:</span>
+
+<span class="sd">  * does NOT enforce a single parentless (i.e. root) item.</span>
+<span class="sd">  * does NOT enforce that children are deleted before their</span>
+<span class="sd">    parents.</span>
+<span class="sd">  * does NOT detect or resolve orphaned children.</span>
+
+<span class="sd">  These are all circumstances that are handled differently based on</span>
+<span class="sd">  what kind of parent/child relationship exists, and is therefore</span>
+<span class="sd">  outside of the scope of pysyncml to enforce.</span>
+<span class="sd">  &#39;&#39;&#39;</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">contentTypes</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">hierarchicalSync</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+    <span class="nb">super</span><span class="p">(</span><span class="n">Agent</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">contentTypes</span>     <span class="o">=</span> <span class="n">contentTypes</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">hierarchicalSync</span> <span class="o">=</span> <span class="n">hierarchicalSync</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span>
+  <span class="c"># helper methods</span>
+  <span class="c">#----------------------------------------------------------------------------</span>
+<div class="viewcode-block" id="Agent.deleteAllItems"><a class="viewcode-back" href="../../../pysyncml/agents/index.html#pysyncml.agents.base.Agent.deleteAllItems">[docs]</a>  <span class="k">def</span> <span class="nf">deleteAllItems</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    [OPTIONAL] Deletes all items stored by this Agent. The default</span>
+<span class="sd">    implementation simply iterates over :meth:`getAllItems` and</span>
+<span class="sd">    deletes them one at a time.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">getAllItems</span><span class="p">():</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">deleteItem</span><span class="p">(</span><span class="n">item</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+
+  <span class="c">#============================================================================</span>
+  <span class="c"># serialization methods -- these MUST be implemented</span>
+  <span class="c">#============================================================================</span>
+
+  <span class="c"># TODO: ideally, both would be implemented to call each other, but a</span>
+  <span class="c">#       trap for Recursion depth exception would be set so that i can</span>
+  <span class="c">#       warn about that... that would allow the sub-classer to implement</span>
+  <span class="c">#       either. the `(dump|load)*s*Item` should probably be the &quot;optimized&quot;</span>
+  <span class="c">#       route... ie. the non-string version should do the recursion check.</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span></div>
+<div class="viewcode-block" id="Agent.dumpItem"><a class="viewcode-back" href="../../../pysyncml/agents/index.html#pysyncml.agents.base.Agent.dumpItem">[docs]</a>  <span class="k">def</span> <span class="nf">dumpItem</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">item</span><span class="p">,</span> <span class="n">stream</span><span class="p">,</span> <span class="n">contentType</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Converts the specified `item` to serialized form (such that it can</span>
+<span class="sd">    transported over the wire) and writes it to the provided file-like</span>
+<span class="sd">    `stream` object. For agents that support multiple content-types,</span>
+<span class="sd">    the desired `contentType` and `version` will be specified as a</span>
+<span class="sd">    parameter. If `contentType` and `version` are None, appropriate</span>
+<span class="sd">    default values should be used. For agents that concurrently use</span>
+<span class="sd">    multiple content-types, the return value may be a two-element</span>
+<span class="sd">    tuple of (contentType, version), thus overriding or enhancing the</span>
+<span class="sd">    provided values.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">()</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span></div>
+<div class="viewcode-block" id="Agent.dumpsItem"><a class="viewcode-back" href="../../../pysyncml/agents/index.html#pysyncml.agents.base.Agent.dumpsItem">[docs]</a>  <span class="k">def</span> <span class="nf">dumpsItem</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">item</span><span class="p">,</span> <span class="n">contentType</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    [OPTIONAL] Identical to :meth:`dump`, except the serialized form</span>
+<span class="sd">    is returned as a string representation. As documented in</span>
+<span class="sd">    :meth:`dump`, the return value can optionally be a three-element</span>
+<span class="sd">    tuple of (contentType, version, data) if the provided content-type</span>
+<span class="sd">    should be overridden or enhanced. The default implementation just</span>
+<span class="sd">    wraps :meth:`dump`.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="n">buf</span> <span class="o">=</span> <span class="n">StringIO</span><span class="o">.</span><span class="n">StringIO</span><span class="p">()</span>
+    <span class="n">ret</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dumpItem</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="n">buf</span><span class="p">,</span> <span class="n">contentType</span><span class="p">,</span> <span class="n">version</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">ret</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+      <span class="k">return</span> <span class="n">buf</span><span class="o">.</span><span class="n">getvalue</span><span class="p">()</span>
+    <span class="k">return</span> <span class="p">(</span><span class="n">ret</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">ret</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">buf</span><span class="o">.</span><span class="n">getvalue</span><span class="p">())</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span></div>
+<div class="viewcode-block" id="Agent.loadItem"><a class="viewcode-back" href="../../../pysyncml/agents/index.html#pysyncml.agents.base.Agent.loadItem">[docs]</a>  <span class="k">def</span> <span class="nf">loadItem</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">stream</span><span class="p">,</span> <span class="n">contentType</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Reverses the effects of the :meth:`dumpItem` method, and returns</span>
+<span class="sd">    the de-serialized Item from the file-like source `stream`.</span>
+
+<span class="sd">    Note: `version` will typically be ``None``, so it should either be</span>
+<span class="sd">    auto-determined, or not used. This is an issue in the SyncML</span>
+<span class="sd">    protocol, and is only here for symmetry with :meth:`dumpItem`</span>
+<span class="sd">    and as &quot;future-proofing&quot;.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">()</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span></div>
+<div class="viewcode-block" id="Agent.loadsItem"><a class="viewcode-back" href="../../../pysyncml/agents/index.html#pysyncml.agents.base.Agent.loadsItem">[docs]</a>  <span class="k">def</span> <span class="nf">loadsItem</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">contentType</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    [OPTIONAL] Identical to :meth:`loadItem`, except the serialized</span>
+<span class="sd">    form is provided as a string representation in `data` instead of</span>
+<span class="sd">    as a stream. The default implementation just wraps</span>
+<span class="sd">    :meth:`loadItem`.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="n">buf</span> <span class="o">=</span> <span class="n">StringIO</span><span class="o">.</span><span class="n">StringIO</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">loadItem</span><span class="p">(</span><span class="n">buf</span><span class="p">,</span> <span class="n">contentType</span><span class="p">,</span> <span class="n">version</span><span class="p">)</span>
+
+  <span class="c">#============================================================================</span>
+  <span class="c"># core syncing methods -- these MUST be implemented</span>
+  <span class="c">#============================================================================</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span></div>
+<div class="viewcode-block" id="Agent.getAllItems"><a class="viewcode-back" href="../../../pysyncml/agents/index.html#pysyncml.agents.base.Agent.getAllItems">[docs]</a>  <span class="k">def</span> <span class="nf">getAllItems</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Returns an iterable of all the items stored in the local datastore.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">()</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span></div>
+<div class="viewcode-block" id="Agent.addItem"><a class="viewcode-back" href="../../../pysyncml/agents/index.html#pysyncml.agents.base.Agent.addItem">[docs]</a>  <span class="k">def</span> <span class="nf">addItem</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">item</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    The specified `item`, which will have been created via a prior</span>
+<span class="sd">    ``loadItem()``, is added to the local datastore. This method</span>
+<span class="sd">    returns either a new :class:`pysyncml.Item</span>
+<span class="sd">    &lt;pysyncml.items.base.Item&gt;` instance or the same `item` that was</span>
+<span class="sd">    passed --- in either case, the returned item **MUST** have a valid</span>
+<span class="sd">    :attr:`pysyncml.Item.id &lt;pysyncml.items.base.Item.id&gt;` attribute.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">()</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span></div>
+<div class="viewcode-block" id="Agent.getItem"><a class="viewcode-back" href="../../../pysyncml/agents/index.html#pysyncml.agents.base.Agent.getItem">[docs]</a>  <span class="k">def</span> <span class="nf">getItem</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">itemID</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Returns the :class:`pysyncml.Item &lt;pysyncml.items.base.Item&gt;`</span>
+<span class="sd">    instance associated with the specified `itemID`, which may or may</span>
+<span class="sd">    not have been converted to a string.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">()</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span></div>
+<div class="viewcode-block" id="Agent.replaceItem"><a class="viewcode-back" href="../../../pysyncml/agents/index.html#pysyncml.agents.base.Agent.replaceItem">[docs]</a>  <span class="k">def</span> <span class="nf">replaceItem</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">item</span><span class="p">,</span> <span class="n">reportChanges</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Updates the local datastore item with ID `item.id` to the value</span>
+<span class="sd">    provided as `item`, which will have been created via a prior</span>
+<span class="sd">    ``loadItem()``.</span>
+
+<span class="sd">    If `reportChanges` is True, then the return value will be used to</span>
+<span class="sd">    track the changes that were applied. If `reportChanges` is True but</span>
+<span class="sd">    ``None`` is returned, then change tracking will be disabled for</span>
+<span class="sd">    this change, which will cascade to any past or future changes that</span>
+<span class="sd">    have not yet been synchronized. The return value must be a string</span>
+<span class="sd">    (or an object that supports coercion via ``str()``). If multiple</span>
+<span class="sd">    changes accumulate for an object, they will be concatenated, in</span>
+<span class="sd">    order, and delimited via a semicolon (&quot;;&quot;). See :doc:`../merging`</span>
+<span class="sd">    for details.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">()</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span></div>
+<div class="viewcode-block" id="Agent.deleteItem"><a class="viewcode-back" href="../../../pysyncml/agents/index.html#pysyncml.agents.base.Agent.deleteItem">[docs]</a>  <span class="k">def</span> <span class="nf">deleteItem</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">itemID</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Deletes the local datastore item with ID `itemID`.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">()</span>
+
+  <span class="c">#============================================================================</span>
+  <span class="c"># extended syncing methods -- these SHOULD be implemented</span>
+  <span class="c">#============================================================================</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span></div>
+<div class="viewcode-block" id="Agent.matchItem"><a class="viewcode-back" href="../../../pysyncml/agents/index.html#pysyncml.agents.base.Agent.matchItem">[docs]</a>  <span class="k">def</span> <span class="nf">matchItem</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">item</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    [OPTIONAL] Attempts to find the specified item and returns an item</span>
+<span class="sd">    that describes the same object although it&#39;s specific properties</span>
+<span class="sd">    may be different. For example, a contact whose name is an</span>
+<span class="sd">    identical match, but whose telephone number has changed would</span>
+<span class="sd">    return the matched item. ``None`` should be returned if no match</span>
+<span class="sd">    is found, otherwise the item that `item` matched should be</span>
+<span class="sd">    returned.</span>
+
+<span class="sd">    This is used primarily when a slow-sync is invoked and objects</span>
+<span class="sd">    that exist in both peers should not be replicated.</span>
+
+<span class="sd">    Note that **NO** merging of the items&#39; properties should be done;</span>
+<span class="sd">    that will be initiated via a separate call to :meth:`mergeItems`.</span>
+
+<span class="sd">    This method by default will iterate over all items (by calling</span>
+<span class="sd">    :meth:`getAllItems`) and compare them using ``cmp()``. This means</span>
+<span class="sd">    that if the items managed by this agent implement the ``__eq__``</span>
+<span class="sd">    or ``__cmp__`` methods, then matching items will be detected and</span>
+<span class="sd">    returned. Otherwise, any items that exist in both peers will be</span>
+<span class="sd">    duplicated on slow-sync.</span>
+
+<span class="sd">    Sub-classes *should* implement a more efficient method of finding</span>
+<span class="sd">    matching items.</span>
+
+<span class="sd">    See :doc:`../merging` for details.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">for</span> <span class="n">match</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">getAllItems</span><span class="p">():</span>
+      <span class="k">if</span> <span class="nb">cmp</span><span class="p">(</span><span class="n">match</span><span class="p">,</span> <span class="n">item</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">match</span>
+    <span class="k">return</span> <span class="bp">None</span>
+
+  <span class="c">#----------------------------------------------------------------------------</span></div>
+<div class="viewcode-block" id="Agent.mergeItems"><a class="viewcode-back" href="../../../pysyncml/agents/index.html#pysyncml.agents.base.Agent.mergeItems">[docs]</a>  <span class="k">def</span> <span class="nf">mergeItems</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">localItem</span><span class="p">,</span> <span class="n">remoteItem</span><span class="p">,</span> <span class="n">changeSpec</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    [OPTIONAL] Merges the properties of `remoteItem`, which is an item</span>
+<span class="sd">    provided by a remote peer during a synchronization, into the</span>
+<span class="sd">    `localItem`, which is an item retrieved from this agent either via</span>
+<span class="sd">    :meth:`getItem` or :meth:`matchItem`. `changeSpec` will represent</span>
+<span class="sd">    the changes applied to `localItem` since `remoteItem` was last</span>
+<span class="sd">    synchronized, or will be ``None`` when called as a result of a</span>
+<span class="sd">    slow-sync :meth:`matchItem` call.</span>
+
+<span class="sd">    This method should return a new change-spec (see</span>
+<span class="sd">    :meth:`replaceItem` for details) that represents the changes</span>
+<span class="sd">    applied to `localItem` from `remoteItem`.</span>
+
+<span class="sd">    If the items cannot be merged, then a `pysyncml.ConflictError`</span>
+<span class="sd">    should be raised with more descriptive information on what failed</span>
+<span class="sd">    during the merge --- in which case pysyncml will revert to the</span>
+<span class="sd">    conflict resolution policy defined by `store.conflictPolicy` or</span>
+<span class="sd">    `adapter.conflictPolicy`.</span>
+
+<span class="sd">    IMPORTANT: if the merge fails, `localItem` and `remoteItem` must</span>
+<span class="sd">    stay untouched by this call; most importantly, if the merge fails</span>
+<span class="sd">    with a ConflictError, then `remoteItem` must be in the identical</span>
+<span class="sd">    state as when it entered the call.</span>
+
+<span class="sd">    This method by default raises a ConflictError, which means that if</span>
+<span class="sd">    any changes are made to the same item simultaneously by two</span>
+<span class="sd">    different peers, they will result in a conflict and will not be</span>
+<span class="sd">    auto-mergeable.</span>
+
+<span class="sd">    See :doc:`../merging` for details.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">raise</span> <span class="n">ConflictError</span><span class="p">(</span><span class="s">&#39;items cannot be merged&#39;</span><span class="p">)</span>
+
+  <span class="c"># other methods in SyncML spec:</span>
+  <span class="c"># def copyItem(self, item):                         raise NotImplementedError()</span>
+  <span class="c"># def execItem(self, item):                         raise NotImplementedError()</span>
+  <span class="c"># def moveItem(self, item):                         raise NotImplementedError()</span>
+  <span class="c"># def putItem(self, item):                          raise NotImplementedError()</span>
+  <span class="c"># def searchItem(self, item):                       raise NotImplementedError()</span>
+
+<span class="c">#------------------------------------------------------------------------------</span>
+<span class="c"># end of $Id: base.py 57 2012-09-04 00:16:40Z griff1n $</span>
+<span class="c">#------------------------------------------------------------------------------</span></div></div>
+</pre></div>
+
+      </div>
+      <div class="bottomnav">
+      
+        <p>
+        <a class="uplink" href="../../../index.html">Contents</a>
+        </p>
+
+      </div>
+
+    <div class="footer">
+        &copy; Copyright 2012-2012, UberDev, No Rights Reserved.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>
