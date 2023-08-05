@@ -1,0 +1,99 @@
+=====================
+Remote Task Execution
+=====================
+
+Start later special
+~~~~~~~~~~~~~~~~~~~
+
+Usage
+_____
+
+Let's now start by creating a single service:
+
+  >>> from z3c import taskqueue
+  >>> service = taskqueue.service.TaskService()
+
+Let's now define a task that simply echos an input string:
+
+  >>> def echo(input):
+  ...     return input
+
+  >>> echoTask = taskqueue.task.SimpleTask(echo)
+
+Let's now register the task as a utility:
+
+  >>> import zope.component
+  >>> zope.component.provideUtility(echoTask, name='echo')
+
+Since the service cannot instantaneously complete a task, incoming jobs are
+managed by a queue.
+More than that, sometimes we need to have a jobid and the job in place with
+all inputs and stuff, but start it later.
+Watch for the ``startLater=True``.
+
+  >>> jobid = service.add(u'echo', {'foo': 'bar'}, startLater=True)
+  >>> jobid
+  1392637175 
+
+The ``add()`` function schedules the task called "echo" to be executed with
+the specified arguments. The method returns a job id with which we can inquire
+about the job.
+
+  >>> service.getStatus(jobid)
+  'start later'
+
+Since the job has not been added to the queue, the status is set to
+"start later". Further, there is no result available yet:
+
+  >>> service.getResult(jobid) is None
+  True
+
+As long as the job is not being processed, it can be cancelled:
+
+  >>> service.cancel(jobid)
+  >>> service.getStatus(jobid)
+  'cancelled'
+
+Let's see how the starting later works.
+Add a job again:
+
+  >>> jobid = service.add(u'echo', {'foo': 'bar'}, startLater=True)
+  >>> jobid
+  1392637176 
+
+It's still in the status ``start later``:
+
+  >>> service.getStatus(jobid)
+  'start later'
+
+Do here some processing...
+Now start the job really:
+
+  >>> service.startJob(jobid)
+  True
+
+The status changed to ``queued``:
+
+  >>> service.getStatus(jobid)
+  'queued'
+
+Starting the job again won't work:
+
+  >>> service.startJob(jobid)
+  False
+
+From this point on the job will behave as it were added with ``add`` without
+the ``startLater=True`` parameter.
+
+  >>> service.processNext()
+  True
+
+  >>> service.getStatus(jobid)
+  'completed'
+
+  >>> service.getResult(jobid)
+  {'foo': 'bar'}
+  
+  >>> service.getError(jobid)
+  'None'
+

@@ -1,0 +1,1 @@
+GLOBALDB = None
