@@ -1,0 +1,42 @@
+from setuptools import setup, find_packages
+import os.path
+
+version = '1.7.1'
+
+long_description = '\n\n'.join([
+    open('README.rst').read(),
+    open(os.path.join('src', 'z3c', 'dependencychecker', 'USAGE.rst')).read(),
+    open('TODO.rst').read(),
+    open('CHANGES.rst').read(),
+    ])
+
+setup(name='z3c.dependencychecker',
+      version=version,
+      description="",
+      long_description=long_description,
+      # Get strings from http://www.python.org/pypi?%3Aaction=list_classifiers
+      classifiers=[],
+      keywords=[],
+      author='Reinout van Rees',
+      author_email='reinout@vanrees.org',
+      url='https://github.com/reinout/z3c.dependencychecker',
+      license='ZPL',
+      package_dir={'': 'src'},
+      packages=find_packages('src'),
+      namespace_packages=['z3c'],
+      include_package_data=True,
+      zip_safe=False,
+      install_requires=[
+          'setuptools',
+          ],
+      extras_require = {
+          'test': [
+              'z3c.testsetup>=0.3',
+              'zope.testing',
+              ],
+          },
+      entry_points={
+          'console_scripts':
+          ['dependencychecker = z3c.dependencychecker.dependencychecker:main'
+           ]},
+      )
