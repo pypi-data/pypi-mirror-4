@@ -1,0 +1,10 @@
+__version__ = "0.5.5"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '1bbcb90a5f255140cf9090cf5b970880a09c958e'
+__git_head_subject__ = 'Finished release v0.5.5.'
+__git_head_message__ = '# By Guy Rozendorn (6) and Arnon Yaari (3)\n* release/v0.5.5:\n  Freezing dependencies\n  HOSTDEV-516\n  TRIVIAL refactoring is_buildout_executable_using_isolated_python\n  TRIVIAL company\n  TRIVIAL GuiScriptsSet\n  HOSTDEV-513 must depend on infi.recipe.console_scripts and all other recipes used in production\n  TRIVIAL sort options in help (commands first, then positional arguments, then optional arguments)\n  Unfreezing dependencies\n  empty commit after version v0.5.4'
+__git_dirty_diff__ = ''
