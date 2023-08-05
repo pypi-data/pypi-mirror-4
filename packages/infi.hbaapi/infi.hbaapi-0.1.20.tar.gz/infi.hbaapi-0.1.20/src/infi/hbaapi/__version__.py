@@ -1,0 +1,10 @@
+__version__ = "0.1.20"
+__git_commiter_name__ = "Arnon Yaari"
+__git_commiter_email__ = "wiggin15@yahoo.com"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '7ef2cf0e056b7507357f3a5958f11a33e3b7a34c'
+__git_head_subject__ = 'Finished release v0.1.20.'
+__git_head_message__ = ''
+__git_dirty_diff__ = ''
