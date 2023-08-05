@@ -1,0 +1,10 @@
+__version__ = "0.3.7"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '8d5d9030114d76062a68d1f0dd6943a5ff950dd6'
+__git_head_subject__ = 'Finished release v0.3.7.'
+__git_head_message__ = '* release/v0.3.7:\n  HOSTDEV-583 loweing the distname and the basename\n  empty commit after version v0.3.6'
+__git_dirty_diff__ = ''
