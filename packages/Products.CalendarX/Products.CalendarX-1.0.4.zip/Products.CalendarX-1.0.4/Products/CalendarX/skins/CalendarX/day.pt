@@ -1,0 +1,289 @@
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en-US"
+      lang="en-US"
+      metal:use-macro="here/main_template/macros/master"
+      i18n:domain="plone">
+
+<head>
+  <metal:block fill-slot="top_slot"
+                 tal:define="dummy python:request.set('disable_border', 1)" />
+  <metal:block fill-slot="style_slot">
+    <!-- NOTE: order is important for these CSS style sheets. -->
+    <!-- Import COMMON CALENDAR CSS style sheet. -->
+    <LINK href="calendar.css" type=text/css rel=stylesheet 
+          tal:attributes="href string:calendar.css"/>
+    <!-- Import VIEW-SPECIFIC CSS style sheet. -->
+    <!-- UNIQUE FOR EACH CALENDAR VIEW. -->
+    <LINK href="day.css" type=text/css rel=stylesheet 
+          tal:attributes="href string:day.css"/>
+    <!-- Import PRINTING CSS style sheet -->
+    <LINK href="calendarPrint.css" type="text/css" media="print" rel="stylesheet" 
+          tal:attributes="href string:calendarPrint.css" />
+    <!-- Import COMMON JavaScript files (one for basic dhtml-functions, the other for calendar-application specific functions. -->
+    <script type="text/javascript" src="dhtml.js" 
+          tal:attributes="src string:dhtml.js"></script>
+    <script type="text/javascript" src="calendar.js" 
+          tal:attributes="src string:calendar.js"></script>
+    <!-- Set VIEW-SPECIFIC JS parameter -->
+    <script type="text/javascript">
+<!--
+    setMax(48);
+-->
+    </script>
+  </metal:block>
+</head>
+
+<body>
+<!-- Defining global variables -->
+<div metal:fill-slot="main"
+       i18n:domain="calendarx"
+       tal:define="
+                 MODIFIED string:mod for 0.6.5 to use prevnextcurrentlinks_nojump macro at the bottom of the page;
+                 viewname string:day;
+                 context python:here;
+                 DateTime python:modules['DateTime'].DateTime; 
+                 Dict python:here.getDictDay();
+                 url here/absolute_url;
+                 ampm Dict/ampm;
+                 dayviewstarthour Dict/dayviewstarthour;
+                 dayviewendhour Dict/dayviewendhour;
+                 xmy Dict/xmy;
+                 xsub Dict/xsub;
+                 xpub Dict/xpub;
+                 xcrt Dict/xcrt;
+                 currentDate Dict/currentDate;
+                 startDate Dict/startDate;
+                 endDate Dict/endDate;
+                 eveStart Dict/eveStart;
+                 eveEnd Dict/eveEnd;
+                 useHalfHours           python: here.getCXAttribute('useHalfHours');
+                 periodFactor           python: test(useHalfHours,2,1);
+                 showHighlightFullEvent python: here.getCXAttribute('showHighlightFullEvent');
+                 useSubjectIcons        python: here.getCXAttribute('useSubjectIcons');
+                 useSubjCSS             python: here.getCXAttribute('useSubjectCSSClasses');
+                 useEventTypeIcons      python: here.getCXAttribute('useEventTypeIcons');
+                 useETCSS               python: here.getCXAttribute('useEventTypeCSSClasses');
+                 bigQ python: here.getCXEventsBetween(startDate, endDate, xmy, xsub, xpub, xcrt);
+                 bigQB python: here.getCXEventsBefore(startDate, xmy, xsub, xpub, xcrt, endDate);
+                 startForEarly Dict/startForEarly;
+                 bigQE python: here.getCXEventsBetween(startForEarly, startDate, xmy, xsub, xpub, xcrt);
+                 bigQL python: here.getCXEventsBetween(eveStart, eveEnd, xmy, xsub, xpub, xcrt);">
+
+
+
+<!-- HEADSTUFF: the Title/ID, the Document Action icons (print,etc), and Description -->
+<metal:block metal:use-macro="python:here.getCXMacro('headstuff')"/>
+
+<!-- the main table -->
+<table cellspacing="0" class="caltabs">
+
+
+<!-- ROW: the tabs "month", "week", "week2", "day" -->
+<metal:block metal:use-macro="python:here.getCXMacro('caltabsforviews')"/>
+
+
+<!-- ROW: the "subject categories" options -->
+<metal:block metal:use-macro="python:here.getCXMacro('subjectlinks')"/>
+
+
+  <tr> 
+    <td class="body">
+
+
+<!-- "previous", "next" and current date string. -->
+<metal:block metal:use-macro="python:here.getCXMacro('prevnextcurrentlinks')"/>
+
+
+
+
+<!-- showing all events that started before the time displayed, but are still running. -->
+<table class="calall" tal:define="startForContinuing Dict/startForContinuing;
+                                  startForEarly Dict/startForEarly;
+                                  continuingEvents python:[ev for ev in bigQB if (ev.start < startForContinuing and ev.end >= startForContinuing)];
+                                  earlyEvents python:[ev for ev in bigQE if (ev.start >= startForEarly and ev.end < startForContinuing)];
+                                  continuingEvents python:here.listSortByStart(here.queriesUnique(continuingEvents+earlyEvents));"
+                      tal:condition="continuingEvents">
+  <tr><th i18n:translate="heading_continuing_events">Whole-Week-Events or Started-Already-And-Still-Running-Events</th></tr>
+  <tr class="noevent" 
+      tal:define="
+                  hourID python: 0;
+                  start python: startDate;"
+      tal:attributes="class python: test(continuingEvents, 'event', 'noevent');
+	              id python:'cal'+str(dayviewstarthour*periodFactor);">
+    <td>
+<!-- iterate through the events -->
+       <metal:block tal:repeat="event continuingEvents"> 
+            <span tal:omit-tag="" tal:define="eventID string:calinfo${hourID}event${repeat/event/number};
+                              eDict python:here.getEventDictDay(event,type='C',cDate=currentDate);
+                              eventstart eDict/eventstart;
+                              eventend eDict/eventend;
+                              jsStart eDict/jsStart;
+                              jsEnd eDict/jsEnd; 
+                              eventurl eDict/eventurl;
+                              eventState eDict/eventState;
+                              eventtitle eDict/eventtitle;
+                              portaltype eDict/portaltype;
+                              syear eDict/syear ;
+                              smonth eDict/smonth ;
+                              sday eDict/sday ;
+                              stime eDict/stime ;
+                              eyear eDict/eyear ;
+                              emonth eDict/emonth ;
+                              eday eDict/eday ;
+                              etime eDict/etime ;
+                              eventstring string:${eDict/eventstring};
+                              classstate python: test(eventState == 'private', 'eventPrivate', test(eventState == 'published', 'eventPublished', test(eventState == 'visible', 'eventVisible', 'eventPending')));  
+                              classsubject python:test(useSubjCSS,context.getSubjectCSSClasses(event),'eventPrivate');   
+                              classeventtype python:test(useETCSS,here.getEventTypeCSSClasses(event,type=portaltype),'eventPublished'); ">
+
+<!-- print the event text-->
+<metal:block metal:use-macro="python:here.getCXMacro('eventlister')"/>
+
+<!-- print the rollover popup text-->
+<metal:block metal:use-macro="python:here.getCXMacro('popuptextbox')"/>
+
+            </span>
+       </metal:block>&nbsp;
+    </td>
+  </tr>
+</table>
+
+
+
+<!-- the day-calendar-view. -->
+<table class="cal">
+    <tr>
+    <th class="hour"><span i18n:translate="heading_hour">Hour</span></th>
+    <th><span i18n:translate="heading_events">Events</span></th></tr>
+<!-- iterate through the hours (rows of the table) -->
+  <metal:block tal:repeat="hourDay python:range(dayviewstarthour*periodFactor,dayviewendhour*periodFactor)">
+  <tr  class="noevent"
+         tal:define="
+                  tempOnTheHour repeat/hourDay/even;
+                  tempOnTheHalf repeat/hourDay/odd;
+                  onTheHour python:test(useHalfHours,tempOnTheHour,True);
+                  onTheHalf python:test(useHalfHours,tempOnTheHalf,False);
+                  start python: DateTime(str(startDate.year())+'/'+str(startDate.month())+'/'+str(startDate.day())+' '+str(int(hourDay/periodFactor))+ test(onTheHour,':00:00',':30:00'));
+                  end   python: DateTime(str(startDate.year())+'/'+str(startDate.month())+'/'+str(startDate.day())+' '+str(int(hourDay/periodFactor))+ test(onTheHour and useHalfHours,':29:59',':59:59'));
+                  periodID python: hourDay + 1;
+                  events python: [ev for ev in bigQ if (ev.start >= start and ev.start <= end)];
+                  COMMENT string: startForBefore is set forward one minute to eliminate events ending ON the hour; 
+                  startForBefore python: start + (1.0/24.0/60.0);
+                  eventsBefore python: [ev for ev in bigQB if (ev.start < startForBefore and ev.end >= startForBefore)];
+                  COMMENT string: tester determines whether to highlight full extent of events on the calendar; 
+                  tester python: test(showHighlightFullEvent,(events or eventsBefore),events);"
+        tal:attributes="class python:test(tester, 'event', 'noevent');
+                        id string:cal${periodID}">
+<metal:block metal:use-macro="python:here.getCXMacro('hoursdisplay')"/>
+    <td>
+<!-- iterate through the events of the hour -->
+       <metal:block tal:repeat="event events"> 
+            <span tal:omit-tag="" tal:define="eventID string:calinfo${periodID}event${repeat/event/number};
+                              eDict python:here.getEventDictDay(event,type='E',periodID=periodID,cDate=currentDate);
+                              eventstart eDict/eventstart;
+                              eventend eDict/eventend;
+                              jsStart eDict/jsStart;
+                              jsEnd eDict/jsEnd; 
+                              eventurl eDict/eventurl;
+                              eventState eDict/eventState;
+                              eventtitle eDict/eventtitle;
+                              portaltype eDict/portaltype;
+                              syear eDict/syear ;
+                              smonth eDict/smonth ;
+                              sday eDict/sday ;
+                              stime eDict/stime ;
+                              eyear eDict/eyear ;
+                              emonth eDict/emonth ;
+                              eday eDict/eday ;
+                              etime eDict/etime ;
+                              eventstring string:${eDict/eventstring};
+                              classstate python: test(eventState == 'private', 'eventPrivate', test(eventState == 'published', 'eventPublished', test(eventState == 'visible', 'eventVisible', 'eventPending')));  
+                              classsubject python:test(useSubjCSS,context.getSubjectCSSClasses(event),'eventPrivate');  
+                              classeventtype python:test(useETCSS,here.getEventTypeCSSClasses(event,type=portaltype),'eventPublished'); ">
+
+<!-- print the event text-->
+<metal:block metal:use-macro="python:here.getCXMacro('eventlister')"/>
+
+<!-- print the rollover popup text-->
+<metal:block metal:use-macro="python:here.getCXMacro('popuptextbox')"/>
+
+            </span>
+       </metal:block>&nbsp;
+    </td>
+  </tr>
+  </metal:block>
+</table>
+
+
+
+
+<table class="calall" tal:define="COMMENT string: events start/end after the end of the viewable calendar, but do NOT continue onto the next calendar day (so that they ONLY show up in one place or the other, not both) ;
+                                  laterEvents python:[ev for ev in bigQL if (ev.start >= eveStart and ev.start <= eveEnd and ev.end <= eveEnd)];"
+                      tal:condition="laterEvents">
+  <tr><th i18n:translate="heading_later_events">Late Events, Starting after this calendar stops</th></tr>
+  <tr class="noevent" 
+      tal:define="
+                  hourID python: dayviewendhour*periodFactor + 1;
+                  start python: startDate;"
+      tal:attributes="class python: test(laterEvents, 'event', 'noevent');
+	                  id string:cal${hourID}">
+    <td>
+<!-- iterate through the events -->
+       <metal:block tal:repeat="event laterEvents"> 
+            <span tal:omit-tag="" tal:define="eventID string:calinfo${hourID}event${repeat/event/number};
+                              eDict python:here.getEventDictDay(event,type='L',cDate=currentDate);
+                              eventstart eDict/eventstart;
+                              eventend eDict/eventend;
+                              jsStart eDict/jsStart;
+                              jsEnd eDict/jsEnd; 
+                              eventurl eDict/eventurl;
+                              eventState eDict/eventState;
+                              eventtitle eDict/eventtitle;
+                              portaltype eDict/portaltype;
+                              syear eDict/syear ;
+                              smonth eDict/smonth ;
+                              sday eDict/sday ;
+                              stime eDict/stime ;
+                              eyear eDict/eyear ;
+                              emonth eDict/emonth ;
+                              eday eDict/eday ;
+                              etime eDict/etime ;
+                              eventstring string:${eDict/eventstring};
+                              classstate python: test(eventState == 'private', 'eventPrivate', test(eventState == 'published', 'eventPublished', test(eventState == 'visible', 'eventVisible', 'eventPending')));  
+                              classsubject python:test(useSubjCSS,context.getSubjectCSSClasses(event),'eventPrivate'); 
+                              classeventtype python:test(useETCSS,here.getEventTypeCSSClasses(event,type=portaltype),'eventPublished');  ">
+
+<!-- print the event text-->
+<metal:block metal:use-macro="python:here.getCXMacro('eventlister')"/>
+
+<!-- print the rollover popup text-->
+<metal:block metal:use-macro="python:here.getCXMacro('popuptextbox')"/>
+
+            </span>
+       </metal:block>&nbsp;
+    </td>
+  </tr>
+</table>
+
+
+
+
+
+
+<!-- "previous", "next" and current date string. -->
+<metal:block metal:use-macro="python:here.getCXMacro('prevnextcurrentlinks_nojump')"/>
+
+
+    </td>
+  </tr>
+</table>
+
+
+<metal:block metal:use-macro="python:here.getCXMacro('copyright')"/>
+
+</div>
+
+
+</body>
+</html>
+
+
