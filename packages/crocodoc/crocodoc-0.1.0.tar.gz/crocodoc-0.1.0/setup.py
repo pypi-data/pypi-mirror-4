@@ -1,0 +1,30 @@
+from setuptools import setup, find_packages
+
+setup(
+    name="crocodoc",
+    packages=find_packages(),
+    version='0.1.0',
+    author="Crocodoc, Inc.",
+    license="MIT",
+    author_email="admin@crocodoc.com",
+    url="https://crocodoc.com",
+    description="A Python wrapper around the Crocodoc v2 API.",
+    #long_description="",
+    install_requires=['requests>=0.14.1'],
+    zip_safe=False,
+    include_package_data=True,
+    classifiers=[
+        'Programming Language :: Python',
+        'Programming Language :: Python :: 2',
+        'Programming Language :: Python :: 2.6',
+        'Programming Language :: Python :: 2.7',
+        'Operating System :: MacOS :: MacOS X',
+        'Operating System :: Unix',
+        'Operating System :: POSIX',
+        'Development Status :: 4 - Beta',
+        'Intended Audience :: Developers',
+        'Intended Audience :: System Administrators',
+        'Topic :: Software Development :: Libraries :: Python Modules',
+        'License :: OSI Approved :: MIT License',
+    ],
+)
