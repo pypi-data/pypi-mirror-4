@@ -1,0 +1,295 @@
+=========
+ChangeDoc
+=========
+
+Let's test the CHANGES.txt file handler which is able to update our version::
+
+  >>> import os
+  >>> import shutil
+  >>> import tempfile
+  >>> from pprint import pprint
+  >>> import p01.releaser
+  >>> import p01.releaser.base
+
+  >>> import re
+  >>> line = "0.5.0 (unreleased)"
+  >>> match = p01.releaser.base.RE_VERSION.search(line)
+  >>> match.group('version')
+  '0.5.0'
+  >>> match.group('date')
+  'unreleased'
+
+  >>> line = "0.5.0 (2011.12.12)"
+  >>> match = p01.releaser.base.RE_VERSION.search(line)
+  >>> match.group('version')
+  '0.5.0'
+  >>> match.group('date')
+  '2011.12.12'
+
+  >>> line = "0.5.0 (2011-12-12)"
+  >>> match = p01.releaser.base.RE_VERSION.search(line)
+  >>> match.group('version')
+  '0.5.0'
+  >>> match.group('date')
+  '2011-12-12'
+
+  >>> line = "0.5.0 window.open('')"
+  >>> match = p01.releaser.base.RE_VERSION.search(line)
+  >>> match is None
+  True
+
+  >>> line = "0.5.0 window.open(unreleased)"
+  >>> match = p01.releaser.base.RE_VERSION.search(line)
+  >>> match is None
+  True
+
+  >>> line = "0.5.0 unreleased"
+  >>> match = p01.releaser.base.RE_VERSION.search(line)
+  >>> match is None
+  True
+
+  >>> line = "1.2 (more)"
+  >>> match = p01.releaser.base.RE_VERSION.search(line)
+  >>> match is None
+  True
+
+As you can see, the ChangeDoc class is a CHANGES.txt file wrapper.
+
+  >>> content = """=======
+  ... CHANGES
+  ... =======
+  ... 
+  ... 0.5.1 (unreleased)
+  ... ------------------
+  ... 
+  ... - ...
+  ... 
+  ... 0.5.0 (2011-08-19)
+  ... ------------------
+  ... 
+  ... - initial release
+  ... 
+  ... """
+
+  >>> tmpDir = tempfile.mkdtemp()
+  >>> path = os.path.join(tmpDir, 'CHANGES.txt')
+  >>> f = open(path, 'wb')
+  >>> f.write(content)
+  >>> f.close()
+
+  >>> doc = p01.releaser.base.ChangeDoc(path)
+  >>> doc
+  <p01.releaser.base.ChangeDoc object at ...>
+
+Our wrapper extracts the file conten to sections and can output them in the
+right order:
+
+  >>> tuple(doc.sections.values())
+  (<Section 0.5.1 unreleased>, <Section 0.5.0 2011-08-19>)
+
+  >>> def printSections(doc):
+  ...     for section in doc.sections:
+  ...         print section.text
+
+  >>> printSections(doc)
+  0.5.1 (unreleased)
+  ------------------
+  <BLANKLINE>
+  - ...
+  <BLANKLINE>
+  0.5.0 (2011-08-19)
+  ------------------
+  <BLANKLINE>
+  - initial release
+  <BLANKLINE>
+
+
+current
+-------
+
+  >>> doc.sections.current
+  <Section 0.5.1 unreleased>
+  
+  >>> doc.sections.current.lines
+  ['- ...']
+
+
+getSection
+----------
+
+  >>> section = doc.getSection('0.5.1')
+  >>> section
+  <Section 0.5.1 unreleased>
+
+  >>> section == doc.sections.current
+  True
+
+  >>> doc.getSection('0.5.0')
+  <Section 0.5.0 ...>
+
+
+getReleaseText
+--------------
+
+  >>> doc.getReleaseText()
+  ''
+
+  >>> doc.hasReleaseText()
+  False
+
+
+setRelease
+----------
+
+  >>> print doc.current.text
+  0.5.1 (unreleased)
+  ------------------
+  <BLANKLINE>
+  - ...
+  <BLANKLINE>
+
+  >>> doc.setRelease('0.5.1')
+
+  >>> print doc.current.text
+  0.5.1 (...-...-...)
+  ------------------
+  <BLANKLINE>
+  - ...
+  <BLANKLINE>
+
+
+replaceReleaseText
+------------------
+
+  >>> doc.replaceReleaseText('here comes\nmore text')
+  >>> print doc.current.text
+  0.5.1 (...-...-...)
+  ------------------
+  <BLANKLINE>
+  here comes
+  more text
+  <BLANKLINE>
+
+
+insertReleaseText
+-----------------
+
+  >>> doc.insertReleaseText('insert this line above the existing text')
+  >>> print doc.current.text
+  0.5.1 (...-...-...)
+  ------------------
+  <BLANKLINE>
+  insert this line above the existing text
+  here comes
+  more text
+  <BLANKLINE>
+
+
+appendReleaseText
+-----------------
+
+  >>> doc.appendReleaseText('insert this line below the existing text')
+  >>> print doc.current.text
+  0.5.1 (...-...-...)
+  ------------------
+  <BLANKLINE>
+  insert this line above the existing text
+  here comes
+  more text
+  insert this line below the existing text
+  <BLANKLINE>
+
+
+save
+----
+
+Now, let's save the file and check the content:
+
+  >>> doc.save()
+  >>> f = open(path, 'rb')
+  >>> res = f.read()
+  >>> f.close()
+  >>> print res
+  =======
+  CHANGES
+  =======
+  <BLANKLINE>
+  0.5.1 (...-...-...)
+  ------------------
+  <BLANKLINE>
+  insert this line above the existing text
+  here comes
+  more text
+  insert this line below the existing text
+  <BLANKLINE>
+  0.5.0 (2011-08-19)
+  ------------------
+  <BLANKLINE>
+  - initial release
+  <BLANKLINE>
+
+
+back2Dev
+--------
+
+  >>> doc.back2Dev()
+  >>> printSections(doc)
+  0.5.2 (unreleased)
+  ------------------
+  <BLANKLINE>
+  - ...
+  <BLANKLINE>
+  0.5.1 (...-...-...)
+  ------------------
+  <BLANKLINE>
+  insert this line above the existing text
+  here comes
+  more text
+  insert this line below the existing text
+  <BLANKLINE>
+  0.5.0 (2011-08-19)
+  ------------------
+  <BLANKLINE>
+  - initial release
+  <BLANKLINE>
+
+
+  >>> doc.save()
+  >>> f = open(path, 'rb')
+  >>> res = f.read()
+  >>> f.close()
+  >>> print res
+  =======
+  CHANGES
+  =======
+  <BLANKLINE>
+  0.5.2 (unreleased)
+  ------------------
+  <BLANKLINE>
+  - ...
+  <BLANKLINE>
+  0.5.1 (...-...-...)
+  ------------------
+  <BLANKLINE>
+  insert this line above the existing text
+  here comes
+  more text
+  insert this line below the existing text
+  <BLANKLINE>
+  0.5.0 (2011-08-19)
+  ------------------
+  <BLANKLINE>
+  - initial release
+  <BLANKLINE>
+
+
+tear down
+---------
+
+Remove the temp SAMPLE.txt file:
+
+  >>> os.remove(path)
+
+And cleanup our tmp directory:
+
+  >>> shutil.rmtree(tmpDir)
