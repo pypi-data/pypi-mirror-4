@@ -1,0 +1,158 @@
+==============
+django-related
+==============
+
+django-related is a set of class-based-view mixins that help with common
+scenarios that involves related objects. The generic class-based views like
+``CreateView`` or ``UpdateView`` only deal with single objects. However, for
+nested resources, or in cases where we might want to use an existing object if
+avaialble, these views lack functionality. This is what django-related
+provides.
+
+Installation
+============
+
+Installation can be done using pip::
+
+    pip install django-related
+
+There is no need to add ``related`` to installed apps. It can be used
+directly::
+    
+    from related.views import GetExistingMixin, CreateWithRelatedMixin
+    ...
+
+
+GetExistingMixin
+================
+
+Basic usage::
+
+    from related.views import GetExistingMixin
+    from django.views.gneric import CreateView
+
+    from models import Foo
+
+    class MyView(GetExistingMixin, CreateView):
+        model = Foo
+        existing_redirect_url = '/bar'
+
+With the above view, if we submit a form that contains a ``pk`` or ``slug``
+field, and the ``Foo`` object with matching ``pk`` or ``slug`` field exists,
+user will be redirected to ``/bar`` path, and the model form for ``Foo`` will
+not even be processed.
+
+The view can be further customized using the following properties (and matching
+methods):
+
+``existing_form_class`` (``get_existing_form_class()``)
+    Uses the specified form to process the request rather than request
+    parameters. Default is ``None`` (does no use forms).
+
+``existing_form_field``
+    Form field that contains data about existence of the object. Note that this
+    field does not need to evaluate to an actual object. Any non-``False``
+    value will be treated as signifying object's existence. The most common use
+    case is to use a ``ModelChoiceField`` or some field that reads the database
+    in advance, and provides a choice of values that are only available when
+    objects exist.
+
+``existing_form_initial`` (``get_existing_form_initial()``)
+    Dictionary of initial values for the ``existing_form_class`` form (if form
+    is used).
+
+``existing_pk_field``
+    The model field that contains the primary key. Default is ``'pk'``.
+
+``existing_slug_field``
+    The model field that contains the slug. Default is ``'slug'``
+
+``existing_request_pk_key``
+    The request parameter that represents the primary key. Defalt is ``'pk'``.
+
+``existing_request_slug_key``
+    The request parameter that represents the slug. Note that if primary key is
+    specified (it is by default), and it is passed in request, slug will not be
+    looked up.
+
+``existing_redirect_url`` (``get_existing_redirect_url()``)
+    Required attribute. The URL that client will be redirected to if the object
+    exists.
+
+CreateWithRelatedMixin
+======================
+
+This mixin is used when we are dealing with a ``CreateView`` for a nested
+resource. The main assumption is that higher levels of the path contains a slug
+or pk that points to the related model's object.
+
+Here is an example::
+
+    from related import CreateWithRelatedMixin
+    from django.views import CreateView
+
+    from models import Attachment, Post
+    from forms import CustomAttachmentModelForm
+
+
+    # View for `/posts/(?P<slug>[\w-]+)/attachments`
+
+    class AttachmentCreateView(CreateWithRelatedMixin, CreateView):
+        model = Attachment
+        form_class = CustomAttachmentModelForm
+        related_model = Post
+
+With the above setup, the ``django.http.Http404`` is raised if post with the
+slug as in the URL does not exist. Otherwise, the ``CustomAttachmentModelForm``
+is processed, and the ``Post`` object that was found based on the slug will be
+added to ``post`` field of the object resulting from the form processing.
+
+The view can be customized using the following attributes (and matching
+methods):
+
+``related_model``
+    Related model under which the current model is nested. This attribute is
+    required.
+
+``related_field``
+    Field on the current model that must point to the related object. By
+    default, ``related_model``'s meta ``verbose_name`` is used.
+
+``related_404_redirect_url`` (``get_related_404_url()``)
+    If specified, the view will redirect instead of raising
+    ``django.http.Http404``. Default is ``None``.
+
+``related_404_message`` (``get_rlated_404_message``)
+    If ``related_404_redirect_url`` is used, the ``django.contrib.messages`` is
+    used to display an error message. This attribute is used to customize this
+    message. Default is ``'%s does not exist'`` where ``'%s'`` will evaluate to
+    the ``related_model``'s verbose name.
+    
+``related_pk_field``
+    The field on the ``related_model`` that contains the primary key. Defaults
+    to ``'pk'``.
+
+``related_pk_url_kwarg``
+    The URL parameter that contains the primary key. Defaults to ``'pk'``.
+
+``related_slug_field``
+    The field on the ``related_model`` that contains the sulug field. Defaults
+    to ``'slug'``.
+
+``related_slug_url_kwarg``
+    The URL parameter that contains the slug field. Defaults to ``'slug'``.
+
+``integritiy_error_message`` (``get_integrity_error_message()``)
+    If there is an integrity error saving the object pointing to the related
+    object, the view will rerender the form, but will also add an error message
+    to the response object using ``django.contrib.messages``. This attribute
+    customizes the message. Default is ``'Such record already exists'``.
+
+Reporting bugs
+==============
+
+Please report bugs and feature requests to the Bitbucket `issue tracker`_.
+
+.. _issue tracker: https://bitbucket.org/monwara/django-related/issues
+
+
