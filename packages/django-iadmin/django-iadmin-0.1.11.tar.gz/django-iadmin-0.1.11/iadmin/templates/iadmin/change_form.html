@@ -1,0 +1,119 @@
+{# overriden to handle tab style inlines #}
+{% extends "iadmin/base_site.html" %}
+{% load i18n iadmin_modify adminmedia static %}
+{% load url from future %}
+
+{% block extrahead %}{{ block.super }}
+{% url 'admin:jsi18n' as jsi18nurl %}
+    <script type="text/javascript" src="{{ jsi18nurl|default:"../../../jsi18n/" }}"></script>
+
+    <style type="text/css">
+        .taberror {
+            color: red;
+            background: url({{ STATIC_URL }}iadmin/img/icon_error.gif) 0 0 no-repeat;
+        }
+    </style>
+
+    <link rel="stylesheet" type="text/css" href="{{ STATIC_URL }}iadmin/css/jquery-ui-1.8.1.custom.css"/>
+    <script language="javascript" type="text/javascript" src="{{ STATIC_URL }}iadmin/js/jquery.min.js"></script>
+    <script language="javascript" type="text/javascript" src="{{ STATIC_URL }}iadmin/js/jquery-ui.min.js"></script>
+    <script language="javascript" type="text/javascript" src="{{ STATIC_URL }}iadmin/js/jquery.cookie.js"></script>
+    {{ media }}
+
+    {% if inline_admin_formsets %}
+        <script>
+            (function($) {
+               $(document).ready(function() {
+                    var $tabs = $('#tabs').tabs({ cookie: { expires: 30 }});
+               });
+            })(jQuery);
+        </script>
+    {% endif %}
+{% endblock %}
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" type="text/css" href="{% static "admin/css/forms.css" %}" />{% endblock %}
+{% block coltype %}{% if ordered_objects %}colMS{% else %}colM{% endif %}{% endblock %}
+{% block bodyclass %}{{ opts.app_label }}-{{ opts.object_name.lower }} change-form{% endblock %}
+{% block breadcrumbs %}{% if not is_popup %}
+<div class="breadcrumbs">
+     <a href="../../../">{% trans "Home" %}</a> &rsaquo;
+     <a href="../../">{{ app_label|capfirst|escape }}</a> &rsaquo;
+     {% if has_change_permission or has_view_permission %}<a href="../{% if has_view_permission %}../{% endif %}">{{ opts.verbose_name_plural|capfirst }}</a>{% else %}{{ opts.verbose_name_plural|capfirst }}{% endif %} &rsaquo;
+     {% if add %}{% trans "Add" %} {{ opts.verbose_name }}{% else %}{{ original|truncatewords:"18" }}{% endif %}
+</div>
+{% endif %}{% endblock %}
+
+
+{% block content %}
+    {% block object-tools %}
+    {% if change %}{% if not is_popup %}
+      <ul class="object-tools">
+      {% block object-tools-pre %}{% endblock object-tools-pre %}
+      <li><a href="history/" class="historylink">{% trans "History" %}</a></li>
+      {% if has_absolute_url %}<li><a href="../../../r/{{ content_type_id }}/{{ object_id }}/" class="viewsitelink">{% trans "View on site" %}</a></li>{% endif%}
+      {% block object-tools-after %}{% endblock object-tools-after %}
+      </ul>
+    {% endif %}{% endif %}
+    {% endblock %}
+
+    <div id="content-main">
+    <form {% if has_file_field %}enctype="multipart/form-data" {% endif %}action="{{ form_url }}" method="post"
+          id="{{ opts.module_name }}_form">{% csrf_token %}{% block form_top %}{% endblock %}
+        <div>
+            {% if is_popup %}<input type="hidden" name="_popup" value="1"/>{% endif %}
+            {% if save_on_top %}{% submit_row %}{% endif %}
+            {% if errors %}
+                <p class="errornote">
+                    {% blocktrans count errors|length as counter %}Please correct the error below.{% plural %}Please
+                        correct the errors below.{% endblocktrans %}
+                </p>
+                {{ adminform.form.non_field_errors }}
+            {% endif %}
+
+            {% for fieldset in adminform %}
+                {% include "iadmin/includes/fieldset.html" %}
+            {% endfor %}
+
+            {% block after_field_sets %}{% endblock %}
+
+            {% if is_popup %}<div style="display: none;">{% endif %}
+            {% if inline_admin_formsets %}
+                <div id="tabs">
+                    <ul>
+                        {% for inline_admin_formset in inline_admin_formsets %}
+                            <li>
+                                <a href="#tabs-{{forloop.counter}}"
+                                   class="{% class_if_errors inline_admin_formset.formset.errors "taberror" %}">
+                                    &nbsp;&nbsp;{{ inline_admin_formset.opts.verbose_name_plural|capfirst }}&nbsp;&nbsp;
+                                </a>
+                            </li>
+                        {% endfor %}
+                    </ul>
+
+                    {% for inline_admin_formset in inline_admin_formsets %}
+                        <div id="tabs-{{forloop.counter}}">
+                            {% include inline_admin_formset.opts.template %}
+                        </div>
+                    {% endfor %}
+
+                </div>
+            {% endif %}
+            {% if is_popup %}</div>{% endif %}
+            {% block after_related_objects %}{% endblock %}
+
+
+            {% submit_row %}
+
+            {% if adminform and add %}
+                <script type="text/javascript">document.getElementById("{{ adminform.first_field.auto_id }}").focus();</script>
+            {% endif %}
+
+            {# JavaScript for prepopulated fields #}
+            {% prepopulated_fields_js %}
+
+        </div>
+    </form></div>
+    <script type="text/javascript">
+        {# must be here due how filter_horizontal initilization code #}
+        addEvent(window, "load", function(e) {django.jQuery.fn.filter_horizontal(); });
+    </script>
+{% endblock %}
