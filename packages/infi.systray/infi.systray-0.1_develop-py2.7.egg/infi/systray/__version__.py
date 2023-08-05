@@ -1,0 +1,10 @@
+__version__ = "0.1-develop"
+__git_commiter_name__ = "Arnon Yaari"
+__git_commiter_email__ = "wiggin15@yahoo.com"
+__git_branch__ = 'develop'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = 'cf13d6341a48688718ced4e6cc33561f2a08d8b1'
+__git_head_subject__ = 'empty commit after version v0.1'
+__git_head_message__ = ''
+__git_dirty_diff__ = ''
