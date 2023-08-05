@@ -1,0 +1,421 @@
+Metadata-Version: 1.0
+Name: ageliaco.recipe.csvconfig
+Version: 0.6
+Summary: Use a CSV file to populate buildout templates
+Home-page: https://github.com/renfers/ageliaco.recipe.csvconfig
+Author: Serge Renfer
+Author-email: serge.renfer@gmail.com
+License: ZPL
+Description: - Code repository:https://github.com/renfers/ageliaco.recipe.csvconfig
+        - Questions and comments to serge.renfer at gmail dot com
+        
+        =========================
+        ageliaco.recipe.csvconfig
+        =========================
+        
+        The idea behind this recipe is to have only one source of information for your buildout
+        variable settings.
+        
+        When one is confronted with several deployments which are very similar, then you gather
+        the variable elements into a csv file (just like a flat representation of several columns).
+        
+        For instance, let's say you need to generate several Plone instances and you want to gather
+        them in a same buildout, because you will add a supervisor and a cache with varnish, plus
+        a config for the nginx that runs on your server.
+        
+        Your CSV file, main.csv::
+        
+            instance,port,domain,subdomain,plone,emailadmin
+            albertcair,15004,albertcair.ch,base.albertcair.ch,/,albert.cair@gmail.com
+            albertcair,15004,albertcair.ch,albertcair.ch,/alberto,albert.cair@gmail.com
+            albertcair,15004,albertcair.ch,www.albertcair.ch,/alberto,albert.cair@gmail.com
+            albertcair,15004,albertcair.ch,histoire.albertcair.ch,/bestie,albert.cair@gmail.com
+            albertcair,15004,albertcair.ch,images.albertcair.ch,/images,albert.cair@gmail.com
+            albertcair,15004,albertcair.ch,italiano.albertcair.ch,/italiano,albert.cair@gmail.com
+            bopip,15005,bopip.ch,base.bopip.ch,/,jm.del@gmail.com
+            bopip,15005,bopip.ch,bopip.ch,/bopip,jm.del@gmail.com
+            bopip,15005,bopip.ch,www.bopip.ch,/bopip,jm.del@gmail.com
+            bopip,15005,bopip.ch,jaun.bopip.ch,/jaun,jm.del@gmail.com
+            bopip,15005,bopip.ch,java.bopip.ch,/java,jm.del@gmail.com
+            bopip,15005,bopip.ch,math.bopip.ch,/math,jm.del@gmail.com
+            bopip,15005,bopip.ch,ecole-en-sauvygnon.ch,/ensauvygnon,jm.del@gmail.com
+            bopip,15005,bopip.ch,www.ecole-en-sauvygnon.ch,/ensauvygnon,jm.del@gmail.com
+        
+        In your buildout you will be able to spread those information at different levels, 
+        that means on different templates.
+        Let's make a *templates* directory in our buildout and we put our first template
+        
+        instances.cfg.in::
+        
+            [${subdomain}-parameters]
+            port = ${port}
+            host = 127.0.0.1
+            plone = ${plone}
+            name = ${instance}
+        
+        and a second one
+        
+        varsetting.cfg.in::
+        
+            [var-settings]
+            vh-targets =
+                ${subdomain}:${subdomain}-parameters
+            
+            instances-targets =
+                ${instance}:${instance}-parameters
+            
+            backup-targets =
+                backup-${instance}:${instance}-parameters
+            
+            cron-targets =
+                cron-${instance}:${instance}-parameters
+            
+            supervisor =
+                20 ${instance} ${buildout:directory}/bin/${instance} [console] true ${users:zope}
+            
+            eventlistener =
+                ${instance}-HttpOk TICK_60 ${buildout:bin-directory}/httpok [-m ${emailadmin} -p ${instance} http://localhost:11011]
+        
+        
+        Notice that our variables have the ``${var}`` format.
+        
+        In a buildout file you will have a part that has the following form:
+        
+        main.cfg::
+        
+            [buildout]
+            parts = main
+            
+            eggs = ageliaco.recipe.csvconfig
+            
+            
+            [main]
+            recipe = ageliaco.recipe.csvconfig:default
+            csvfile = main.csv
+            templates = templates/varsetting.cfg.in
+                templates/instances.cfg.in
+        
+        Running the following commands::
+        
+            ../Python-2.7/bin/python bootstrap.py -c main.cfg
+            bin/buildout -c main.cfg
+            
+        It will generate 2 files in your buildout directory, 
+        
+        varsetting.cfg::
+        
+            [var-settings]
+            vh-targets = 
+                base.albertcair.ch:base.albertcair.ch-parameters 
+                albertcair.ch:albertcair.ch-parameters 
+                www.albertcair.ch:www.albertcair.ch-parameters 
+                histoire.albertcair.ch:histoire.albertcair.ch-parameters 
+                images.albertcair.ch:images.albertcair.ch-parameters 
+                italiano.albertcair.ch:italiano.albertcair.ch-parameters 
+                base.bopip.ch:base.bopip.ch-parameters 
+                bopip.ch:bopip.ch-parameters 
+                www.bopip.ch:www.bopip.ch-parameters 
+                jaun.bopip.ch:jaun.bopip.ch-parameters 
+                java.bopip.ch:java.bopip.ch-parameters 
+                math.bopip.ch:math.bopip.ch-parameters 
+                ecole-en-sauvygnon.ch:ecole-en-sauvygnon.ch-parameters 
+                www.ecole-en-sauvygnon.ch:www.ecole-en-sauvygnon.ch-parameters
+            instances-targets = 
+                albertcair:albertcair-parameters 
+                bopip:bopip-parameters
+            backup-targets = 
+                backup-albertcair:albertcair-parameters 
+                backup-bopip:bopip-parameters
+            cron-targets = 
+                cron-albertcair:albertcair-parameters 
+                cron-bopip:bopip-parameters
+            supervisor = 
+                20 albertcair ${buildout:directory}/bin/albertcair [console] true ${users:zope} 
+                20 bopip ${buildout:directory}/bin/bopip [console] true ${users:zope}
+            eventlistener = 
+                albertcair-HttpOk TICK_60 ${buildout:bin-directory}/httpok [-m albert.cair@gmail.com -p albertcair http://localhost:11011] 
+                bopip-HttpOk TICK_60 ${buildout:bin-directory}/httpok [-m jm.del@gmail.com -p bopip http://localhost:11011]
+        
+        and 
+        
+        instances.cfg::
+        
+            [base.albertcair.ch-parameters]
+            port = 15004
+            host = 127.0.0.1
+            plone = /
+            name = albertcair
+            
+            [albertcair.ch-parameters]
+            port = 15004
+            host = 127.0.0.1
+            plone = /alberto
+            name = albertcair
+            
+            [www.albertcair.ch-parameters]
+            port = 15004
+            host = 127.0.0.1
+            plone = /alberto
+            name = albertcair
+            
+            [histoire.albertcair.ch-parameters]
+            port = 15004
+            host = 127.0.0.1
+            plone = /bestie
+            name = albertcair
+            
+            [images.albertcair.ch-parameters]
+            port = 15004
+            host = 127.0.0.1
+            plone = /images
+            name = albertcair
+            
+            [italiano.albertcair.ch-parameters]
+            port = 15004
+            host = 127.0.0.1
+            plone = /italiano
+            name = albertcair
+            
+            [base.bopip.ch-parameters]
+            port = 15005
+            host = 127.0.0.1
+            plone = /
+            name = bopip
+            
+            [bopip.ch-parameters]
+            port = 15005
+            host = 127.0.0.1
+            plone = /bopip
+            name = bopip
+            
+            [www.bopip.ch-parameters]
+            port = 15005
+            host = 127.0.0.1
+            plone = /bopip
+            name = bopip
+            
+            [jaun.bopip.ch-parameters]
+            port = 15005
+            host = 127.0.0.1
+            plone = /jaun
+            name = bopip
+            
+            [java.bopip.ch-parameters]
+            port = 15005
+            host = 127.0.0.1
+            plone = /java
+            name = bopip
+            
+            [math.bopip.ch-parameters]
+            port = 15005
+            host = 127.0.0.1
+            plone = /math
+            name = bopip
+            
+            [ecole-en-sauvygnon.ch-parameters]
+            port = 15005
+            host = 127.0.0.1
+            plone = /ensauvygnon
+            name = bopip
+            
+            [www.ecole-en-sauvygnon.ch-parameters]
+            port = 15005
+            host = 127.0.0.1
+            plone = /ensauvygnon
+            name = bopip
+            
+        varsetting.cfg.in exposes one kind of variable substitution, when a variable is present in
+        an option value => the option value is repeated based on the number of different result we 
+        have in the csv file configuration, for instance the "instance" column in my csv file has 
+        2 different values then, based on that the "eventlistner" option expands in a 2 lines value.
+        
+        instances.cfg.in exposes another kind of variable substitution, where the variable is present
+        in the section identifier => the section with the "subdomain" variable will epxand in as
+        many sections as there are different values for this variable in the csv file.
+        
+        CSV as flat database :
+        ----------------------
+        Let's see another example to show you that the csv file can be just a flat representation 
+        of a relational database.
+        
+        The csv file, testmultikey.csv::
+        
+            prenom, nom, naissance, profession
+            bob,wut,1961,doc
+            marie,wut,1962,maitresse
+            serge,ren,1960,prof
+            coco,ren,1961,maitresse
+            
+        The template, templates/contact.cfg.in::
+        
+            [contact]
+            ${prenom}-${nom}-${naissance} = ${profession}
+            
+            [famille-${nom}]
+            ${prenom}-naissance = ${naissance}
+            ${prenom}-profession = ${profession}
+            
+            [annee-de-naissance-${naissance}]
+            ${prenom}-${nom} = ${profession}
+            
+            [${profession}]
+            nom = ${prenom}-${nom}-${naissance}
+        
+        and now the buildout, buildout.cfg::
+        
+            [buildout]
+            
+            parts = main
+            
+            develop = src/ageliaco.recipe.csvconfig
+            eggs =
+                ageliaco.recipe.csvconfig
+                
+            [main]
+            recipe = ageliaco.recipe.csvconfig
+            templates = templates/contact.cfg.in
+            csvfile = testmultikey.csv
+        
+        and the result of `bin/buildout`, contact.cfg::
+        
+            [contact]
+            bob-wut-1961 = doc
+            coco-ren-1961 = maitresse
+            marie-wut-1962 = maitresse
+            serge-ren-1960 = prof
+            
+            [famille-ren]
+            coco-naissance = 1961
+            serge-naissance = 1960
+            coco-profession = maitresse
+            serge-profession = prof
+            
+            [famille-wut]
+            bob-naissance = 1961
+            marie-naissance = 1962
+            bob-profession = doc
+            marie-profession = maitresse
+            
+            [annee-de-naissance-1961]
+            bob-wut = doc
+            coco-ren = maitresse
+            
+            [annee-de-naissance-1962]
+            marie-wut = maitresse
+            
+            [annee-de-naissance-1960]
+            serge-ren = prof
+            
+            [maitresse]
+            nom = marie-wut-1962
+                    coco-ren-1961
+            
+            [doc]
+            nom = bob-wut-1961
+            
+            [prof]
+            nom = serge-ren-1960
+        
+        
+        Detailed Documentation
+        **********************
+        
+        Supported options
+        =================
+        
+        The recipe supports the following options:
+        
+        .. Note to recipe author!
+           ----------------------
+           For each option the recipe uses you should include a description
+           about the purpose of the option, the format and semantics of the
+           values it accepts, whether it is mandatory or optional and what the
+           default value is if it is omitted.
+        
+        csvfile
+            this is a path (relative or absolute) to csv file that will be used by the recipe
+        
+        templates
+            one (or more) path to a template file => by default, it is expected a name with ".in" 
+            suffix and a file with the same name without the suffix ".in" will be generate in the
+            buildout directory. If you want to use another suffix or naming convention you will have
+            to use an alternative format with a ":" to separate the template path to the target path,
+            
+        for instance::
+        
+            templates = templates/instances.cfg.in
+            
+        that will generate a ./instances.cfg file (in the buildout directory) or
+        
+            templates = templates/init-cache.cfg:production/cache.cfg
+            
+        that will generate a production/cache.cfg file
+             
+        
+        
+        
+        
+        Contributors
+        ************
+        
+        "renfers", Author
+        
+        
+        Change history
+        **************
+        
+        0.6 (2013-01-07)
+        ----------------
+        
+        - change variable call from ${} to $${} to easily substitute variables embedded in buildout variables
+        - added "+" to the generated file mode ("wb+" instead of "wb")
+          ["renfers"]
+        
+        0.5 (2012-12-28)
+        ----------------
+        
+        - Documentation updated
+          ["renfers"]
+        
+        
+        0.4 (2012-12-26)
+        ----------------
+        
+        - rewrite to be sure to take into account multiple value keys. For instance, if you have
+        one or several variables on a part name, you can consider this set becomes a key and if there are
+        variables in the options we only consider values that for which key values match those of
+        the part. The same can apply when the left part of an option has one or several variables
+        then variables on the right part can only apply to values that have the same key values
+        (the ones from the left part).
+          ["renfers"]
+        
+        
+        
+        0.3 (2012-12-19)
+        ----------------
+        
+        - Documentation updated
+          ["renfers"]
+        
+        0.2 (2012-12-19)
+        ----------------
+        
+        - Changed "update" to redo the install on update
+          ["renfers"]
+        
+        0.1 (2012-12-18)
+        ----------------
+        
+        - Created recipe with ZopeSkel
+          ["renfers"]
+        
+        
+        Download
+        ********
+        
+Keywords: buildout recipe
+Platform: UNKNOWN
+Classifier: Framework :: Buildout
+Classifier: Intended Audience :: Developers
+Classifier: Topic :: Software Development :: Build Tools
+Classifier: License :: OSI Approved :: Zope Public License
