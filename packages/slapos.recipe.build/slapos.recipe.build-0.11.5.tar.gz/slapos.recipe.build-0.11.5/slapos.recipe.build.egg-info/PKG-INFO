@@ -1,0 +1,599 @@
+Metadata-Version: 1.0
+Name: slapos.recipe.build
+Version: 0.11.5
+Summary: Flexible software building recipe.
+Home-page: UNKNOWN
+Author: UNKNOWN
+Author-email: UNKNOWN
+License: GPLv3
+Description: *******************
+        slapos.recipe.build
+        *******************
+        
+        .. contents::
+        
+        Important notice
+        ****************
+        
+        This is totally experimental recipe for fully flexible software "build".
+        
+        Examples
+        ********
+        
+        Recipe to build the software.
+        
+        Example buildout::
+        
+          [buildout]
+          parts =
+            file
+        
+          [zlib]
+          # Use standard configure, make, make install way
+          recipe = slapos.recipe.build:cmmi
+          url = http://prdownloads.sourceforge.net/libpng/zlib-1.2.5.tar.gz?download
+          md5sum = c735eab2d659a96e5a594c9e8541ad63
+          slapos_promise =
+            directory:include
+            file:include/zconf.h
+            file:include/zlib.h
+            directory:lib
+            statlib:lib/libz.a
+            dynlib:lib/libz.so linked:libc.so.6 rpath:
+            dynlib:lib/libz.so.1 linked:libc.so.6 rpath:
+            dynlib:lib/libz.so.1.2.5 linked:libc.so.6
+            directory:lib/pkgconfig
+            file:lib/pkgconfig/zlib.pc
+            directory:share
+            directory:share/man
+            directory:share/man/man3
+            file:share/man/man3/zlib.3
+        
+          [file]
+          recipe = slapos.recipe.build:cmmi
+          url = ftp://ftp.astron.com/pub/file/file-5.04.tar.gz
+          md5sum = accade81ff1cc774904b47c72c8aeea0
+          environment =
+            CPPFLAGS=-I${zlib:location}/include
+            LDFLAGS=-L${zlib:location}/lib -Wl,-rpath -Wl,${zlib:location}/lib
+          slapos_promise =
+            directory:bin
+            dynlib:bin/file linked:libz.so.1,libc.so.6,libmagic.so.1 rpath:${zlib:location}/lib,!/lib
+            directory:include
+            file:include/magic.h
+            directory:lib
+            statlib:lib/libmagic.a
+            statlib:lib/libmagic.la
+            dynlib:lib/libmagic.so linked:libz.so.1,libc.so.6 rpath:${zlib:location}/lib
+            dynlib:lib/libmagic.so.1 linked:libz.so.1,libc.so.6 rpath:${zlib:location}/lib
+            dynlib:lib/libmagic.so.1.0.0 linked:libz.so.1,libc.so.6 rpath:${zlib:location}/lib
+            directory:share
+            directory:share/man
+            directory:share/man/man1
+            file:share/man/man1/file.1
+            directory:share/man/man3
+            file:share/man/man3/libmagic.3
+            directory:share/man/man4
+            file:share/man/man4/magic.4
+            directory:share/man/man5
+            directory:share/misc
+            file:share/misc/magic.mgc
+        
+          [somethingelse]
+          # default way with using script
+          recipe = slapos.recipe.build
+          url_0 = http://host/path/file.tar.gz
+          md5sum = 9631070eac74f92a812d4785a84d1b4e
+          script =
+            import os
+            os.chdir(%(work_directory)s)
+            unpack(%(url_0), strip_path=True)
+            execute('make')
+            execute('make install DEST=%(location)s')
+          slapos_promise =
+            ...
+        
+          [with_patches]
+          recipe = slapos.recipe.build:cmmi
+          md5sum = 1b845a983a50b8dec0169ac48479eacc
+          url = http://downloads.sourceforge.net/project/w3m/w3m/w3m-0.5.3/w3m-0.5.3.tar.gz
+          configure-options =
+            --disable-nls
+            --disable-image
+            --disable-dict
+            --disable-xface
+            --disable-mouse
+            --disable-nntp
+            --disable-help-cgi
+            --disable-external-uri-loader
+            --disable-w3mmailer
+        
+          # default patch options
+          patch-options =
+            -p1
+        
+          # patches can be local files, then can have (optional) md5sum, they can have
+          # own options added
+          patches =
+            /path/to/local/file
+            /path/to/local/file2 75422a6f7f671b3a6d9add6724cc0945
+            http://downloaded/ 75422a6f7f671b3a6d9add6724cc0945
+            http://download/ uNkNoWn -p8
+            http://downloaded2/ 75422a6f7f671b3a6d9add6724cc0945 -p2
+        
+        
+          [multiarchitecture]
+          recipe = slapos.recipe.build
+          slapos_promise =
+            ...
+          x86 = http://host/path/x86.zip [md5sum]
+          x86-64 =  http://host/path/x64.zip [md5sum]
+          script =
+            if not self.options.get('url'): self.options['url'], self.options['md5sum'] = self.options[guessPlatform()].split(' ')
+            extract_dir = self.extract(self.download(self.options['url'], self.options.get('md5sum')))
+            workdir = guessworkdir(extract_dir)
+            self.copyTree(workdir, "%(location)s")
+        
+        You can remove formatting by using option “format = no” (default is “yes”)
+        
+        For example::
+        
+          [escaping]
+          recipe = slapos.recipe.build
+          example = foobar's one
+          script =
+            print '%%s' %% self.options['example']
+            # will print “foobar's one”
+        
+          [no-escaping]
+          recipe = slapos.recipe.build
+          example = foobar's one
+          foo = bar
+          format = no
+          script =
+            print '%s' % self.options['example']
+            # will print “foobar's one”
+            print '%(foo)s'
+            # will print “%(foo)s”
+        
+        
+        
+        
+        TODO:
+        
+         * add linking suport, buildout definition:
+        
+        slapos_link = <relative/path> [optional-path]
+        
+        can be used as::
+        
+          [file]
+          slapos_link =
+            bin/file
+            bin/file ${buildout:bin-directory}/bin/anotherfile
+        
+        Which will link ${file:location}/bin/file to ${buildout:bin-directory}/bin/file
+        and ${file:location}/bin/file to ${buildout:bin-directory}/bin/anotherfile
+        
+        Pure download
+        *************
+        
+        ::
+        
+          [buildout]
+          parts =
+            download
+        
+          [download]
+          recipe = slapos.recipe.build:download
+          url = https://some.url/file
+        
+        Such profile will download https://some.url/file and put it in
+        buildout:parts-directory/download/download
+        
+        filename parameter can be used to change destination named filename.
+        
+        destination parameter allows to put explicit destination.
+        
+        md5sum parameter allows pass md5sum.
+        
+        mode (octal, so for rw-r--r-- use 0644) allows to set mode
+        
+        Exposes target attribute which is path to downloaded file.
+        
+        Notes
+        -----
+        
+        This recipe suffers from buildout download utility issue, which will do not
+        try to redownload resource with wrong md5sum.
+        
+        
+        ************************
+        slapos.recipe.build:cpan
+        ************************
+        
+        Downloads and installs perl modules using Comprehensive Perl Archive Network (cpan).
+        
+        
+        
+        Examples
+        ********
+        
+        Basic example
+        -------------
+        
+        Here is example to install one or several modules::
+        
+          [buildout]
+          parts = perl-modules
+        
+          [perl-modules]
+          recipe = slapos.recipe.build:cpan
+          modules =
+            Class::Date
+            Other::Module
+          # Optional argument specifying perl buildout part, if existing.
+          # If specified, recipe will use the perl installed by buildout.
+          # If not specified, will take the globally available perl executable.
+          perl = perl
+        
+        Specific version
+        ----------------
+        
+        Note that cpan won't allow you to specify version and will always take latest
+        version available. To choose a specific version, you will need to specify
+        the full path in cpan like in ::
+        
+        
+          [buildout]
+          parts = perl-modules
+        
+          [perl-modules]
+          recipe = slapos.recipe.build:cpan
+          modules =
+            D/DL/DLUX/Class-Date-1.1.10.tar.gz
+          perl = perl
+        
+        Notes
+        =====
+        
+        Currently, the modules will be installed in site-perl directory. Location of this
+        directory changes depending on the perl installation.
+        
+        
+        
+        ****************************
+        slapos.recipe.build:gitclone
+        ****************************
+        
+        Checkout a git repository.
+        Supports slapos.libnetworkcache if present.
+        
+        Examples
+        ********
+        
+        Those examples use slapos.recipe.build repository as an example.
+        
+        Simple clone
+        ------------
+        
+        Only `repository` parameter is required. For each buildout run,
+        the recipe will pick up the latest commit on the remote master branch::
+        
+          >>> write(sample_buildout, 'buildout.cfg',
+          ... """
+          ... [buildout]
+          ... parts = git-clone
+          ...
+          ... [git-clone]
+          ... recipe = slapos.recipe.build:gitclone
+          ... repository = http://git.erp5.org/repos/slapos.recipe.build.git
+          ... """)
+        
+        This will clone the git repository in `parts/git-clone` directory.
+        Then let's run the buildout::
+        
+          >>> print system(buildout)
+          Installing git-clone.
+          Cloning into '/sample-buildout/parts/git-clone'...
+        
+        Let's take a look at the buildout parts directory now::
+        
+          >>> ls(sample_buildout, 'parts')
+          d buildout
+          d git-clone
+        
+        When updating, it will do a "git fetch; git reset @{upstream}"::
+        
+          >>> print system(buildout)
+          Updating git-clone.
+          Fetching origin
+          HEAD is now at ...
+        
+        Specific branch
+        ---------------
+        
+        You can specify a specific branch using `branch` option. For each
+        run it will take the latest commit on this remote branch::
+        
+          >>> write(sample_buildout, 'buildout.cfg',
+          ... """
+          ... [buildout]
+          ... parts = git-clone
+          ...
+          ... [git-clone]
+          ... recipe = slapos.recipe.build:gitclone
+          ... repository = http://git.erp5.org/repos/slapos.recipe.build.git
+          ... branch = build
+          ... """)
+        
+        Then let's run the buildout::
+        
+          >>> print system(buildout)
+          Uninstalling git-clone.
+          Installing git-clone.
+          Cloning into '/sample-buildout/parts/git-clone'...
+        
+        Let's take a look at the buildout parts directory now::
+        
+          >>> ls(sample_buildout, 'parts')
+          d buildout
+          d git-clone
+        
+        And let's see that current branch is "build"::
+          >>> import subprocess
+          >>> cd('parts', 'git-clone')
+          >>> subprocess.check_output(['git', 'branch'])
+          '* build\n'
+        
+        When updating, it will do a "git fetch; git reset build"::
+        
+          >>> cd(sample_buildout)
+          >>> print system(buildout)
+          Updating git-clone.
+          Fetching origin
+          HEAD is now at ...
+        
+        Specific revision
+        -----------------
+        
+        You can specify a specific commit hash or tag using `revision` option.
+        This option is not compatible with "branch" option::
+        
+          >>> cd(sample_buildout)
+          >>> write(sample_buildout, 'buildout.cfg',
+          ... """
+          ... [buildout]
+          ... parts = git-clone
+          ...
+          ... [git-clone]
+          ... recipe = slapos.recipe.build:gitclone
+          ... repository = http://git.erp5.org/repos/slapos.recipe.build.git
+          ... revision = 2566127
+          ... """)
+        
+        Then let's run the buildout::
+        
+          >>> print system(buildout)
+          Uninstalling git-clone.
+          Installing git-clone.
+          Cloning into '/sample-buildout/parts/git-clone'...
+        
+        Let's take a look at the buildout parts directory now::
+        
+          >>> ls(sample_buildout, 'parts')
+          d buildout
+          d git-clone
+        
+        And let's see that current branch is "gitclone"::
+        
+          >>> import subprocess
+          >>> cd(sample_buildout, 'parts', 'git-clone')
+          >>> subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD'])
+          '2566127\n'
+        
+        When updating, it will do a "git fetch; git reset revision"::
+        
+          >>> cd(sample_buildout)
+          >>> print system(buildout)
+          Updating git-clone.
+          Fetching origin
+          HEAD is now at ...
+        
+        Specific git binary
+        -------------------
+        
+        The default git command is `git`, if for a any reason you don't
+        have git in your path, you can specify git binary path with `git-command`
+        option::
+        
+          [buildout]
+          parts = git-clone
+        
+          [git-clone]
+          recipe = slapos.recipe.build:gitclone
+          repository = http://example.net/example.git/
+          git-executable = /usr/local/git/bin/git
+        
+        Full example
+        ------------
+        
+        ::
+        
+          [buildout]
+          parts = git-clone
+        
+          [git-binary]
+          recipe = hexagonit.recipe.cmmi
+          url = http://git-core.googlecode.com/files/git-1.7.12.tar.gz
+        
+          [git-clone]
+          recipe = slapos.recipe.build:gitclone
+          repository = http://example.net/example.git/
+          git-command = ${git-binary:location}/bin/git
+          revision = 0123456789abcdef
+        
+        
+        ***********************
+        slapos.recipe.build:npm
+        ***********************
+        
+        Downloads and installs node.js packages using Node Package Manager (NPM).
+        
+        Examples
+        ********
+        
+        Basic example
+        -------------
+        
+        Here is example to install one or several modules::
+        
+          [buildout]
+          parts = node-package
+        
+          [node-package]
+          recipe = slapos.recipe.build:npm
+          modules =
+            colors
+            express
+        
+          # Optional argument specifying perl buildout part, if existing.
+          # If specified, recipe will use the perl installed by buildout.
+          # If not specified, will take the globally available perl executable.
+          node = node-0.6
+        
+        Specific version
+        ----------------
+        ::
+        
+          [buildout]
+          parts = node-package
+        
+          [node-package]
+          recipe = slapos.recipe.build:cpan
+          modules =
+            express@1.0.2
+          node = node-0.6
+        
+        Changes
+        =======
+        
+        0.11.5 (2012-10-01)
+        -------------------
+        
+         * Use @{upstream} git magic value, allow to fix update bugs.
+           [Cedric de Saint Martin]
+        
+        0.11.4 (2012-09-11)
+        -------------------
+        
+         * libnetworkcache is added back as a dependency. gitclone has no sense without
+           it in SlapOS context. [Cedric de Saint Martin]
+        
+        0.11.3 (2012-09-10)
+        -------------------
+        
+         * Removed explicit dependency of slapos.libnetworkcache. If not present, it
+           will gracefully degrade. [Cedric de Saint Martin]
+        
+        0.11.2 (2012-09-05)
+        -------------------
+        
+         * Add location to Buildout "options" dict, so that it is exposed to other
+           Buildout parts. [Cedric de Saint Martin]
+        
+        0.11.1 (2012-09-05)
+        -------------------
+        
+         * Add forbid-download-cache parameter, forbidding to fetch git from cache.
+           [Cedric de Saint Martin]
+         * Sanitize instance attributes. [Cedric de Saint Martin]
+        
+        0.11 (2012-09-04)
+        -----------------
+        
+         * Add slapos.recipe.build:gitclone recipe. [Cedric de Saint Martin]
+        
+        0.10.2 (2012-08-02)
+        -------------------
+        
+         * Update manifest to include readme.rst [Cedric de Saint Martin]
+        
+        0.10.1 (2012-08-02)
+        -------------------
+        
+         * Minor fix in ReST documentation formatting. [Cedric de Saint Martin]
+        
+        0.10 (2012-07-02)
+        -----------------
+        
+         * Add ``format = yes|no`` option. [Antoine Catton]
+        
+        0.9 (2012-06-07)
+        ----------------
+        
+         * Revert accidental release about upcoming version of slapos.recipe.build
+        
+        0.8 (2012-06-07)
+        ----------------
+        
+         * Add support for "path" argument [Cedric de Saint Martin]
+         * Cleanup of download entry point [Vincent Pelletier]
+         * Add npm and cpan entry points [Cedric de Saint Martin]
+        
+        0.7 (2011-11-8)
+        ---------------
+        
+         * Generic: Remove directory when needed, and only if it is wanted.
+           [Cedric de Saint Martin]
+         * Add slapos.recipe.downloadunpacked script [Alain Takoudjou]
+        
+        0.6 (2011-09-08)
+        ----------------
+        
+         * Cmmi: Support more compatibility with other recipes to build, especially
+           hexagonit.recipe.cmmi. [Łukasz Nowak]
+         * Generic: A lot of small improvements (like supporting values with = in
+           environment) [Łukasz Nowak]
+         * Generic: Use shlex to parse some options. [Antoine Catton]
+         * Generic: Fix patch, it was not working, as not using stdin. [Antoine Catton]
+        
+        0.5 (2011-09-06)
+        ----------------
+        
+         * Download: Expose location too for compatiblity. [Łukasz Nowak]
+        
+        0.4 (2011-09-06)
+        ----------------
+        
+         * Cmmi: Provide more features to control build process. [Łukasz Nowak]
+        
+        0.3 (2011-09-05)
+        ----------------
+        
+         * Provide slapos.recipe.build:download utility. [Łukasz Nowak]
+        
+        0.2 (2011-09-05)
+        ----------------
+        
+         * Bugfix: Support buildout's download cache during downlading. [Łukasz Nowak]
+         * Bugfix: Honour correctly passed md5sum to download method. [Łukasz Nowak]
+         * Feature: Utility methods pipeCommand and failIfPathExists. [Łukasz Nowak]
+         * Bugfix: Rename promisee to promise. [Łukasz Nowak]
+         * Feature: Allow to define update_script and slapos_update_promise [Łukasz
+           Nowak]
+         * Feature: Just warn in case of lack of promise. [Łukasz Nowak]
+        
+        0.1 (2011-08-26)
+        ----------------
+        
+         * Add copyTree method to recursively copy [Cedric de Saint Martin]
+         * add guessPlatform function to guess architecture in case of
+           multi-architecture installation [Cedric de Saint Martin]
+        
+        
+Keywords: slapos recipe
+Platform: UNKNOWN
+Classifier: Development Status :: 2 - Pre-Alpha
+Classifier: Framework :: Buildout :: Recipe
+Classifier: Programming Language :: Python
