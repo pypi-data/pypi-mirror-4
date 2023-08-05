@@ -1,0 +1,82 @@
+Migration
+=========
+
+A very simple migration framework.  The basic premise here is to simply
+walk the tree somehow and for all objects look up a multi adapter on the
+container and object and if one is found, call it's migrate method.
+
+To begin, we need to setup some mock objects that handle migration
+adaptation.
+
+  >>> from zope import interface, component
+  >>> from OFS import interfaces as ofsifaces
+  
+  >>> class IMock(interface.Interface): pass
+  
+  >>> class Mock(object):
+  ...     interface.implements(IMock)
+  ...     def __init__(self, name=None):
+  ...         self.name = name
+  ...         self.migrated = False
+  ...     def __str__(self):
+  ...         return '<%s name=%s>' % (self.__class__.__name__, self.name or 'N/A')
+  ...     __repr__  = __str__  
+
+  >>> class MockObjectManager(list, Mock):
+  ...     interface.implements(ofsifaces.IObjectManager)
+  ...     def __init__(self, name):
+  ...         self.name = name
+  ...     def objectValues(self):
+  ...         return self
+
+We also need to setup the standard IMigrator utility, but for example
+here we simply need to instantiate our utility class.
+
+  >>> from p4a.video import migration
+  >>> migrator = migration.Migrator()
+  
+So now we go ahead and setup some basic structures.
+
+  >>> container = MockObjectManager('top')
+  >>> m1 = Mock('top.1'); m2 = Mock('top.2')
+  >>> container += [m1, m2]
+
+Of course starting out m1 and m2 are both not migrated.
+
+  >>> m1.migrated
+  False
+  >>> m2.migrated
+  False
+  
+Since we haven't yet defined multi-adapters to handle migration of an
+object we could run the migrator mechanism and they'll still be un-migrated.
+
+  >>> migrator.migrate(container, IMock)
+  0
+  >>> m1.migrated
+  False
+  >>> m2.migrated
+  False
+
+Now we go ahead and setup appropriate migration handlers (adapters).
+
+  >>> class MockMigratable(object):
+  ...     interface.implements(migration.IMigratable)
+  ...
+  ...     def __init__(self, container, obj):
+  ...         self.container = container
+  ...         self.obj = obj
+  ...     def migrate(self):
+  ...         self.obj.migrated = True
+  ...         return True
+  
+  >>> component.provideAdapter(MockMigratable, (MockObjectManager, Mock))
+
+Since we've registered the adapters, migration should succeed.
+
+  >>> migrator.migrate(container, IMock)
+  2
+  >>> m1.migrated
+  True
+  >>> m2.migrated
+  True

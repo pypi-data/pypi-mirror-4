@@ -1,0 +1,91 @@
+Media Player
+============
+
+The only thing required to setting up a media player for a particular
+mime type is to define an *IMediaPlayer* named adapter where the name
+is the mime type being handled.
+
+The *IMediaPlayer* interface from the *p4a.video.interfaces* module
+dictates that the adapter must be callable.  The call function is required
+to return the HTML used to represent the media player and will be passed
+a the *downloadurl* parameter as the url to the actual media content.
+
+For a concrete example of providing *IMediaPlayer*, please see the
+*p4a.video.mp3* package.
+
+The most common way of using a defined media player is by using the
+*MediaPlayerWidget* widget.
+
+We begin by defining the required adapter.
+
+  >>> from zope.interface import implements, Interface
+  >>> from zope.component import adapts, provideAdapter
+  >>> from p4a.video.interfaces import IMediaPlayer
+
+  >>> class FooMediaPlayer(object):
+  ...     implements(IMediaPlayer)
+  ...     adapts(object)
+  ...     def __init__(self, context):
+  ...         self.context = context
+  ...     def __call__(self, downloadurl, imageurl,
+  ...                  width=0, height=0):
+  ...         return '<div>My Player for Foo Media</div>'
+
+  >>> provideAdapter(FooMediaPlayer, name=u'text/foobar')
+
+MediaPlayerWidget
+-----------------
+
+We start by defining some mock objects.
+
+  >>> from p4a.video.browser.widget import MediaPlayerWidget
+  >>> from p4a.fileimage.file import FileField
+
+  >>> class IMockSchema(Interface):
+  ...     file = FileField(title=u'mockfilefield')
+
+  >>> class MockField(object):
+  ...    __name__ = u'mockfield'
+  ...    required = False
+  ...    default = None
+  ...    description = u'Mock Field'
+  ...    missing_value = None
+  ...    interface = IMockSchema
+  ...    getName = lambda self: self.__name__
+  ...    title = u'mockfield'
+
+  >>> class MockView(object):
+  ...     video_image = None
+  ...     width = 0
+  ...     height = 0
+
+  >>> class MockContentObject(object):
+  ...     mime_type = 'application/none-set'
+  ...     absolute_url = lambda self: 'http://someplace.com/mockland'
+  ...     get_content_type = lambda self: self.mime_type
+
+  >>> field = MockField()
+  >>> field.context = MockView()
+  >>> field.context.context = MockContentObject()
+
+When there is no media content available we should get HTML describing
+that.
+
+  >>> widget = MediaPlayerWidget(field, None)
+  >>> 'player-not-available' in widget()
+  True
+
+If there is no available IMediaPlayer adapter available for the content
+type (which in this case the content defaults to 'application/none-set')
+then we should get HTML respective of that.
+
+  >>> widget._data = u'helloworld'
+  >>> 'player-not-available' in widget()
+  True
+
+Now we set the data to some value and expect to get back the media player
+HTML.
+
+  >>> field.context.context.mime_type = u'text/foobar'
+  >>> widget()
+  u'<div class="media-player"><div>My Player for Foo Media</div></div>'
