@@ -1,0 +1,198 @@
+""" Code to simulate Stokes parameters
+    
+Context : SRP
+Module  : SRPTNGPAOLOStokesSim
+Author  : Stefano Covino
+Date    : 29/11/2012
+E-mail  : stefano.covino@brera.inaf.it
+URL:    : http://www.merate.mi.astro.it/utenti/covino
+Purpose : Simulate Stokes parameters for an observation.
+
+Usage   : SRPTNGPAOLOStokesSim [-h] [-a n k] -c RA DEC [-d detoff] -e Exp
+            [-f file] [-l lambda angle] -o file [-p pos] -s Q
+            U V -t 'YYYY/MM/DD HH:MM:SS' [-v] [--version]
+            [-w wave] [-z q0 u0 v0]
+    
+            -a Aluminium refractive and extinction coefficient multiplicative factors
+            -c Object coordinates
+            -d Detector offset (deg)
+            -e Observation length (sec)
+            -f Input FITS file with fit parameters.
+            -l lambda2 or lambda4 (2, 4) and angle
+            -o Output FITS file
+            -p Detector position angle
+            -s Object normalized Stokes parameters
+            -t Observation time
+            -w Observation wavelength (micron)
+            -z Normalized instrumental polarization
+    
+History : (26/02/2012) First version.
+        : (20/09/2012) Hours angles phased.
+        : (29/11/2012) Correct sign for position angle.
+
+"""
+
+__version__ = '0.1.2'
+
+
+import argparse, math, sys
+import atpy, ephem, numpy
+import SRP.SRPTNG.PAOLO as STP
+from SRP.SRPMath.PhaseAngle import PhaseAngle
+from SRP.SRPPolarimetry.AluminiumRefractiveIndex import AluminiumRefractiveIndex
+from SRP.SRPTNG.PAOLO.TNGMuellerMatrix import TNGMuellerMatrix
+from SRP.SRPTNG.PAOLO.TNGMuellerMatrixPlate2 import TNGMuellerMatrixPlate2
+from SRP.SRPTNG.PAOLO.TNGMuellerMatrixPlate4 import TNGMuellerMatrixPlate4
+from SRP.SRPTNG.GetObj import GetObj
+from SRP.SRPTNG.GetTNGSite import GetTNGSite
+from SRP.SRPSky.HourAngle import HourAngle
+from SRP.SRPSky.ParallacticAngle import ParallacticAngle
+from SRP.SRPTNG.PAOLO.StokesOffsetVector import StokesOffsetVector
+
+
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument("-a", "--alum", action="store", nargs=2, type=float, help="Aluminium refractive and extinction coefficient multiplicative factors", metavar=('n','k'),default=(1.0,1.0))
+parser.add_argument("-c", "--coord", action="store", nargs=2, help="Object coordinates", metavar=('RA','DEC'),required=True)
+parser.add_argument("-d", "--detoff", action="store", type=float, help="Detector offset (deg)", metavar='detoff',default=0.0)
+parser.add_argument("-e", "--exptime", action="store", type=float, help="Observation length (sec)", metavar='Exp',required=True)
+parser.add_argument("-f", "--fitsfitfile", action="store", help="Input FITS file with fit parameters.", metavar="file")
+parser.add_argument("-l", "--lamina", action="store", nargs=2, type=float, help="lambda2 or lambda4 (2, 4) and angle", metavar=('lambda','angle'))
+parser.add_argument("-o", "--outfile", action="store", help="Output FITS file", required=True, metavar='file')
+parser.add_argument("-p", "--posangle", action="store", type=float, help="Detector position angle", default=0.0, metavar='pos')
+parser.add_argument("-s", "--stokes", action="store", type=float, nargs=3, help="Object normalized Stokes parameters", metavar=('Q', 'U', 'V'), required=True)
+parser.add_argument("-t", "--obsepoch", action="store", help="Observation time", required=True, metavar="'YYYY/MM/DD HH:MM:SS'")
+parser.add_argument("-v", "--verbose", action="store_true", help="Fully describe operations")
+parser.add_argument("--version", action="version", version=__version__)
+parser.add_argument("-w", "--wave", action="store", type=float, help="Observation wavelength (micron)", default=0.55, metavar='wave')
+parser.add_argument("-z", "--zero", action="store", nargs=3, type=float, help="Normalized instrumental polarization", metavar=('q0','u0','v0'),default=(0.,0.,0.,))
+options = parser.parse_args()
+
+
+#
+if options.lamina:
+    if options.lamina[0] != 2 and options.lamina[0] != 4:
+        parser.error("Only lambda2 and lambda4 plates are availbale.")
+#
+if (options.alum or options.detoff or options.posangle or options.zero) and options.fitsfitfile:
+    if options.verbose:
+        print("Table data supersede command line data")
+#
+if options.fitsfitfile:
+    try:
+        tf = atpy.Table(options.fitsfitfile,type='fits')
+    except OSErrror:
+        parser.error("Incorrect fit FITS file: %s" % options.fitsfitfile)
+#
+site = GetTNGSite()
+obj = GetObj(options.coord[0],options.coord[1])
+site.date = options.obsepoch
+obj.compute(site)
+if options.exptime <= 0.0:
+    parser.error("Exposure time must be positive.")
+if options.verbose:
+    print "Object coordinates    : %s %s" % (obj.a_ra, obj.a_dec)
+    print "Observation epoch     : %s" % site.date
+    print "Observation length    : %.0f sec" % options.exptime
+    print "Stokes parameters     : I=%.3f Q=%.3f U=%.3f V=%.3f" % (1.0, options.stokes[0], options.stokes[1], options.stokes[2])
+#
+if options.fitsfitfile:
+    try:
+        nn = tf[STP.N][0]
+        kk = tf[STP.K][0]
+        offoff = tf[STP.DETOFF][0]
+        q0q0 = tf[STP.Q0][0]
+        u0u0 = tf[STP.U0][0]
+        v0v0 = tf[STP.V0][0]
+    except IndexError:
+        parser.errpr("FITS Stokes parameter file without the expected entries.")
+else:
+    nn = options.alum[0]
+    kk = options.alum[1]
+    offoff = options.detoff
+    q0q0 = options.zero[0]
+    u0u0 = options.zero[1]
+    v0v0 = options.zero[2]
+#
+nf, kf = AluminiumRefractiveIndex()
+n = nf(options.wave)*nn
+k = kf(options.wave)*kk
+#
+if q0q0 > 1. or u0u0 > 1 or v0v0 > 1 or (q0q0**2 + v0v0**2 + u0u0**2) > 1:
+    parser.error("Unrealistic instrumental polarization.")
+if nn <= 0.0 or kk <= 0:
+    parser.error("Multiplicative factors must be positive.")
+#
+if options.verbose:
+    print "Observation wavelength        : %.3f" % options.wave
+    print "Adopted refractive index      : %.2f" % n
+    print "Adopted extinction coefficient: %.2f" % k
+    print "Detector position angle (deg) : %.2f" % options.posangle
+    print "Detector offset (deg)         : %.1f" % offoff
+    print "Instrumental polarization     : Q0=%.1g, U0=%.1g, V0=%.1g" % (q0q0, u0u0, v0v0)
+    if options.lamina:
+        if options.lamina[0] == 2:
+            print "Lambda2 plate with angle %.1f" % options.lamina[1]
+        elif options.lamina[0] == 4:
+            print "Lambda4 plate with angle %.1f" % options.lamina[1]
+#
+sto = [1.0, options.stokes[0], options.stokes[1], options.stokes[2]]
+Stokes = numpy.matrix(sto).transpose()
+#
+orgdate = site.date
+date = []
+time = []
+az = []
+alt = []
+hourang = []
+parang = []
+i = []
+q = []
+u = []
+v = []
+for en in numpy.linspace(0.0,options.exptime/60.0,math.ceil(options.exptime/60.0)):
+    site.date = orgdate + en*ephem.minute
+    sdate = str(site.date)
+    date.append(sdate.split()[0])
+    time.append(sdate.split()[1])
+    obj.compute(site)
+    az.append(math.degrees(float(obj.az)))
+    alt.append(math.degrees(float(obj.alt)))
+    hang = PhaseAngle(HourAngle(math.degrees(float(obj.a_ra)),site),-180.0,180.0)
+    hourang.append(hang)
+    pang = ParallacticAngle(obj,site)
+    parang.append(pang)
+    if options.lamina:
+        if options.lamina[0] == 2:
+            s = TNGMuellerMatrixPlate2(pang,n,k,rot=options.lamina[1],offset=(offoff-options.posangle))*Stokes+StokesOffsetVector(q0q0,u0u0,v0v0)
+        elif options.lamina[0] == 4:
+            s = TNGMuellerMatrixPlate4(pang,n,k,rot=options.lamina[1],offset=(offoff-options.posangle))*Stokes+StokesOffsetVector(q0q0,u0u0,v0v0)
+    else:
+        s = TNGMuellerMatrix(pang,n,k,offset=(offoff-options.posangle))*Stokes+StokesOffsetVector(q0q0,u0u0,v0v0)
+    i.append(s[0,0])
+    q.append(s[1,0])
+    u.append(s[2,0])
+    v.append(s[3,0])
+#    print i[-1],q[-1],u[-1],v[-1]
+#
+tout = atpy.Table()
+tout.add_column(STP.DATE,numpy.array(date))
+tout.add_column(STP.TIME,numpy.array(time))
+tout.add_column(STP.AZ,numpy.array(az))
+tout.add_column(STP.ALT,numpy.array(alt))
+tout.add_column(STP.HOURANG,numpy.array(hourang))
+tout.add_column(STP.PARANG,numpy.array(parang))
+tout.add_column(STP.I,numpy.array(i))
+tout.add_column(STP.Q,numpy.array(q))
+tout.add_column(STP.U,numpy.array(u))
+tout.add_column(STP.V,numpy.array(v))
+#
+tout.write(options.outfile,type='fits',overwrite=True)
+if options.verbose:
+    print "%d entried saved in file %s" % (len(tout), options.outfile)
+else:
+    print "%d %s" % (len(tout), options.outfile)    
+#
+
+
