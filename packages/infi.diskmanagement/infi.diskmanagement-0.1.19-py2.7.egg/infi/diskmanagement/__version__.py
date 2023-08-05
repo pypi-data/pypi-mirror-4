@@ -1,0 +1,10 @@
+__version__ = "0.1.19"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = 'd8a965d6f1e439300c923366df677d9c6c668b9d'
+__git_head_subject__ = 'Finished release v0.1.19.'
+__git_head_message__ = '# By Arnon Yaari (2) and Guy Rozendorn (2)\n* release/v0.1.19:\n  TRIVIAL skeleton update\n  HIP-494 volume partition may not be mounted, return None if not found\n  HIP-475 fixed gpt partition offset based on the reserved partition size\n  empty commit after version v0.1.18'
+__git_dirty_diff__ = ''
