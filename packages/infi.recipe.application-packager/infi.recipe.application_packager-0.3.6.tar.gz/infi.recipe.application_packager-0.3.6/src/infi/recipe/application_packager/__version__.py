@@ -1,0 +1,10 @@
+__version__ = "0.3.6"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '79ae089898ccdf63da59c47964f33ec36f5b74af'
+__git_head_subject__ = 'Finished release v0.3.6.'
+__git_head_message__ = '* release/v0.3.6:\n  HOSTDEV-580 fixing delete_non_production_packages_from_cache_dist to work with different version formatting in sdist and bdist_egg distirbutions\n  empty commit after version v0.3.5'
+__git_dirty_diff__ = ''
