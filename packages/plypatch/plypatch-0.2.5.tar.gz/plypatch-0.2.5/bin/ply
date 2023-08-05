@@ -1,0 +1,219 @@
+#!/usr/bin/env python
+import os
+import sys
+
+import plypatch
+from plypatch import git
+
+
+def die(msg):
+    print msg
+    sys.exit(1)
+
+
+def usage():
+    cmds = [x.replace('do_', '')
+            for x in globals().keys() if x.startswith('do_')]
+    die("usage: ply [--version] <%s>" % '|'.join(sorted(cmds)))
+
+
+def die_on_conflicts():
+    print "Patch did not apply cleanly. To fix:"
+    print
+    print "\t1) Fix conflicts in affected files"
+    print "\n\t2) `git add` affected files"
+    print "\n\t3) Run `ply resolve` to refresh the patch and"\
+          " apply the rest\n\t   of the patches in the series."
+    sys.exit(1)
+
+
+def die_on_uncommitted_changes():
+    die('ERROR: Uncommitted changes, commit or discard before continuing.')
+
+
+def do_abort(working_repo, *args):
+    """Abort in-progress restore operation.
+
+    -v: verbose mode
+    """
+    quiet = '-v' not in args
+    working_repo.abort(quiet=quiet)
+
+
+def do_check(working_repo, *args):
+    """Peform a health check on the patch-repo."""
+    status, errors = working_repo.check_patch_repo()
+
+    print status.upper()
+
+    if status == 'ok':
+        return
+
+    if errors['no_file']:
+        print 'Entry in series-file but patch not present:'
+        for patch_name in errors['no_file']:
+            print '\t- %s' % patch_name
+
+    if errors['no_series_entry']:
+        print 'Patch is present but no entry in series file:'
+        for patch_name in errors['no_series_entry']:
+            print '\t- %s' % patch_name
+
+
+def do_graph(working_repo, *args):
+    """Graph patch dependencies.
+
+    Print a DOT file to stdout.
+    """
+    print working_repo.patch_repo.patch_dependency_dot_graph()
+
+
+def do_init(_, *args):
+    """Initialize a new patch-repo."""
+    if not args:
+        die("ply init <patch-repo-path>")
+
+    patch_repo_path = args[0]
+    patch_repo = plypatch.PatchRepo(patch_repo_path)
+    patch_repo.initialize()
+
+
+def do_link(working_repo, *args):
+    """Link a working repo to a patch repo."""
+    if not args:
+        die("ply link <patch-repo-path>")
+
+    patch_repo_path = args[0]
+    try:
+        working_repo.link(patch_repo_path)
+    except plypatch.exc.AlreadyLinkedToPatchRepo:
+        die('Already linked to a patch-repo')
+
+
+def do_resolve(working_repo, *args):
+    """Mark conflicts for a patch as resolved and continue applying the rest
+    of the patches in the series.
+
+    -v: verbose mode
+    """
+    quiet = '-v' not in args
+    try:
+        working_repo.resolve(quiet=quiet)
+    except plypatch.git.exc.PatchDidNotApplyCleanly:
+        die_on_conflicts()
+
+
+def do_restore(working_repo, *args):
+    """Apply the patch series to the the current branch of the working-repo.
+
+    -v: verbose mode
+    """
+    quiet = '-v' not in args
+    try:
+        working_repo.restore(quiet=quiet)
+    except plypatch.exc.UncommittedChanges:
+        die_on_uncommitted_changes()
+    except plypatch.git.exc.PatchDidNotApplyCleanly:
+        die_on_conflicts()
+
+
+def do_rollback(working_repo, *args):
+    """Rollback to the last upstream commit.
+
+    This is just a convenience so that you don't have to search the git
+    history for the earliest Ply-Patch commit and `git reset --hard` to its
+    parent.
+    """
+    quiet = '-v' not in args
+    try:
+        working_repo.rollback(quiet=quiet)
+    except plypatch.exc.UncommittedChanges:
+        die_on_uncommitted_changes()
+
+
+def do_save(working_repo, *args):
+    """Saves last commit as a new patch in the patch-repo.
+
+    -v: verbose mode
+
+    --prefix: optional subdirectory in the patch-repo in which to drop the
+              newly minted patch
+
+    since: optional revision to bookend where patches begin. The revision
+             should be the one BEFORE the first patch (e.g. uses
+             format-patches 'since' semantics). `..` is not supported at this
+             time.
+    """
+    quiet = '-v' not in args
+
+    prefix = None
+    positional = []
+    for arg in args:
+        if arg.startswith('--prefix='):
+            prefix = arg.replace('--prefix=', '')
+        else:
+            positional.append(arg)
+
+    try:
+        since = positional[0]
+    except IndexError:
+        die("ply save <since>")
+
+    try:
+        working_repo.save(since, prefix=prefix, quiet=quiet)
+    except plypatch.exc.UncommittedChanges:
+        die_on_uncommitted_changes()
+
+
+def do_skip(working_repo, *args):
+    """Skips current patch and removes it from patch-repo then continues by
+    applying rest of the patches in the series.
+
+    -v: verbose mode
+    """
+    quiet = '-v' not in args
+    try:
+        working_repo.skip(quiet=quiet)
+    except plypatch.git.exc.PatchDidNotApplyCleanly:
+        die_on_conflicts()
+
+
+def do_status(working_repo, *args):
+    """Show status of the working-repo."""
+    status = working_repo.status
+
+    if status == 'restore-in-progress':
+        die('Restore in progress, use skip or resolve to continue')
+    elif status == 'no-patches-applied':
+        die('No patches applied')
+    else:
+        die('All patches applied')
+
+
+def do_unlink(working_repo, *args):
+    """Unlink a working repo from a patch repo."""
+    try:
+        working_repo.unlink()
+    except plypatch.exc.NoLinkedPatchRepo:
+        die('Not linked to a patch-repo')
+
+
+def main():
+    if len(sys.argv) < 2:
+        usage()
+
+    if '--version' in sys.argv[1:]:
+        print plypatch.__version__
+        return
+
+    cmd = sys.argv[1]
+    func = globals().get('do_%s' % cmd)
+    if func:
+        working_repo = plypatch.WorkingRepo('.')
+        func(working_repo, *sys.argv[2:])
+    else:
+        die("command '%s' not found" % cmd)
+
+
+if __name__ == "__main__":
+    main()
