@@ -1,0 +1,187 @@
+#!/usr/bin/python
+# Copyright (c) 2009, 2010 Adam Tauno Williams <awilliam@whitemice.org>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+#
+from coils.foundation import PListParser, PListWriter, \
+                              PickleParser, PickleWriter, \
+                              ServerDefaultsManager
+from coils.foundation.utility import get_server_root
+from coils.core       import initialize_COILS
+import logging, getopt, pprint, sys, os
+
+def usage():
+    print """
+        Run an OpenGroupware COILS Logic command with specified parameters.
+        --help          Display this message.
+        --import        Create config BLOB from legacy PList
+        --list          List defined configuration directives
+        --delete        Remove the specified configuration directive
+        --bootstrap     Create new empty config BLOB.
+        --directive=    Configuration directive
+        --value=        Value for specified directive
+        --root=         The server's store root (default: /var/lib/opengroupware.org)
+    """
+    return
+
+def load_legacy(store_root):
+    filename = '{0}/.libFoundation/Defaults/NSGlobalDomain.plist'.format(store_root)
+    if (os.path.exists(filename)):
+        handle = open(filename, 'rb')
+        data = handle.read()
+        handle.close()
+        defaults = PListParser().propertyListFromString(data)
+    return defaults
+
+
+def load_blob(store_root):
+    filename = '{0}/.server_defaults.pickle'.format(store_root)
+    if (os.path.exists(filename)):
+        handle = open(filename, 'rb')
+        data = handle.read()
+        handle.close()
+        defaults = PickleParser().propertyListFromString(data)
+    else:
+        defaults = load_legacy(store_root)
+    return defaults
+
+def save_blob(store_root, defaults):
+    try:
+        filename = '{0}/.server_defaults.pickle'.format(store_root)
+        handle = open(filename, 'wb')
+        data = PickleWriter().store(defaults)
+        handle.write(data)
+        handle.close()
+    except:
+        print 'Unable to save server defaults BLOB.'
+        sys.exit(4)
+
+def main(argv):
+    # Process command line arguements
+    log = logging.getLogger('server-config')
+    import_mode = False
+    bootstrap_mode = False
+    delete_mode = False
+    store_root = None
+    directive = None
+    value = None
+    if (len(argv) == 0):
+        usage()
+        sys.exit(2)
+    try:
+        opts, args = getopt.getopt(argv,
+                                   "hlibd:v:r:",
+                                  ["help", "list", "import", "bootstrap",
+                                   "directive=", "value=", "root=", "delete" ])
+    except getopt.GetoptError, e:
+        print e
+        usage()
+        sys.exit(2)
+    for opt, arg in opts:
+        if opt in ("-h", "--help"):
+            usage()
+            sys.exit(0)
+        elif opt in ("-i", "--import"):
+            import_mode = True
+        elif opt in ("-b", "--bootstrap"):
+            bootstrap_mode = True
+        elif opt in ("-d", "--directive"):
+            directive = arg
+        elif opt in ("-v", "--value"):
+            value = arg
+        elif opt in ("-r", "--root"):
+            store_root = arg
+        elif opt in ("--delete"):
+            delete_mode = True
+        elif opt in ("-l", "--list"):
+            bootstrap_mode = False
+            import_mode = False
+        else:
+            usage()
+            sys.exit(1)
+
+    store_root = get_server_root( store_root = store_root )
+
+    if (bootstrap_mode):
+        defaults = {
+            'PYTrustedHosts': [  ],
+            'OIESQLSources': { 'ogo@LOCAL': { 'database': 'OGo',
+                                              'driver': 'postgres',
+                                              'hostname': 'localhost',
+                                              'password': '',
+                                              'username': 'OGo' } },
+            'LSConnectionDictionary': { 'databaseName': 'OGo',
+                                        'hostName': '127.0.0.1',
+                                        'password': '',
+                                        'port': 5432,
+                                        'userName': 'OGo' },
+            'skyrix_id': 'SETME',
+            'SMTPServer': { 'hostname': '127.0.0.1',
+                            'password': '',
+                            'starttls': 'NO',
+                            'username': '' },
+            'SkyPublicExtendedPersonAttributes': [ { 'key': 'email1', 'label': 'Primary E-Mail', 'type': 3 },
+                                                   { 'key': 'email2', 'label': 'Secondary E-Mail', 'type': 3 },
+                                                   { 'key': 'email3', 'label': 'Tertiary E-Mail', 'type': 3 },
+                                                   { 'key': "job_title", 'label': 'Job Title' },
+                                                   { 'key': "other_title1", 'label': 'Secondary Job Title' },
+                                                   { 'key': "other_title2", 'label': 'Tertiary Job Title' } ],
+            'TimeZoneName': 'UTC',
+            'SkyPublicExtendedEnterpriseAttributes': [ { 'key': 'email2', 'type': 3 },
+                                                       { 'key': 'email3', 'type': 3 },
+                                                       { 'key': 'job_title' },
+                                                       { 'key': 'other_title1' },
+                                                       { 'key': 'other_title2' } ]
+            }
+        save_blob(store_root, defaults)
+        print 'Initialized a new server defaults file.'
+        load_blob(store_root)
+        print 'Loaded configuration BLOB successfully.'
+    elif (import_mode):
+        defaults = load_legacy(store_root)
+        save_blob(store_root, defaults)
+        print 'Imported {0} directives from legacy configuration'.format(len(defaults))
+    else:
+        defaults = load_blob(store_root)
+        if ((directive is not None) and (value is not None)):
+            # Set
+            if (('{' in value) or ('[' in value)):
+                try:
+                    value = eval(value)
+                except:
+                    print 'Unable to parse default value.'
+                    sys.exit(3)
+            defaults[directive] = value
+            save_blob(store_root, defaults)
+        elif ((directive is not None) and (value is None)):
+            if (delete_mode):
+                # Remove Directive
+                del defaults[directive]
+                save_blob(store_root, defaults)
+                print 'Directive {0} deleted'.format(directive)
+            else:
+                # View
+                pprint.pprint(defaults.get(directive, None))
+        else:
+            # List
+            pprint.pprint(defaults)
+    sys.exit(0)
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
