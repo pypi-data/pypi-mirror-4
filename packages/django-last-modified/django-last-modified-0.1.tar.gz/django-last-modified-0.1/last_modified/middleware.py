@@ -1,0 +1,2 @@
+from last_modified import LastModifiedMiddleware
+from cache_control import CacheControlMiddleware
