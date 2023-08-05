@@ -1,0 +1,1 @@
+from mandrillmail import MandrillMail, MandrillTemplateMail
