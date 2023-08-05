@@ -1,0 +1,1364 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>foundations.parsers &mdash; Foundations 2.0.2 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '2.0.2',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <link rel="top" title="Foundations 2.0.2 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">Foundations 2.0.2 documentation</a> &raquo;</li>
+          <li><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for foundations.parsers</h1><div class="highlight"><pre>
+<span class="c">#!/usr/bin/env python</span>
+<span class="c"># -*- coding: utf-8 -*-</span>
+
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">**parsers.py**</span>
+
+<span class="sd">**Platform:**</span>
+<span class="sd">	Windows, Linux, Mac Os X.</span>
+
+<span class="sd">**Description:**</span>
+<span class="sd">	This module defines the :class:`SectionsFileParser` class, :class:`PlistFileParser` class</span>
+<span class="sd">	and others parsing related objects.</span>
+
+<span class="sd">**Others:**</span>
+<span class="sd">	Portions of the code from Fredrik Lundh: http://effbot.org/zone/element-iterparse.htm</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="c">#**********************************************************************************************************************</span>
+<span class="c">#***	External imports.</span>
+<span class="c">#**********************************************************************************************************************</span>
+<span class="kn">import</span> <span class="nn">base64</span>
+<span class="kn">import</span> <span class="nn">datetime</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">OrderedDict</span>
+<span class="kn">from</span> <span class="nn">xml.etree</span> <span class="kn">import</span> <span class="n">ElementTree</span>
+
+<span class="c">#**********************************************************************************************************************</span>
+<span class="c">#***	Internal imports.</span>
+<span class="c">#**********************************************************************************************************************</span>
+<span class="kn">import</span> <span class="nn">foundations.common</span>
+<span class="kn">import</span> <span class="nn">foundations.core</span> <span class="kn">as</span> <span class="nn">core</span>
+<span class="kn">import</span> <span class="nn">foundations.dataStructures</span>
+<span class="kn">import</span> <span class="nn">foundations.exceptions</span>
+<span class="kn">import</span> <span class="nn">foundations.io</span> <span class="kn">as</span> <span class="nn">io</span>
+<span class="kn">import</span> <span class="nn">foundations.namespace</span> <span class="kn">as</span> <span class="nn">namespace</span>
+<span class="kn">import</span> <span class="nn">foundations.strings</span> <span class="kn">as</span> <span class="nn">strings</span>
+<span class="kn">import</span> <span class="nn">foundations.walkers</span>
+<span class="kn">from</span> <span class="nn">foundations.globals.constants</span> <span class="kn">import</span> <span class="n">Constants</span>
+
+<span class="c">#**********************************************************************************************************************</span>
+<span class="c">#***	Module attributes.</span>
+<span class="c">#**********************************************************************************************************************</span>
+<span class="n">__author__</span> <span class="o">=</span> <span class="s">&quot;Thomas Mansencal&quot;</span>
+<span class="n">__copyright__</span> <span class="o">=</span> <span class="s">&quot;Copyright (C) 2008 - 2012 - Thomas Mansencal&quot;</span>
+<span class="n">__license__</span> <span class="o">=</span> <span class="s">&quot;GPL V3.0 - http://www.gnu.org/licenses/&quot;</span>
+<span class="n">__maintainer__</span> <span class="o">=</span> <span class="s">&quot;Thomas Mansencal&quot;</span>
+<span class="n">__email__</span> <span class="o">=</span> <span class="s">&quot;thomas.mansencal@gmail.com&quot;</span>
+<span class="n">__status__</span> <span class="o">=</span> <span class="s">&quot;Production&quot;</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;LOGGER&quot;</span><span class="p">,</span> <span class="s">&quot;AttributeCompound&quot;</span><span class="p">,</span> <span class="s">&quot;SectionsFileParser&quot;</span><span class="p">,</span> <span class="s">&quot;PlistFileParser&quot;</span><span class="p">,</span> <span class="s">&quot;getAttributeCompound&quot;</span><span class="p">]</span>
+
+<span class="n">LOGGER</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="n">Constants</span><span class="o">.</span><span class="n">logger</span><span class="p">)</span>
+
+<span class="c">#**********************************************************************************************************************</span>
+<span class="c">#***	Module classes and definitions.</span>
+<span class="c">#**********************************************************************************************************************</span>
+<div class="viewcode-block" id="AttributeCompound"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.AttributeCompound">[docs]</a><span class="k">class</span> <span class="nc">AttributeCompound</span><span class="p">(</span><span class="n">foundations</span><span class="o">.</span><span class="n">dataStructures</span><span class="o">.</span><span class="n">Structure</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This class represents a storage object for attributes compounds usually encountered in</span>
+<span class="sd">	`sIBL_GUI &lt;https://github.com/KelSolaar/sIBL_GUI&gt;`_ Templates files.</span>
+
+<span class="sd">	Some attributes compounds:</span>
+
+<span class="sd">		- Name = @Name | Standard | String | Template Name</span>
+<span class="sd">		- Background|BGfile = @BGfile</span>
+<span class="sd">		- showCamerasDialog = @showCamerasDialog | 0 | Boolean | Cameras Selection Dialog</span>
+
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@core.executionTrace</span>
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		.. Sphinx: Statements updated for auto-documentation purpose.</span>
+
+<span class="sd">		Usage::</span>
+
+<span class="sd">			AttributeCompound(name=&quot;showCamerasDialog&quot;, </span>
+<span class="sd">							value=&quot;0&quot;, </span>
+<span class="sd">							link=&quot;@showCamerasDialog&quot;, </span>
+<span class="sd">							type=&quot;Boolean&quot;, </span>
+<span class="sd">							alias=&quot;Cameras Selection Dialog&quot;)</span>
+
+<span class="sd">		:param \*\*kwargs: name, value, link, type, alias. ( Key / Value pairs )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Initializing &#39;{0}()&#39; class.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">))</span>
+
+		<span class="n">foundations</span><span class="o">.</span><span class="n">dataStructures</span><span class="o">.</span><span class="n">Structure</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="SectionsFileParser"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.SectionsFileParser">[docs]</a><span class="k">class</span> <span class="nc">SectionsFileParser</span><span class="p">(</span><span class="n">io</span><span class="o">.</span><span class="n">File</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This class provides methods to parse sections file format files,</span>
+<span class="sd">	an alternative configuration file parser is available directly with Python: :class:`ConfigParser.ConfigParser`.</span>
+
+<span class="sd">	The parser given by this class has some major differences with Python :class:`ConfigParser.ConfigParser`:</span>
+
+<span class="sd">		- | Sections and attributes are stored in their appearance order by default.</span>
+<span class="sd">			( Using Python :class:`collections.OrderedDict` )</span>
+<span class="sd">		- | A default section ( **_default** ) will store orphans attributes </span>
+<span class="sd">			( Attributes appearing before any declared section ).</span>
+<span class="sd">		- File comments are stored inside the :obj:`SectionsFileParser.comments` class property. </span>
+<span class="sd">		- | Sections, attributes and values are whitespaces stripped by default</span>
+<span class="sd">			but can also be stored with their leading and trailing whitespaces. </span>
+<span class="sd">		- | Values are quotations markers stripped by default</span>
+<span class="sd">			but can also be stored with their leading and trailing quotations markers. </span>
+<span class="sd">		- Attributes are namespaced by default allowing sections merge without keys collisions. </span>
+
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@core.executionTrace</span>
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+				<span class="nb">file</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+				<span class="n">splitters</span><span class="o">=</span><span class="p">(</span><span class="s">&quot;=&quot;</span><span class="p">,</span> <span class="s">&quot;:&quot;</span><span class="p">),</span>
+				<span class="n">namespaceSplitter</span><span class="o">=</span><span class="s">&quot;|&quot;</span><span class="p">,</span>
+				<span class="n">commentLimiters</span><span class="o">=</span><span class="p">(</span><span class="s">&quot;;&quot;</span><span class="p">,</span> <span class="s">&quot;#&quot;</span><span class="p">),</span>
+				<span class="n">commentMarker</span><span class="o">=</span><span class="s">&quot;#&quot;</span><span class="p">,</span>
+				<span class="n">quotationMarkers</span><span class="o">=</span><span class="p">(</span><span class="s">&quot;</span><span class="se">\&quot;</span><span class="s">&quot;</span><span class="p">,</span> <span class="s">&quot;&#39;&quot;</span><span class="p">,</span> <span class="s">&quot;`&quot;</span><span class="p">),</span>
+				<span class="n">rawSectionContentIdentifier</span><span class="o">=</span><span class="s">&quot;_rawSectionContent&quot;</span><span class="p">,</span>
+				<span class="n">defaultsSection</span><span class="o">=</span><span class="s">&quot;_defaults&quot;</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		.. Sphinx: Statements updated for auto-documentation purpose.</span>
+<span class="sd">		</span>
+<span class="sd">		Usage::</span>
+<span class="sd">		</span>
+<span class="sd">			&gt;&gt;&gt; content = [&quot;[Section A]\\n&quot;, &quot;; Comment.\\n&quot;, &quot;Attribute 1 = \\&quot;Value A\\&quot;\\n&quot;, &quot;\\n&quot;, \</span>
+<span class="sd">&quot;[Section B]\\n&quot;, &quot;Attribute 2 = \\&quot;Value B\\&quot;\\n&quot;]</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser = SectionsFileParser()</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.content = content</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.parse(stripComments=False)</span>
+<span class="sd">			True</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.sections.keys()</span>
+<span class="sd">			[&#39;Section A&#39;, &#39;Section B&#39;]</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.comments </span>
+<span class="sd">			OrderedDict([(&#39;Section A|#0&#39;, {&#39;content&#39;: &#39;Comment.&#39;, &#39;id&#39;: 0})])</span>
+
+<span class="sd">		:param file: Current file path. ( String )</span>
+<span class="sd">		:param splitters: Splitter characters.  ( Tuple / List )</span>
+<span class="sd">		:param namespaceSplitter: Namespace splitters character. ( String )</span>
+<span class="sd">		:param commentLimiters: Comment limiters characters. ( Tuple / List )</span>
+<span class="sd">		:param commentMarker: Character use to prefix extracted comments idientifiers. ( String )</span>
+<span class="sd">		:param quotationMarkers: Quotation markers characters. ( Tuple / List )</span>
+<span class="sd">		:param rawSectionContentIdentifier: Raw section content identifier. ( String )</span>
+<span class="sd">		:param defaultsSection: Default section name. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Initializing &#39;{0}()&#39; class.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">))</span>
+
+		<span class="n">io</span><span class="o">.</span><span class="n">File</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">file</span><span class="p">)</span>
+
+		<span class="c"># --- Setting class attributes. ---</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__splitters</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">splitters</span> <span class="o">=</span> <span class="n">splitters</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__namespaceSplitter</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">namespaceSplitter</span> <span class="o">=</span> <span class="n">namespaceSplitter</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__commentLimiters</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">commentLimiters</span> <span class="o">=</span> <span class="n">commentLimiters</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__commentMarker</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">commentMarker</span> <span class="o">=</span> <span class="n">commentMarker</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__quotationMarkers</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">quotationMarkers</span> <span class="o">=</span> <span class="n">quotationMarkers</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__rawSectionContentIdentifier</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">rawSectionContentIdentifier</span> <span class="o">=</span> <span class="n">rawSectionContentIdentifier</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__defaultsSection</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">defaultsSection</span> <span class="o">=</span> <span class="n">defaultsSection</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">__sections</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__comments</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__parsingErrors</span> <span class="o">=</span> <span class="bp">None</span>
+
+	<span class="c">#******************************************************************************************************************</span>
+	<span class="c">#***	Attributes properties.</span>
+	<span class="c">#******************************************************************************************************************</span>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">splitters</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__splitters** attribute.</span>
+
+<span class="sd">		:return: self.__splitters. ( Tuple / List )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__splitters</span>
+
+	<span class="nd">@splitters.setter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, AssertionError)</span>
+	<span class="k">def</span> <span class="nf">splitters</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__splitters** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( Tuple / List )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="nb">tuple</span><span class="p">,</span> <span class="nb">list</span><span class="p">),</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; type is not &#39;tuple&#39; or &#39;list&#39;!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+			<span class="s">&quot;splitters&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+			<span class="k">for</span> <span class="n">element</span> <span class="ow">in</span> <span class="n">value</span><span class="p">:</span>
+				<span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">element</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="nb">unicode</span><span class="p">),</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; type is not &#39;str&#39; or &#39;unicode&#39;!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+				<span class="s">&quot;splitters&quot;</span><span class="p">,</span> <span class="n">element</span><span class="p">)</span>
+				<span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">element</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; has multiples characters!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;splitter&quot;</span><span class="p">,</span> <span class="n">element</span><span class="p">)</span>
+				<span class="k">assert</span> <span class="ow">not</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="s">r&quot;\w&quot;</span><span class="p">,</span> <span class="n">element</span><span class="p">),</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; is an alphanumeric character!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+				<span class="s">&quot;splitter&quot;</span><span class="p">,</span> <span class="n">element</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__splitters</span> <span class="o">=</span> <span class="n">value</span>
+
+	<span class="nd">@splitters.deleter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, foundations.exceptions.ProgrammingError)</span>
+<div class="viewcode-block" id="SectionsFileParser.splitters"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.SectionsFileParser.splitters">[docs]</a>	<span class="k">def</span> <span class="nf">splitters</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__splitters** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;splitters&quot;</span><span class="p">))</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">namespaceSplitter</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__namespaceSplitter** attribute.</span>
+
+<span class="sd">		:return: self.__namespaceSplitter. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__namespaceSplitter</span>
+
+	<span class="nd">@namespaceSplitter.setter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, AssertionError)</span>
+	<span class="k">def</span> <span class="nf">namespaceSplitter</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__namespaceSplitter** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="nb">unicode</span><span class="p">),</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; type is not &#39;str&#39; or &#39;unicode&#39;!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+			<span class="s">&quot;namespaceSplitter&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+			<span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; has multiples characters!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;namespaceSplitter&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+			<span class="k">assert</span> <span class="ow">not</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="s">r&quot;\w&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">),</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; is an alphanumeric character!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+			<span class="s">&quot;namespaceSplitter&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__namespaceSplitter</span> <span class="o">=</span> <span class="n">value</span>
+
+	<span class="nd">@namespaceSplitter.deleter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, foundations.exceptions.ProgrammingError)</span>
+<div class="viewcode-block" id="SectionsFileParser.namespaceSplitter"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.SectionsFileParser.namespaceSplitter">[docs]</a>	<span class="k">def</span> <span class="nf">namespaceSplitter</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__namespaceSplitter** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;namespaceSplitter&quot;</span><span class="p">))</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">commentLimiters</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__commentLimiters** attribute.</span>
+
+<span class="sd">		:return: self.__commentLimiters. ( Tuple / List )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__commentLimiters</span>
+
+	<span class="nd">@commentLimiters.setter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, AssertionError)</span>
+	<span class="k">def</span> <span class="nf">commentLimiters</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__commentLimiters** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( Tuple / List )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="nb">tuple</span><span class="p">,</span> <span class="nb">list</span><span class="p">),</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; type is not &#39;tuple&#39; or &#39;list&#39;!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+			<span class="s">&quot;commentLimiters&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+			<span class="k">for</span> <span class="n">element</span> <span class="ow">in</span> <span class="n">value</span><span class="p">:</span>
+				<span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">element</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="nb">unicode</span><span class="p">),</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; type is not &#39;str&#39; or &#39;unicode&#39;!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+				<span class="s">&quot;commentLimiters&quot;</span><span class="p">,</span> <span class="n">element</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__commentLimiters</span> <span class="o">=</span> <span class="n">value</span>
+
+	<span class="nd">@commentLimiters.deleter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, foundations.exceptions.ProgrammingError)</span>
+<div class="viewcode-block" id="SectionsFileParser.commentLimiters"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.SectionsFileParser.commentLimiters">[docs]</a>	<span class="k">def</span> <span class="nf">commentLimiters</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__commentLimiters** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;commentLimiters&quot;</span><span class="p">))</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">commentMarker</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__commentMarker** attribute.</span>
+
+<span class="sd">		:return: self.__commentMarker. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__commentMarker</span>
+
+	<span class="nd">@commentMarker.setter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, AssertionError)</span>
+	<span class="k">def</span> <span class="nf">commentMarker</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__commentMarker** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="nb">unicode</span><span class="p">),</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; type is not &#39;str&#39; or &#39;unicode&#39;!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+			<span class="s">&quot;commentMarker&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+			<span class="k">assert</span> <span class="ow">not</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="s">r&quot;\w&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">),</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; is an alphanumeric character!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+			<span class="s">&quot;commentMarker&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__commentMarker</span> <span class="o">=</span> <span class="n">value</span>
+
+	<span class="nd">@commentMarker.deleter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, foundations.exceptions.ProgrammingError)</span>
+<div class="viewcode-block" id="SectionsFileParser.commentMarker"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.SectionsFileParser.commentMarker">[docs]</a>	<span class="k">def</span> <span class="nf">commentMarker</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__commentMarker** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;commentMarker&quot;</span><span class="p">))</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">quotationMarkers</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__quotationMarkers** attribute.</span>
+
+<span class="sd">		:return: self.__quotationMarkers. ( Tuple / List )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__quotationMarkers</span>
+
+	<span class="nd">@quotationMarkers.setter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, AssertionError)</span>
+	<span class="k">def</span> <span class="nf">quotationMarkers</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__quotationMarkers** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( Tuple / List )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="nb">tuple</span><span class="p">,</span> <span class="nb">list</span><span class="p">),</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; type is not &#39;tuple&#39; or &#39;list&#39;!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+			<span class="s">&quot;quotationMarkers&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+			<span class="k">for</span> <span class="n">element</span> <span class="ow">in</span> <span class="n">value</span><span class="p">:</span>
+				<span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">element</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="nb">unicode</span><span class="p">),</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; type is not &#39;str&#39; or &#39;unicode&#39;!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+				<span class="s">&quot;quotationMarkers&quot;</span><span class="p">,</span> <span class="n">element</span><span class="p">)</span>
+				<span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">element</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; has multiples characters!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;quotationMarkers&quot;</span><span class="p">,</span>
+				 																					<span class="n">element</span><span class="p">)</span>
+				<span class="k">assert</span> <span class="ow">not</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="s">r&quot;\w&quot;</span><span class="p">,</span> <span class="n">element</span><span class="p">),</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; is an alphanumeric character!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+				<span class="s">&quot;quotationMarkers&quot;</span><span class="p">,</span> <span class="n">element</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__quotationMarkers</span> <span class="o">=</span> <span class="n">value</span>
+
+	<span class="nd">@quotationMarkers.deleter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, foundations.exceptions.ProgrammingError)</span>
+<div class="viewcode-block" id="SectionsFileParser.quotationMarkers"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.SectionsFileParser.quotationMarkers">[docs]</a>	<span class="k">def</span> <span class="nf">quotationMarkers</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__quotationMarkers** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;quotationMarkers&quot;</span><span class="p">))</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">rawSectionContentIdentifier</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__rawSectionContentIdentifier** attribute.</span>
+
+<span class="sd">		:return: self.__rawSectionContentIdentifier. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__rawSectionContentIdentifier</span>
+
+	<span class="nd">@rawSectionContentIdentifier.setter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, AssertionError)</span>
+	<span class="k">def</span> <span class="nf">rawSectionContentIdentifier</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__rawSectionContentIdentifier** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="nb">unicode</span><span class="p">),</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; type is not &#39;str&#39; or &#39;unicode&#39;!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+			<span class="s">&quot;rawSectionContentIdentifier&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__rawSectionContentIdentifier</span> <span class="o">=</span> <span class="n">value</span>
+
+	<span class="nd">@rawSectionContentIdentifier.deleter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, foundations.exceptions.ProgrammingError)</span>
+<div class="viewcode-block" id="SectionsFileParser.rawSectionContentIdentifier"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.SectionsFileParser.rawSectionContentIdentifier">[docs]</a>	<span class="k">def</span> <span class="nf">rawSectionContentIdentifier</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__rawSectionContentIdentifier** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;rawSectionContentIdentifier&quot;</span><span class="p">))</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">defaultsSection</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__defaultsSection** attribute.</span>
+
+<span class="sd">		:return: self.__defaultsSection. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__defaultsSection</span>
+
+	<span class="nd">@defaultsSection.setter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, AssertionError)</span>
+	<span class="k">def</span> <span class="nf">defaultsSection</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__defaultsSection** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="nb">unicode</span><span class="p">),</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; type is not &#39;str&#39; or &#39;unicode&#39;!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+			<span class="s">&quot;defaultsSection&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__defaultsSection</span> <span class="o">=</span> <span class="n">value</span>
+
+	<span class="nd">@defaultsSection.deleter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, foundations.exceptions.ProgrammingError)</span>
+<div class="viewcode-block" id="SectionsFileParser.defaultsSection"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.SectionsFileParser.defaultsSection">[docs]</a>	<span class="k">def</span> <span class="nf">defaultsSection</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__defaultsSection** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;defaultsSection&quot;</span><span class="p">))</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">sections</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__sections** attribute.</span>
+
+<span class="sd">		:return: self.__sections. ( OrderedDict / Dictionary )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__sections</span>
+
+	<span class="nd">@sections.setter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, AssertionError)</span>
+	<span class="k">def</span> <span class="nf">sections</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__sections** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( OrderedDict / Dictionary )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="n">OrderedDict</span><span class="p">,</span> <span class="nb">dict</span><span class="p">),</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; type is not </span><span class="se">\</span>
+<span class="s">			&#39;OrderedDict&#39; or &#39;dict&#39;!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;sections&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+			<span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">element</span> <span class="ow">in</span> <span class="n">value</span><span class="o">.</span><span class="n">iteritems</span><span class="p">():</span>
+				<span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">key</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="nb">unicode</span><span class="p">),</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; type is not &#39;str&#39; or &#39;unicode&#39;!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+				<span class="s">&quot;sections&quot;</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span>
+				<span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">element</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="n">OrderedDict</span><span class="p">,</span> <span class="nb">dict</span><span class="p">),</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; type is not </span><span class="se">\</span>
+<span class="s">				&#39;OrderedDict&#39; or &#39;dict&#39;!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;sections&quot;</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__sections</span> <span class="o">=</span> <span class="n">value</span>
+
+	<span class="nd">@sections.deleter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, foundations.exceptions.ProgrammingError)</span>
+<div class="viewcode-block" id="SectionsFileParser.sections"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.SectionsFileParser.sections">[docs]</a>	<span class="k">def</span> <span class="nf">sections</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__sections** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;sections&quot;</span><span class="p">))</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">comments</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__comments** attribute.</span>
+
+<span class="sd">		:return: self.__comments. ( OrderedDict / Dictionary )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__comments</span>
+
+	<span class="nd">@comments.setter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, AssertionError)</span>
+	<span class="k">def</span> <span class="nf">comments</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__comments** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( OrderedDict / Dictionary )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="n">OrderedDict</span><span class="p">,</span> <span class="nb">dict</span><span class="p">),</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; type is not </span><span class="se">\</span>
+<span class="s">			&#39;OrderedDict&#39; or &#39;dict&#39;!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;comments&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+			<span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">element</span> <span class="ow">in</span> <span class="n">value</span><span class="o">.</span><span class="n">iteritems</span><span class="p">():</span>
+				<span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">key</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="nb">unicode</span><span class="p">),</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; type is not &#39;str&#39; or &#39;unicode&#39;!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+				<span class="s">&quot;comments&quot;</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span>
+				<span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">element</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="n">OrderedDict</span><span class="p">,</span> <span class="nb">dict</span><span class="p">),</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; type is not </span><span class="se">\</span>
+<span class="s">				&#39;OrderedDict&#39; or &#39;dict&#39;!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;comments&quot;</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__comments</span> <span class="o">=</span> <span class="n">value</span>
+
+	<span class="nd">@comments.deleter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, foundations.exceptions.ProgrammingError)</span>
+<div class="viewcode-block" id="SectionsFileParser.comments"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.SectionsFileParser.comments">[docs]</a>	<span class="k">def</span> <span class="nf">comments</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__comments** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;comments&quot;</span><span class="p">))</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">parsingErrors</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__parsingErrors** attribute.</span>
+
+<span class="sd">		:return: self.__parsingErrors. ( List )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__parsingErrors</span>
+
+	<span class="nd">@parsingErrors.setter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, AssertionError)</span>
+	<span class="k">def</span> <span class="nf">parsingErrors</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__parsingErrors** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( List )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">list</span><span class="p">,</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; type is not &#39;list&#39;!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;parsingErrors&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+			<span class="k">for</span> <span class="n">element</span> <span class="ow">in</span> <span class="n">value</span><span class="p">:</span>
+				<span class="k">assert</span> <span class="nb">issubclass</span><span class="p">(</span><span class="n">element</span><span class="o">.</span><span class="n">__class__</span><span class="p">,</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">AbstractParsingError</span><span class="p">),</span> \
+				<span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; is not a &#39;{2}&#39; subclass!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+				<span class="s">&quot;parsingErrors&quot;</span><span class="p">,</span> <span class="n">element</span><span class="p">,</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">AbstractParsingError</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__parsingErrors</span> <span class="o">=</span> <span class="n">value</span>
+
+	<span class="nd">@parsingErrors.deleter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, foundations.exceptions.ProgrammingError)</span>
+<div class="viewcode-block" id="SectionsFileParser.parsingErrors"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.SectionsFileParser.parsingErrors">[docs]</a>	<span class="k">def</span> <span class="nf">parsingErrors</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__parsingErrors** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;parsingErrors&quot;</span><span class="p">))</span>
+
+	<span class="c">#******************************************************************************************************************</span>
+	<span class="c">#***	Class methods.</span>
+	<span class="c">#******************************************************************************************************************</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@core.executionTrace</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, foundations.exceptions.FileStructureParsingError)</span></div>
+<div class="viewcode-block" id="SectionsFileParser.parse"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.SectionsFileParser.parse">[docs]</a>	<span class="k">def</span> <span class="nf">parse</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+			<span class="n">orderedDictionary</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+			<span class="n">rawSections</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+			<span class="n">namespaces</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+			<span class="n">stripComments</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+			<span class="n">stripWhitespaces</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+			<span class="n">stripQuotationMarkers</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+			<span class="n">raiseParsingErrors</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method process the file content and extract the sections / attributes</span>
+<span class="sd">			as nested :class:`collections.OrderedDict` dictionaries or dictionaries.</span>
+
+<span class="sd">		Usage::</span>
+
+<span class="sd">			&gt;&gt;&gt; content = [&quot;; Comment.\\n&quot;, &quot;Attribute 1 = \\&quot;Value A\\&quot;\\n&quot;, &quot;Attribute 2 = \\&quot;Value B\\&quot;\\n&quot;]</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser = SectionsFileParser()</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.content = content</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.parse(stripComments=False)</span>
+<span class="sd">			True</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.sections.keys()</span>
+<span class="sd">			[&#39;_defaults&#39;]</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.sections[&quot;_defaults&quot;].values()</span>
+<span class="sd">			[&#39;Value A&#39;, &#39;Value B&#39;]</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.parse(stripQuotationMarkers=False)</span>
+<span class="sd">			True</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.sections[&quot;_defaults&quot;].values()</span>
+<span class="sd">			[&#39;&quot;Value A&quot;&#39;, &#39;&quot;Value B&quot;&#39;]</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.comments </span>
+<span class="sd">			OrderedDict([(&#39;_defaults|#0&#39;, {&#39;content&#39;: &#39;Comment.&#39;, &#39;id&#39;: 0})])</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.parse()</span>
+<span class="sd">			True</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.sections[&quot;_defaults&quot;]</span>
+<span class="sd">			OrderedDict([(&#39;_defaults|Attribute 1&#39;, &#39;Value A&#39;), (&#39;_defaults|Attribute 2&#39;, &#39;Value B&#39;)])</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.parse(namespaces=False)</span>
+<span class="sd">			OrderedDict([(&#39;Attribute 1&#39;, &#39;Value A&#39;), (&#39;Attribute 2&#39;, &#39;Value B&#39;)])</span>
+
+<span class="sd">		:param orderedDictionary: SectionsFileParser data is stored</span>
+<span class="sd">			in :class:`collections.OrderedDict` dictionaries. ( Boolean )</span>
+<span class="sd">		:param rawSections: Ignored raw sections. ( Tuple / List )</span>
+<span class="sd">		:param namespaces: Attributes and comments are namespaced. ( Boolean )</span>
+<span class="sd">		:param stripComments: Comments are stripped. ( Boolean )</span>
+<span class="sd">		:param stripWhitespaces: Whitespaces are stripped. ( Boolean )</span>
+<span class="sd">		:param stripQuotationMarkers: Attributes values quotation markers are stripped. ( Boolean )</span>
+<span class="sd">		:param raiseParsingErrors: Raise parsing errors. ( Boolean )</span>
+<span class="sd">		:return: Method success. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Reading sections from: &#39;{0}&#39;.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file</span><span class="p">))</span>
+
+		<span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">content</span><span class="p">:</span>
+			<span class="k">return</span> <span class="bp">False</span>
+
+		<span class="k">if</span> <span class="ow">not</span> <span class="n">orderedDictionary</span><span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">__sections</span> <span class="o">=</span> <span class="p">{}</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">__comments</span> <span class="o">=</span> <span class="p">{}</span>
+			<span class="n">attributes</span> <span class="o">=</span> <span class="p">{}</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">__sections</span> <span class="o">=</span> <span class="n">OrderedDict</span><span class="p">()</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">__comments</span> <span class="o">=</span> <span class="n">OrderedDict</span><span class="p">()</span>
+			<span class="n">attributes</span> <span class="o">=</span> <span class="n">OrderedDict</span><span class="p">()</span>
+		<span class="n">section</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__defaultsSection</span>
+		<span class="n">rawSections</span> <span class="o">=</span> <span class="n">rawSections</span> <span class="ow">or</span> <span class="p">[]</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__parsingErrors</span> <span class="o">=</span> <span class="p">[]</span>
+
+		<span class="n">commentId</span> <span class="o">=</span> <span class="mi">0</span>
+		<span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">line</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">content</span><span class="p">):</span>
+			<span class="c"># Comments matching.</span>
+			<span class="n">search</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="s">r&quot;^\s*[{0}](?P&lt;comment&gt;.+)$&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__commentLimiters</span><span class="p">)),</span> <span class="n">line</span><span class="p">)</span>
+			<span class="k">if</span> <span class="n">search</span><span class="p">:</span>
+				<span class="k">if</span> <span class="ow">not</span> <span class="n">stripComments</span><span class="p">:</span>
+					<span class="n">comment</span> <span class="o">=</span> <span class="n">namespaces</span> <span class="ow">and</span> <span class="n">foundations</span><span class="o">.</span><span class="n">namespace</span><span class="o">.</span><span class="n">setNamespace</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="s">&quot;{0}{1}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+							<span class="bp">self</span><span class="o">.</span><span class="n">__commentMarker</span><span class="p">,</span> <span class="n">commentId</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">__namespaceSplitter</span><span class="p">)</span> <span class="ow">or</span> \
+							<span class="s">&quot;{0}{1}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__commentMarker</span><span class="p">,</span> <span class="n">commentId</span><span class="p">)</span>
+					<span class="bp">self</span><span class="o">.</span><span class="n">__comments</span><span class="p">[</span><span class="n">comment</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s">&quot;id&quot;</span> <span class="p">:</span> <span class="n">commentId</span><span class="p">,</span> <span class="s">&quot;content&quot;</span> <span class="p">:</span> <span class="n">stripWhitespaces</span> <span class="ow">and</span> \
+												<span class="n">search</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="s">&quot;comment&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="ow">or</span> <span class="n">search</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="s">&quot;comment&quot;</span><span class="p">)}</span>
+					<span class="n">commentId</span> <span class="o">+=</span> <span class="mi">1</span>
+				<span class="k">continue</span>
+
+			<span class="c"># Sections matching.</span>
+			<span class="n">search</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="s">r&quot;^\s*\[(?P&lt;section&gt;.+)\]\s*$&quot;</span><span class="p">,</span> <span class="n">line</span><span class="p">)</span>
+			<span class="k">if</span> <span class="n">search</span><span class="p">:</span>
+				<span class="n">section</span> <span class="o">=</span> <span class="n">stripWhitespaces</span> <span class="ow">and</span> <span class="n">search</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="s">&quot;section&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="ow">or</span> <span class="n">search</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="s">&quot;section&quot;</span><span class="p">)</span>
+				<span class="k">if</span> <span class="ow">not</span> <span class="n">orderedDictionary</span><span class="p">:</span>
+					<span class="n">attributes</span> <span class="o">=</span> <span class="p">{}</span>
+				<span class="k">else</span><span class="p">:</span>
+					<span class="n">attributes</span> <span class="o">=</span> <span class="n">OrderedDict</span><span class="p">()</span>
+				<span class="n">rawContent</span> <span class="o">=</span> <span class="p">[]</span>
+				<span class="k">continue</span>
+
+			<span class="k">if</span> <span class="n">section</span> <span class="ow">in</span> <span class="n">rawSections</span><span class="p">:</span>
+				<span class="n">rawContent</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+				<span class="n">attributes</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">__rawSectionContentIdentifier</span><span class="p">]</span> <span class="o">=</span> <span class="n">rawContent</span>
+			<span class="k">else</span><span class="p">:</span>
+				<span class="c"># Empty line matching.</span>
+				<span class="n">search</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="s">r&quot;^\s*$&quot;</span><span class="p">,</span> <span class="n">line</span><span class="p">)</span>
+				<span class="k">if</span> <span class="n">search</span><span class="p">:</span>
+					<span class="k">continue</span>
+
+				<span class="c"># Attributes matching.</span>
+				<span class="n">search</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="s">r&quot;^(?P&lt;attribute&gt;.+?)[{0}](?P&lt;value&gt;.+)$&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__splitters</span><span class="p">)),</span> <span class="n">line</span><span class="p">)</span>
+				<span class="k">if</span> <span class="n">search</span><span class="p">:</span>
+					<span class="n">attribute</span> <span class="o">=</span> <span class="n">stripWhitespaces</span> <span class="ow">and</span> <span class="n">search</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="s">&quot;attribute&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="ow">or</span> <span class="n">search</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="s">&quot;attribute&quot;</span><span class="p">)</span>
+					<span class="n">attribute</span> <span class="o">=</span> <span class="n">namespaces</span> <span class="ow">and</span> <span class="n">foundations</span><span class="o">.</span><span class="n">namespace</span><span class="o">.</span><span class="n">setNamespace</span><span class="p">(</span><span class="n">section</span><span class="p">,</span>
+																				<span class="n">attribute</span><span class="p">,</span>
+																				<span class="bp">self</span><span class="o">.</span><span class="n">__namespaceSplitter</span><span class="p">)</span> <span class="ow">or</span> <span class="n">attribute</span>
+					<span class="n">value</span> <span class="o">=</span> <span class="n">stripWhitespaces</span> <span class="ow">and</span> <span class="n">search</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="s">&quot;value&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="ow">or</span> <span class="n">search</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="s">&quot;value&quot;</span><span class="p">)</span>
+					<span class="n">attributes</span><span class="p">[</span><span class="n">attribute</span><span class="p">]</span> <span class="o">=</span> <span class="n">stripQuotationMarkers</span> <span class="ow">and</span> <span class="n">value</span><span class="o">.</span><span class="n">strip</span><span class="p">(</span><span class="s">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__quotationMarkers</span><span class="p">))</span> <span class="ow">or</span> <span class="n">value</span>
+				<span class="k">else</span><span class="p">:</span>
+					<span class="bp">self</span><span class="o">.</span><span class="n">__parsingErrors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">AttributeStructureParsingError</span><span class="p">(</span>
+					<span class="s">&quot;Attribute structure is invalid: {0}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">line</span><span class="p">),</span> <span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">))</span>
+
+			<span class="bp">self</span><span class="o">.</span><span class="n">__sections</span><span class="p">[</span><span class="n">section</span><span class="p">]</span> <span class="o">=</span> <span class="n">attributes</span>
+
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Sections: &#39;{0}&#39;.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__sections</span><span class="p">))</span>
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; &#39;{0}&#39; file parsing done!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file</span><span class="p">))</span>
+
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">__parsingErrors</span> <span class="ow">and</span> <span class="n">raiseParsingErrors</span><span class="p">:</span>
+			<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">FileStructureParsingError</span><span class="p">(</span>
+			<span class="s">&quot;{0} | &#39;{1}&#39; structure is invalid, parsing exceptions occured!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">file</span><span class="p">))</span>
+
+		<span class="k">return</span> <span class="bp">True</span>
+
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@core.executionTrace</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, Exception)</span></div>
+<div class="viewcode-block" id="SectionsFileParser.sectionExists"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.SectionsFileParser.sectionExists">[docs]</a>	<span class="k">def</span> <span class="nf">sectionExists</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">section</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method checks if given section exists.</span>
+<span class="sd">		</span>
+<span class="sd">		Usage::</span>
+
+<span class="sd">			&gt;&gt;&gt; content = [&quot;[Section A]\\n&quot;, &quot;; Comment.\\n&quot;, &quot;Attribute 1 = \\&quot;Value A\\&quot;\\n&quot;, &quot;\\n&quot;, \</span>
+<span class="sd">&quot;[Section B]\\n&quot;, &quot;Attribute 2 = \\&quot;Value B\\&quot;\\n&quot;]</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser = SectionsFileParser()</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.content = content</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.parse()</span>
+<span class="sd">			True</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.sectionExists(&quot;Section A&quot;)</span>
+<span class="sd">			True</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.sectionExists(&quot;Section C&quot;)</span>
+<span class="sd">			False</span>
+
+<span class="sd">		:param section: Section to check existence. ( String )</span>
+<span class="sd">		:return: Section existence. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">__sections</span><span class="p">:</span>
+			<span class="k">return</span> <span class="bp">False</span>
+
+		<span class="k">if</span> <span class="n">section</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">__sections</span><span class="p">:</span>
+			<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; &#39;{0}&#39; section exists in &#39;{1}&#39;.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="bp">self</span><span class="p">))</span>
+			<span class="k">return</span> <span class="bp">True</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; &#39;{0}&#39; section doesn&#39;t exists in &#39;{1}&#39;.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="bp">self</span><span class="p">))</span>
+			<span class="k">return</span> <span class="bp">False</span>
+
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@core.executionTrace</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, KeyError)</span></div>
+<div class="viewcode-block" id="SectionsFileParser.attributeExists"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.SectionsFileParser.attributeExists">[docs]</a>	<span class="k">def</span> <span class="nf">attributeExists</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attribute</span><span class="p">,</span> <span class="n">section</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method checks if given attribute exists.</span>
+
+<span class="sd">		Usage::</span>
+
+<span class="sd">			&gt;&gt;&gt; content = [&quot;[Section A]\\n&quot;, &quot;; Comment.\\n&quot;, &quot;Attribute 1 = \\&quot;Value A\\&quot;\\n&quot;, &quot;\\n&quot;, \</span>
+<span class="sd">&quot;[Section B]\\n&quot;, &quot;Attribute 2 = \\&quot;Value B\\&quot;\\n&quot;]</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser = SectionsFileParser()</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.content = content</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.parse()</span>
+<span class="sd">			True</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.attributeExists(&quot;Attribute 1&quot;, &quot;Section A&quot;)</span>
+<span class="sd">			True</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.attributeExists(&quot;Attribute 2&quot;, &quot;Section A&quot;)</span>
+<span class="sd">			False</span>
+
+<span class="sd">		:param attribute: Attribute to check existence. ( String )</span>
+<span class="sd">		:param section: Section to search attribute into. ( String )</span>
+<span class="sd">		:return: Attribute existence. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">__sections</span><span class="p">:</span>
+			<span class="k">return</span> <span class="bp">False</span>
+
+		<span class="k">if</span> <span class="n">namespace</span><span class="o">.</span><span class="n">removeNamespace</span><span class="p">(</span><span class="n">attribute</span><span class="p">,</span> <span class="n">rootOnly</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">getAttributes</span><span class="p">(</span><span class="n">section</span><span class="p">,</span>
+																					<span class="n">orderedDictionary</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+																					<span class="n">stripNamespaces</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+			<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; &#39;{0}&#39; attribute exists in &#39;{1}&#39; section.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">attribute</span><span class="p">,</span> <span class="n">section</span><span class="p">))</span>
+			<span class="k">return</span> <span class="bp">True</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; &#39;{0}&#39; attribute doesn&#39;t exists in &#39;{1}&#39; section.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">attribute</span><span class="p">,</span> <span class="n">section</span><span class="p">))</span>
+			<span class="k">return</span> <span class="bp">False</span>
+
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@core.executionTrace</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, KeyError)</span></div>
+<div class="viewcode-block" id="SectionsFileParser.getAttributes"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.SectionsFileParser.getAttributes">[docs]</a>	<span class="k">def</span> <span class="nf">getAttributes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">section</span><span class="p">,</span> <span class="n">orderedDictionary</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">stripNamespaces</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">raiseExceptions</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method returns given section attributes.</span>
+
+<span class="sd">		Usage::</span>
+
+<span class="sd">			&gt;&gt;&gt; content = [&quot;[Section A]\\n&quot;, &quot;; Comment.\\n&quot;, &quot;Attribute 1 = \\&quot;Value A\\&quot;\\n&quot;, &quot;\\n&quot;, \</span>
+<span class="sd">&quot;[Section B]\\n&quot;, &quot;Attribute 2 = \\&quot;Value B\\&quot;\\n&quot;]</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser = SectionsFileParser()</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.content = content</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.parse()</span>
+<span class="sd">			True</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.getAttributes(&quot;Section A&quot;)</span>
+<span class="sd">			OrderedDict([(&#39;Section A|Attribute 1&#39;, &#39;Value A&#39;)])</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.getAttributes(&quot;Section A&quot;, orderedDictionary=False)</span>
+<span class="sd">			{&#39;Section A|Attribute 1&#39;: &#39;Value A&#39;}</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.getAttributes(&quot;Section A&quot;, stripNamespaces=True)</span>
+<span class="sd">			OrderedDict([(&#39;Attribute 1&#39;, &#39;Value A&#39;)])</span>
+
+<span class="sd">		:param section: Section containing the requested attributes. ( String )</span>
+<span class="sd">		:param orderedDictionary: Use an :class:`collections.OrderedDict` dictionary to store the attributes. ( String )</span>
+<span class="sd">		:param stripNamespaces: Strip namespaces while retrieving attributes. ( Boolean )</span>
+<span class="sd">		:param raiseExceptions: Raise if section doesn&#39;t exists. ( Boolean )</span>
+<span class="sd">		:return: Attributes. ( OrderedDict / Dictionary )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Getting section &#39;{0}&#39; attributes.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">section</span><span class="p">))</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">sectionExists</span><span class="p">(</span><span class="n">section</span><span class="p">):</span>
+			<span class="n">dictionary</span> <span class="o">=</span> <span class="n">orderedDictionary</span> <span class="ow">and</span> <span class="n">OrderedDict</span> <span class="ow">or</span> <span class="nb">dict</span>
+			<span class="n">attributes</span> <span class="o">=</span> <span class="n">dictionary</span><span class="p">()</span>
+			<span class="k">if</span> <span class="n">stripNamespaces</span><span class="p">:</span>
+				<span class="k">for</span> <span class="n">attribute</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">__sections</span><span class="p">[</span><span class="n">section</span><span class="p">]</span><span class="o">.</span><span class="n">iteritems</span><span class="p">():</span>
+					<span class="n">attributes</span><span class="p">[</span><span class="n">namespace</span><span class="o">.</span><span class="n">removeNamespace</span><span class="p">(</span><span class="n">attribute</span><span class="p">,</span> <span class="n">rootOnly</span><span class="o">=</span><span class="bp">True</span><span class="p">)]</span> <span class="o">=</span> <span class="n">value</span>
+			<span class="k">else</span><span class="p">:</span>
+				<span class="n">attributes</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__sections</span><span class="p">[</span><span class="n">section</span><span class="p">])</span>
+			<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Attributes: &#39;{0}&#39;.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">attributes</span><span class="p">))</span>
+			<span class="k">return</span> <span class="n">attributes</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="k">if</span> <span class="n">raiseExceptions</span><span class="p">:</span>
+				<span class="k">raise</span> <span class="ne">KeyError</span><span class="p">(</span><span class="s">&quot;{0} | &#39;{1}&#39; section doesn&#39;t exists in &#39;{2}&#39; sections!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span>
+																							<span class="n">section</span><span class="p">,</span>
+																							<span class="bp">self</span><span class="o">.</span><span class="n">file</span><span class="p">))</span>
+			<span class="k">else</span><span class="p">:</span>
+				<span class="n">LOGGER</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&quot;!&gt; {0} | &#39;{1}&#39; section doesn&#39;t exists in &#39;{2}&#39; sections!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span>
+																								<span class="n">section</span><span class="p">,</span>
+																								<span class="bp">self</span><span class="o">.</span><span class="n">file</span><span class="p">))</span>
+
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@core.executionTrace</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, Exception)</span></div>
+<div class="viewcode-block" id="SectionsFileParser.getAllAttributes"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.SectionsFileParser.getAllAttributes">[docs]</a>	<span class="k">def</span> <span class="nf">getAllAttributes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">orderedDictionary</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method returns all sections attributes.</span>
+
+<span class="sd">		Usage::</span>
+
+<span class="sd">			&gt;&gt;&gt; content = [&quot;[Section A]\\n&quot;, &quot;; Comment.\\n&quot;, &quot;Attribute 1 = \\&quot;Value A\\&quot;\\n&quot;, &quot;\\n&quot;, \</span>
+<span class="sd">&quot;[Section B]\\n&quot;, &quot;Attribute 2 = \\&quot;Value B\\&quot;\\n&quot;]</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser = SectionsFileParser()</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.content = content</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.parse()</span>
+<span class="sd">			True</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.getAllAttributes()</span>
+<span class="sd">			OrderedDict([(&#39;Section A|Attribute 1&#39;, &#39;Value A&#39;), (&#39;Section B|Attribute 2&#39;, &#39;Value B&#39;)])</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.getAllAttributes(orderedDictionary=False)</span>
+<span class="sd">			{&#39;Section B|Attribute 2&#39;: &#39;Value B&#39;, &#39;Section A|Attribute 1&#39;: &#39;Value A&#39;}</span>
+
+<span class="sd">		:param orderedDictionary: Use an :class:`collections.OrderedDict` dictionary to store the attributes. ( String )</span>
+<span class="sd">		:return: All sections / files attributes. ( OrderedDict / Dictionary )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">dictionary</span> <span class="o">=</span> <span class="n">orderedDictionary</span> <span class="ow">and</span> <span class="n">OrderedDict</span> <span class="ow">or</span> <span class="nb">dict</span>
+		<span class="n">allAttributes</span> <span class="o">=</span> <span class="n">dictionary</span><span class="p">()</span>
+		<span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">__sections</span><span class="p">:</span>
+			<span class="k">return</span> <span class="n">allAttributes</span>
+
+		<span class="k">for</span> <span class="n">attributes</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">__sections</span><span class="o">.</span><span class="n">itervalues</span><span class="p">():</span>
+			<span class="k">for</span> <span class="n">attribute</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">attributes</span><span class="o">.</span><span class="n">iteritems</span><span class="p">():</span>
+				<span class="n">allAttributes</span><span class="p">[</span><span class="n">attribute</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+		<span class="k">return</span> <span class="n">allAttributes</span>
+
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@core.executionTrace</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, KeyError)</span></div>
+<div class="viewcode-block" id="SectionsFileParser.getValue"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.SectionsFileParser.getValue">[docs]</a>	<span class="k">def</span> <span class="nf">getValue</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attribute</span><span class="p">,</span> <span class="n">section</span><span class="p">,</span> <span class="n">encode</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method returns requested attribute value.</span>
+
+<span class="sd">		Usage::</span>
+
+<span class="sd">			&gt;&gt;&gt; content = [&quot;[Section A]\\n&quot;, &quot;; Comment.\\n&quot;, &quot;Attribute 1 = \\&quot;Value A\\&quot;\\n&quot;, &quot;\\n&quot;, \</span>
+<span class="sd">&quot;[Section B]\\n&quot;, &quot;Attribute 2 = \\&quot;Value B\\&quot;\\n&quot;]</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser = SectionsFileParser()</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.content = content</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.parse()</span>
+<span class="sd">			True</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.getValue(&quot;Attribute 1&quot;, &quot;Section A&quot;)</span>
+<span class="sd">			Value A</span>
+
+<span class="sd">		:param attribute: Attribute name. ( String )</span>
+<span class="sd">		:param section: Section containing the searched attribute. ( String )</span>
+<span class="sd">		:param encode: Encode value to unicode. ( Boolean )</span>
+<span class="sd">		:return: Attribute value. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">__sections</span><span class="p">:</span>
+			<span class="k">return</span> <span class="nb">str</span><span class="p">()</span>
+
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">attributeExists</span><span class="p">(</span><span class="n">attribute</span><span class="p">,</span> <span class="n">section</span><span class="p">):</span>
+			<span class="k">if</span> <span class="n">attribute</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">__sections</span><span class="p">[</span><span class="n">section</span><span class="p">]:</span>
+				<span class="n">value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__sections</span><span class="p">[</span><span class="n">section</span><span class="p">][</span><span class="n">attribute</span><span class="p">]</span>
+			<span class="k">elif</span> <span class="n">namespace</span><span class="o">.</span><span class="n">setNamespace</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">attribute</span><span class="p">)</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">__sections</span><span class="p">[</span><span class="n">section</span><span class="p">]:</span>
+				<span class="n">value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__sections</span><span class="p">[</span><span class="n">section</span><span class="p">][</span><span class="n">namespace</span><span class="o">.</span><span class="n">setNamespace</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">attribute</span><span class="p">)]</span>
+			<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Attribute: &#39;{0}&#39;, value: &#39;{1}&#39;.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">attribute</span><span class="p">,</span> <span class="n">value</span><span class="p">))</span>
+			<span class="n">value</span> <span class="o">=</span> <span class="n">encode</span> <span class="ow">and</span> <span class="n">strings</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">or</span> <span class="n">value</span>
+			<span class="k">return</span> <span class="n">value</span>
+
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@core.executionTrace</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, Exception)</span></div>
+<div class="viewcode-block" id="SectionsFileParser.write"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.SectionsFileParser.write">[docs]</a>	<span class="k">def</span> <span class="nf">write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+			<span class="n">namespaces</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span>
+			<span class="n">splitter</span><span class="o">=</span><span class="s">&quot;=&quot;</span><span class="p">,</span>
+			<span class="n">commentLimiter</span><span class="o">=</span><span class="p">(</span><span class="s">&quot;;&quot;</span><span class="p">),</span>
+			<span class="n">spacesAroundSplitter</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+			<span class="n">spaceAfterCommentLimiter</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method writes defined file using :obj:`SectionsFileParser.sections` and</span>
+<span class="sd">			:obj:`SectionsFileParser.comments` class properties content.</span>
+
+<span class="sd">		Usage::</span>
+
+<span class="sd">			&gt;&gt;&gt; sections = {&quot;Section A&quot;: {&quot;Section A|Attribute 1&quot;: &quot;Value A&quot;}, \</span>
+<span class="sd">&quot;Section B&quot;: {&quot;Section B|Attribute 2&quot;: &quot;Value B&quot;}}</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser = SectionsFileParser(&quot;SectionsFile.rc&quot;)</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.sections = sections</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.write()</span>
+<span class="sd">			True</span>
+<span class="sd">			&gt;&gt;&gt; sectionsFileParser.read()</span>
+<span class="sd">			True</span>
+<span class="sd">			&gt;&gt;&gt; print sectionsFileParser.content[0:5]</span>
+<span class="sd">			[&#39;[Section A]\\n&#39;, &#39;Attribute 1 = Value A\\n&#39;, &#39;\\n&#39;, &#39;[Section B]\\n&#39;, &#39;Attribute 2 = Value B\\n&#39;, &#39;\\n&#39;]</span>
+
+<span class="sd">		:param namespaces: Attributes are namespaced. ( Boolean )</span>
+<span class="sd">		:param splitter: Splitter character. ( String )</span>
+<span class="sd">		:param commentLimiter: Comment limiter character. ( String )</span>
+<span class="sd">		:param spacesAroundSplitter: Spaces around attributes and value splitters. ( Boolean )</span>
+<span class="sd">		:param spaceAfterCommentLimiter: Space after comments limiter. ( Boolean )</span>
+<span class="sd">		:return: Method success. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">__sections</span><span class="p">:</span>
+			<span class="k">return</span> <span class="bp">False</span>
+
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Setting &#39;{0}&#39; file content.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file</span><span class="p">))</span>
+		<span class="n">attributeTemplate</span> <span class="o">=</span> <span class="n">spacesAroundSplitter</span> <span class="ow">and</span> <span class="s">&quot;{{0}} {0} {{1}}</span><span class="se">\n</span><span class="s">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">splitter</span><span class="p">)</span> <span class="ow">or</span> \
+							<span class="s">&quot;{{0}} {0} {{1}}</span><span class="se">\n</span><span class="s">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">splitter</span><span class="p">)</span>
+		<span class="n">attributeTemplate</span> <span class="o">=</span> <span class="n">strings</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">attributeTemplate</span><span class="p">,</span> <span class="p">{</span><span class="s">&quot;{{&quot;</span> <span class="p">:</span> <span class="s">&quot;{&quot;</span><span class="p">,</span> <span class="s">&quot;}}&quot;</span> <span class="p">:</span> <span class="s">&quot;}&quot;</span><span class="p">})</span>
+		<span class="n">commentTemplate</span> <span class="o">=</span> <span class="n">spaceAfterCommentLimiter</span> <span class="ow">and</span> <span class="s">&quot;{0} {{0}}</span><span class="se">\n</span><span class="s">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">commentLimiter</span><span class="p">)</span> <span class="ow">or</span> \
+							<span class="s">&quot;{0}{{0}}</span><span class="se">\n</span><span class="s">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">commentLimiter</span><span class="p">)</span>
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">__defaultsSection</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">__sections</span><span class="p">:</span>
+			<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Appending &#39;{0}&#39; default section.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__defaultsSection</span><span class="p">))</span>
+			<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">__comments</span><span class="p">:</span>
+				<span class="k">for</span> <span class="n">comment</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">__comments</span><span class="o">.</span><span class="n">iteritems</span><span class="p">():</span>
+					<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">__defaultsSection</span> <span class="ow">in</span> <span class="n">comment</span><span class="p">:</span>
+						<span class="n">value</span> <span class="o">=</span> <span class="n">value</span><span class="p">[</span><span class="s">&quot;content&quot;</span><span class="p">]</span> <span class="ow">or</span> <span class="s">&quot;&quot;</span>
+						<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Appending &#39;{0}&#39; comment with &#39;{1}&#39; value.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">comment</span><span class="p">,</span> <span class="n">value</span><span class="p">))</span>
+						<span class="bp">self</span><span class="o">.</span><span class="n">content</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">commentTemplate</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">value</span><span class="p">))</span>
+			<span class="k">for</span> <span class="n">attribute</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">__sections</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">__defaultsSection</span><span class="p">]</span><span class="o">.</span><span class="n">iteritems</span><span class="p">():</span>
+				<span class="n">attribute</span> <span class="o">=</span> <span class="n">namespaces</span> <span class="ow">and</span> <span class="n">attribute</span> <span class="ow">or</span> <span class="n">foundations</span><span class="o">.</span><span class="n">namespace</span><span class="o">.</span><span class="n">removeNamespace</span><span class="p">(</span><span class="n">attribute</span><span class="p">,</span>
+																							<span class="bp">self</span><span class="o">.</span><span class="n">__namespaceSplitter</span><span class="p">,</span>
+																							<span class="n">rootOnly</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+				<span class="n">value</span> <span class="o">=</span> <span class="n">value</span> <span class="ow">or</span> <span class="s">&quot;&quot;</span>
+				<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Appending &#39;{0}&#39; attribute with &#39;{1}&#39; value.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">attribute</span><span class="p">,</span> <span class="n">value</span><span class="p">))</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">content</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">attributeTemplate</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">attribute</span><span class="p">,</span> <span class="n">value</span><span class="p">))</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">content</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">)</span>
+
+		<span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">section</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__sections</span><span class="p">):</span>
+			<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Appending &#39;{0}&#39; section.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">section</span><span class="p">))</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">content</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;[{0}]</span><span class="se">\n</span><span class="s">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">section</span><span class="p">))</span>
+			<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">__comments</span><span class="p">:</span>
+				<span class="k">for</span> <span class="n">comment</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">__comments</span><span class="o">.</span><span class="n">iteritems</span><span class="p">():</span>
+					<span class="k">if</span> <span class="n">section</span> <span class="ow">in</span> <span class="n">comment</span><span class="p">:</span>
+						<span class="n">value</span> <span class="o">=</span> <span class="n">value</span><span class="p">[</span><span class="s">&quot;content&quot;</span><span class="p">]</span> <span class="ow">or</span> <span class="s">&quot;&quot;</span>
+						<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Appending &#39;{0}&#39; comment with &#39;{1}&#39; value.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">comment</span><span class="p">,</span> <span class="n">value</span><span class="p">))</span>
+						<span class="bp">self</span><span class="o">.</span><span class="n">content</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">commentTemplate</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">value</span><span class="p">))</span>
+			<span class="k">for</span> <span class="n">attribute</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">__sections</span><span class="p">[</span><span class="n">section</span><span class="p">]</span><span class="o">.</span><span class="n">iteritems</span><span class="p">():</span>
+				<span class="k">if</span> <span class="n">foundations</span><span class="o">.</span><span class="n">namespace</span><span class="o">.</span><span class="n">removeNamespace</span><span class="p">(</span><span class="n">attribute</span><span class="p">)</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">__rawSectionContentIdentifier</span><span class="p">:</span>
+					<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Appending &#39;{0}&#39; raw section content.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">section</span><span class="p">))</span>
+					<span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">value</span><span class="p">:</span>
+						<span class="bp">self</span><span class="o">.</span><span class="n">content</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+				<span class="k">else</span><span class="p">:</span>
+					<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Appending &#39;{0}&#39; section.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">section</span><span class="p">))</span>
+					<span class="n">attribute</span> <span class="o">=</span> <span class="n">namespaces</span> <span class="ow">and</span> <span class="n">attribute</span> <span class="ow">or</span> <span class="n">foundations</span><span class="o">.</span><span class="n">namespace</span><span class="o">.</span><span class="n">removeNamespace</span><span class="p">(</span><span class="n">attribute</span><span class="p">,</span>
+																								<span class="bp">self</span><span class="o">.</span><span class="n">__namespaceSplitter</span><span class="p">,</span>
+																								<span class="n">rootOnly</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+					<span class="n">value</span> <span class="o">=</span> <span class="n">value</span> <span class="ow">or</span> <span class="s">&quot;&quot;</span>
+					<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Appending &#39;{0}&#39; attribute with &#39;{1}&#39; value.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">attribute</span><span class="p">,</span> <span class="n">value</span><span class="p">))</span>
+					<span class="bp">self</span><span class="o">.</span><span class="n">content</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">attributeTemplate</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">attribute</span><span class="p">,</span> <span class="n">value</span><span class="p">))</span>
+			<span class="k">if</span> <span class="n">i</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__sections</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">content</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">)</span>
+		<span class="n">io</span><span class="o">.</span><span class="n">File</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+		<span class="k">return</span> <span class="bp">True</span>
+</div></div>
+<div class="viewcode-block" id="PlistFileParser"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.PlistFileParser">[docs]</a><span class="k">class</span> <span class="nc">PlistFileParser</span><span class="p">(</span><span class="n">io</span><span class="o">.</span><span class="n">File</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This class provides methods to parse plist files.</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@core.executionTrace</span>
+	<span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		.. Sphinx: Statements updated for auto-documentation purpose.</span>
+<span class="sd">		</span>
+<span class="sd">		Usage::</span>
+
+<span class="sd">			&gt;&gt;&gt; plistFileParser = PlistFileParser(&quot;standard.plist&quot;)</span>
+<span class="sd">			&gt;&gt;&gt; plistFileParser.parse()</span>
+<span class="sd">			True</span>
+<span class="sd">			&gt;&gt;&gt; plistFileParser.elements.keys()</span>
+<span class="sd">			[&#39;Dictionary A&#39;, &#39;Number A&#39;, &#39;Array A&#39;, &#39;String A&#39;, &#39;Date A&#39;, &#39;Boolean A&#39;, &#39;Data A&#39;]</span>
+<span class="sd">			&gt;&gt;&gt; plistFileParser.elements[&quot;Dictionary A&quot;]</span>
+<span class="sd">			{&#39;String C&#39;: &#39;My Value C&#39;, &#39;String B&#39;: &#39;My Value B&#39;}</span>
+
+<span class="sd">		:param file: Current file path. ( String )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Initializing &#39;{0}()&#39; class.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">))</span>
+
+		<span class="n">io</span><span class="o">.</span><span class="n">File</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">file</span><span class="p">)</span>
+
+		<span class="c"># --- Setting class attributes. ---</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__elements</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__parsingErrors</span> <span class="o">=</span> <span class="bp">None</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">__unserializers</span> <span class="o">=</span> <span class="p">{</span><span class="s">&quot;array&quot;</span><span class="p">:</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="p">[</span><span class="n">value</span><span class="o">.</span><span class="n">text</span> <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">x</span><span class="p">],</span>
+								<span class="s">&quot;dict&quot;</span><span class="p">:</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="nb">dict</span><span class="p">((</span><span class="n">x</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">text</span><span class="p">,</span> <span class="n">x</span><span class="p">[</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">text</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="mi">2</span><span class="p">)),</span>
+								<span class="s">&quot;key&quot;</span><span class="p">:</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="o">.</span><span class="n">text</span> <span class="ow">or</span> <span class="nb">unicode</span><span class="p">(),</span>
+								<span class="s">&quot;string&quot;</span><span class="p">:</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="o">.</span><span class="n">text</span> <span class="ow">or</span> <span class="nb">unicode</span><span class="p">(),</span>
+								<span class="s">&quot;data&quot;</span><span class="p">:</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">base64</span><span class="o">.</span><span class="n">decodestring</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">text</span> <span class="ow">or</span> <span class="nb">unicode</span><span class="p">()),</span>
+								<span class="s">&quot;date&quot;</span><span class="p">:</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="p">(</span><span class="o">*</span><span class="nb">map</span><span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">findall</span><span class="p">(</span><span class="s">&quot;\d+&quot;</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">text</span><span class="p">))),</span>
+								<span class="s">&quot;true&quot;</span><span class="p">:</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="bp">True</span><span class="p">,</span>
+								<span class="s">&quot;false&quot;</span><span class="p">:</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="bp">False</span><span class="p">,</span>
+								<span class="s">&quot;real&quot;</span><span class="p">:</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">text</span><span class="p">),</span>
+								<span class="s">&quot;integer&quot;</span><span class="p">:</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">text</span><span class="p">)}</span>
+
+	<span class="c">#******************************************************************************************************************</span>
+	<span class="c">#***	Attributes properties.</span>
+	<span class="c">#******************************************************************************************************************</span>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">elements</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__elements** attribute.</span>
+
+<span class="sd">		:return: self.__elements. ( OrderedDict / Dictionary )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__elements</span>
+
+	<span class="nd">@elements.setter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, AssertionError)</span>
+	<span class="k">def</span> <span class="nf">elements</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__elements** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( OrderedDict / Dictionary )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">dict</span><span class="p">,</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; type is not  dict&#39;!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;elements&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__elements</span> <span class="o">=</span> <span class="n">value</span>
+
+	<span class="nd">@elements.deleter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, foundations.exceptions.ProgrammingError)</span>
+<div class="viewcode-block" id="PlistFileParser.elements"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.PlistFileParser.elements">[docs]</a>	<span class="k">def</span> <span class="nf">elements</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__elements** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;elements&quot;</span><span class="p">))</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">parsingErrors</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__parsingErrors** attribute.</span>
+
+<span class="sd">		:return: self.__parsingErrors. ( List )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__parsingErrors</span>
+
+	<span class="nd">@parsingErrors.setter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, AssertionError)</span>
+	<span class="k">def</span> <span class="nf">parsingErrors</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__parsingErrors** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( List )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+			<span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">list</span><span class="p">,</span> <span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; type is not &#39;list&#39;!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="s">&quot;parsingErrors&quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+			<span class="k">for</span> <span class="n">element</span> <span class="ow">in</span> <span class="n">value</span><span class="p">:</span>
+				<span class="k">assert</span> <span class="nb">issubclass</span><span class="p">(</span><span class="n">element</span><span class="o">.</span><span class="n">__class__</span><span class="p">,</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">AbstractParsingError</span><span class="p">),</span> \
+				<span class="s">&quot;&#39;{0}&#39; attribute: &#39;{1}&#39; is not a &#39;{2}&#39; subclass!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+				<span class="s">&quot;parsingErrors&quot;</span><span class="p">,</span> <span class="n">element</span><span class="p">,</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">AbstractParsingError</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">)</span>
+		<span class="bp">self</span><span class="o">.</span><span class="n">__parsingErrors</span> <span class="o">=</span> <span class="n">value</span>
+
+	<span class="nd">@parsingErrors.deleter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, foundations.exceptions.ProgrammingError)</span>
+<div class="viewcode-block" id="PlistFileParser.parsingErrors"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.PlistFileParser.parsingErrors">[docs]</a>	<span class="k">def</span> <span class="nf">parsingErrors</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__parsingErrors** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;parsingErrors&quot;</span><span class="p">))</span>
+</div>
+	<span class="nd">@property</span>
+	<span class="k">def</span> <span class="nf">unserializers</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the property for **self.__unserializers** attribute.</span>
+
+<span class="sd">		:return: self.__unserializers. ( Dictionary )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__unserializers</span>
+
+	<span class="nd">@unserializers.setter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, foundations.exceptions.ProgrammingError)</span>
+	<span class="k">def</span> <span class="nf">unserializers</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the setter method for **self.__unserializers** attribute.</span>
+
+<span class="sd">		:param value: Attribute value. ( Dictionary )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is read only!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;unserializers&quot;</span><span class="p">))</span>
+
+	<span class="nd">@unserializers.deleter</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, foundations.exceptions.ProgrammingError)</span>
+<div class="viewcode-block" id="PlistFileParser.unserializers"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.PlistFileParser.unserializers">[docs]</a>	<span class="k">def</span> <span class="nf">unserializers</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method is the deleter method for **self.__unserializers** attribute.</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">ProgrammingError</span><span class="p">(</span>
+		<span class="s">&quot;{0} | &#39;{1}&#39; attribute is not deletable!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&quot;unserializers&quot;</span><span class="p">))</span>
+
+	<span class="c">#******************************************************************************************************************</span>
+	<span class="c">#***	Class methods.</span>
+	<span class="c">#******************************************************************************************************************</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@core.executionTrace</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, foundations.exceptions.FileStructureParsingError)</span></div>
+<div class="viewcode-block" id="PlistFileParser.parse"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.PlistFileParser.parse">[docs]</a>	<span class="k">def</span> <span class="nf">parse</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">raiseParsingErrors</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method process the file content.</span>
+
+<span class="sd">		Usage::</span>
+
+<span class="sd">			&gt;&gt;&gt; plistFileParser = PlistFileParser(&quot;standard.plist&quot;)</span>
+<span class="sd">			&gt;&gt;&gt; plistFileParser.parse()</span>
+<span class="sd">			True</span>
+<span class="sd">			&gt;&gt;&gt; plistFileParser.elements.keys()</span>
+<span class="sd">			[&#39;Dictionary A&#39;, &#39;Number A&#39;, &#39;Array A&#39;, &#39;String A&#39;, &#39;Date A&#39;, &#39;Boolean A&#39;, &#39;Data A&#39;]</span>
+
+<span class="sd">		:param raiseParsingErrors: Raise parsing errors. ( Boolean )</span>
+<span class="sd">		:return: Method success. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Reading elements from: &#39;{0}&#39;.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file</span><span class="p">))</span>
+
+		<span class="n">elementTreeParser</span> <span class="o">=</span> <span class="n">ElementTree</span><span class="o">.</span><span class="n">iterparse</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file</span><span class="p">)</span>
+
+		<span class="bp">self</span><span class="o">.</span><span class="n">__parsingErrors</span> <span class="o">=</span> <span class="p">[]</span>
+		<span class="k">for</span> <span class="n">action</span><span class="p">,</span> <span class="n">element</span> <span class="ow">in</span> <span class="n">elementTreeParser</span><span class="p">:</span>
+			<span class="n">unmarshal</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__unserializers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">element</span><span class="o">.</span><span class="n">tag</span><span class="p">)</span>
+			<span class="k">if</span> <span class="n">unmarshal</span><span class="p">:</span>
+				<span class="n">data</span> <span class="o">=</span> <span class="n">unmarshal</span><span class="p">(</span><span class="n">element</span><span class="p">)</span>
+				<span class="n">element</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+				<span class="n">element</span><span class="o">.</span><span class="n">text</span> <span class="o">=</span> <span class="n">data</span>
+			<span class="k">elif</span> <span class="n">element</span><span class="o">.</span><span class="n">tag</span> <span class="o">!=</span> <span class="s">&quot;plist&quot;</span><span class="p">:</span>
+				<span class="bp">self</span><span class="o">.</span><span class="n">__parsingErrors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">FileStructureParsingError</span><span class="p">(</span>
+				<span class="s">&quot;Unknown element: {0}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">element</span><span class="o">.</span><span class="n">tag</span><span class="p">)))</span>
+
+		<span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">__parsingErrors</span><span class="p">:</span>
+			<span class="k">if</span> <span class="n">raiseParsingErrors</span><span class="p">:</span>
+				<span class="k">raise</span> <span class="n">foundations</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">FileStructureParsingError</span><span class="p">(</span>
+				<span class="s">&quot;{0} | &#39;{1}&#39; structure is invalid, parsing exceptions occured!&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">file</span><span class="p">))</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="bp">self</span><span class="o">.</span><span class="n">__elements</span> <span class="o">=</span> <span class="n">foundations</span><span class="o">.</span><span class="n">common</span><span class="o">.</span><span class="n">getFirstItem</span><span class="p">(</span><span class="n">elementTreeParser</span><span class="o">.</span><span class="n">root</span><span class="p">)</span><span class="o">.</span><span class="n">text</span>
+			<span class="k">return</span> <span class="bp">True</span>
+
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@core.executionTrace</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, KeyError)</span></div>
+<div class="viewcode-block" id="PlistFileParser.elementExists"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.PlistFileParser.elementExists">[docs]</a>	<span class="k">def</span> <span class="nf">elementExists</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">element</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		This method checks if given element exists.</span>
+
+<span class="sd">		Usage::</span>
+<span class="sd">			</span>
+<span class="sd">			&gt;&gt;&gt; plistFileParser = PlistFileParser(&quot;standard.plist&quot;)</span>
+<span class="sd">			&gt;&gt;&gt; plistFileParser.parse()</span>
+<span class="sd">			True</span>
+<span class="sd">			&gt;&gt;&gt; plistFileParser.elementExists(&quot;String A&quot;)</span>
+<span class="sd">			True</span>
+<span class="sd">			&gt;&gt;&gt; plistFileParser.elementExists(&quot;String Nemo&quot;)</span>
+<span class="sd">			False</span>
+
+<span class="sd">		:param element: Element to check existence. ( String )</span>
+<span class="sd">		:return: Element existence. ( Boolean )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">__elements</span><span class="p">:</span>
+			<span class="k">return</span> <span class="bp">False</span>
+
+		<span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">foundations</span><span class="o">.</span><span class="n">walkers</span><span class="o">.</span><span class="n">dictionariesWalker</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__elements</span><span class="p">):</span>
+			<span class="n">path</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="o">=</span> <span class="n">item</span>
+			<span class="k">if</span> <span class="n">key</span> <span class="o">==</span> <span class="n">element</span><span class="p">:</span>
+				<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; &#39;{0}&#39; attribute exists.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">element</span><span class="p">))</span>
+				<span class="k">return</span> <span class="bp">True</span>
+
+		<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; &#39;{0}&#39; element doesn&#39;t exists.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">element</span><span class="p">))</span>
+		<span class="k">return</span> <span class="bp">False</span>
+
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@core.executionTrace</span>
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, Exception)</span></div>
+<div class="viewcode-block" id="PlistFileParser.filterValues"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.PlistFileParser.filterValues">[docs]</a>	<span class="k">def</span> <span class="nf">filterValues</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pattern</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		| This method filters the :meth:`PlistFileParser.elements` class property elements using given pattern.</span>
+<span class="sd">		| This method will return a list of matching elements values, if you want to get only one element value, use</span>
+<span class="sd">			the :meth:`PlistFileParser.getValue` method instead.</span>
+
+<span class="sd">		Usage::</span>
+
+<span class="sd">			&gt;&gt;&gt; plistFileParser = PlistFileParser(&quot;standard.plist&quot;)</span>
+<span class="sd">			&gt;&gt;&gt; plistFileParser.parse()</span>
+<span class="sd">			True</span>
+<span class="sd">			&gt;&gt;&gt; plistFileParser.filterValues(r&quot;String A&quot;)</span>
+<span class="sd">			[&#39;My Value A&#39;]</span>
+<span class="sd">			&gt;&gt;&gt; plistFileParser.filterValues(r&quot;String.*&quot;)</span>
+<span class="sd">			[&#39;My Value C&#39;, &#39;My Value B&#39;, &#39;My Value A&#39;]</span>
+
+<span class="sd">		:param pattern: Regex filtering pattern. ( String )</span>
+<span class="sd">		:param flags: Regex flags. ( Integer )</span>
+<span class="sd">		:return: Values. ( List )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="n">values</span> <span class="o">=</span> <span class="p">[]</span>
+		<span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">__elements</span><span class="p">:</span>
+			<span class="k">return</span> <span class="n">values</span>
+
+		<span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">foundations</span><span class="o">.</span><span class="n">walkers</span><span class="o">.</span><span class="n">dictionariesWalker</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__elements</span><span class="p">):</span>
+			<span class="n">path</span><span class="p">,</span> <span class="n">element</span><span class="p">,</span> <span class="n">value</span> <span class="o">=</span> <span class="n">item</span>
+			<span class="k">if</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">pattern</span><span class="p">,</span> <span class="n">element</span><span class="p">,</span> <span class="n">flags</span><span class="p">):</span>
+				<span class="n">values</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+		<span class="k">return</span> <span class="n">values</span>
+
+	<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. 	@foundations.exceptions.exceptionsHandler(None, False, Exception)</span></div>
+<div class="viewcode-block" id="PlistFileParser.getValue"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.PlistFileParser.getValue">[docs]</a>	<span class="k">def</span> <span class="nf">getValue</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">element</span><span class="p">):</span>
+		<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">		| This method returns the given element value.</span>
+<span class="sd">		| If multiple elements with the same name exists, only the first encountered will be returned.</span>
+
+<span class="sd">		Usage::</span>
+
+<span class="sd">			&gt;&gt;&gt; plistFileParser = PlistFileParser(&quot;standard.plist&quot;)</span>
+<span class="sd">			&gt;&gt;&gt; plistFileParser.parse()</span>
+<span class="sd">			True</span>
+<span class="sd">			&gt;&gt;&gt; plistFileParser.getValue(&quot;String A&quot;)</span>
+<span class="sd">			&#39;My Value A&#39;</span>
+
+<span class="sd">		:param element: Element to get the value. ( String )</span>
+<span class="sd">		:return: Element value. ( Object )</span>
+<span class="sd">		&quot;&quot;&quot;</span>
+
+		<span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">__elements</span><span class="p">:</span>
+			<span class="k">return</span>
+
+		<span class="n">values</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">filterValues</span><span class="p">(</span><span class="s">r&quot;^{0}$&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">element</span><span class="p">))</span>
+		<span class="k">return</span> <span class="n">foundations</span><span class="o">.</span><span class="n">common</span><span class="o">.</span><span class="n">getFirstItem</span><span class="p">(</span><span class="n">values</span><span class="p">)</span>
+
+<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. @core.executionTrace</span>
+<span class="c">#***	Sphinx: Decorator commented for auto-documentation purpose. @foundations.exceptions.exceptionsHandler(None, False, Exception)</span></div></div>
+<div class="viewcode-block" id="getAttributeCompound"><a class="viewcode-back" href="../../resources/pages/api/foundations.parsers.html#foundations.parsers.getAttributeCompound">[docs]</a><span class="k">def</span> <span class="nf">getAttributeCompound</span><span class="p">(</span><span class="n">attribute</span><span class="p">,</span> <span class="n">value</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">splitter</span><span class="o">=</span><span class="s">&quot;|&quot;</span><span class="p">,</span> <span class="n">bindingIdentifier</span><span class="o">=</span><span class="s">&quot;@&quot;</span><span class="p">):</span>
+	<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">	This definition returns an attribute compound.</span>
+<span class="sd">	</span>
+<span class="sd">	Usage::</span>
+<span class="sd">	</span>
+<span class="sd">		&gt;&gt;&gt; data = &quot;@Link | Value | Boolean | Link Parameter&quot;</span>
+<span class="sd">		&gt;&gt;&gt; attributeCompound = foundations.parsers.getAttributeCompound(&quot;Attribute Compound&quot;, data)</span>
+<span class="sd">		&gt;&gt;&gt; attributeCompound.name</span>
+<span class="sd">		Attribute Compound</span>
+<span class="sd">		&gt;&gt;&gt; attributeCompound.value</span>
+<span class="sd">		Value</span>
+<span class="sd">		&gt;&gt;&gt; attributeCompound.link</span>
+<span class="sd">		@Link</span>
+<span class="sd">		&gt;&gt;&gt; attributeCompound.type</span>
+<span class="sd">		Boolean</span>
+<span class="sd">		&gt;&gt;&gt; attributeCompound.alias</span>
+<span class="sd">		Link Parameter</span>
+<span class="sd">		</span>
+<span class="sd">	:param attribute: Attribute. ( String )</span>
+<span class="sd">	:param value: Attribute value. ( Object )</span>
+<span class="sd">	:param splitter: Splitter. ( String )</span>
+<span class="sd">	:param bindingIdentifier: Binding identifier. ( String )</span>
+<span class="sd">	:return: Attribute compound. ( AttributeCompound )</span>
+<span class="sd">	&quot;&quot;&quot;</span>
+
+	<span class="n">LOGGER</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;&gt; Attribute: &#39;{0}&#39;, value: &#39;{1}&#39;.&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">attribute</span><span class="p">,</span> <span class="n">value</span><span class="p">))</span>
+
+	<span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="nb">unicode</span><span class="p">):</span>
+		<span class="k">if</span> <span class="n">splitter</span> <span class="ow">in</span> <span class="n">value</span><span class="p">:</span>
+			<span class="n">valueTokens</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">splitter</span><span class="p">)</span>
+			<span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">valueTokens</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">3</span> <span class="ow">and</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="s">r&quot;{0}\w*&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">bindingIdentifier</span><span class="p">),</span> <span class="n">valueTokens</span><span class="p">[</span><span class="mi">0</span><span class="p">]):</span>
+				<span class="k">return</span> <span class="n">AttributeCompound</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">attribute</span><span class="p">,</span>
+										<span class="n">value</span><span class="o">=</span><span class="n">valueTokens</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">strip</span><span class="p">(),</span>
+										<span class="n">link</span><span class="o">=</span><span class="n">valueTokens</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">strip</span><span class="p">(),</span>
+										<span class="nb">type</span><span class="o">=</span><span class="n">valueTokens</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="o">.</span><span class="n">strip</span><span class="p">(),</span>
+										<span class="n">alias</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">valueTokens</span><span class="p">)</span> <span class="o">==</span> <span class="mi">4</span> <span class="ow">and</span> <span class="n">valueTokens</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="ow">or</span> <span class="bp">None</span><span class="p">)</span>
+		<span class="k">else</span><span class="p">:</span>
+			<span class="k">if</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="s">r&quot;{0}\w*&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">bindingIdentifier</span><span class="p">),</span> <span class="n">value</span><span class="p">):</span>
+				<span class="k">return</span> <span class="n">AttributeCompound</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">attribute</span><span class="p">,</span> <span class="n">value</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">link</span><span class="o">=</span><span class="n">value</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">alias</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span>
+
+	<span class="k">return</span> <span class="n">AttributeCompound</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">attribute</span><span class="p">,</span> <span class="n">value</span><span class="o">=</span><span class="n">value</span><span class="p">,</span> <span class="n">link</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">alias</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">Foundations 2.0.2 documentation</a> &raquo;</li>
+          <li><a href="../index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2012, Thomas Mansencal.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>
