@@ -1,0 +1,110 @@
+Doctests for Products.cron4plone
+================================
+
+Cron4Plone can do scheduled tasks in Plone, in a syntax very like *NIX
+systems' cron daemon. It plugs into Zope's ClockServer machinery.
+
+Is everything there?
+====================
+
+Make sure we are admin
+
+    >>> self.loginAsPortalOwner()
+
+Do we have the local utility that is used for storing the cron jobs?
+
+    >>> from Products.cron4plone.browser.configlets.cron_configuration import ICronConfiguration
+    >>> sm = self.portal.getSiteManager()
+    >>> sm.queryUtility(ICronConfiguration, name='cron4plone_config')
+    <ConfigletUtil at /plone/>
+
+Do we have the cron4plone tool?
+    >>> from Products.CMFCore.utils import getToolByName
+    >>> getToolByName(self.portal, 'CronTool')
+    <CronTool at /plone/CronTool>
+
+Do we have the view which is called by cron tick?
+    >>> self.portal.restrictedTraverse("@@cron-tick")
+    <Products.Five.metaclass.CronTick object at ...>
+
+Do we have the cron4plone configuration view?
+    >>> self.portal.restrictedTraverse("@@cron4plone-configuration")
+    <Products.Five.metaclass.CronConfigurationForm object at ...>
+
+
+Cron jobs
+================
+Sanity checks..
+
+    >>> job1 = '* * * * portal/portal_membership/getAuthenticatedMember'
+    >>> jobList = [job1,]
+
+    >>> faultyJob = 'this is wrong..'
+    >>> faultyList = [faultyJob,]
+
+This function is used by the configuration form to check jobs
+    >>> from Products.cron4plone.browser.configlets.cron_configuration import checkJob
+
+It throws an JobInvalid exception when job is invalid
+    >>> checkJob(faultyList)
+    Traceback (most recent call last):
+        ...
+    JobInvalid
+
+This one is okay
+    >>> checkJob(jobList)
+    True
+
+
+Filling in cron jobs thru the configuration form
+================================================
+Setup test browser.
+The following is useful when writing and debugging testbrowser tests. It lets
+us see all error messages in the error_log.
+    >>> from Products.Five.testbrowser import Browser
+    >>> browser = Browser()
+    >>> portal_url = self.portal.absolute_url()
+
+    >>> self.portal.error_log._ignored_exceptions = ()
+
+We have the login portlet, so let's use that.
+    >>> from Products.PloneTestCase.setup import portal_owner, default_password
+    >>> browser.open(portal_url)
+    >>> browser.getControl(name='__ac_name').value = portal_owner
+    >>> browser.getControl(name='__ac_password').value = default_password
+    >>> browser.getControl(name='submit').click()
+    
+We are now logged in, lets go to the config form to add a new cron job.
+    >>> browser.open('%s/@@cron4plone-configuration' % portal_url)
+    >>> browser.getControl(name='form.cronjobs.add').click()
+    >>> browser.getControl(name='form.cronjobs.0.').value = job1
+    >>> browser.getControl(name='form.actions.save').click()
+ 
+Is this job added and listed in the form
+    >>> job1 in browser.contents
+    True
+
+Is it listed in the configuration util
+    >>> configUtil = sm.queryUtility(ICronConfiguration, name='cron4plone_config')
+    >>> configUtil.cronjobs
+    [u'* * * * portal/portal_membership/getAuthenticatedMember']
+
+Running cron4plone
+==================
+Normally cron4plone is trigger by cron-tick, but for the test this is good enough
+
+Cron4plone has never run before so the history is empty.
+    >>> cronTool = getToolByName(self.portal, 'CronTool')
+    >>> cronTool.cron_history
+    {}
+
+    >>> browser.open('%s/@@cron-tick' % portal_url)
+    CronTick ...
+    running tasks. (...)
+    {'expression': u'portal/portal_membership/getAuthenticatedMember', 'id': 0, 'schedule': [u'*', u'*', u'*', u'*']}
+    task 0 never ran before..
+    plugin 0 will run on: ...
+
+    >>> from Products.CMFCore.utils import getToolByName
+    >>> cronTool.cron_history
+    {0: {'last_executed': DateTime('...')}}
