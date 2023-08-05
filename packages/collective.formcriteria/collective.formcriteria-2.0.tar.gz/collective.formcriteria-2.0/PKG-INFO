@@ -1,0 +1,1660 @@
+Metadata-Version: 1.1
+Name: collective.formcriteria
+Version: 2.0
+Summary: Add forms for user enterable search criteria to collections.
+Home-page: http://pypi.python.org/pypi/collective.formcriteria
+Author: Ross Patterson
+Author-email: me@rpatterson.net
+License: GPL
+Description: .. -*-doctest-*-
+        
+        =======================
+        collective.formcriteria
+        =======================
+        
+        This package extends the Products.ATContentTypes.criteria types to
+        create search forms.  Specifically, any criterion fields which are
+        selected in each criterion's "Form Fields" will be rendered on the
+        search form.  The values set on the criteria edit form become the
+        default values on the search form.  Search terms submitted through the
+        search form supplement any criteria not on the search form.  IOW,
+        criteria not appearing on the form become the base query built into
+        the search form.
+        
+        .. contents:: Table of Contents
+        
+        A new "Search Form" display layout is provided that renders the search
+        form and the collection body text but no results.  The search form on
+        this layout will display results using the layout specified in the
+        "Form Results Layout" field of the collection's edit form.
+        
+        The search form can also be rendered in a search form portlet based on
+        plone.portlet.collection.  The portlet will not render on the search
+        form view or the criteria edit form but otherwise will render the
+        search form for the designated collection according to the portlet
+        settings.
+        
+        Thus the collection can use either the search form or a results
+        listing as the display layout.  Users can initiate searches using
+        either the form or the portlet.  The portlet also reflects any
+        submitted search terms and thus provides a convenient way for users to
+        refine their searches.
+        
+        Multiple sort criteria can also be added that will render user
+        selectable sort links on the batch macro.  See
+        collective/formcriteria/criteria/sort.rst for more details.
+        
+        A CSV export action is also provided which provides a link to users
+        allowing them to download the collections results, subject to the
+        user's query in the CSV format.  This allows collections to be used,
+        for example, in conjunction with spreadsheet software for ad-hoc
+        reporting or limited export to other systems.
+        
+        A folder contents table display layout is also included.  This layout
+        is not yet fully functional but provides the basis for some very rich
+        site admin functionality.
+        
+        WARNING: Uninstall
+        ==================
+        
+        Uninstalling this product after having added any collections or adding
+        criteria to any collections, even ones added before install, is
+        untested and may leave your collections broken.
+        
+        Form Criteria
+        =============
+        
+        Start with some content for search results.
+        
+            >>> from plone.app import testing
+            >>> from Products.CMFCore.utils import getToolByName
+            >>> portal = layer['portal']
+            >>> membership = getToolByName(portal, 'portal_membership')
+            >>> folder = membership.getHomeFolder(testing.TEST_USER_ID)
+            >>> testing.login(portal, testing.TEST_USER_NAME)
+            >>> folder['bar-document-title']
+            <ATDocument at /plone/Members/test_user_1_/bar-document-title>
+            >>> folder['baz-event-title']
+            <ATEvent at /plone/Members/test_user_1_/baz-event-title>
+        
+        Open a browser and log in as a normal user.
+        
+            >>> from plone.testing import z2
+            >>> browser = z2.Browser(layer['app'])
+            >>> browser.handleErrors = False
+            >>> browser.open(portal.absolute_url())
+            >>> browser.getLink('Log in').click()
+            >>> browser.getControl('Login Name').value = testing.TEST_USER_NAME
+            >>> browser.getControl(
+            ...     'Password').value = testing.TEST_USER_PASSWORD
+            >>> browser.getControl('Log in').click()
+        
+        Add and publish a collection.
+        
+            >>> browser.open(folder.absolute_url())
+            >>> browser.getLink('Collection').click()
+            >>> browser.getControl('Title').value = 'Foo Topic Title'
+            >>> browser.getControl('Save').click()
+            >>> print browser.contents
+            <...
+            ...Changes saved...
+            >>> foo_topic = folder['foo-topic-title']
+        
+            >>> browser.getLink('Submit').click()
+            >>> print browser.contents
+            <...
+            ...Item state changed...
+        
+            >>> z2.login(portal.getPhysicalRoot().acl_users, testing.SITE_OWNER_NAME)
+            >>> layer['portal'].portal_workflow.doActionFor(foo_topic, 'publish')
+            >>> testing.login(portal, testing.TEST_USER_NAME)
+        
+            >>> import transaction
+            >>> transaction.commit()
+        
+        Change the display layout of the collection to the "Search Form".
+        
+            >>> browser.getLink('Search Form').click()
+            >>> print browser.contents
+            <...
+            ...View changed...
+        
+        Login as a user that can manage portlets.
+        
+            >>> owner_browser = z2.Browser(layer['app'])
+            >>> owner_browser.handleErrors = False
+            >>> owner_browser.open(portal.absolute_url())
+            >>> owner_browser.getLink('Log in').click()
+            >>> owner_browser.getControl(
+            ...     'Login Name').value = testing.SITE_OWNER_NAME
+            >>> owner_browser.getControl(
+            ...     'Password').value = testing.TEST_USER_PASSWORD
+            >>> owner_browser.getControl('Log in').click()
+        
+        Add the search form portlet for this collection to the folder.
+        
+            >>> owner_browser.open(folder.absolute_url())
+            >>> owner_browser.getLink('Manage portlets').click()
+            >>> owner_browser.getControl(
+            ...     'Search form portlet', index=1).selected = True
+            >>> owner_browser.getForm(index=3).submit() # manually w/o JS
+            >>> print owner_browser.contents
+            <...
+            ...Add Search Form Portlet...
+        
+            >>> header = owner_browser.getControl('Portlet header')
+            >>> header.value = 'Foo Search Form Title'
+            >>> foo_topic_path = '/'.join(
+            ...     ('',)+ foo_topic.getPhysicalPath()[
+            ...         len(portal.getPhysicalPath()):])
+            >>> header.mech_form.new_control(
+            ...     type='checkbox', name="form.target_collection",
+            ...     attrs=dict(checked='checked', value=foo_topic_path))
+            >>> owner_browser.getControl('Save').click()
+            >>> print owner_browser.contents
+            <...
+            ...Foo Search Form Title...
+        
+        Go to the collection's edit tab and set the "Form Results Layout"
+        field.
+        
+            >>> browser.getLink('Edit').click()
+            >>> browser.getControl('Collection').selected = True
+            >>> browser.getControl('Save').click()
+            >>> print browser.contents
+            <...
+            ...Changes saved...
+        
+        Go to the "Criteria" tab and add a criterion for the workflow state
+        that won't appear on the form.  Then set the query term to return only
+        published content.
+        
+            >>> browser.getLink('Criteria').click()
+            >>> form = browser.getForm(name='criteria_select')
+            >>> form.getControl('State').selected = True
+            >>> form.getControl(
+            ...     'Select values from list', index=1).selected = True
+            >>> form.getControl('Add criteria').click()
+            >>> print browser.contents
+            <...
+            ...State...
+            ...Select values from list...
+        
+        Since the test browser doesn't have JavaScript, test the
+        discrimination of criteria types by index manually.
+        
+            >>> foo_topic.allowedCriteriaForField('review_state')
+            ['FormSelectionCriterion', 'FormCheckboxCriterion',
+            'FormPulldownCriterion', 'FormSimpleStringCriterion',
+            'FormListCriterion', 'FormCommaCriterion', 'FormSortCriterion',
+            'FormContextCriterion']
+            >>> foo_topic.allowedCriteriaForField(
+            ...     'review_state', display_list=True)
+            <DisplayList
+            [('FormSelectionCriterion', 'Select values from list'),
+             ('FormCheckboxCriterion', 'Check values'),
+             ('FormPulldownCriterion', 'Select one value'),
+             ('FormSimpleStringCriterion', 'Text'),
+             ('FormListCriterion', 'List of values'),
+             ('FormCommaCriterion', 'Enter comma separated values'),
+             ('FormSortCriterion', 'Sort results'),
+             ('FormContextCriterion',
+              'Values will be taken from the context')] at ...>
+        
+        Set the query term and save.
+        
+            >>> form = browser.getForm(action="criterion_edit_form", index=0)
+            >>> form.getControl('published').selected = True
+            >>> form.getControl('Save').click()
+            >>> print browser.contents
+            <...
+            ...Changes saved...
+        
+        Open another browser as an anonymous user.
+        
+            >>> anon_browser = z2.Browser(layer['app'])
+            >>> anon_browser.handleErrors = False
+        
+        Before the topic has any form criteria, the search form is not
+        present.
+        
+            >>> anon_browser.open(foo_topic.absolute_url()+'/atct_topic_view')
+            >>> anon_browser.getForm(name="formcriteria_search")
+            Traceback (most recent call last):
+            LookupError
+        
+        Add a simple string criterion for the SearchableText index on the
+        criteria tab.
+        
+            >>> form = browser.getForm(name='criteria_select')
+            >>> form.getControl('Search Text').selected = True
+            >>> form.getControl(name="criterion_type").getControl(
+            ...     'Text', index=1).selected = True
+            >>> form.getControl('Add criteria').click()
+            >>> print browser.contents
+            <...
+            ...Search Text...
+            ...A simple string criterion...
+        
+        Select the criterion's 'value' field as a form field so it will appear
+        on the search form.
+        
+            >>> browser.getControl(
+            ...     name='crit__SearchableText_FormSimpleStringCriterion'
+            ...     '_formFields:list').getControl('Value').selected = True
+        
+        Set a default search term.
+        
+            >>> browser.getControl(
+            ...     name="crit__SearchableText_FormSimpleStringCriterion"
+            ...     "_value").value = 'bar'
+            >>> browser.getControl(name="form.button.Save").click()
+            >>> print browser.contents
+            <...
+            ...Changes saved...
+        
+        If no form value have been submitted, such as on a fresh load of the
+        topic view, the default term will be used in the query returning only
+        one of the content objects.
+        
+            >>> len(foo_topic.queryCatalog())
+            1
+        
+            >>> anon_browser.open(foo_topic.absolute_url()+'/atct_topic_view')
+            >>> anon_browser.getLink('Bar Document Title')
+            <Link text='...Bar Document Title'
+            url='http://nohost/plone/Members/test_user_1_/bar-document-title'>
+            >>> anon_browser.getLink('Baz Event Title')
+            Traceback (most recent call last):
+            LinkNotFoundError
+        
+        Now that a form criterion has been added, the search form is
+        rendered.
+        
+            >>> anon_browser.open(foo_topic.absolute_url())
+            >>> form = anon_browser.getForm(name="formcriteria_search")
+            >>> 'formcriteria-portlet.css' in anon_browser.contents
+            True
+            
+        Criterion fields that haven't been selected in "Form Fields" don't
+        appear on the search form.
+        
+            >>> form.getControl(
+            ...     name='form_crit__SearchableText_FormSimpleStringCriterion'
+            ...     '_formFields:list')
+            Traceback (most recent call last):
+            LookupError: name
+            'form_crit__SearchableText_FormSimpleStringCriterion_formFields:list'
+        
+        The label for the criterion corresponds to the form element for the
+        first criterion field.
+        
+            >>> ctl = form.getControl('Search Text')
+        
+        Enter a search term and submit the query.  The topic will now list the
+        other content object.
+        
+            >>> ctl.value = 'baz'
+            >>> form.getControl(name='submit').click()
+            >>> anon_browser.getLink('Bar Document Title')
+            Traceback (most recent call last):
+            LinkNotFoundError
+            >>> anon_browser.getLink('Baz Event Title')
+            <Link text='...Baz Event Title'
+            url='http://nohost/plone/Members/test_user_1_/baz-event-title'>
+        
+        Since the search form has been submitted, the results are rendered on
+        the layout specified by the "Form Results Layout".
+        
+            >>> anon_browser.url.startswith(
+            ...     'http://nohost/plone/Members/test_user_1_/foo-topic-title'
+            ...     '/atct_topic_view')
+            True
+        
+        The search form portlet also reflects the search term submitted rather
+        than the default value submitted on the criteria tab.
+        
+            >>> form = anon_browser.getForm(name="formcriteria_search")
+            >>> ctl = form.getControl('Search Text')
+            >>> ctl.value
+            'baz'
+        
+        If the search form is submitted from this page, the results are still
+        rendered on the same view.
+        
+            >>> ctl.value = 'bar'
+            >>> form.getControl(name='submit').click()
+            >>> anon_browser.url.startswith(
+            ...     'http://nohost/plone/Members/test_user_1_/foo-topic-title'
+            ...     '/atct_topic_view')
+            True
+        
+        Values are also ignored if submitted for criteria fields which are not
+        listed in "Form Fields".
+        
+            >>> crit = foo_topic.getCriterion(
+            ...     'SearchableText_FormSimpleStringCriterion')
+            >>> crit.setFormFields([])
+            >>> transaction.commit()
+        
+            >>> anon_browser.open(
+            ...     foo_topic.absolute_url()+'/atct_topic_view'
+            ...     '?form_crit__SearchableText_FormSimpleStringCriterion'
+            ...     '_value=baz')
+            >>> anon_browser.getLink('Bar Document Title')
+            <Link text='...Bar Document Title'
+            url='http://nohost/plone/Members/test_user_1_/bar-document-title'>
+            >>> anon_browser.getLink('Baz Event Title')
+            Traceback (most recent call last):
+            LinkNotFoundError
+        
+            >>> crit.setFormFields(['value'])
+        
+            >>> import transaction
+            >>> transaction.commit()
+        
+        The search form handles index query parsing errors gracefully
+        displaying a message to the user.
+        
+            >>> anon_browser.open(foo_topic.absolute_url())
+            >>> form = anon_browser.getForm(name="formcriteria_search")
+            >>> ctl = form.getControl('Search Text')
+            >>> ctl.value = 'bar (baz)'
+            >>> form.getControl(name='submit').click()
+            >>> print anon_browser.contents
+            <...There are currently no results for this search...
+            >>> anon_browser.getLink('Bar Document Title')
+            Traceback (most recent call last):
+            LinkNotFoundError
+            >>> anon_browser.getLink('Baz Event Title')
+            Traceback (most recent call last):
+            LinkNotFoundError
+        
+        The search form portlet successfully renders when viewed on a context
+        other than the portlet.
+        
+            >>> anon_browser.open(folder.absolute_url())
+            >>> form = anon_browser.getForm(name="formcriteria_search")
+        
+        Ensure that collective.formcriteria doesn't break existing ATTopic
+        instances such as those created by default in a Plone site.
+        
+            >>> owner_browser.open(portal.news.absolute_url())
+            >>> print owner_browser.contents
+            <...
+            ...Site News...
+            ...There are currently no items in this folder...
+        
+            >>> owner_browser.getLink('Edit').click()
+            >>> print owner_browser.contents
+            <...
+            ... Search terms ...
+        
+        Make sure none of the collective.formcriteria extensions interfere
+        with existing ATTopic instances.
+        
+            >>> browser.open(portal.events.aggregator.absolute_url())
+        
+        All criteria can also be created using poral_types.constructContent.
+        
+            >>> z2.login(portal.getPhysicalRoot().acl_users, testing.SITE_OWNER_NAME)
+            >>> foo_topic.deleteCriterion(
+            ...     'crit__SearchableText_FormSimpleStringCriterion')
+            >>> foo_topic.deleteCriterion(
+            ...     'crit__review_state_FormSelectionCriterion')
+            >>> seen = set()
+            >>> topic_indexes = portal.portal_atct.topic_indexes
+            >>> for field, index in sorted(topic_indexes.iteritems()):
+            ...     for criterion in index.criteria:
+            ...         if criterion in seen or criterion.startswith('AT'):
+            ...             continue
+            ...         portal.portal_types.constructContent(
+            ...             criterion, foo_topic,
+            ...             id='crit__%s_%s' % (field, criterion))
+            ...         seen.add(criterion)
+            'crit__Creator_FormSelectionCriterion'
+            'crit__Creator_FormCheckboxCriterion'
+            'crit__Creator_FormPulldownCriterion'
+            'crit__Creator_FormSimpleStringCriterion'
+            'crit__Creator_FormListCriterion'
+            'crit__Creator_FormCommaCriterion'
+            'crit__Creator_FormSortCriterion'
+            'crit__Creator_FormContextCriterion'
+            'crit__Date_FormDateCriterion'
+            'crit__Date_FormDateRangeCriterion'
+            'crit__Type_FormPortalTypeCriterion'
+            'crit__Type_FormPortalTypeCheckboxCriterion'
+            'crit__Type_FormPortalTypePulldownCriterion'...
+            'crit__path_FormPathCriterion'
+            'crit__path_FormRelativePathCriterion'
+        
+        Installing
+        ==========
+        
+        The 'default' profile is used when installing collective.formcriteria
+        through the Plone Add-ons control panel
+        
+            >>> portal.portal_quickinstaller.uninstallProducts(['collective.formcriteria'])
+            >>> print portal.portal_quickinstaller.installProducts(['collective.formcriteria'])
+                Installed Products
+                ====================
+                collective.formcriteria:ok:
+            >>> portal.portal_quickinstaller.getInstallProfiles(
+            ...     'collective.formcriteria')[0]
+            u'collective.formcriteria:default'
+        
+        .. -*-doctest-*-
+        
+        Sorting
+        =======
+        
+        Two kinds of sort criteria are supported.  Multiple fixed sort
+        criteria can be defined allowing the user to select from among them
+        using links on the batch macro.  One form sort criterion can be added
+        per collection to allows the user to specify a sort on the sort form.
+        If both are used, and the user has both submitted a sort from the form
+        and selected a sort from the batch links, the latter criterion in the
+        list of criteria takes effect.
+        
+        Form sort criteria are not yet implemented.
+        
+        Fixed Sort Criteria
+        -------------------
+        
+        Set the item count to 1 so that batches will only have one item.
+        
+            >>> from Products.CMFCore.utils import getToolByName
+            >>> portal = layer['portal']
+            >>> membership = getToolByName(portal, 'portal_membership')
+        
+            >>> from plone.app import testing
+            >>> folder = membership.getHomeFolder(testing.TEST_USER_ID)
+            >>> foo_topic = folder['foo-topic-title']
+            >>> foo_topic.setItemCount(1)
+        
+            >>> import transaction
+            >>> transaction.commit()
+        
+        Open a browser and log in as a normal user.
+        
+            >>> from plone.testing import z2
+            >>> from plone.app import testing
+            >>> portal = layer['portal']
+            >>> browser = z2.Browser(layer['app'])
+            >>> browser.handleErrors = False
+            >>> browser.open(portal.absolute_url())
+            >>> browser.getLink('Log in').click()
+            >>> browser.getControl('Login Name').value = testing.TEST_USER_NAME
+            >>> browser.getControl(
+            ...     'Password').value = testing.TEST_USER_PASSWORD
+            >>> browser.getControl('Log in').click()
+        
+        Load the criteria edit form of a collection.
+        
+            >>> browser.open(foo_topic.absolute_url())
+            >>> browser.getLink('Criteria').click()
+        
+        The sort selection form has been removed from the criteria tab.
+        
+            >>> browser.getForm(action="criterion_edit_form", index=1)
+            Traceback (most recent call last):
+            IndexError: list index out of range
+        
+        Instead, multiple sort criteria can be added to a collection using the
+        normal criterion add form on the criteria tab.
+        
+            >>> form = browser.getForm(name="criteria_select")
+            >>> form.getControl('Relevance').selected = True
+            >>> form.getControl('Sort results').selected = True
+            >>> form.getControl('Add criteria').click()
+            >>> print browser.contents
+            <...
+            ...Added criterion FormSortCriterion for field unsorted...
+        
+        Add another sort criterion for the Date field reversed.
+        
+            >>> form = browser.getForm(name="criteria_select")
+            >>> form.getControl('Effective Date').selected = True
+            >>> form.getControl('Sort results').selected = True
+            >>> form.getControl('Add criteria').click()
+            >>> print browser.contents
+            <...
+            ...Added criterion FormSortCriterion for field effective...
+        
+        Change the display layout of the collection to the "Search Form" then
+        submit a search criteria to test that the sort links preserve search
+        criteria.
+        
+            >>> foo_topic.setLayout('criteria_form')
+            >>> foo_topic.addCriterion(
+            ...     'SearchableText','FormSimpleStringCriterion'
+            ...     ).setFormFields(['value'])
+        
+            >>> import transaction
+            >>> transaction.commit()
+        
+            >>> browser.getLink('View').click()
+            >>> form = browser.getForm(name="formcriteria_search")
+            >>> form.getControl('Search Text').value = 'blah'
+            >>> form.getControl(name='submit').click()
+        
+        When the batch macro is rendered on a collection view, such as one of
+        the listings, it includes links to the different possible sorts in
+        order.  By default, the first sort criteria is selected.  The sort
+        links also have id's and CSS classes for styling support.
+        
+            >>> print browser.contents
+            <...
+                      Sort on:
+                        <span class="formcriteriaSortField selected">Relevance</span>
+                        <button...>Effective Date</button>
+            ...
+            >>> form = browser.getForm(name="navigation_form")
+            >>> form.getControl(
+            ...     name="crit__unsorted_FormSortCriterion:boolean")
+            Traceback (most recent call last):
+            LookupError: name
+            'crit__unsorted_FormSortCriterion:boolean'
+        
+        The results are listed in order of weight.
+        
+            >>> browser.getLink('Baz Event Title')
+            <Link text='...Baz Event Title'
+            url='http://nohost/plone/Members/test_user_1_/baz-event-title'>
+            >>> browser.getLink('Bar Document Title')
+            Traceback (most recent call last):
+            LinkNotFoundError
+        
+        When a sort link is clicked, that sort will show as selected and
+        results will be sorted according to the sort criteria.
+        
+            >>> form = browser.getForm(name="navigation_form")
+            >>> form.getControl(
+            ...     name="crit__effective_FormSortCriterion:boolean").click()
+            >>> print browser.contents
+            <...
+            ...Sort on:...
+            ...Relevance...
+            ...Effective Date</span>...
+            >>> form = browser.getForm(name="navigation_form")
+            >>> form.getControl(
+            ...     name="crit__effective_FormSortCriterion:boolean")
+            <Control name='crit__effective_FormSortCriterion:boolean' type='hidden'>
+            >>> form = browser.getForm(name="navigation_form")
+            >>> form.getControl(
+            ...     name="crit__unsorted_FormSortCriterion:boolean")
+            <SubmitControl name='crit__unsorted_FormSortCriterion:boolean'
+            type='submitbutton'>
+        
+        The results reflect that the search query is preserved across the new
+        sort selection.
+        
+            >>> browser.getLink('Bar Document Title')
+            <Link text='...Bar Document Title'
+            url='http://nohost/plone/Members/test_user_1_/bar-document-title'>
+            >>> browser.getLink('Baz Event Title')
+            Traceback (most recent call last):
+            LinkNotFoundError
+        
+        If the next batch is selected the sort and search query are
+        preserved.
+        
+            >>> form = browser.getForm(name="navigation_form")
+            >>> form.getControl(name="b_start", index=0).click()
+            >>> browser.getLink('Bar Document Title')
+            Traceback (most recent call last):
+            LinkNotFoundError
+            >>> browser.getLink('Baz Event Title')
+            <Link text='...Baz Event Title'
+            url='http://nohost/plone/Members/test_user_1_/baz-event-title'>
+        
+        The batch macro will render the sort links even if there's only one
+        batch.
+        
+            >>> foo_topic.setItemCount(0)
+        
+            >>> import transaction
+            >>> transaction.commit()
+        
+            >>> browser.open(foo_topic.absolute_url()+'/atct_topic_view')
+            >>> form = browser.getForm(name="navigation_form")
+            >>> form.getControl(
+            ...     name="crit__effective_FormSortCriterion:boolean")
+            <SubmitControl name='crit__effective_FormSortCriterion:boolean'
+            type='submitbutton'>
+        
+        Ensure that the extended sort criteria work inside previously created
+        ATTopic instances.
+        
+            >>> topic = folder['at-topic-title']
+            >>> topic.setSortCriterion('effective', True)
+            >>> topic.queryCatalog()[0].getObject()
+            <ATEvent at /plone/Members/test_user_1_/baz-event-title>
+        
+        Grouped Listing
+        ---------------
+        
+        A variation on the default collection view is provided that lists
+        items grouped by the sort used.  This requires that the index used for
+        sorting is also in the catalog metadata columns and this available on
+        the catalog brains.
+        
+        Sort by creator to that we get at least one group with multiple
+        items.
+        
+            >>> foo_topic.deleteCriterion('crit__unsorted_FormSortCriterion')
+            >>> foo_topic.setSortCriterion('Creator', False)
+        
+            >>> import transaction
+            >>> transaction.commit()
+        
+        Select the layout.
+        
+            >>> browser.open(foo_topic.absolute_url())
+            >>> browser.getLink('Grouped Listing').click()
+            >>> print browser.contents
+            <...
+            ...View changed...
+            >>> browser.getLink('Log out').click()
+        
+        Now the items are grouped by the sort values.
+        
+            >>> browser.open(foo_topic.absolute_url())
+            >>> print browser.contents
+            <...
+            ...<dl...
+            ...<dt...bar_creator_id...</dt>...
+            ...<dd...
+            ...Baz Event Title...
+            ...</dd...
+            ...<dt...foo_creator_id...</dt>...
+            ...<dd...
+            ...Foo Event Title...
+            ...Bar Document Title...
+            ...</dd...
+            ...</dl>...
+        
+        The grouped listing layout requires a sort criterion to render and
+        raises an error if one is not present.
+        
+            >>> foo_topic.deleteCriterion('crit__Creator_ATSortCriterion')
+        
+            >>> import transaction
+            >>> transaction.commit()
+        
+            >>> browser.open(foo_topic.absolute_url())
+            Traceback (most recent call last):
+            AssertionError: ...
+        
+        The batch macros still work for topics that have no sort criteria.
+        
+            >>> foo_topic.setLayout('criteria_form')
+        
+            >>> import transaction
+            >>> transaction.commit()
+        
+            >>> browser.open(foo_topic.absolute_url())
+            >>> form = browser.getForm(name="formcriteria_search")
+            >>> form.getControl('Search Text').value = 'blah'
+            >>> form.getControl(name='submit').click()
+            >>> 'Sort on:' in browser.contents
+            False
+        
+        .. -*-doctest-*-
+        
+        CSV Export
+        ==========
+        
+        The data accessed in tabular form from collections is often exactly
+        the data site admins want to export into other formats such as CSV.
+        This package provides views for exporting the current query's
+        collection data into various formats.  The CSV columns are taken from
+        the collections 'Table Columns' field on the edit tab/form regardless
+        of whether the table layout is used.  The CSV export link is available
+        as a document action like the print and send-to actions.
+        
+        Change the columns and link columns.
+        
+            >>> from plone.testing import z2
+            >>> from plone.app import testing
+            >>> portal = layer['portal']
+            >>> z2.login(portal.getPhysicalRoot().acl_users, testing.SITE_OWNER_NAME)
+        
+            >>> from Products.CMFCore.utils import getToolByName
+            >>> membership = getToolByName(portal, 'portal_membership')
+            >>> folder = membership.getHomeFolder(testing.TEST_USER_ID)
+            >>> foo_topic = folder['foo-topic-title']
+            >>> columns = foo_topic.columns
+            >>> columns.manage_delObjects(
+            ...     ['ModificationDate-column', 'get_size-column',
+            ...      'review_state-column'])
+            >>> columns['getPath-column'].update(filter='')
+            >>> columns['Title-column'].update(link=False, sort='')
+            >>> desc_column = columns[columns.invokeFactory(
+            ...     type_name='TopicColumn', id='Description-column',
+            ...     link=True)]
+            >>> foo_topic.manage_delObjects(
+            ...     ['crit__sortable_title_FormSortCriterion',
+            ...      'crit__get_size_FormSortCriterion',
+            ...      'crit__modified_FormSortCriterion',
+            ...      'crit__review_state_FormSortCriterion'])
+            >>> testing.logout()
+        
+        Add some criteria to the collection.
+        
+            >>> _ = foo_topic.addCriterion(
+            ...     'path', 'FormRelativePathCriterion')
+            >>> foo_topic.addCriterion(
+            ...     'Type', 'FormSelectionCriterion'
+            ...     ).setValue(['Page', 'Event'])
+            >>> foo_topic.getCriterion(
+            ...     'SearchableText_FormSimpleStringCriterion'
+            ...     ).setFormFields(['value'])
+            >>> _ = foo_topic.addCriterion(
+            ...     'unsorted', 'FormSortCriterion')
+            >>> _ = foo_topic.addCriterion(
+            ...     'effective', 'FormSortCriterion')
+        
+            >>> import transaction
+            >>> transaction.commit()
+        
+        Open a browser and log in as a normal user.
+        
+            >>> browser = z2.Browser(layer['app'])
+            >>> browser.handleErrors = False
+            >>> browser.open(portal.absolute_url())
+            >>> browser.getLink('Log in').click()
+            >>> browser.getControl('Login Name').value = testing.TEST_USER_NAME
+            >>> browser.getControl(
+            ...     'Password').value = testing.TEST_USER_PASSWORD
+            >>> browser.getControl('Log in').click()
+        
+        The export link is now available.  Download the raw, un-queried
+        collection results.
+        
+            >>> browser.open(foo_topic.absolute_url())
+            >>> export_link = browser.getLink('Export')
+            >>> export_link.click()
+            >>> browser.isHtml
+            False
+            >>> print browser.headers
+            Status: 200 ...
+            Content-Disposition: attachment...
+            Content-Type: text/csv...
+        
+        Since the testbrowser can't handle file downloads, we'll check the CSV
+        output by calling the browser view directly.
+        
+            >>> from zope import interface
+            >>> from collective.formcriteria import interfaces
+            >>> interface.alsoProvides(layer['request'], interfaces.IFormCriteriaLayer)
+            >>> from collective.formcriteria.testing import export
+        
+            >>> print export(portal, foo_topic, layer['request'], export_link.url)
+            Status: 200 OK...
+            Content-Type: text/csv
+            Content-Disposition: attachment;filename=foo-topic-title.csv
+            URL,Title,Description
+            http://nohost/plone/Members/test_user_1_/foo-event-title,Foo Event Title,
+            http://nohost/plone/Members/test_user_1_/bar-document-title,Bar Document Title,blah
+            http://nohost/plone/Members/test_user_1_/baz-event-title,Baz Event Title,blah blah
+            >>> testing.logout()
+        
+        Add the search form portlet.
+        
+            >>> from zope import component
+            >>> from plone.i18n.normalizer import (
+            ...     interfaces as normalizer_ifaces)
+            >>> from collective.formcriteria.portlet import portlet
+            >>> testing.login(portal, testing.TEST_USER_NAME)
+            >>> manager = foo_topic.restrictedTraverse(
+            ...     '++contextportlets++plone.rightcolumn')
+            >>> site_path_len = len(portal.getPhysicalPath())
+            >>> assignment = portlet.Assignment(
+            ...     header='Foo Search Form Title',
+            ...     target_collection='/'.join(
+            ...         foo_topic.getPhysicalPath()[site_path_len:]))
+            >>> name = component.getUtility(
+            ...     normalizer_ifaces.IIDNormalizer).normalize(
+            ...         assignment.title)
+            >>> manager[name] = assignment
+            >>> testing.logout()
+        
+            >>> import transaction
+            >>> transaction.commit()
+        
+        Submit a query.  The exported CSV reflects the user submitted query
+        and is sorted by relevance.
+        
+            >>> browser.open(foo_topic.absolute_url())
+            >>> form = browser.getForm(name="formcriteria_search")
+            >>> form.getControl('Search Text').value = 'blah'
+            >>> form.getControl(name='submit').click()
+        
+            >>> export_link = browser.getLink('Export')
+            >>> export_link.click()
+            >>> browser.isHtml
+            False
+            >>> print browser.headers
+            Status: 200...
+            Content-Disposition: attachment;filename=foo-topic-title.csv
+            Content-Length: ...
+            Content-Type: text/csv...
+            >>> print export(portal, foo_topic, layer['request'], export_link.url)
+            URL,Title,Description
+            http://nohost/plone/Members/test_user_1_/baz-event-title,Baz Event Title,blah blah
+            http://nohost/plone/Members/test_user_1_/bar-document-title,Bar Document Title,blah
+        
+        Select another sort, The exported CSV reflects the user selected sort
+        and query.
+        
+            >>> browser.open(foo_topic.absolute_url())
+            >>> form = browser.getForm(name="formcriteria_search")
+            >>> form.getControl('Search Text').value = 'blah'
+            >>> form.getControl(name='submit').click()
+            >>> browser.getControl(
+            ...     name="crit__effective_FormSortCriterion:boolean").click()
+        
+            >>> export_link = browser.getLink('Export')
+            >>> export_link.click()
+            >>> browser.isHtml
+            False
+            >>> print export(portal, foo_topic, layer['request'], export_link.url)
+            URL,Title,Description
+            http://nohost/plone/Members/test_user_1_/bar-document-title,Bar Document Title,blah
+            http://nohost/plone/Members/test_user_1_/baz-event-title,Baz Event Title,blah blah
+        
+        It is also possible to change the CSV format by passing in request
+        keys with a special 'csv.fmtparam-' prefix.  These values are passed
+        into Python's csv.writer() factory as keyword arguments.  For example,
+        to use a tab character as a delimiter instead of ",", add a
+        'csv.fmtparam-delimiter' key to the request.
+        
+            >>> browser.open(foo_topic.absolute_url())
+            >>> export_url = browser.getLink('Export').url
+            >>> browser.open(export_url  + '&csv.fmtparam-delimiter=%09')
+            >>> browser.isHtml
+            False
+            >>> print export(portal, foo_topic, layer['request'],
+            ...              export_url + '&csv.fmtparam-delimiter=%09')
+            URL	Title	Description
+            http://nohost/plone/Members/test_user_1_/foo-event-title	Foo Event Title	
+            http://nohost/plone/Members/test_user_1_/bar-document-title	Bar Document Title	blah
+            http://nohost/plone/Members/test_user_1_/baz-event-title	Baz Event Title	blah blah
+        
+        It's also possible to add a column for fields that don't have
+        corresponding catalog metadata.  Be aware that using such columns can
+        greatly affect performance as export requires looking up every object
+        to retrieve the data.
+        
+            >>> z2.login(portal.getPhysicalRoot().acl_users, testing.SITE_OWNER_NAME)
+            >>> text_column = columns[columns.invokeFactory(
+            ...     type_name='TopicColumn', id='getText-column',
+            ...     title='Text', link=True)]
+            >>> testing.logout()
+        
+            >>> import transaction
+            >>> transaction.commit()
+        
+            >>> browser.open(export_url)
+            >>> browser.isHtml
+            False
+            >>> print export(portal, foo_topic, layer['request'], export_url)
+            URL,Title,Description,Text
+            http://nohost/plone/Members/test_user_1_/foo-event-title,Foo Event Title,,<p>foo...</p>
+            http://nohost/plone/Members/test_user_1_/bar-document-title,Bar Document Title,blah,<p>bar...</p>
+            http://nohost/plone/Members/test_user_1_/baz-event-title,Baz Event Title,blah blah,
+        
+        The export link isn't available if there are no collection columns.
+        
+            >>> z2.login(portal.getPhysicalRoot().acl_users, testing.SITE_OWNER_NAME)
+            >>> foo_topic.manage_delObjects(['columns'])
+            >>> testing.logout()
+        
+            >>> import transaction
+            >>> transaction.commit()
+        
+            >>> browser.open(foo_topic.absolute_url())
+            >>> browser.getLink('Export')
+            Traceback (most recent call last):
+            LinkNotFoundError
+        
+        .. -*-doctest-*-
+        
+        Contents View
+        =============
+        
+        A version of the folder_contents can be used with collections
+        where the columns are those specified in the collection's "Table
+        Columns" field.  The buttons at the bottom of the folder contents view
+        will then be applied to the selected items.
+        
+        Any columns that are selected in the collection's "Table
+        Columns" field that are also selected in the "Table Column Links"
+        field will be rendered as links.  Note that it's possible to select a
+        link column that isn't a table column which will have no effect.
+        
+        Add a simple string criterion for the SearchableText index on the
+        criteria tab.  Set a default search term.  Add a sort criteria for
+        consistent ordering.
+        
+            >>> from plone.app import testing
+            >>> from Products.CMFCore.utils import getToolByName
+            >>> portal = layer['portal']
+            >>> membership = getToolByName(portal, 'portal_membership')
+            >>> folder = membership.getHomeFolder(testing.TEST_USER_ID)
+            >>> foo_topic = folder['foo-topic-title']
+            >>> crit = foo_topic.getCriterion(
+            ...     'SearchableText_FormSimpleStringCriterion')
+            >>> crit.setValue('bar')
+            >>> crit.setFormFields(['value'])
+            >>> sort = foo_topic.addCriterion(
+            ...     'getPhysicalPath', 'FormSortCriterion')
+        
+            >>> import transaction
+            >>> transaction.commit()
+        
+        Open a browser and log in as a user who can change the display layout
+        for the topic.
+        
+            >>> from plone.testing import z2
+            >>> browser = z2.Browser(layer['app'])
+            >>> browser.handleErrors = False
+            >>> browser.open(portal.absolute_url())
+            >>> browser.getLink('Log in').click()
+            >>> browser.getControl('Login Name').value = testing.TEST_USER_NAME
+            >>> browser.getControl(
+            ...     'Password').value = testing.TEST_USER_PASSWORD
+            >>> browser.getControl('Log in').click()
+        
+        Change the topic's display layout and the search form results layout
+        to the contents view.
+        
+            >>> browser.open(foo_topic.absolute_url())
+            >>> browser.getLink('Tabular Form').click()
+            >>> print browser.contents
+            <...
+            ...View changed...
+        
+        The view renders the contents form with the default columns.
+        
+            >>> browser.getForm(name="folderContentsForm")
+            <zope.testbrowser.browser.Form object at ...>
+            >>> print browser.contents
+            <...
+            ...Title...
+            ...Size...
+            ...Modification Date...
+            ...State...
+        
+        The order column is not included since order is determined by the
+        collection and is fixed.
+        
+            >>> 'Order' in browser.contents
+            False
+        
+        The topic contents are listed in the contents table form and the
+        titles are links to the item.
+        
+            >>> print browser.contents
+            <...
+            ...Bar Document Title...
+            ...2.9 kB...
+            ...<span class="state-published">Published</span>...
+            >>> from collective.formcriteria.testing import CONTENT_FIXTURE
+            >>> now = CONTENT_FIXTURE.now
+            >>> str(portal.restrictedTraverse('@@plone').toLocalizedTime(now)
+            ...     ) in browser.contents
+            True
+        
+            >>> browser.getControl('Bar Document Title')
+            <ItemControl name='paths:list' type='checkbox'
+            optionValue='/plone/Members/test_user_1_/bar-document-title'
+            selected=False>
+            >>> browser.getLink('Bar Document Title')
+            <Link text='Bar Document Title'
+            url='http://nohost/plone/Members/test_user_1_/bar-document-title'>
+        
+        The first sort criterion is the default sort.
+        
+            >>> browser.getControl(name="sort_on").value
+            'sortable_title'
+        
+        Select different collection columns and which columns link to the
+        result item.
+        
+            >>> z2.login(portal.getPhysicalRoot().acl_users, testing.SITE_OWNER_NAME)
+            >>> columns = foo_topic.columns
+            >>> columns.manage_delObjects(
+            ...     ['ModificationDate-column', 'get_size-column',
+            ...      'review_state-column'])
+            >>> columns['Title-column'].update(link=False)
+            >>> desc_column = columns[columns.invokeFactory(
+            ...     type_name='TopicColumn', id='Description-column',
+            ...     link=True)]
+            >>> effective_column = columns[columns.invokeFactory(
+            ...     type_name='TopicColumn', id='EffectiveDate-column',
+            ...     link=True)]
+            >>> foo_topic.manage_delObjects(
+            ...     ['crit__get_size_FormSortCriterion',
+            ...      'crit__get_size_FormSimpleIntCriterion',
+            ...      'crit__modified_FormSortCriterion',
+            ...      'crit__modified_FormDateCriterion',
+            ...      'crit__review_state_FormSortCriterion',
+            ...      'crit__review_state_FormSelectionCriterion'])
+            >>> testing.logout()
+        
+            >>> import transaction
+            >>> transaction.commit()
+        
+        The view renders the contents form with the specified columns.
+        
+            >>> browser.open(foo_topic.absolute_url())
+            >>> browser.getForm(name="folderContentsForm")
+            <zope.testbrowser.browser.Form object at ...>
+            >>> print browser.contents
+            <...
+            ...Description...
+            ...Effective Date...
+            ...Title...
+            >>> 'Size' in browser.contents
+            False
+            >>> 'Modification Date' in browser.contents
+            False
+            >>> '&#160;State&#160;' in browser.contents
+            False
+        
+        The topic contents are also listed with the specified columns.
+        
+            >>> print browser.contents
+            <...
+            ...Bar Document Title...
+            ...blah...
+            >>> '2.9 kB' in browser.contents
+            False
+            >>> now.ISO() in browser.contents
+            False
+            >>> '<span class="state-published">Published</span>' in browser.contents
+            False
+        
+        The link columns have also been changed.
+        
+            >>> browser.getControl('Bar Document Title')
+            <ItemControl name='paths:list' type='checkbox'
+            optionValue='/plone/Members/test_user_1_/bar-document-title'
+            selected=False>
+            >>> browser.getLink('blah')
+            <Link text='blah'
+            url='http://nohost/plone/Members/test_user_1_/bar-document-title'>
+            >>> browser.getLink((now-2).ISO())
+            <Link text='...'
+            url='http://nohost/plone/Members/test_user_1_/bar-document-title'>
+            >>> browser.getLink('Bar Document Title')
+            Traceback (most recent call last):
+            LinkNotFoundError
+        
+        The item selection header row reflects the new number of columns.
+        
+            >>> print browser.contents
+            <...
+            ...<thead>...
+            ...<th colspan="4"...
+            ...</thead>...
+        
+        The KSS update table view also reflects the selected columns.
+        
+            >>> browser.open(
+            ...     foo_topic.absolute_url()+'/foldercontents_update_table')
+            >>> print browser.contents
+            <...
+            ...Description...
+            ...Effective Date...
+            ...Title...
+            >>> 'Size' in browser.contents
+            False
+            >>> 'Modification Date' in browser.contents
+            False
+            >>> '&#160;State&#160;' in browser.contents
+            False
+        
+        Query Criteria
+        --------------
+        
+        If the query criteria have been assigned to a specific column, the
+        will be rendered in the filter table header row.  Otherwise they will
+        be rendered in the search form as usual.
+        
+        Add the portlet.
+        
+            >>> from zope import component
+            >>> from plone.i18n.normalizer import (
+            ...     interfaces as normalizer_ifaces)
+            >>> from collective.formcriteria.portlet import portlet
+            >>> testing.login(portal, testing.TEST_USER_NAME)
+            >>> manager = foo_topic.restrictedTraverse(
+            ...     '++contextportlets++plone.rightcolumn')
+            >>> site_path_len = len(portal.getPhysicalPath())
+            >>> assignment = portlet.Assignment(
+            ...     header='Foo Search Form Title',
+            ...     target_collection='/'.join(
+            ...         foo_topic.getPhysicalPath()[site_path_len:]))
+            >>> name = component.getUtility(
+            ...     normalizer_ifaces.IIDNormalizer).normalize(
+            ...         assignment.title)
+            >>> manager[name] = assignment
+            >>> testing.logout()
+        
+        If query criteria are configured for the table columns, a filter table
+        head row will be rendered as a search form.
+        
+            >>> foo_topic.setFormLayout('folder_contents')
+        
+            >>> import transaction
+            >>> transaction.commit()
+        
+            >>> browser.open(foo_topic.absolute_url())
+            >>> contents_form = browser.getForm(name="folderContentsForm")
+            >>> contents_form.getControl(
+            ...     name='form_crit__SearchableText_FormSimpleStringCriterion'
+            ...     '_value', index=0)
+            <Control
+            name='form_crit__SearchableText_FormSimpleStringCriterion_value'
+            type='text'>
+            >>> contents_form.getControl(
+            ...     name='form_crit__Title_FormSimpleStringCriterion_value',
+            ...     index=0)
+            <Control
+            name='form_crit__Title_FormSimpleStringCriterion_value'
+            type='text'>
+            >>> contents_form.getControl('Filter', index=0)
+            <SubmitControl name='filter' type='submit'>
+        
+        Since all query criteria are used in the table columns, no portlet
+        search form is rendered.
+        
+            >>> browser.getForm(name="formcriteria_search")
+            Traceback (most recent call last):
+            LookupError
+        
+        The contents view reflects user criteria submitted through the
+        contents form.
+        
+            >>> contents_form.getControl(
+            ...     name='form_crit__SearchableText_FormSimpleStringCriterion'
+            ...     '_value', index=0).value = 'baz'
+            >>> contents_form.getControl('Filter', index=0).click()
+            >>> browser.getControl('Bar Document Title')
+            Traceback (most recent call last):
+            LookupError: label 'Bar Document Title'
+            >>> browser.getControl('Baz Event Title')
+            <ItemControl name='paths:list' type='checkbox'
+            optionValue='/plone/Members/test_user_1_/baz-event-title'
+            selected=False>
+        
+        The filter collapsible doesn't collapse when clicking on the search
+        text box.
+        
+            >>> import re
+            >>> regexp = re.compile('http://.*?collapsiblesections.css')
+            >>> regexp.search(browser.contents).group()
+            'http://nohost/plone/portal_css/Plone%20Default/collapsiblesections.css'
+            >>> browser.open(portal.absolute_url() + '/collapsiblesections.css')
+            >>> print browser.contents
+            /*...
+            #foldercontents-getPath-filter .collapsibleHeader {
+            ...
+        
+        The search form is rendered if query criteria are present which are
+        not assigned to a column.
+        
+            >>> z2.login(portal.getPhysicalRoot().acl_users, testing.SITE_OWNER_NAME)
+            >>> columns['getPath-column'].update(filter='')
+            >>> testing.logout()
+        
+            >>> import transaction
+            >>> transaction.commit()
+        
+            >>> browser.open(foo_topic.absolute_url())
+            >>> portlet_form = browser.getForm(name="formcriteria_search")
+        
+        The contents view also reflects user criteria submitted through the
+        portlet form.
+        
+            >>> portlet_form.getControl(
+            ...     name='form_crit__SearchableText_FormSimpleStringCriterion'
+            ...     '_value').value = 'baz'
+            >>> portlet_form.getControl(name='submit').click()
+            >>> browser.getControl('Bar Document Title')
+            Traceback (most recent call last):
+            LookupError: label 'Bar Document Title'
+            >>> browser.getControl('Baz Event Title')
+            <ItemControl name='paths:list' type='checkbox'
+            optionValue='/plone/Members/test_user_1_/baz-event-title'
+            selected=False>
+        
+        If no query criteria are configured, the filter table head row will
+        not be rendered.
+        
+            >>> z2.login(portal.getPhysicalRoot().acl_users, testing.SITE_OWNER_NAME)
+            >>> columns['Title-column'].update(filter='')
+            >>> testing.logout()
+        
+            >>> import transaction
+            >>> transaction.commit()
+        
+            >>> browser.open(foo_topic.absolute_url())
+            >>> print browser.contents
+            <...
+                  <thead...
+                    <tr>
+                        <th class="nosort"...>&#160;</th>
+                        <th class="nosort sortColumn"
+                            id="foldercontents-sortable_title-column">
+                              &#160;
+                              Title
+                              &#160;
+                            </th>
+                        <th class="nosort noSortColumn"
+                            id="foldercontents-Description-column">
+                              &#160;
+                              Description
+                              &#160;
+                            </th>
+                        <th class="nosort noSortColumn"
+                            id="foldercontents-EffectiveDate-column">
+                              &#160;
+                              Effective Date
+                              &#160;
+                            </th>
+                    </tr>
+                  </thead...
+                  <tbody...
+        
+        Cells that link to the item have just a link and no icon.  If the
+        special "Path" column is include, it will display an icon.
+        
+            >>> print browser.contents
+            <...
+                          <td class="notDraggable">
+                              <input type="checkbox" class="noborder" name="paths:list" id="cb_-plone-Members-test_user_1_-bar-document-title" value="/plone/Members/test_user_1_/bar-document-title" alt="Select Bar Document Title" title="Select Bar Document Title" />
+                              <input type="hidden" name="selected_obj_paths:list" value="/plone/Members/test_user_1_/bar-document-title" />
+                              <label for="cb_-plone-Members-test_user_1_-bar-document-title">
+                                <span class="contenttype-document">
+            ...
+                                </span>
+                                <span class="hiddenStructure">Bar Document Title</span>
+                              </label>
+                          </td>
+            ...
+                                <span class="contenttype-document">
+                                  <a href="http://nohost/plone/Members/test_user_1_/bar-document-title"...
+                                    blah
+                                  </a>
+                                </span>
+            ...
+        
+        Changelog
+        =========
+        
+        2.0 - 2012-11-01
+        ----------------
+        
+        * Plone 4.2 and 4.3 compatibility.
+          [rossp]
+        
+        * Use localized format for DateTime column values.
+          [rossp]
+        
+        * Add missing form criteria support for the recurse field of path
+          criteria.
+          [rossp]
+        
+        * Restrict some of the search form portlet support to the left and
+          right column portlet managers on normal plone views, and
+          additionally to the 4 dashboard portlet managers on the dashboard
+          view for performance reasons.  This means if you want to use the
+          search form portlet in a manager for which these registrations don't
+          apply, you'll have to use your own registration like the
+          <browser:viewlet> registrations in
+          collective/formcriteria/form/configure.zcml.
+          [rossp]
+        
+        * Update chameleon compatibility to the new 2.x branch.
+          [rossp]
+        
+        * Optimize and improve performancde.
+          [rossp]
+        
+        * Various upstream template updates.
+          [rossp, topherh]
+        
+        * Add remote URL support to folder_summary_view.
+          [topherh]
+        
+        * Fix an issue with the permission protecting the Export action.
+          [rossp]
+        
+        * Handle catalog index ParseErrors gracefully.  Thanks to Larry
+          Pitcher for the report.
+          [rossp]
+        
+        2.0b2 - 2011-01-13
+        ------------------
+        
+        * Retrofit some Plone 3 compatibility.  Plone 3 is un-supported in
+          version 2+.  The tests pass but the UI hasn't been checked so YMMV.
+          [rossp]
+        
+        2.0b1 - 2011-01-11
+        ------------------
+        
+        * Added a rudimentary UI for managing collection columns.
+          [rossp]
+        
+        2.0a4 - 2011-01-11
+        ------------------
+        
+        * Restore the workflow menu which was missing from the topic
+          folder_contents view.  Thanks to Larry Pitcher for the report.
+          [rossp] 
+        
+        2.0a3 - 2011-01-10
+        ------------------
+        
+        * Change the permission for the grouped listing view so that anonymous
+          visitors can access the view when the content is published.
+          Thanks to Larry Pitcher for the report.
+          [rossp] 
+        
+        * Add support for columns that don't have corresponding catalog
+          metadata.  Be aware that using such columns can greatly affect
+          performance as export requires looking up every object to retrieve
+          the data.
+          [rossp]
+        
+        2.0a2 - 2010-11-23
+        ------------------
+        
+        * Fixed a problem with a faulty type assumption regarding
+          DateTimeFields in the FormDateCriterion.  The FormDateCriterion
+          doesn't actually used a DateTimeField.
+          [rossp]
+        
+        * Refactor the <form> and <button> based batch_macros so as to not
+          conflict with other uses of the full "navigation" macro within an
+          existing form resulting in nested <form>s.
+          [rossp]
+        
+        2.0a1 - 2010-11-21
+        ------------------
+        
+        * Ensure that the "default" profile is used by portal_quickinstaller
+          by... well, default.  :-)
+          [rossp]
+        
+        * Use a <form> and <button> elements in the navigation/paging
+          batch_macros to prevent "uri too long" errors when using paging with
+          many form criteria.
+          [rossp]
+        
+        * Use method="post" for the criteria form to address "uri too long"
+          when lots of form criteria are used.  Reported by mauro and
+          confirmed to happen with just two date fields.
+          [rossp]
+        
+        * Added defines for Plone4 complatibility in folder_listing
+          skin template.
+          [seletz]
+        
+        * Fix navigation_recurse template to match current Plone 4 version.
+          [seletz] [ramonski]
+        
+        * Add a collection listing portlet that makes use of the
+          folder_listing macros for a richer portlet. [rossp]
+        
+        * fix issue producing 
+          AttributeError: 'NoneType' object has no attribute 'title_or_id'
+          when adding path criterions.
+          [hplocher]
+        
+        * Fix '<input type="hidden" name="sort_on"...', now uses the default
+          sort criteria if present
+        
+        * Use individual persistent objects to represent table columns such as
+          with the fodler_contents view.  UI for editing the folder_contents
+          column objects has yet to be implemented.
+        
+        * Fix <tfoot> usage [rossp]
+        
+        * Integrate sort criteria with folder contents view columns for KSS
+          sorting [rossp]
+        
+        * Add pulldown/select, single-value criterion based on
+          FormSelectionCriterion, FormPortalTypeCriterion, and
+          FormReferenceCriterion [rossp]
+        
+        1.1.1 - 2009-08-31
+        ------------------
+        
+        * "Select all" and "Show all" (KSS) on folder contents view [rossp]
+        
+        1.1.0 - 2009-08-21
+        ------------------
+        
+        * Use folder_contents instead of folder_contents_view to fix the links
+          back to the folder contents form. [rossp]
+        * Tighten up the search form portlet spacing. [rossp]
+        * Use "Table Columns" fields for the folder contents form to control
+          the folder contents columns
+        * Use a "Table Column Links" collection filed to specify which folder
+          contents form columns should link to the item [rossp]
+        * Fix folder contents form buttons, "Copy", "Cut", "Rename", "Change
+          State", and "Delete" now all work for objects listed by the
+          collections even if they are in different folders.  [rossp]
+        
+        1.0.2 - 2009-08-12
+        ------------------
+        
+        * Add some missing portal_types for criteria [rossp]
+        * Fix a unicode bug with GS portlets.xml import of the search portlet
+          [rossp]
+        
+        1.0.1 - 2009-08-11
+        ------------------
+        
+        * Merge collective.catalogexport to support CSV export of collection
+          based user-submitted queries [rossp]
+        
+        1.0 - 2009-04-20
+        ----------------
+        
+        * Ensure that only formFields are taken from the request
+        * Fix ignored integer range criteria (reported by SimO)
+        * Use a browser layer (suggested by optilude)
+        * Add ids and CSS classes to the batch_macro sort links (aaronv)
+        * Fix a bug with the "operator" field.  Thanks to Mauro!
+        
+        0.9.5 - 2009-03-06
+        ------------------
+        
+        * Move package to src directory and fix testing buildout
+        * Register criteria AT types using the right package name
+        * Fix a bug with the JavaScript that narrows the criteria types by
+          index/field
+        * Use separate meta_types instead of overwriting the ATCT meta types,
+          may be backwards incompatible for previous installations
+        
+        0.9.4 - 2009-02-08
+        ------------------
+        
+        * Add a layout that lists items grouped by the sort used
+        * Fix KeyError: u'unsorted' bug for existing ATTopics as reported by
+          jonstahl
+        
+        0.9.3 - 2009-01-31
+        ------------------
+        
+        * Fix widget JavaScript and CSS for search form portlet
+        
+        0.9.2 - 2009-01-31
+        ------------------
+        
+        * Clarify selected sort
+        * Make portlet usable outside the context of the collection
+        * Fix portlet class
+        * Don't render hour and minute fields on date 
+        
+        0.9.1 - 2009-01-30
+        ------------------
+        
+        * Move the search form viewlet into a portlet
+        * Patch the ATCT addCrierion method to properly initialize criteria so
+          that they can safely be created in code
+        * Use the same mismatched meta_type ATCT for the
+          FormDateCriterion
+        
+        0.9 - 2009-01-29
+        ----------------
+        
+        * Fix incompatibility when extended sort criterion were added to
+          existing ATCT ATTopic instances
+        
+        0.8 - 2009-01-29
+        ----------------
+        
+        * Added multiple sort links to the batch macro
+        
+        0.7 - 2009-01-28
+        ----------------
+        
+        * Change to use the same names as ATCT where appropriate to avoid some
+          problems where the ATCT names are expected.
+        * Flesh out the GenericSetup profile with all other bits in the Plone
+          profile that make reference to criteria.
+        
+        0.6 - 2009-01-26
+        ----------------
+        
+        * Use a form prefix for the search form.  Fixes calendar JavaScript
+          bug.
+        * Fix criterion label to point to the correct form input
+        * Allow widget special help/description to appear even if the label
+          isn't rendered and use this for the comma widget
+        * Fix the handling of postbacks in the comma widget
+        * Use a "Search Form" view that only renders the search form
+        * Added boolean criteria
+        * Added date criteria
+        * Added path criteria
+        * Added relative path criteria
+        * Added integer criteria
+        
+        0.5 - 2009-01-25
+        ----------------
+        
+        * Form criteria are now designated by selecting which fields of each
+          criterion should be rendered on the search form
+        * Improve label handling.  Remove labels for 'value' field and
+          "required" markers for all fields.
+        * Make the search form collapsible and start collapsed when the form
+          has been submitted
+        * Add a comma separated criterion
+        
+        0.4 - 2009-01-15
+        ----------------
+        
+        * Add list criterion
+        * Add selection criterion
+        * Fix the form for access by anonymous users
+        
+        0.3 - 2009-01-15
+        ----------------
+        
+        * Fully re-use the AT edit widgets
+        * Support criteria with multiple fields
+        * Use the widgets to process the form values
+        * Add checkbox criterion based on FormSelectionCriterion,
+          FormPortalTypeCriterion, and FormReferenceCriterion
+        * Add a date range form criterion (JS calendar not working yet)
+        
+        0.2 - 2008-05-27
+        ----------------
+        
+        * Fix i18n_domain in ZCML
+        * Make the authenticator view conditional for Plone 3.0 compatibility
+        
+        0.1 - 2008-05-24
+        ----------------
+        
+        * Initial release
+        
+        
+        TODO
+        ====
+        
+        * Replace KSS with jQuery for the AJAX folder contents stuff
+        
+        * Tabs for folder_contents based multiple object edit form for topic
+          containers such as topic columns.
+        
+        * Separate query and sort criteria out into topic containers and use
+          folder_contents based multi-edit form
+        
+        * Add coverage for folder contents buttons when using KSS select all
+          from all screens.  It didn't work for one deployment.
+        
+        * Add a sort icon to sortable folder_contents columns
+        
+        * Add support for including the URL in CSV export
+        
+          Not sure what the right UI is for this, maybe add a special case
+          into the customViewFields field.
+        
+        * Add criteria ordering support
+        
+        * Form Sort Criteria
+          
+          An widget is avialable for selecting which of the possible
+          sort fields should be available for sorting on.  The InAndOutWidget is
+          used so that the order can be specified.
+          
+              >>> print browser.contents
+              <...
+              <div class="field ArchetypesInAndOutWidget
+              kssattr-atfieldname-sortFields"
+              id="archetypes-fieldname-sortFields">...
+              ...>Relevance</option>...
+              ...>Effective Date</option>...
+          
+          The InAndOutWidget uses JavaScript so we'll set the field manually for
+          testing.
+          
+              >>> self.login()
+              >>> foo_topic.setSortFields(['', 'effective', 'Type'])
+          
+              >>> form = browser.getForm(name="criteria_select")
+              >>> form.getControl('Sort Order').selected = True
+          
+          Form sort criteria default to sorting on the "Relevance" field
+          corresponds to a sort by weight for searches that include queries
+          against indexs that support weighted results.
+          
+              >>> form = browser.getForm(action="criterion_edit_form", index=0)
+              >>> form.getControl('Relevance').selected
+              True
+        
+        * Add AJAX search results refresh
+        
+        * Add single selection (pulldown, radio) criteria (davisagli)
+        
+        * Use subcollections to support AdvancedQuery operations
+        
+          Collections will act as grouping/parenthesis *and* operators.  IOW,
+          a collection will have a boolean field to set whether it uses AND or
+          OR to find the intersection or union of its result sets.
+          Sub-collections will not acquire criteria but instead parent
+          collections will treat sub-collections as criteria groupings.  Not
+          yet sure how to handle sorting.
+        
+Platform: UNKNOWN
+Classifier: Programming Language :: Python
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
