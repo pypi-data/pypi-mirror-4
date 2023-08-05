@@ -1,0 +1,414 @@
+zeam.form.base
+==============
+
+Widgets are responsible to render component (like actions and fields)
+as HTML code for the user.
+
+Widget
+------
+
+Widgets are multiadapters, which adapts the component they render, for
+a given form, and request. So we need all that:
+
+   >>> from zope.publisher.browser import TestRequest
+   >>> request = TestRequest()
+
+   >>> from zeam.form.base.form import Form
+   >>> form = Form(None, request)
+
+   >>> from zeam.form.base.actions import Action
+   >>> action = Action(u"Do Something")
+   >>> form.actions += action
+
+So now we can get a widget for an action for instance:
+
+   >>> from zeam.form.base import interfaces
+   >>> from zope import component
+   >>> action_widget = component.getMultiAdapter(
+   ...         (action, form, request), interfaces.IWidget, name='input')
+   >>> action_widget
+   <ActionWidget Do Something>
+
+By default our widget will the same title than the component, and its
+identifier will be composed with the component on and the form prefix:
+
+   >>> action.identifier
+   'do-something'
+   >>> action_widget.identifier
+   'form.action.do-something'
+   >>> action.title
+   u'Do Something'
+   >>> action_widget.title
+   u'Do Something'
+
+The method render gives you the HTML to display. Our widget is an
+action, so by default you get a button:
+
+   >>> print action_widget.render()   #doctest: +NORMALIZE_WHITESPACE
+   <input type="submit" id="form-action-do-something"
+          name="form.action.do-something" value="Do Something" class="action" />
+
+You can get its HTML id as well (to render any label for instance),
+class, or retrieve random attributes, like access key (if set):
+
+   >>> action_widget.htmlId()
+   'form-action-do-something'
+   >>> action_widget.htmlClass()
+   'action'
+   >>> action_widget.htmlAttribute('accesskey')
+   >>> action_widget.htmlAttribute('formnovalidate')
+
+You can set an access key and disable the HTML 5 validation and set other
+html attributes :
+
+   >>> action.accesskey = 'e'
+   >>> action.html5Validation = False
+   >>> action.htmlAttributes['data-confirmation'] = 'Are you sure ?'
+
+   >>> action_widget = component.getMultiAdapter(
+   ...         (action, form, request), interfaces.IWidget, name='input')
+   >>> action_widget.htmlAttribute('accesskey')
+   'e'
+   >>> action_widget.htmlAttribute('formnovalidate')
+   'formnovalidate'
+   >>> action_widget.htmlAttribute('data-confirmation')
+   'Are you sure ?'
+   >>> print action_widget.render()  #doctest: +NORMALIZE_WHITESPACE
+   <input type="submit" id="form-action-do-something"
+          name="form.action.do-something" value="Do Something" class="action"
+          accesskey="e" formnovalidate="formnovalidate"
+          data-confirmation="Are you sure ?" />
+
+Our widget implements IWidget, and IComponent:
+
+   >>> from zope.interface.verify import verifyObject
+   >>> verifyObject(interfaces.IWidget, action_widget)
+   True
+   >>> interfaces.IWidget.extends(interfaces.IComponent)
+   True
+
+Field widget
+~~~~~~~~~~~~
+
+Like for actions, fields have widgets to be rendered. They are a bit
+more advanced:
+
+   >>> from zeam.form.base.fields import Field
+   >>> field = Field(u"Title")
+   >>> field.description = u"Nice name for your field"
+   >>> field.required = True
+   >>> form.fields += field
+
+   >>> field_widget = component.getMultiAdapter(
+   ...         (field, form, request), interfaces.IWidget, name='input')
+   >>> field_widget
+   <FieldWidget Title>
+
+Like for an action, all identifier and title are set correctly:
+
+   >>> field.identifier
+   'title'
+   >>> field_widget.identifier
+   'form.field.title'
+   >>> field.title
+   u'Title'
+   >>> field_widget.title
+   u'Title'
+
+Prefixes of the form and the component will alter the identifier:
+
+   >>> form_prefix = Form(None, request)
+   >>> form_prefix.prefix = u"something"
+
+   >>> action2 = Action(u"Some action")
+   >>> action2.prefix = u"else"
+   >>> form_prefix.actions += action2
+
+   >>> widget3 = component.getMultiAdapter(
+   ...         (action2, form_prefix, request), interfaces.IWidget, name='input')
+
+   >>> widget3.identifier
+   'something.else.some-action'
+
+If the prefixes are empty:
+
+   >>> form_prefix.prefix = u""
+   >>> widget3 = component.getMultiAdapter(
+   ...         (action2, form_prefix, request), interfaces.IWidget, name='input')
+
+   >>> widget3.identifier
+   'else.some-action'
+
+   >>> action2.prefix = u""
+   >>> widget3 = component.getMultiAdapter(
+   ...         (action2, form_prefix, request), interfaces.IWidget, name='input')
+
+   >>> widget3.identifier
+   'some-action'
+
+For convinience, the description and required is also available on the
+widget (to be used while rendering that last one):
+
+   >>> field_widget.description
+   u'Nice name for your field'
+   >>> field_widget.required
+   True
+
+As well, any error reported for the field on the form is accessible
+via the widget:
+
+   >>> field_widget.error
+
+   >>> from zeam.form.base.errors import Error
+   >>> form.errors.append(Error('Not Happy', 'form.field.someone'))
+   >>> field_widget.error
+   >>> form.errors.append(Error('Missing value', 'form.field.title'))
+   >>> field_widget.error
+   <Error Missing value>
+
+Widget are views that can be that can be renderered:
+
+   >>> field_widget.update()
+   >>> print field_widget.render() #doctest: +NORMALIZE_WHITESPACE
+   <input type="text" id="form-field-title" name="form.field.title"
+          class="field field-required" value="" required="required" />
+
+If field is read only then field widget is read only as well:
+
+   >>> field.readonly
+   False
+   >>> field_widget.htmlAttribute('readonly')
+
+Switch the readonly flag on:
+
+   >>> field.readonly = True
+   >>> field_widget =component.getMultiAdapter(
+   ...         (field, form, request), interfaces.IWidget, name='input')
+   >>> field_widget.htmlAttribute('readonly')
+   'readonly'
+   >>> field_widget.update()
+   >>> print field_widget.render() #doctest: +NORMALIZE_WHITESPACE
+   <input type="text" id="form-field-title" name="form.field.title"
+          class="field field-required" value="" readonly="readonly"
+          required="required" />
+
+The field can provide some valid extra html attributes:
+
+   >>> field.htmlAttributes['size'] = '40'
+   >>> field.htmlAttributes['autocomplete'] = True
+   >>> field.htmlAttributes['placeholder'] = 'Name ...'
+
+   >>> field_widget =component.getMultiAdapter(
+   ...         (field, form, request), interfaces.IWidget, name='input')
+
+   >>> field_widget.htmlAttribute('size')
+   '40'
+   >>> field_widget.htmlAttribute('autocomplete')
+   'autocomplete'
+   >>> field_widget.update()
+   >>> print field_widget.render() #doctest: +NORMALIZE_WHITESPACE
+   <input type="text" id="form-field-title" name="form.field.title"
+          class="field field-required" value="" autocomplete="autocomplete"
+          readonly="readonly" required="required" placeholder="Name ..." size="40" />
+
+
+Field widget value
+~~~~~~~~~~~~~~~~~~
+
+A field widget is able to compute a value for the field to be rendered
+in the widget. It can look it on the previous request or the context,
+depending of the settings.
+
+
+Field widget interface
+~~~~~~~~~~~~~~~~~~~~~~
+
+Our widget implement IFieldWidget, which extend the default widget interface:
+
+   >>> verifyObject(interfaces.IFieldWidget, action_widget)
+   Traceback (most recent call last):
+     ...
+   DoesNotImplement: An object does not implement interface <InterfaceClass zeam.form.base.interfaces.IFieldWidget>
+   >>> verifyObject(interfaces.IFieldWidget, field_widget)
+   True
+   >>> interfaces.IFieldWidget.extends(interfaces.IWidget)
+   True
+
+
+Widgets
+-------
+
+As you can guess, you are not going to build your widgets one by one
+to render them. You can a Widgets collection to create and manage your
+widgets.
+
+Let's add an another action to our form, and let's create widgets for
+them:
+
+   >>> form.actions += Action("Do Nothing")
+   >>> list(form.actions)
+   [<Action Do Something>, <Action Do Nothing>]
+
+   >>> from zeam.form.base.widgets import Widgets
+   >>> widgets = Widgets(form.actions, form=form, request=request)
+   >>> widgets
+   <Widgets>
+   >>> list(widgets)
+   [<ActionWidget Do Something>, <ActionWidget Do Nothing>]
+   >>> widgets.keys()
+   ['form.action.do-something', 'form.action.do-nothing']
+
+There is an update method on a Widgets collection, which is going to
+call update on each Widget of the collection:
+
+   >>> widgets.update()
+
+Widgets implements IWidgets and ICollection:
+
+   >>> verifyObject(interfaces.IWidgets, widgets)
+   True
+   >>> interfaces.IWidgets.extends(interfaces.ICollection)
+   True
+
+Since Widgets are collection, you can of course use ``copy``,
+``select`` or ``omit`` on your widget the selection:
+
+   >>> widgets_copy = widgets.copy()
+   >>> widgets_copy
+   <Widgets>
+   >>> widgets_copy.form is widgets.form
+   True
+   >>> widgets_copy.request is widgets.request
+   True
+   >>> list(widgets_copy) == list(widgets)
+   True
+   >>> widgets_copy is widgets
+   False
+
+   >>> list(widgets.omit('form.action.do-something'))
+   [<ActionWidget Do Nothing>]
+
+   >>> list(widgets.select('form.action.do-something'))
+   [<ActionWidget Do Something>]
+
+Of course you cannot extend it with anything else than components:
+
+   >>> widgets.extend(42)
+   Traceback (most recent call last):
+     ...
+   TypeError: (u'Invalid type', 42)
+
+But you can directly add an already created widget:
+
+   >>> widgets_extended = Widgets(form=form, request=request)
+   >>> widgets_extended.extend(widgets['form.action.do-nothing'])
+   >>> list(widgets_extended)
+   [<ActionWidget Do Nothing>]
+   >>> widgets_extended.keys()
+   ['form.action.do-nothing']
+
+WidgetExtractor
+---------------
+
+Widget can render a component to HTML, but it is not their job to
+extract values from a request back to a component. It's the job of a
+WidgetExtractor, which might be called before the Widget is even
+created.
+
+Widget and WidgetExtractor will often work together, as the extractor
+need to correctly extract the information from the request.
+
+This design prevent widgets to cache the value they are going to
+render when an action might have changed it, like it's done in other
+form frameworks design. To be sure that an action doesn't change any
+value to render, they are all executed before any widget is created
+(even in the case of subforms).
+
+So WidgetExtractor are multiadapters, adapting the component, form and
+request, like a Widget does:
+
+   >>> empty_extractor = component.getMultiAdapter(
+   ...         (action, form, request), interfaces.IWidgetExtractor)
+   >>> empty_extractor
+   <zeam.form.base.widgets.WidgetExtractor object at ...>
+
+And you can extract the widget value, and errors from the request:
+
+   >>> empty_extractor.extract()
+   (<Marker NO_VALUE>, None)
+
+But our request was empty here. Let's try with a non-empty one:
+
+   >>> submitted_request = TestRequest(
+   ...         form={'form.action.do-something': u'Do Something',
+   ...                'otherfield': 42})
+   >>> action_extractor = component.getMultiAdapter(
+   ...         (action, form, submitted_request),
+   ...         interfaces.IWidgetExtractor)
+   >>> action_extractor.extract()
+   (u'Do Something', None)
+
+An another of the extractor is to gives the request fields used for
+the extraction:
+
+   >>> action_extractor.extractRaw()
+   {'form.action.do-something': u'Do Something'}
+
+This can be used by widgets to display again any non-validated data.
+
+WidgetExtractor implements IWidgetExtractor, but inlike Widgets, not
+IComponent:
+
+   >>> verifyObject(interfaces.IWidgetExtractor, empty_extractor, action_extractor)
+   True
+   >>> interfaces.IComponent.providedBy(empty_extractor)
+   False
+
+
+Field extractor and required
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If a field is required, and you extract the value out of an empty
+request, you will have NO_VALUE marker. If the value is an empty
+string, you will also get NO_VALUE:
+
+   >>> field.required = True
+   >>> field.required
+   True
+   >>> required_extractor = component.getMultiAdapter(
+   ...         (field, form, request), interfaces.IWidgetExtractor)
+   >>> required_extractor
+   <zeam.form.base.widgets.FieldWidgetExtractor object at ...>
+   >>> required_extractor.extract()
+   (<Marker NO_VALUE>, None)
+
+   >>> submitted_request = TestRequest(form={'form.field.title': u''})
+   >>> required_extractor = component.getMultiAdapter(
+   ...         (field, form, submitted_request), interfaces.IWidgetExtractor)
+   >>> required_extractor
+   <zeam.form.base.widgets.FieldWidgetExtractor object at ...>
+   >>> required_extractor.extract()
+   (<Marker NO_VALUE>, None)
+
+
+If a field is not required, and you extract the value out of an empty
+request, you will get NO_VALUE. If the value is an empty string, you
+will an empty string:
+
+   >>> field.required = False
+   >>> field.required
+   False
+   >>> required_extractor = component.getMultiAdapter(
+   ...         (field, form, request), interfaces.IWidgetExtractor)
+   >>> required_extractor
+   <zeam.form.base.widgets.FieldWidgetExtractor object at ...>
+   >>> required_extractor.extract()
+   (<Marker NO_VALUE>, None)
+
+   >>> submitted_request = TestRequest(form={'form.field.title': u''})
+   >>> required_extractor = component.getMultiAdapter(
+   ...         (field, form, submitted_request), interfaces.IWidgetExtractor)
+   >>> required_extractor
+   <zeam.form.base.widgets.FieldWidgetExtractor object at ...>
+   >>> required_extractor.extract()
+   (u'', None)
