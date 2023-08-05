@@ -1,0 +1,205 @@
+# coding=utf-8
+import argparse
+import logging
+import sys
+from path import path
+from engineer.log import get_console_handler, bootstrap
+from engineer.plugins import CommandPlugin, SitePublisherPlugin, load_plugins
+from engineer import version
+
+try:
+    import cPickle as pickle
+except ImportError:
+    import pickle
+
+__author__ = 'Tyler Butler <tyler@tylerbutler.com>'
+
+<<<<<<< HEAD
+def clean(args=None):
+    from engineer.conf import settings
+
+    logger = logging.getLogger('engineer.engine.clean')
+    try:
+        settings.OUTPUT_DIR.rmtree()
+        settings.OUTPUT_CACHE_DIR.rmtree()
+        settings.CACHE_DIR.rmtree()
+    except OSError as we:
+        if hasattr(we, 'winerror') and we.winerror not in (2, 3):
+            logger.exception(we.message)
+        else:
+            logger.warning("Couldn't find output directory: %s" % settings.OUTPUT_DIR)
+
+    logger.console('Cleaned output directory: %s' % settings.OUTPUT_DIR)
+
+
+def serve(args):
+    import bottle
+    from engineer.conf import settings
+    from engineer import emma
+
+    logger = logging.getLogger(__name__)
+
+    if not settings.OUTPUT_DIR.exists():
+        logger.warning(
+            "Output directory doesn't exist - did you forget to run 'engineer build'?")
+        exit()
+
+    debug_server = bottle.Bottle()
+    debug_server.mount('/_emma', emma.Emma().app)
+
+    @debug_server.route('/<filepath:path>')
+    def serve_static(filepath):
+        if settings.HOME_URL != '/':
+            # if HOME_URL is not root, we need to adjust the paths
+            if filepath.startswith(settings.HOME_URL[1:]):
+                filepath = filepath[len(settings.HOME_URL) - 1:]
+            else:
+                return bottle.HTTPResponse(status=404)
+        response = bottle.static_file(filepath, root=settings.OUTPUT_DIR)
+        if type(response) is bottle.HTTPError:
+            return bottle.static_file(path(filepath) / 'index.html',
+                                      root=settings.OUTPUT_DIR)
+        else:
+            return response
+
+    bottle.debug(True)
+    bottle.run(app=debug_server, host='0.0.0.0', port=args.port, reloader=True)
+
+
+def start_emma(args):
+    from engineer import emma
+
+    logger = logging.getLogger('engineer.engine.start_emma')
+
+    em = emma.EmmaStandalone()
+    try:
+        if args.prefix:
+            em.emma_instance.prefix = args.prefix
+        if args.generate:
+            em.emma_instance.generate_secret()
+            logger.console(
+                "New Emma URL: %s" % em.emma_instance.get_secret_path(True))
+        elif args.url:
+            logger.console(
+                "Current Emma URL: %s" % em.emma_instance.get_secret_path(True))
+        elif args.run:
+            em.run(port=args.port)
+    except emma.NoSecretException:
+        logger.warning(
+            "You haven't created a secret for Emma yet. Try 'engineer emma --generate' first.")
+    exit()
+
+
+def init(args):
+    from engineer import __file__ as package_file, version
+
+    logger = logging.getLogger('engineer.engine.init')
+
+    sample_site_path = path(package_file).dirname() / 'sample_site'
+    target = path.getcwd()
+    if target.listdir() and not args.force:
+        logger.warning("Target folder %s is not empty." % target)
+        exit()
+    elif args.force:
+        logger.info("Deleting folder contents.")
+        try:
+            for item in target.dirs():
+                item.rmtree()
+            for item in target.files():
+                item.remove()
+        except Exception as e:
+            logger.error("Couldn't delete folder contents - aborting.")
+            logger.exception(e)
+            exit()
+
+    from engineer.util import mirror_folder, ensure_exists
+
+    if args.no_sample:
+        ensure_exists(target / 'posts')
+        (sample_site_path / 'config.yaml').copyfile(target / 'config.yaml')
+    else:
+        mirror_folder(sample_site_path, target)
+    logger.console("Initialization complete.")
+    exit()
+
+
+=======
+>>>>>>> More on the new command extensibility model.
+def get_argparser():
+    # Common parameters
+    common_parser = argparse.ArgumentParser(add_help=False)
+    common_parser.add_argument('-v', '--verbose',
+                               dest='verbose',
+                               action='count',
+                               help="Display verbose output.")
+    common_parser.add_argument('-s', '--config', '--settings',
+                               dest='config_file',
+                               help="Specify a configuration file to use.")
+
+    desc = "Engineer static site builder. [v%s, %s %s]" % (version, version.date, time.strftime('%X', version.time))
+    main_parser = argparse.ArgumentParser(description=desc)
+    subparsers = main_parser.add_subparsers(title="subcommands",
+                                            dest='parser_name')
+
+    from engineer.plugins import CoreCommandPlugin, CommandSupplementPlugin, experimental
+    from engineer import commands
+    command_map = CoreCommandPlugin.get_command_map()
+
+    for name, class_ in command_map.iteritems():
+        instance = class_(subparsers, common_parser)
+        #command_parser = instance.add_parser()
+        instance.add_arguments()
+        instance._finalize()
+
+    for cmd_plugin in CommandPlugin.plugins:
+        if cmd_plugin.active():
+            cmd_plugin.add_command(subparsers, main_parser, common_parser)
+
+    return main_parser
+
+
+def cmdline(args=sys.argv):
+    # bootstrap logging
+    bootstrap()
+
+    # Load all plugins
+    load_plugins()
+
+    args, extra_args = get_argparser().parse_known_args(args[1:])
+    skip_settings = ('init',)
+
+    logger = logging.getLogger('engineer')
+    if args.verbose >= 2:
+        logger.removeHandler(get_console_handler(logging.WARNING))
+        logger.addHandler(get_console_handler(logging.DEBUG))
+    elif args.verbose == 1:
+        logger.removeHandler(get_console_handler(logging.WARNING))
+        logger.addHandler(get_console_handler(logging.INFO))
+    else:
+        pass # WARNING level is added by default in bootstrap method
+
+    if args.parser_name in skip_settings:
+        pass
+    else: # try loading settings
+        try:
+            from engineer.conf import settings
+
+            if args.config_file is None:
+                default_settings_file = path.getcwd() / 'config.yaml'
+                logger.info("No '--settings' parameter specified, defaulting to %s." % default_settings_file)
+                settings.reload(default_settings_file)
+            else:
+                settings.reload(settings_file=args.config_file)
+        except Exception as e:
+            logger.error(e.message)
+            exit()
+
+    try:
+        if hasattr(args, 'func'):
+            args.func(args)
+        else:
+            args.handle(args)
+    except Exception as e:
+        logger.exception("Unexpected error.")
+
+    exit()
