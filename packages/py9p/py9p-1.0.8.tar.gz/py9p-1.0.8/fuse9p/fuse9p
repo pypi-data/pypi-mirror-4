@@ -1,0 +1,173 @@
+#!/usr/bin/python
+
+# Copyright (c) 2011-2012 Peter V. Saveliev
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+# NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+# LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+# OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+# WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+import os
+import sys
+import ast
+import getopt
+from py9p import py9p
+from py9p import fuse9p
+from py9p import version
+
+
+errcodes = {
+        "usage": (255, ""),
+        "host": (254, "invalid host specification"),
+        "port": (253, "invalid port specification"),
+        "timeout": (252, "invalid timeout specification"),
+        "key": (155, "key decryption error, probably bad password \
+or wrong keyfile"),
+        "socket": (154, "socket error"),
+        "9connect": (153, "9p server connection error"),
+        "undef": (100, "error")}
+
+
+def usage():
+    print("""
+Usage: fuse9p [-dPv] [-c mode] [-k file] [-l user] [-p port] [-t secs] \
+user@server:port mountpoint
+
+ -c mode  -- authentication mode to use (none|pki)
+ -d       -- turn on debug mode and run in foreground
+ -k file  -- path to the private RSA key for PKI (implies -c pki)
+ -l user  -- username to use in authentication
+ -p port  -- TCP port to use
+ -t secs  -- timeout for the socket
+ -P       -- stay connected even in the case of network errors
+ -U map   -- uid map
+ -G map   -- gid map
+ -v       -- print py9p version
+
+uid/gid maps format: {remote_uid: local_uid}, e.g.:
+    ... -U "{1000: 500}" -G "{1000: 500}" ...
+(on Debian, user ids start from 1000, on RH -- from 500)
+    """)
+
+
+def paluu(code, payload=None):
+    print(errcodes[code][1])
+    if errcodes[code][0] > 200:
+        usage()
+    if payload is not None:
+        print(str(payload))
+    sys.exit(errcodes[code][0])
+
+
+prog = sys.argv[0]
+args = sys.argv[1:]
+port = py9p.PORT
+user = os.environ.get('USER', None)
+server = None
+mountpoint = None
+authmode = None
+keyfile = None
+debug = False
+timeout = 10
+keep_reconnect = False
+
+try:
+    opts, args = getopt.getopt(args, "PdvU:G:c:k:l:p:t:")
+except:
+    paluu("usage")
+
+for opt, optarg in opts:
+    if opt == "-c":
+        authmode = optarg
+    elif opt == "-d":
+        debug = True
+    elif opt == "-k":
+        authmode = "pki"
+        keyfile = optarg
+    elif opt == "-l":
+        user = optarg
+    elif opt == "-p":
+        port = optarg
+    elif opt == "-t":
+        timeout = optarg
+    elif opt == "-P":
+        keep_reconnect = True
+    elif opt == "-U":
+        fuse9p.uid_map.update(ast.literal_eval(optarg))
+    elif opt == "-G":
+        fuse9p.gid_map.update(ast.literal_eval(optarg))
+    elif opt == "-v":
+        print("py9p version %s" % (version))
+        sys.exit(0)
+
+try:
+    assert len(args) == 2
+except:
+    paluu("usage")
+
+try:
+    target = []
+    for x in args[0].split("@"):
+        target.extend(x.split(":"))
+    assert len(target) in (1, 2, 3)
+except:
+    paluu("host")
+
+if len(target) == 3:
+    user = target[0]
+    server = target[1]
+else:
+    server = target[0]
+
+try:
+    if len(target) >= 2:
+        port = target[-1]
+    port = int(port)
+except:
+    paluu("port")
+
+mountpoint = args[1]
+
+try:
+    timeout = int(timeout)
+except:
+    paluu("timeout")
+
+try:
+    assert user is not None
+    assert mountpoint is not None
+    assert server is not None
+except:
+    paluu("usage")
+
+try:
+    credentials = py9p.Credentials(user, authmode, "", keyfile)
+except:
+    paluu("key")
+
+try:
+    fs = fuse9p.ClientFS((server, port),
+            credentials,
+            mountpoint,
+            debug,
+            timeout,
+            keep_reconnect)
+    fs.main()
+except py9p.Error as e:
+    paluu("9connect", e)
+except Exception as e:
+    paluu("undef", e)
