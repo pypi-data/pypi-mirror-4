@@ -1,0 +1,191 @@
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en"
+      xmlns:tal="http://xml.zope.org/namespaces/tal"
+      xmlns:metal="http://xml.zope.org/namespaces/metal"
+      xmlns:i18n="http://xml.zope.org/namespaces/i18n"
+      lang="en"
+      metal:use-macro="here/main_template/macros/master"
+      i18n:domain="plone">
+<head>
+    <metal:block metal:fill-slot="head_slot">
+        <link rel="alternate" title="RSS 1.0" type="application/rss+xml"
+              tal:define="here_url context/@@plone_context_state/object_url;"
+	      tal:condition="request/SearchableText|nothing"
+              tal:attributes="href string:$here_url/search_rss?${request/QUERY_STRING}"/>
+    </metal:block>
+
+    <metal:block fill-slot="top_slot"
+                 tal:define="dummy python:request.set('disable_border',1)" />
+    <metal:block fill-slot="column_one_slot" />
+    <metal:block fill-slot="column_two_slot" />
+</head>
+
+<body>
+<div metal:fill-slot="main"
+     tal:define="use_types_blacklist request/use_types_blacklist | python:True;
+                 use_navigation_root request/use_navigation_root | python:True;
+		here_url context/@@plone_context_state/object_url;
+		normalizeString nocall:context/@@plone/normalizeString;
+                 results python:here.queryCatalog(REQUEST=request,use_types_blacklist=use_types_blacklist, use_navigation_root=use_navigation_root);
+                 Batch python:modules['Products.CMFPlone'].Batch;
+                 b_size python:32;b_start python:0;b_start request/b_start | b_start;
+                 desc_length site_properties/search_results_description_length;
+                 desc_ellipsis site_properties/ellipsis;
+                 searchterm request/SearchableText|nothing;
+                 use_view_action site_properties/typesUseViewActionInListings|python:();
+		 searchview context/@@porseleinplaats_searchview;
+		 toLocalizedTime nocall:context/@@plone/toLocalizedTime;
+		 portal context/@@plone_portal_state/portal;">
+
+    <form name="searchform" 
+          action="search"
+          class="searchPage">
+        <input class="searchPage"
+               name="SearchableText"
+               type="text"
+               size="25"
+               title="Search Site"
+               i18n:attributes="title title_search_title;"
+               tal:attributes="value request/SearchableText|nothing;"
+               />
+        <input class="searchPage searchButton"
+               type="submit"
+               value="Search"
+               i18n:attributes="value label_search;"/><br />
+    </form>
+
+
+    <!-- h1 class="documentFirstHeading">
+        <span i18n:translate="heading_search_results">
+            Search results
+        </span>
+        <span class="discreet">
+        &mdash;
+        <span i18n:translate="batch_x_items_matching_your_criteria"
+        ><span i18n:name="number" 
+        tal:omit-tag="" 
+        tal:content="python:len(results)">234</span> items</span>
+    </h1 -->
+
+    <!--p class="discreet"
+       tal:condition="syntool/isSiteSyndicationAllowed">
+        <a href=""
+           class="link-feed"
+           i18n:translate="title_rss_feed"
+           tal:attributes="href string:$here_url/search_rss?${request/QUERY_STRING}">
+             Subscribe to an always-updated feed of these search terms</a>
+    </p-->
+
+
+    <div tal:condition="not: results">
+        <p><strong i18n:translate="description_no_results_found">No results were found.</strong></p>
+    </div>
+
+    <div tal:condition="results"
+          tal:define="batch python:Batch(results, b_size, int(b_start), orphan=1);">
+
+        <div class="searchResults">
+        <tal:results repeat="result batch">
+        <tal:entry define="result_url result/getURL;
+                           result_type result/portal_type;
+                           item_icon python:plone_view.getIcon(result);
+                           url python:'%s?searchterm=%s'%(test(result_type in use_view_action, result_url+'/view', result_url+'/'), searchterm);
+			   result_object python: result.getObject();
+			   result_wf_state result/review_state|python: wtool.getInfoFor(item, 'review_state', '');
+			   result_title_or_id result/pretty_title_or_id;">
+	    
+           <div class="tileItem">
+		  <div class="tileControls" tal:condition="python: searchview.canModifyContent(result_object)">
+			<a href="" class="editButton" i18n:translate="Edit" tal:attributes="href python:'%s/edit'%result_object.absolute_url()">Edit</a>
+			<a href="" class="deleteButton" i18n:translate="Delete" tal:attributes="href python:'%s/delete_confirmation'%result_object.absolute_url()">Delete</a>
+		  </div>
+		  
+		  
+		    <tal:video define="isVideo python:searchview.isVideo(result.getObject())" condition="isVideo">
+			<div class="tileVideo" tal:define="audio_only python:searchview.audio_only(result.getObject());
+							   hasLeadImage result/hasContentLeadImage">
+			      <a class="autoFlowPlayerFake minimal" href="" tal:attributes="href python:result.getURL() + '/view';
+										onclick python:hasLeadImage and 'config_video.configure(this, true)' or ''" tal:condition="python:not audio_only">
+				      <img src="" class="splash"  alt=""
+					   tal:condition="hasLeadImage"
+					   tal:attributes="src python:result.getURL() + '/leadImage'" />
+				      <img tal:replace="structure here/play-button.png" src="" alt="play video" tal:condition="hasLeadImage"/>
+			      </a>
+			      <a class="autoFlowPlayer audio" href="" tal:attributes="href python:result.getURL()" tal:condition="audio_only">
+			      </a>
+			</div>
+		    </tal:video>
+
+                    <tal:excludedetails condition="python:not searchview.isVideo(result_object)">
+		    <a href="#" class="tileImageBox"
+                                                tal:define="media python:searchview.getMedia(result_object, scale='thumb')"
+                                                tal:condition="python: media is not None and media != ''"
+                                                tal:attributes="href python:result_type in use_view_action and result_url+'/view' or result_url">
+                                    <img src="" alt="" class="tileImage"
+                                                    tal:condition="python: media[0] != '<'"
+                                                    tal:attributes="src media" />
+                                    <img src="" alt="" class="tileImage"
+                                                    tal:condition="python: media[0] == '<'"
+                                                    tal:replace="structure python:searchview.getMedia(result_object, scale='thumb')" />
+                    </a>
+
+                    <a href="#"
+                       class="link-plain"
+                       tal:condition="python:result_type == 'Link'"
+                       tal:attributes="href result/getRemoteUrl">
+                        <img src="" alt=""
+                             tal:condition="exists:result_object/image_thumb"
+                             tal:replace="structure python: path('nocall:result_object/tag')(scale='thumb', css_class='tileImage')" />
+                        <img src="" alt=""
+                             tal:condition="exists:result_has_leadimage"
+                             tal:replace="structure python:searchview.tag(result_object, css_class='tileImage')" />
+                    </a>
+                    <div class="documentByLine">
+		    <div class="visualClearLeft"></div>
+                    <tal:newsitem condition="python: result_type == 'News Item'">
+                    </tal:newsitem>
+                    </div> 
+
+			<h2 class="tileHeadline"
+			    metal:define-macro="listitem">
+    
+			    <a href="#"
+			       class="summary url"
+			       tal:condition="python:result_type != 'Link'"
+			       tal:attributes="href python:result_type in use_view_action and result_url+'/view' or result_url;
+					       class python:(context.portal_membership.isAnonymousUser() and 'summary url') or 'summary url state-' + result_wf_state;"
+			       tal:content="python:searchview.trim_description(result_title_or_id, 60)">
+				result Title
+			    </a>
+    
+			    <a href="#"
+			       class="link-plain"
+			       tal:condition="python:result_type == 'Link'"
+			       tal:content="python:result_title_or_id"
+			       tal:attributes="href result/getRemoteUrl;
+					       class python:(context.portal_membership.isAnonymousUser() and 'link-plain') or 'link-plain state-' + result_wf_state;">
+				External Link
+			    </a>
+			</h2>
+			<div class="visualClear"></div>
+
+                    <p class="tileFooter">
+		    
+                    </p>
+                    <div class="visualClear"><!-- --></div>
+
+		</tal:excludedetails>
+		<!-- div tal:condition="python:not repeat['result'].even()" class="visualClear columnBreak"> </div -->
+		
+	    </div>
+        </tal:entry>
+        </tal:results>
+        </div>
+        <div class="visualClear"></div>
+        <div metal:use-macro="here/batch_macros/macros/navigation" />
+
+    </div>
+
+</div>
+</body>
+</html>
+
