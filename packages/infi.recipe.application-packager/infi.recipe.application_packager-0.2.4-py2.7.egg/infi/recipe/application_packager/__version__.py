@@ -1,0 +1,10 @@
+__version__ = "0.2.4"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = 'c7a833ef7e5e284cf58613fab18582859966b794'
+__git_head_subject__ = 'Finished release v0.2.4.'
+__git_head_message__ = '* release/v0.2.4:\n  TRIVIAL fixed RuntimeError: Set changed size during iteration\n  empty commit after version v0.2.3'
+__git_dirty_diff__ = ''
