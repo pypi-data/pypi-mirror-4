@@ -1,0 +1,10 @@
+__version__ = "0.3.1"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '6f523ec73aa866ac98bc84e615fa0767acae1bc5'
+__git_head_subject__ = 'Finished release v0.3.1.'
+__git_head_message__ = '* release/v0.3.1:\n  STORAGEMODEL-176 ReportLuns test for ReportLunsData\n  STORAGEMODEL-176 ReportLuns default allocation_length is now good for 256 luns\n  STORAGEMODEL-176 ReportLuns shifting the lun number\n  empty commit after version v0.3'
+__git_dirty_diff__ = ''
