@@ -1,0 +1,254 @@
+#!/usr/bin/env python3
+
+#
+# Jasy - Web Tooling Framework
+# Copyright 2010-2012 Zynga Inc.
+#
+
+# Import standard libraries
+import sys, os, logging
+
+# Importing PKG Resources which is mainly required to be loaded before Pygments
+# for omitting ugly side effect errors. Not required at all otherwise.
+try:
+    import pkg_resources
+except ImportError:
+    pass
+
+# Version check
+if sys.version_info[0] < 3:
+    sys.stderr.write("Jasy requires Python 3!\n")
+    sys.exit(1)
+
+# Include local Jasy into Python library path
+basedir = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), os.pardir))
+if os.path.exists(os.path.join(basedir, "jasy")):
+    sys.path.insert(0, basedir)
+
+
+
+# ===========================================================================
+#   OPTIONS
+# ===========================================================================
+
+from jasy.core.Options import Options
+import jasy.core.Console as Console
+
+args = sys.argv[1:]
+if args and "jasyscript.py" in args[0]:
+    args = args.pop(0)
+    
+options = Options()
+
+options.add("verbose", short="v", help="Print more detailed status messages to stdout")
+options.add("quiet", short="q", help="Don't print status messages to stdout")
+options.add("log", accept=str, help="Write debug messages to given logfile")
+
+options.add("file", accept=str, value="jasyscript.py", help="Use the given jasy script")
+options.add("fast", short="f", help="Prevents repository updates")
+options.add("stats", help="Show statistics after run")
+
+options.add("version", short="V", help="Print version info only")
+options.add("help", short="h", help="Shows available options")
+
+try:
+    options.parse(args)
+except Exception as optionError:
+    logging.basicConfig(format="%(message)s")
+    Console.error(optionError)
+    sys.exit(1)
+
+# For simple version info we just leave here
+if options.version:
+    import jasy
+    print("Jasy %s" % jasy.__version__)
+    sys.exit(0)
+
+
+# ===========================================================================
+#   LOGGING
+# ===========================================================================
+
+# Configure log level for root logger first (enable debug level when either logfile or console verbosity is activated)
+loglevel = logging.INFO
+if options.log or options.verbose is True:
+    loglevel = logging.DEBUG
+
+# Basic configuration of console logging
+logging.basicConfig(level=loglevel, format="%(message)s")
+
+# Configure console handler to correct level
+rootHandler = logging.getLogger().handlers[0]
+if options.verbose is True:
+    rootHandler.setLevel(logging.DEBUG)
+elif options.quiet is True:
+    rootHandler.setLevel(logging.WARN)
+else:
+    rootHandler.setLevel(logging.INFO)
+
+# Enable writing to logfile with debug level
+if options.log:
+    logfileHandler = logging.FileHandler(options.log)
+    logfileHandler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+    logfileHandler.setLevel(logging.DEBUG)
+    logging.getLogger().addHandler(logfileHandler)  
+
+
+# ===========================================================================
+#   DOCTOR
+# ===========================================================================      
+
+import jasy.core.Doctor as Doctor
+
+# Check for "doctor" parameter. If it's set, the complete doctor routine will be executed, then exit
+for tasks in options.getTasks():
+    if tasks['task'] == 'doctor':
+        Doctor.doCompleteDoctor()
+        sys.exit(1)
+
+# Execute the initialization "doctor" routine, only with error output
+if not Doctor.doInitializationDoctor():
+    sys.exit(1)
+
+
+# ===========================================================================
+#   PATHS
+# ===========================================================================
+
+# Keep reference to executed jasy command
+command = os.path.abspath(sys.argv[0])
+
+# Find Jasy Script
+def findJasyscript():
+    current = os.path.abspath(os.getcwd())
+    while True:
+        scriptfile = os.path.join(current, "jasyscript.py")
+        if os.path.exists(scriptfile):
+            return scriptfile
+
+        old = current
+        current = os.path.normpath(os.path.join(current, ".."))
+        if current == old:
+            break
+            
+jasyscript = options.file
+if jasyscript == "jasyscript.py":
+    jasyscript = findJasyscript()
+else:
+    jasyscript = os.path.abspath(os.path.expanduser(jasyscript))
+    if jasyscript is None or not os.path.isfile(jasyscript):
+        Console.error("Cannot find any Jasy script with task definitions in %s!" % options.file)
+        sys.exit(1)
+
+# Change to root directory of jasyscript before executing it
+if jasyscript:
+    oldcwd = os.getcwd()
+    os.chdir(os.path.dirname(os.path.join(oldcwd, jasyscript)))
+    jasyscript = os.path.basename(jasyscript)
+
+
+
+# ===========================================================================
+#   MAIN ROUTINE
+# ===========================================================================
+
+import time
+import jasy.env.Task as Task
+from jasy import UserError
+
+def init():
+
+    start = time.time()
+
+    Console.header("Initializing")
+
+    Task.setCommand(command)
+    Task.setOptions(options)
+
+    # Prepare public API
+    # This object is used for the official API the jasyscript.py is using
+    api = {}
+
+    # Initialize session
+    from jasy.env.State import session
+    session.init(autoInitialize=True, scriptEnvironment=api, updateRepositories=not options.fast)
+
+    # Make all methods and classes from Context available
+    import jasy.env.Context as Context
+
+    for key in dir(Context):
+        if not key.startswith("__"):
+            api[key] = getattr(Context, key)
+
+    # Let context know about the methods/classes it has (e.g. for showapi() task)
+    setattr(Context, "__api__", api)    
+
+    # Execute the jasyscript.py in a clean environment
+    if jasyscript:
+
+        code = open(jasyscript, "r", encoding="utf-8").read()
+        exec(compile(code, os.path.abspath(jasyscript), "exec"), api)
+
+    duration = '{0:.2g}'.format(time.time() - start)
+    Console.info("Initialization completed in %ss", duration)
+
+
+def main():
+
+    try:
+
+        # Run help when no tasks are given
+        tasks = options.getTasks()
+        if not tasks or options.help:
+
+            Task.executeTask("help")
+            
+            if options.help:
+                sys.exit(0)
+            else:
+                sys.exit(1)
+
+        # All arguments are processed as a list of task to execute in order
+        for entry in tasks:
+            Task.executeTask(entry["task"], **entry["params"])
+
+    except UserError as errobj:
+        Console.error("%s" % errobj)
+        sys.exit(1)
+
+    except KeyboardInterrupt:
+        Console.error("Jasy Stopped!")
+        sys.exit(2)
+
+
+
+# ===========================================================================
+#   START
+# ===========================================================================
+
+try:
+    init()
+except UserError as ex:
+    Console.error("Could not initialize Jasy: %s" % ex)
+    sys.exit(1)
+
+if options.stats:
+    
+    Console.info("Running in profiling mode...")
+    
+    import cProfile
+    cProfile.run("main()", "jasyprofile.txt")
+    
+    Console.header("Analysing data")
+    import pstats
+    stats = pstats.Stats("jasyprofile.txt")
+    
+    stats.sort_stats('time', 'cum').print_stats(30)
+    
+    os.remove("jasyprofile.txt")
+    
+else:
+    
+    main()
+
+sys.exit(0)
