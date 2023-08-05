@@ -1,0 +1,102 @@
+#!/usr/bin/python2.6
+# Copyright (c) 2010 Adam Tauno Williams <awilliam@whitemice.org>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+#
+
+# TODO: Implement
+
+from coils.core  import *
+from coils.core.vcard import Parser as VCard_Parser
+import getopt, sys, os, pprint
+
+def usage():
+    print """
+    --file=     The file to read the vCard from
+    --update    Update the corresponding Contact
+    --create    Create a contact from the vCard
+    --help      Display this helpful message
+    """
+    return
+
+def main(argv):
+
+    # Process command line arguements
+    if (len(argv) == 0):
+        usage()
+        sys.exit(2)
+    try:
+        opts, args = getopt.getopt(argv,
+                                   "hfuc",
+                                  ["help", 'update', 'file=', 'create'])
+    except getopt.GetoptError, e:
+        print e
+        usage()
+        sys.exit(2)
+    mode = "-"
+    for opt, arg in opts:
+        if opt in ("-h", "--help"):
+            usage()
+            sys.exit(0)
+        elif (opt in ('-f', '--file')):
+            filename = arg
+        elif (opt in ('-u', '--update')):
+            mode = "u"
+        elif (opt in ('-c', '--create')):
+            mode = "c"
+
+    # Initialize COILs
+    initialize_COILS({'log_file': '{0}/coils.log'.format(os.getenv('HOME'))})
+    context = AdministrativeContext()
+    try:
+        handle = open(filename, 'rb')
+        payload = handle.read()
+        handle.close()
+    except Exception, e:
+        print 'Unable to read the specified file.'
+        print e
+        sys.exit(1)
+    values = None
+    try:
+        values = VCard_Parser.Parse(payload, context)[0]
+    except Exception, e:
+        print 'Unable to parse vCard.'
+        print e
+	sys.exit(1)
+
+    if mode != "-":
+        if mode == "u":
+            if ('objectId' in values):
+                contact = context.run_command('contact::get', id=values['objectId'])
+                context.run_command('contact::set', object=contact, values=values)
+                context.commit()
+            else:
+                print 'Not objectId present in input data, cannot perform update'
+                sys.exit(1)
+        elif mode == "c":
+            contact = context.run_command('contact::new', values=values)
+	    context.commit()
+	card = context.run_command("object::get-as-ics", object=contact)
+        print( card )
+        sys.exit(0)
+    else:
+        pprint.pprint(values)
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
