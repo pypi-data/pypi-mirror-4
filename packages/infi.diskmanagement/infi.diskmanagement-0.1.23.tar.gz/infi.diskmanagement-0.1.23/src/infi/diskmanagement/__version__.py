@@ -1,0 +1,10 @@
+__version__ = "0.1.23"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = 'e95fb5b40ab22f947f6a69d331eca1d0168cc41b'
+__git_head_subject__ = 'empty commit after version v0.1.22'
+__git_head_message__ = ''
+__git_dirty_diff__ = ''
