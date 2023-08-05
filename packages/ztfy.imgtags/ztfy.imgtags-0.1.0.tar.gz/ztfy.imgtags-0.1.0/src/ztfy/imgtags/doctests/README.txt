@@ -1,0 +1,3 @@
+ztfy.imgtags doctests
+=================
+
