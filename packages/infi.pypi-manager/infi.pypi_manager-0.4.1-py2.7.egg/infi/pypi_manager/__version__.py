@@ -1,0 +1,10 @@
+__version__ = "0.4.1"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = 'fd4186ab93de03c7ff313e8dd4fa89d723bf0102'
+__git_head_subject__ = 'Finished release v0.4.1.'
+__git_head_message__ = '# By Arnon Yaari (2) and Guy Rozendorn (2)\n* release/v0.4.1:\n  TRIVIAL fixing tests\n  TRIVIAL updated README.md\n  TRIVIAL remove vendata folder\n  empty commit after version v0.4'
+__git_dirty_diff__ = ''
