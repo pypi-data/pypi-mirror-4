@@ -1,0 +1,6 @@
+#TF_SMS_GATEWAY = 'two_factor.sms_gateways.Twilio'
+#TF_CALL_GATEWAY = 'two_factor.call_gateways.Twilio'
+#TWILIO_ACCOUNT_SID = 'ACecd8380b2f06433982173f5ac8f19f5e'
+#TWILIO_AUTH_TOKEN = 'c6bb6ad6c99bc8707ebdec01f99d0f15'
+#TWILIO_CALLER_ID = '+1 646-480-7132'
+#TWILIO_SMS_CALLER_ID = '+1 646-480-7132'
