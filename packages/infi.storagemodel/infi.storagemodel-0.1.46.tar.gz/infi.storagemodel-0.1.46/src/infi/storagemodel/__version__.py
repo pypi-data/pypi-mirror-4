@@ -1,0 +1,10 @@
+__version__ = "0.1.46"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '8ae2fe7b25a1005a03a9a812cc504a12e2f473f9'
+__git_head_subject__ = 'Finished release v0.1.46.'
+__git_head_message__ = '* release/v0.1.46:\n  Freezing dependencies\n  STORAGEMODEL-197 CAPACITY DATA HAS CHANGED\n  Unfreezing dependencies\n  empty commit after version v0.1.45'
+__git_dirty_diff__ = ''
