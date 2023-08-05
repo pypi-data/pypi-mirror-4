@@ -1,0 +1,97 @@
+#! /bin/sh
+
+echo "[extensions]" >> $HGRCPATH
+echo "hgnested=" >> $HGRCPATH
+
+echo "# init repositories"
+hg init toplevel
+echo "f" > toplevel/f
+mkdir -p toplevel/d/d
+echo "d/d/f" > toplevel/d/d/f
+hg init toplevel/d/d/r
+echo "d/d/r/f" > toplevel/d/d/r/f
+hg init toplevel/r
+echo "r/f" > toplevel/r/f
+hg init toplevel/r/r
+echo "r/r/f" > toplevel/r/r/f
+hg init toplevel2
+echo "f" > toplevel2/f
+ln -s ${PWD}/toplevel2 toplevel/r2
+echo "syntax: glob" >>toplevel/.hgignore
+echo "r2" >>toplevel/.hgignore
+
+hg commit --cwd toplevel -A -m "init"
+hg commit --cwd toplevel/d/d/r -A -m "init"
+hg commit --cwd toplevel/r -A -m "init"
+hg commit --cwd toplevel/r/r -A -m "init"
+hg commit --cwd toplevel2 -A -m "init"
+
+echo "# nclone"
+hg nclone toplevel toplevel-clone
+
+echo "# nincoming"
+hg nincoming --cwd toplevel-clone
+
+echo "# npull"
+hg npull --cwd toplevel-clone | sed -e "s,$HGTMP,\$HGTMP/,"
+echo "r/r/f2" > toplevel/r/r/f2
+hg commit --cwd toplevel/r/r -A -m "add f2"
+hg npull --cwd toplevel-clone | sed -e "s,$HGTMP,\$HGTMP/,"
+
+echo "# nupdate"
+hg nupdate --cwd toplevel-clone
+
+echo "# nstatus"
+hg nstatus --cwd toplevel
+echo "f2" > toplevel/f2
+echo "f2" > toplevel/r/f2
+hg add --cwd toplevel/r f2
+rm toplevel/r/r/f2
+hg nstatus --cwd toplevel
+
+echo "# ndiff"
+hg ndiff --cwd toplevel --nodates
+
+echo "# noutgoing"
+echo "f3" > toplevel-clone/f3
+echo "f3" > toplevel-clone/r/r/f3
+echo "f3" > toplevel-clone/d/d/r/f3
+hg commit --cwd toplevel-clone -A -m "add f3"
+hg commit --cwd toplevel-clone/r/r -A -m "add f3"
+hg commit --cwd toplevel-clone/d/d/r -A -m "add f3"
+hg noutgoing --cwd toplevel-clone
+
+echo "# npush"
+hg npush --cwd toplevel-clone | sed -e "s,$HGTMP,\$HGTMP/,"
+
+echo "# nclone ssh"
+cat <<EOF > dummyssh
+import sys
+import os
+
+os.chdir(os.path.dirname(sys.argv[0]))
+if sys.argv[1] != "user@dummy":
+    sys.exit(-1)
+
+if not os.path.exists("dummyssh"):
+    sys.exit(-1)
+
+os.environ["SSH_CLIENT"] = "127.0.0.1 1 2"
+
+log = open("dummylog", "ab")
+log.write("Got arguments")
+for i, arg in enumerate(sys.argv[1:]):
+    log.write(" %d:%s" % (i+1, arg))
+log.write("\n")
+log.close()
+r = os.system(sys.argv[2])
+sys.exit(bool(r))
+EOF
+hg nclone -e "python ./dummyssh" ssh://user@dummy/toplevel toplevel-sshclone
+
+echo "# nclone http"
+echo "[collections]" >> toplevel.conf
+echo "${PWD} = ${PWD}" >> toplevel.conf
+hg serve -p $HGPORT -d --pid-file=hg1.pid --webdir-conf toplevel.conf
+cat hg1.pid >> $DAEMON_PIDS
+hg nclone http://localhost:$HGPORT/toplevel toplevel-httpclone 2>&1 | sed -e "s,:$HGPORT/,:\$HGPORT/,"
