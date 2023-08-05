@@ -1,0 +1,95 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+
+import argparse
+import sys
+from bucket3 import b3tools
+	
+	
+def main(*argv):
+	parser = argparse.ArgumentParser(prog='bucket3-cmd')
+	
+	parser.add_argument("-p", "--path",
+		dest="path",
+		default = '.',
+		help="Provide the top directory of your bucket3 blog.")
+		
+	subparsers = parser.add_subparsers(help='sub-command help', dest='cmd')
+	
+	# NEW
+	parser_new = subparsers.add_parser('new', help='Scaffold new post file.')
+	parser_new.add_argument("slug")
+	parser_new.add_argument("--ext", default='md', help='Extension of the file to be created. Usually defaults to md.')
+	
+	# INIT
+	parser_init = subparsers.add_parser('init', help='Initialize a new blog')
+	
+	# CLEAR
+	parser_clear = subparsers.add_parser('clear', help='Delete HTML and cache files.')
+	
+	# 2HTML
+	parser_2html = subparsers.add_parser('2html', help='Render HTML pages.')
+	parser_2html.add_argument("-f", '--force', 
+				action='store_true', dest='force', default=False,
+				help='Force script to re-generate HTML even if no new or modified posts are found.')
+	
+	args = parser.parse_args()
+	
+	if args.cmd == 'new':
+		# Create NEW post file
+		b3tools.post_new(slug=args.slug, ext=args.ext, cpath=args.path)
+		return
+		
+	elif args.cmd == 'init':
+		# INITialize blog directories and configuration files
+		b3tools.blog_new(args.path)
+		return
+		
+	elif args.cmd == 'clear':
+		# CLEAR data files and HTML.
+		b3tools.blog_clean(args.path)
+		
+	elif args.cmd == '2html':
+		from bucket3 import Bucket3
+		conf = b3tools.conf_get(args.path)
+		b = Bucket3(conf = conf)
+		last_ts = 1
+		tagidx = {}
+		all_index = b.getPostList(name='all')
+		if not all_index:
+			all_index = []
+			
+		for p, ts in b.newPosts():
+			if ts > last_ts:
+				last_ts = ts # last_ts will hold the latest post's timestamp at the end of the loop.
+			post = b.renderPost(p)
+			all_index.append( post )
+			for tag in post['tags']:
+				if not tag in tagidx:
+					cache = b.getPostList(name=tag, prefix="tag" )
+					if cache:
+						tagidx[tag]=cache
+					else:
+						tagidx[tag] = []
+				tagidx[tag].append( post )
+
+		for tag in tagidx.keys():
+			if tag.strip():
+				b.putPostList(name=tag, prefix="tag", list_data=tagidx[tag], cleanup=True)
+
+		if last_ts > 1 or args.force:
+			b.putCache('lastrun', {'timestamp': last_ts})
+			b.putPostList(name="all", cleanup=True, list_data=all_index)
+			b.renderHome()
+			b.renderArchives()
+			b.renderTags()
+			b.renderRSS()
+			b.renderSitemap()
+			b.makeHtmlSkel()
+		return 0
+
+	else: 
+		parser.print_help()
+
+if __name__ == '__main__':
+	main()
