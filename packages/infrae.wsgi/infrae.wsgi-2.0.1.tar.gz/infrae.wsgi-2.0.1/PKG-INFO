@@ -1,0 +1,262 @@
+Metadata-Version: 1.0
+Name: infrae.wsgi
+Version: 2.0.1
+Summary: WSGI support for Zope 2
+Home-page: http://svn.infrae.com/infrae.wsgi/trunk
+Author: Sylvain Viollon
+Author-email: info@infrae.com
+License: ZPL
+Description: ===========
+        infrae.wsgi
+        ===========
+        
+        ``infrae.wsgi`` provides a support to run Zope 2 as a WSGI application.
+        
+        .. contents::
+        
+        Introduction
+        ============
+        
+        It basically does the same work than:
+        
+        - ``repoze.zope2``,
+        
+        - Zope 2 new builtin WSGI publisher.
+        
+        Except than:
+        
+        - It work with real Zope 2 applications and no monkey-patches,
+        
+        - It pay specially attention to properly implement streaming. You can
+          use your ZODB connection while streaming, (either with the
+          ``.write`` method of request, or returning an ``IResult`` or an
+          ``IStreamIterator`` iterator). ConflictError generate a final error
+          if they happens during a streaming operation, not re-sending things
+          again on the same HTTP connection,
+        
+        - All ConflictError are properly managed.
+        
+        - All those cases are tested.
+        
+        It does not:
+        
+        - Provide Zope 2 as a collection of WSGI middlewares, as Zope 2 paradigm /
+          code base is not good for it,
+        
+        - Do all fancy request body changes that old Zope 2 publisher does, as
+          nobody use it anymore since a very long time.
+        
+        Errors
+        ------
+        
+        Error messages are handled a bit differently than in
+        traditional Zope 2, in order to make things simpler.
+        
+        They are views on errors (called ``error.html``), and wrapped in
+        acquisition around the context where they happened::
+        
+           from five import grok
+        
+           class CorpError(Exception):
+               """Custom corporate error.
+               """
+        
+           class CorpErrorMessage(grok.View):
+               grok.context(CorpError)
+               grok.name('error.html')
+        
+               def render(self):
+                   # aq_parent(self) is where the error happened
+                   return u'I Failed: %s' % str(self.error.args)
+        
+        
+        Errors are logged with useful information:
+        
+        - Which is the URL triggering this error,
+        
+        - The user-agent,
+        
+        - The referent,
+        
+        - The logged in username,
+        
+        - On which object, its physical path and meta_type if possible.
+        
+        The error log can be accessible online via ``/errorlog.html`` on any
+        Zope 2 content.
+        
+        
+        Installation
+        ============
+        
+        ``infrae.wsgi`` has been and deployed with Paste Deploy and
+        ``mod_wsgi``. It correctly respect the WSGI specification and should
+        work with any WSGI server.
+        
+        Paste Deploy
+        ------------
+        
+        The application is available with the entry point
+        ``infrae.wsgi#zope2``.
+        
+        It expect an option variable called ``zope_conf`` that point to the
+        Zope 2 configuration file.
+        
+        The option ``debug_mode`` can as well be specified, to run Zope in
+        debug mode. In debug mode, error pages will not be rendered by Zope
+        and the errors will propagate in the wsgi stack. This behavior will
+        let you debug errors with specialized middlewares.
+        
+        The option ``zope_workers`` can be used to specify the maximum of
+        threads Zope should allow to process requests at the same time
+        (default to ``4``). This can be usefull if you wish to allow more
+        threads in your wsgi environment, in case you have middlewares or
+        other applications that intercept the requests and support more
+        threads than Zope does.
+        
+        Virtual Hosting
+        ---------------
+        
+        You can add two headers in your proxy in order to control the virtual
+        hosting:
+        
+        - ``X-VHM-URL``: That would the complete URL of your site, at which
+          you want to see your Zope application, like
+          ``http://www.mysite.com/application``.
+        
+        - ``X-VHM-Path``: That would be an optional path to the Zope folder
+          you see at the given URL instead of the Zope root, lile
+          ``/my/folder``.
+        
+        
+        Testing
+        =======
+        
+        A layer inheriting of `infrae.testing`_ ``Zope2Layer`` layer called
+        ``BrowserLayer`` let you write functional tests.
+        
+        It provides both an ``http`` function and a ``Browser`` class (like
+        the one provided by ``zope.testbrowser``) that you can use, and that
+        will connect to the tested application using the WSGI support provided
+        by this package.
+        
+        This will let you do functional testing, and things will work exactly
+        like in your browser, as the requests will be processed the same way
+        than they are in real life (which is not really the case with the
+        ``Testing`` module of Zope 2).
+        
+        You will be actually able to test applications that do use streaming::
+        
+        
+           import unittest
+        
+           from infrae.wsgi.testing import Browser, BrowserLayer
+           import corp.testpackage
+        
+        
+           class CorpTestCase(unittest.TestCase):
+              layer = BrowserLayer(corp.testpackage)
+        
+              def setUp(self):
+                  self.root = self.layer.get_application()
+                  # Create some test content
+        
+              def test_feature(self):
+                  browser = Browser()
+                  browser.open('http://localhost/somepage')
+                  self.assertEqual(browser.status, 200)
+                  ...
+        
+        
+        .. _infrae.testing: http://pypi.python.org/pypi/infrae.testing
+        
+        Changes
+        =======
+        
+        2.0.1 (2012-09-19)
+        ------------------
+        
+        - Add an optional WSGI middleware that display the same debug
+          information than ``debugzope.html`` does.
+        
+        - Add an event that is triggered before an error page is rendered.
+        
+        - If an error view implements ``IBrowserPublisher``, call
+          ``browserDefault`` in order to retrieve the real view to render.
+        
+        2.0 (2012-09-04)
+        ----------------
+        
+        - Refactor the virtual hosting, traversing and authentication code
+          from Zope 2 BaseRequest into three different pieces of code, that
+          can be customized. This makes possible to change how authentication,
+          or virtual hosting is done.
+        
+        - Add a ``TestRequest`` that can be used in tests. This is the same
+          thing than a ``zope.publisher`` test request, except it is based on
+          a Zope 2 request, and have all the same behavior than a Zope 2
+          request.
+        
+        - A configurable semaphore have been added to limit the number of
+          concurrent threads that can access the Zope 2 application. This is
+          usefull when you have middleware that handles requests on their own,
+          so they are not limited to the restriction imposed by Zope 2 on the
+          number of threads.
+        
+        1.3 (2011-07-27)
+        ----------------
+        
+        - Improve logging.
+        
+        - BadRequest and Forbidden exceptions are now ignored by default in
+          the logs.
+        
+        - Fix a bug the original CONTENT_LENGTH header is empty.
+        
+        - When an error happens on an IBrowserPage, use the page's context
+          when handling the error (to prevent falling back to the nearest Site)
+        
+        1.2 (2011-02-02)
+        ----------------
+        
+        - Add a view ``debugzope.html`` that display a dump of the server
+          threads. You need to be manager to access it.
+        
+        - You can from the ``errorlog.html`` configure the error you wish to
+          ignore (not log). This is a non persistent setting.
+        
+        - Handle buggy PAS unauthorized plugins, by catching any error, and
+          logging them. In case of problem, a basic 401 response is sent back.
+        
+        - Add the ZPublisher *insertBase* functionality: if a base is set by
+          the request, and we render HTML, with an HEAD tag and no BASE tag,
+          insert a BASE tag with the value provided by the request. This fix
+          broken ZMI screens.
+        
+        1.1 (2010-10-07)
+        ----------------
+        
+        - Fix a bug where `Content-Length` is not set and cannot be set.
+        
+        - Correctly encode payload when needed before sending it (if it was a
+          unicode string).
+        
+        - Error codes less when 500 triggers a commit now, this let you
+          support login pages that uses a Zope session ID.
+        
+        - Add some hooks in the testing code to be more extensible (used for
+          `infrae.testbrowser`).
+        
+        1.0 (2010-07-15)
+        ----------------
+        
+        - Initial release.
+        
+Keywords: zope2 wsgi silva infrae
+Platform: UNKNOWN
+Classifier: Environment :: Web Environment
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: Zope Public License
+Classifier: Programming Language :: Python
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
+Classifier: Framework :: Zope2
