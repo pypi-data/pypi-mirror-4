@@ -1,0 +1,10 @@
+__version__ = "0.3.6"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = 'c36b9aad72e676820ddedc2059b063bd8087df8f'
+__git_head_subject__ = 'Finished release v0.3.6.'
+__git_head_message__ = '# By Guy Rozendorn (3) and others\n# Via Eyal Gindi (2) and Guy Rozendorn (1)\n* release/v0.3.6:\n  TRIVIAL skeleton update\n  new CDB for scsi unmap\n  STORAGEMODEL-189 - added get_sense_object_from_buffer\n  STORAGEMODEL-183 Win32File: passing handle as c_void_p to CloseHandle\n  empty commit after version v0.3.5\n  added support for payload larger than a block for write_same commands'
+__git_dirty_diff__ = ''
