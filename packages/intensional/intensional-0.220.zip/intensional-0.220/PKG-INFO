@@ -1,0 +1,240 @@
+Metadata-Version: 1.0
+Name: intensional
+Version: 0.220
+Summary: Intensional sets in Python
+Home-page: https://bitbucket.org/jeunice/intensional
+Author: Jonathan Eunice
+Author-email: jonathan.eunice@gmail.com
+License: UNKNOWN
+Description: Intensional (rule-defined) sets for Python.
+        
+        Overview
+        ========
+        
+        There are two ways of defining a set: intensional and extensional. Extensional
+        sets like ``set([1,3,5,'daisy'])`` enumerate every member of the set explicitly.
+        
+        Intensional sets, in contrast, are defined by rules. For example "the set of all
+        prime numbers" or "every word beginning with ``'a'`` and ending with ``'t'``.
+        Intensional sets are often infinite. It may be possible to generate a list of
+        their members, but it's not as simple as a "give me everything you've got!"
+        ``for`` loop.
+        
+        Once you know what you're looking for, intensional sets are *everywhere*.
+        Python doesn't represent them directly, but regular expressions, many list
+        comprehensions, and all manner of testing and filtering operations are really
+        faces of the intensional set concept. Many functions test whether something
+        'qualifies'. ``os.path.isdir(d)`` for example, tests whether ``d`` is in the set
+        of legitimate directories, and ``isinstance(s, str)`` tests whether ``s`` is a
+        member of the set of ``str`` objects. Even the core ``if`` conditional can be
+        construed as testing for membership in an intensional set--the set of all items
+        that pass the test.
+        
+        Many such tests have a temporal aspect--they determine whether a value is a
+        member *right now*. The answer may change in the future, if
+        conditions change. Others tests are invariant over time. ``%%734`` will never be a
+        valid Python identifier, no matter how many times it's tested--unless the rules
+        of the overall Python universe change, that is.
+        
+        Intensional sets are part and parcel of all programming, even if they're not
+        explicitly represented or called by that name.``intensional`` helps Python
+        programs represent intensional sets directly.
+        
+        Usage
+        =====
+        
+        ``intensional`` defines several set ``IntensionalSet`` subclasses
+        such as ``Any``, ``Every``, ``ButNot``,
+        and ``EitherOr``. These correspond roughly to set operations union, intersection,
+        difference, and symmetric difference (aka xor). Of these, ``Any`` is the most useful::
+        
+            from intensional import *
+            
+            name = 'Stephen'
+            if name in Any('Steve', 'Steven', 'Stephen'):
+                print 'Good name!'
+        
+        So far, there's nothing here you couldn't do with standard Python ``set`` data types.
+        So let's broaden out to more generic intensional sets::
+        
+            if name in Test("x.startswith('S')"):
+                print "Your name starts with S!"
+        
+        ``Test`` takes a lambda expression or string in its constructor. If it's a string, ``Test`` assumes
+        the interesting variable name is ``x`` and compiles the string expression with an automatically provided
+        ``lambda x:`` prefix. This makes code a bit terser and cleaner. Now the sets start getting more
+        interesting.::
+        
+            starts_with_S =  Test("x.startswith('S')")
+            ends_with_n   =  Test("x.endswith('n')")
+            
+            if name in Every(starts_with_S, ends_with_n):
+                ...  # Stephen and Steven pass, but Steve does not
+                
+        Of course, this could also be rendered as::
+            
+            if name in Test("x.startswith('S') and x.endswith('n')"):
+                ...  # Stephen and Steven pass, but Steve does not
+                
+        Or even::
+        
+            S_something_n = starts_with_S & ends_with_n
+            if name in S_something_n:
+                ...
+        
+        String Search
+        =============
+        
+        ``intensional`` defines sets for regular expression (``Re``) and glob (``Glob``) string matching.
+        For example::
+        
+            name = 'Stephen'
+            if name in Re(r'\b(s\w*)\b', Re.I):
+                print 'Good name, {}'.format(Re._[1])
+        
+        Note that this enables a form of (or alternative to) *en passant* assignment
+        that shortens regular expression conditionals by at least one line
+        compared to the standard ``re`` module. A spiffed-up version of the
+        ``re.MatchObject`` is available at ``Re._``. This object can be
+        indexed to get regexp match groups. For named groups (e.g. ``(?P<firstname>\w+)``),
+        the matched value can be retrieved by attribute: ``Re._.firstname``. All of the
+        other ``re.MatchObject`` methods and properties can also be accessed this way,
+        such as ``Re._.start(1)`` and ``Re._.span(1)``.
+        
+        For simple matching, the ``Glob`` class (which plays by the rules
+        of Unix glob expressions) may be simpler:
+        
+            if name in Glob('S*'):
+                ...
+            
+        Type Membership
+        ===============
+        
+        ::
+        
+            if x in Instances(int):
+                ...
+        
+        is identical to::
+        
+            if isinstance(x, int):
+               ...
+               
+        An alias ``IsInstance`` exists for ``Instances`` for cases where the singular construction is more linguistically natural.
+        A second alias ``Type`` is also available.
+        
+        Set Operations
+        ==============
+        
+        ``intensional`` supports some, but not all, of Python's classic ``set`` operations.
+        There are two primary rules:
+        
+         *  ``IntensionalSet`` attempts to supports all of the ``collections.Set`` methods like
+            ``union()`` and ``intersection()``. But ``IntensionalSet`` objects are immutable, so they do not support
+            self-mutating operations like ``add()``, ``pop()``, and ``|=`` defined by
+            ``collections.MutableSet``.
+            
+         *  Because they are defined by rules rather than explicit lists of members, it is
+            not (in general) possible to determine the cardinality (i.e. ``len()``) of an ``IntensionalSet``,
+            nor to iterate through all of its members, nor to test equality. ``IntensionalSet`` objects are
+            used primarily for determining membership.
+        
+        Because of an implementation detail, ``IntensionalSet`` classes are parallel to,
+        but are not true subclasses of, ``collections.Set``.
+        
+        Extensions
+        ==========
+        
+        It's easy to define new ``IntensionalSet`` subclasses that define other kinds
+        of logical tests in generalized, linguistically "clean" ways that make code
+        more readable. As an example, the ``Instances`` intensional set is defined like this::
+        
+            class Instances(with_metaclass(MementoMetaclass, IntensionalSet)):
+                """
+                An object is in an IsInstance if it is an instance of the given types.
+                """
+                def __init__(self, *args):
+                    self.types = tuple(args)
+                    
+                def __contains__(self, item):
+                    return isinstance(item, self.types)
+        
+        ``__init__()`` simply remembers what arguments the set is constructed with,
+        while ``__contains__()`` implements the test, answering: Does the given item belong in a set
+        constructed with these arguments?
+        
+        The only complexity here is the ``with_metaclass(MementoMetaclass, IntensionalSet)`` phrase,
+        which is simply a compatibility mechanism to be able to define a class in either
+        Python 2 or Python 3 with a given metaclass.
+        
+        ``MementoMetaclass`` is used so that
+        once constructed, a set object is fetched from cache rather than
+        redundantly reconstructed if any subsequent mentions are made. This is a useful performance
+        tweak. For regular expressions, for example, it allows the ``Re.__init__()`` set constructor
+        to compile the regular expression just once, even if a program contains many mentions of
+        ``Re(<some regular exprssion>)``. Even
+        higher-performance is to assign constructed sets to a name/variable and refer to them
+        via that name. This::
+        
+            integers = Instances(int)
+            
+            if x in integers:
+                ...
+        
+        requires less work than::
+        
+            if x in Instances(int):
+                ...
+        
+        and is preferred if the test is to be executed frequently. But this pre-naming is just a tweak, and
+        not a requirement.
+        
+        Notes
+        =====
+        
+         * Commenced automated multi-version testing with
+           `pytest <http://pypi.python.org/pypi/pytest>`_
+           and `tox <http://pypi.python.org/pypi/tox>`_.
+           
+         * Now
+           successfully packaged for, and tested against, all late-model versions
+           of Python: 2.6, 2.7, 3.2, and 3.3
+           plus one (2.5) that isn't so very recent,
+           and one (PyPy 1.9, based on Python 2.7.2) that is differently implemented.
+           
+         * ``intensional`` is just one facet of a larger project to rethink how items
+           are tested for membership and/or chosen from collections. Stay tuned!
+         
+         * The author, `Jonathan Eunice <mailto:jonathan.eunice@gmail.com>`_ or
+           `@jeunice on Twitter <http://twitter.com/jeunice>`_
+           welcomes your comments and suggestions.
+        
+        Installation
+        ============
+        
+        To install the latest version::
+        
+            pip install -U intensional
+        
+        To ``easy_install`` under a specific Python version (3.3 in this example)::
+        
+            python3.3 -m easy_install --upgrade intensional
+            
+        (You may need to prefix these with "sudo " to authorize installation. If they're
+        already installed, the ``--upgrade`` flag will be helpful; add it right before the
+        package name.)
+Keywords: intensional sets lambda expression list comprehension
+Platform: UNKNOWN
+Classifier: Development Status :: 3 - Alpha
+Classifier: Operating System :: OS Independent
+Classifier: License :: OSI Approved :: BSD License
+Classifier: Intended Audience :: Developers
+Classifier: Programming Language :: Python
+Classifier: Programming Language :: Python :: 2.5
+Classifier: Programming Language :: Python :: 2.6
+Classifier: Programming Language :: Python :: 2.7
+Classifier: Programming Language :: Python :: 3.2
+Classifier: Programming Language :: Python :: 3.3
+Classifier: Programming Language :: Python :: Implementation :: CPython
+Classifier: Programming Language :: Python :: Implementation :: PyPy
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
