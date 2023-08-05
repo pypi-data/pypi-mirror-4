@@ -1,0 +1,147 @@
+#!/usr/bin/env python
+"""
+Check which of your dependencies already support python 3.
+
+Usage:
+  py3support <filename>...
+  py3support -h | --help
+  py3support --version
+
+Options:
+  -h --help     Show this screen.
+  --version     Show version.
+"""
+from __future__ import division
+import re
+import requests
+from docopt import docopt
+
+
+# Set default logging handler to avoid "No handler found" warnings.
+import logging
+try:  # Python 2.7+
+    from logging import NullHandler
+except ImportError:
+    class NullHandler(logging.Handler):
+        def emit(self, record):
+            pass
+
+logger = logging.getLogger(__name__)
+logger.addHandler(NullHandler())
+
+
+def get_dependencies(requirements):
+    """ Generator, returns (package_name, package_version) tuples"""
+    for line in open(requirements):
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+
+        if line.startswith('-e'):
+            name = line.split('#egg=', 1)[1]
+            if name.endswith('-dev'):
+                name = name[:-4]
+            yield name, 'dev', True
+        else:
+            if '==' in line:
+                name, version = line.split('==')
+            else:
+                name, version = line, None
+            yield name, version, False
+
+
+def get_supported_versions(name, version=None):
+    """ Which python versions does the package support.
+        Returns a list of strings with supported interpreters
+
+        Asks PyPI for package classifiers
+        All classifiers: http://pypi.python.org/pypi?%3Aaction=list_classifiers
+
+        Valid python 2 classifiers:
+
+        Programming Language :: Python
+        Programming Language :: Python :: 2
+        Programming Language :: Python :: 2.3
+        Programming Language :: Python :: 2.4
+        Programming Language :: Python :: 2.5
+        Programming Language :: Python :: 2.6
+        Programming Language :: Python :: 2.7
+        Programming Language :: Python :: 2 :: Only
+
+        Valid python 3 classifiers:
+
+        Programming Language :: Python :: 3
+        Programming Language :: Python :: 3.0
+        Programming Language :: Python :: 3.1
+        Programming Language :: Python :: 3.2
+        Programming Language :: Python :: 3.3
+    """
+    supported = []
+    support_regex = re.compile('Programming Language :: Python :: (?P<version>[\d.]+)')
+    slug = '%s/%s' % (name, version) if version else name
+    try:
+        url = 'http://pypi.python.org/pypi/%s/json' % slug
+        metadata = requests.get(url).json()
+    except (ValueError, requests.RequestException):
+        logger.error('Cannot access %s' % url)
+        return []
+    for classifier in metadata['info']['classifiers']:
+        match = support_regex.search(classifier)
+        if match:
+            supported.append(match.group('version'))
+    return supported
+
+
+def check_py3_support(name, version=None):
+    """ Returns true for any supported python 3 version, false if python not supported, None if unkonwn.
+    """
+    versions = get_supported_versions(name, version)
+    major_versions = set([version.split('.')[0] for version in versions])
+    if '3' in major_versions:
+        return True
+    if '2' in major_versions:
+        return False
+    return None
+
+
+def package_listing(header, packages):
+    if not packages:
+        return
+    print('{header}\n{underline}'.format(header=header, underline='=' * len(header)))
+    for name, version in packages:
+        if version:
+            print('  {name}=={version}'.format(name=name, version=version))
+        else:
+            print('  {0}'.format(name))
+    print('')
+
+
+def output(py3, py2, unknown):
+    print("Python 3 support level: {percent:.0f}% ({py3_packages}/{total_packages})\n".format(**{
+        'percent': len(py3) / len(py3 + py2 + unknown) * 100,
+        'py3_packages': len(py3),
+        'total_packages': len(py3 + py2 + unknown),
+    }))
+    package_listing('Python 3', py3)
+    package_listing('Python 2', py2)
+    package_listing('Unknown', unknown)
+
+
+def main(filename):
+    py3, py2, unknown = [], [], []
+    for package, version, dummy in get_dependencies(filename):
+        is_supported = check_py3_support(package, version)
+        if is_supported:
+            target = py3
+        elif is_supported is False:
+            target = py2
+        else:
+            target = unknown
+        target.append((package, version))
+    output(py3, py2, unknown)
+
+
+if __name__ == '__main__':
+    arguments = docopt(__doc__, version='Python3 Support 0.1')
+    for filename in arguments.get('<filename>', 'requirements.txt'):
+        main(filename)
