@@ -1,0 +1,155 @@
+#!/opt/local/Library/Frameworks/Python.framework/Versions/2.7/Resources/Python.app/Contents/MacOS/Python
+
+try:
+    import IPython
+except ImportError:
+    print 'IPython not installed - ipyastpys requires IPython'
+    sys.exit(3)
+import os,sys
+from IPython.utils.path import get_ipython_dir
+from optparse import OptionParser
+from astropysics import config
+        
+ipdir = get_ipython_dir()
+#get version info to figure out how to launch ipy
+majver,minver = IPython.__version__.split('.')[:2]
+majver,minver = int(majver),int(minver)
+
+op = OptionParser()
+op.usage = '%prog [options] [projdir projfile]'
+op.add_option('-a','--ipy-args',dest='iargs',help='IPython command line arguments - enclose the intended arguments in " marks.')
+op.add_option('-p','--project',dest='project',metavar='PROJECT',help='Run a project in this session.  Project script will be run with any arguments passed to ipyastpys.')
+op.add_option('-c','--create-project',dest='create',metavar='PROJECT',help='Create a project with the specified name. Cannot be used with -p or -d.  Directory and scripts file (relative to directory) may be provided as arguments. Directory and script are created if they do not exist.')
+op.add_option('-d','--delete-project',dest='delete',metavar='PROJECT',help='Delete the project with the specified name. Cannot be used with -p or -c. This does not delete the directory for the project.')
+op.add_option('-l','--list-projects',dest='list',help='List all projects - all other options are ignored',action='store_true')
+op.add_option('-s','--script-args',dest='sargs',help='Arguments to be used in the profile script.  Ignored if -p/--profile is not given.')
+    
+
+#parse ipyastpys args
+ops,args = op.parse_args()
+
+if ops.list:
+    for n,t in config.get_projects().iteritems():
+        print n
+        print '\tDirectory:',t[0]
+        print '\tScript:',t[1]
+    sys.exit(0)
+
+pdir = pfn = None
+if ops.project:    
+    if ops.create or ops.delete:
+        print "Can't both run and create a project."
+        sys.exit(1)
+    elif ops.delete:
+        print "Can't both run and delete a project."
+        sys.exit(1)
+
+    pname = ops.project
+    
+    projs = config.get_projects()
+    if ops.project not in projs:
+        print 'Project,',ops.project,'not found'
+        sys.exit(2)
+        
+    pdir,pfn = projs[ops.project]
+    
+elif ops.create:
+    pname = ops.create
+    if ops.delete:
+        print "Can't both create and delete a project."
+        sys.exit(1)
+        
+    addps = [pname]
+    addps.extend(args)
+    pdir,pfn = config.add_project(*addps)
+    print 'Created project',pname,'at',pdir,'with script',pfn
+    sys.exit(0)
+elif ops.delete:
+    pname = ops.delete
+    try:
+        config.del_project(pname)
+        print 'Deleted project',pname
+        sys.exit(0)
+    except KeyError:
+        print 'Project',pname,'not found'
+        sys.exit(2)
+        
+        
+        
+
+#figure out ipython expected command line
+if ops.iargs:
+    ipyargs = ops.iargs.split()
+    ipyargs.insert(0,sys.argv[0])
+    #insert necessary ipython arguments if they aren't already there
+    if '-p' not in ipyargs and '--profile' not in ipyargs:
+        if majver>0 or minver>=11:
+            ipyargs.append('--profile=astpys')
+        else:
+            ipyargs.append('-p')
+            ipyargs.append('astpys')
+else:
+    if majver>0 or minver>=11:
+        ipyargs = [sys.argv[0],'--profile=astpys']
+    else:
+        ipyargs = [sys.argv[0],'-p','astpys']
+#replace sys.argv with args appropriate for ipython
+sys.argv[:] = ipyargs
+
+if pdir is not None:
+    os.chdir(pdir)
+    
+if pfn is not None:
+    runstr = ['run',pfn]
+    if ops.sargs:
+        runstr.extend(ops.sargs.split())
+    runstr = ' '.join(runstr)
+
+    if majver>0 or minver>=11:
+        if any([a.startswith('c=') for a in sys.argv]):
+            print 'Cannot run a profile script if "c" is in the ipython arguments.'
+            sys.exit(3)
+    
+        print 'Executing "'+runstr+'" on startup.'
+        sys.argv.append('c="%s"'%runstr)
+        if '--i' not in sys.argv:
+            sys.argv.append('--i')
+    else:
+        if '-c' in sys.argv:
+            print 'Cannot run a profile script if "c" is in the ipython arguments.'
+            sys.exit(3)
+    
+        print 'Executing "'+runstr+'" on startup.'
+        sys.argv.append('-c')
+        sys.argv.append(runstr)
+        if '-i' not in sys.argv:
+            sys.argv.append('-i')
+
+if majver>0 or minver>=11:
+    #check to make sure profile file is present - these two locations are due
+    #to changes in the profile system during the course of 0.11's dev cycle
+    betaloc = os.path.exists(os.path.join(ipdir,'ipython_config_astpys.py'))
+    newapploc = os.path.exists(os.path.join(ipdir,'profile_astpys'))
+    if not (betaloc or newapploc):
+        print 'Astropysics IPython profile missing - run astpys-setup'
+        sys.exit(2)
+        
+    #Use entry point mechanism
+    from pkg_resources import load_entry_point
+    sys.exit(load_entry_point('ipython', 'console_scripts', 'ipython')())
+else:
+    #check to make sure profile file is present
+    if not os.path.exists(os.path.join(ipdir,'ipy_profile_astpys.py')):
+        print 'Astropysics IPython profile missing - run astpys-setup'
+        sys.exit(2)
+    
+    #add pylab if version < 0.11,
+    if '--pylab' not in sys.argv:
+        sys.argv.append('--pylab')
+    
+    #Launch via the .start mechanism
+    import IPython.Shell
+    IPython.Shell.start().mainloop()
+
+    
+    
