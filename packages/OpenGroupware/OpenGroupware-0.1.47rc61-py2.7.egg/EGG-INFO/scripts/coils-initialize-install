@@ -1,0 +1,138 @@
+#!/usr/bin/python
+# Copyright (c) 2010, 2012 
+#  Adam Tauno Williams <awilliam@whitemice.org>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+#
+
+import getopt, sys, os, pwd, grp
+from pkg_resources import Requirement, resource_filename
+from coils.foundation.utility import get_server_root
+
+def usage():
+    print """
+    --help      Display this message.
+    --root=     Set the storage root of the installation
+    --force     Reinitialize an existing storage root.
+    --group=    Set the group to own storage root; defaults to "skyrix"
+    --user=     Set the user to own storage root; defaults to "ogo".
+    --log=      Set the log filename; defaults to "/var/log/coils.log"
+
+    Default storage root is '/var/lib/opengroupware/org'
+    """
+    return
+
+def main(argv):
+
+    # Process command line arguements
+    store_root = None
+    force      = False
+    user       = "ogo"
+    group      = "skyrix"
+    logfile    = "/var/log/coils.log"
+
+    try:
+        opts, args = getopt.getopt(argv,
+                                   "hfr:u:g:l:",
+                                  ["help", "force", "root=",
+                                   "user=", "group=", "log="])
+    except getopt.GetoptError, e:
+        print e
+        usage()
+        sys.exit(2)
+    for opt, arg in opts:
+        if opt in ("-h", "--help"):
+            usage()
+            sys.exit(0)
+        elif (opt in ('-r', '--root')):
+            store_root = arg
+        elif (opt in ('-f', '--force')):
+            force = True
+        elif (opt in ('-u', '--user')):
+            user = arg
+        elif (opt in ('-g', '--group')):
+            group = arg
+        elif (opt in ('-l', '--log')):
+            logfile = arg
+
+    store_root = get_server_root( store_root=store_root )
+    uid = pwd.getpwnam(user).pw_uid
+    gid = grp.getgrnam(group).gr_gid
+
+    if (os.path.exists(logfile)):
+        pass
+    else:
+        handle = open(logfile, 'wb')
+        handle.close()
+    os.chown(logfile, uid, gid)
+    print 'OK: Log file {0} initialized.'.format(logfile)
+
+
+    if (os.path.exists(store_root)):
+        if (force):
+            pass
+        else:
+            print 'ERROR: A storage root already exists at this location:{0}'.format(store_root)
+            sys.exit(1)
+
+    folders = [ store_root,
+               '{0}/documents'.format(store_root),
+               '{0}/news'.format(store_root),
+               '{0}/shelves'.format(store_root),
+               '{0}/cache'.format(store_root),
+               '{0}/tmp'.format(store_root),
+               '{0}/cache/vcard.'.format(store_root),
+               '{0}/cache/vevent.'.format(store_root),
+               '{0}/cache/dav.'.format(store_root),
+               '{0}/wf'.format(store_root),
+               '{0}/wf/m'.format(store_root),
+               '{0}/wf/r'.format(store_root),
+               '{0}/wf/p'.format(store_root),
+               '{0}/wf/t'.format(store_root),
+               '{0}/wf/w'.format(store_root),
+               '{0}/wf/x'.format(store_root),
+               '{0}/wf/xslt'.format(store_root),
+               '{0}/wf/f'.format(store_root) ]
+
+    for folder in folders:
+        if (os.path.exists(folder)):
+            print 'WARN: Folder {0} already exists'.format(folder)
+        else:
+            try:
+                os.mkdir(folder)
+            except Exception, e:
+                print e
+                print 'ERROR: Failed to create folder {0}'.format(folder)
+            else:
+                print 'OK: Created folder {0}'.format(folder)
+        try:
+            os.chown(folder, uid, gid)
+        except Exception, e:
+            print e
+            print 'ERROR: Unable to change ownwership of {0}'.format(folder)
+        else:
+            print 'OK: Set ownership of {0}'.format(folder)
+
+    print 'HINT: For improved performance mount a tmpfs filesystem at {0}/cache'.format(store_root)
+
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
