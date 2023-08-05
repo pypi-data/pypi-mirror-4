@@ -1,0 +1,104 @@
+#!/usr/bin/python
+import sys, os, hashlib
+sys.path.append("..")
+
+import transmissionrpc as transmission
+from pprint import pprint
+
+from torrenthelper import Config, actions, classify
+
+
+from optparse import OptionParser
+
+parser = OptionParser()
+parser.add_option("-P", "--pretend", help="Just pretend", default=False, action="store_true")
+parser.add_option("-v", "--verbose", help="Be verbose",   default=False, action="store_true")
+parser.add_option("-H", "--host",   help="Transmission host:port", default="localhost:9091")
+parser.add_option("-a", "--auth",   help="Transmission authentication", default="admin:tradmin")
+
+(options, args) = parser.parse_args()
+
+host, port = options.host.split(":")
+user, pw   = options.auth.split(":")
+
+client = transmission.Client(host, int(port), user, pw)
+
+config = Config()
+config.pretend = options.pretend
+config.verbose = options.verbose
+
+config.incomingdir = "/data/Incoming/"
+config.folders['music']   =  "/data/Music/INCOMING/"
+config.folders['movies']  = "/data/Movies/"
+config.folders['tvshows'] = "/data/Series/"
+
+
+def ratio_ok(torrent):
+    if torrent.ratio >= 0.9:
+        return True
+    return False
+
+types = set()
+
+list = client.list()
+for id in list:
+    torrent = list[id]
+    if torrent.progress < 100.0:
+        if config.verbose:
+            print "Skipping incomplete:", torrent
+        continue
+
+    if config.verbose:
+        print
+        print u"Processing:", torrent
+
+    files = client.get_files(id)[id]
+    files = [files[k]['name'] for k in files]
+
+    statusfile = config.incomingdir + (".torrent.%s" % hashlib.sha1((u':'.join(files)).encode('utf-8')).hexdigest())
+    print "----", statusfile
+    
+    if not os.path.exists(statusfile):
+        classes = classify.classify(files)
+        for cls in classes:
+            if config.verbose:
+                print "Classified:", cls
+            if isinstance(cls, classify.MusicAlbum):
+                types.add("music")
+            else:
+                types.add("video")
+            
+            clsActions = config.get_actions(cls)
+            try:
+                for a in clsActions:
+                    a.process()
+
+                if clsActions and not config.pretend:
+                    # mark processed
+                    f = open(statusfile, "w")
+                    f.write("OK")
+                    f.close()
+                    
+            except OSError, e:
+                print "*** OS Error:", e
+                
+
+    if os.path.exists(statusfile):
+        if ratio_ok(torrent):
+            if config.verbose:
+                print u"Ratio ok; removing torrent + data", torrent
+            if not config.pretend:
+                client.remove(id, True)
+                os.unlink(statusfile)
+        else:
+            if config.verbose:
+                print u"Ratio is too low (%.2f); will keep seeding." % torrent.ratio
+
+
+
+# Update XBMC
+for t in types:
+    a = actions.UpdateXBMCAction(t)
+    a.pretend = config.pretend
+    a.verbose = config.verbose
+    a.process()
