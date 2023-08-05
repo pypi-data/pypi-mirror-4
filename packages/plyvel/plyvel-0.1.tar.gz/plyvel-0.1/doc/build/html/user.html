@@ -1,0 +1,562 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>User guide &mdash; Plyvel 0.1 documentation</title>
+    
+    <link rel="stylesheet" href="_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     '0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="Plyvel 0.1 documentation" href="index.html" />
+    <link rel="next" title="API reference" href="api.html" />
+    <link rel="prev" title="Installation guide" href="installation.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="api.html" title="API reference"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="installation.html" title="Installation guide"
+             accesskey="P">previous</a> |</li>
+        <li><a href="index.html">Plyvel 0.1 documentation</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="user-guide">
+<h1>User guide<a class="headerlink" href="#user-guide" title="Permalink to this headline">¶</a></h1>
+<p>This user guide gives an overview of Plyvel. It covers:</p>
+<ul class="simple">
+<li>opening and closing databases,</li>
+<li>storing and retrieving data,</li>
+<li>working with write batches,</li>
+<li>using snapshots,</li>
+<li>iterating over your data,</li>
+<li>using prefixed databases, and</li>
+<li>implementing custom comparators.</li>
+</ul>
+<p>Note: this document assumes basic familiarity with LevelDB; visit the <a class="reference external" href="http://code.google.com/p/leveldb/">LevelDB
+homepage</a> for more information about its features and design.</p>
+<div class="section" id="getting-started">
+<h2>Getting started<a class="headerlink" href="#getting-started" title="Permalink to this headline">¶</a></h2>
+<p>After <a class="reference internal" href="installation.html"><em>installing Plyvel</em></a>, we can simply import <tt class="docutils literal"><span class="pre">plyvel</span></tt>:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span> <span class="nn">plyvel</span>
+</pre></div>
+</div>
+<p>Let&#8217;s open a new database by creating a new <a class="reference internal" href="api.html#DB" title="DB"><tt class="xref py py-class docutils literal"><span class="pre">DB</span></tt></a> instance:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">db</span> <span class="o">=</span> <span class="n">plyvel</span><span class="o">.</span><span class="n">DB</span><span class="p">(</span><span class="s">&#39;/tmp/testdb/&#39;</span><span class="p">,</span> <span class="n">create_if_missing</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>That&#8217;s all there is to it. At this point <tt class="docutils literal"><span class="pre">/tmp/testdb/</span></tt> contains a fresh
+LevelDB database (assuming the directory did not contain a LevelDB database
+already).</p>
+<p>For real world applications, you probably want to tweak things like the size of
+the memory cache and the number of bits to use for the (optional) bloom filter.
+These settings, and many others, can be specified as arguments to the
+<a class="reference internal" href="api.html#DB" title="DB"><tt class="xref py py-class docutils literal"><span class="pre">DB</span></tt></a> constructor. For this tutorial we&#8217;ll just use the LevelDB
+defaults.</p>
+<p>To close the database we just opened, use <a class="reference internal" href="api.html#DB.close" title="DB.close"><tt class="xref py py-meth docutils literal"><span class="pre">DB.close()</span></tt></a> and inspect the
+<tt class="docutils literal"><span class="pre">closed</span></tt> property:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">db</span><span class="o">.</span><span class="n">closed</span>
+<span class="go">False</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">db</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">db</span><span class="o">.</span><span class="n">closed</span>
+<span class="go">True</span>
+</pre></div>
+</div>
+<p>Alternatively, you can just delete the variable that points to it, but this
+might not close the database immediately, e.g. because active iterators are
+using it:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="k">del</span> <span class="n">db</span>
+</pre></div>
+</div>
+<p>Note that the remainder of this tutorial assumes an open database, so you
+probably want to skip the above if you&#8217;re performing all the steps in this
+tutorial yourself.</p>
+</div>
+<div class="section" id="basic-operations">
+<h2>Basic operations<a class="headerlink" href="#basic-operations" title="Permalink to this headline">¶</a></h2>
+<p>Now that we have our database, we can use the basic LevelDB operations: putting,
+getting, and deleting data. Let&#8217;s look at these in turn.</p>
+<p>First we&#8217;ll add some data to the database by calling <a class="reference internal" href="api.html#DB.put" title="DB.put"><tt class="xref py py-meth docutils literal"><span class="pre">DB.put()</span></tt></a> with a
+key/value pair:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">db</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;key&#39;</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;value&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">db</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;another-key&#39;</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;another-value&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>To get the data out again, use <a class="reference internal" href="api.html#DB.get" title="DB.get"><tt class="xref py py-meth docutils literal"><span class="pre">DB.get()</span></tt></a>:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">db</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;key&#39;</span><span class="p">)</span>
+<span class="go">&#39;value&#39;</span>
+</pre></div>
+</div>
+<p>If you try to retrieve a key that does not exist, a <tt class="docutils literal"><span class="pre">None</span></tt> value is returned:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="k">print</span><span class="p">(</span><span class="n">db</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;yet-another-key&#39;</span><span class="p">))</span>
+<span class="go">None</span>
+</pre></div>
+</div>
+<p>Finally, to delete data from the database, use <a class="reference internal" href="api.html#DB.delete" title="DB.delete"><tt class="xref py py-meth docutils literal"><span class="pre">DB.delete()</span></tt></a>:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">db</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;key&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">db</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;another-key&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>At this point our database is empty again. Note that, in addition to the basic
+use shown above, the <a class="reference internal" href="api.html#DB.put" title="DB.put"><tt class="xref py py-meth docutils literal"><span class="pre">put()</span></tt></a>, <a class="reference internal" href="api.html#DB.get" title="DB.get"><tt class="xref py py-meth docutils literal"><span class="pre">get()</span></tt></a>, and
+<a class="reference internal" href="api.html#DB.delete" title="DB.delete"><tt class="xref py py-meth docutils literal"><span class="pre">delete()</span></tt></a> methods accept optional keyword arguments that influence
+their behaviour, e.g. for synchronous writes or reads that will not fill the
+cache.</p>
+</div>
+<div class="section" id="important-note-about-byte-strings">
+<h2>Important note about byte strings<a class="headerlink" href="#important-note-about-byte-strings" title="Permalink to this headline">¶</a></h2>
+<p>LevelDB stores all data as uninterpreted <em>byte strings</em>. Plyvel works the same
+way, and uses Python byte strings for all keys and values stored in and
+retrieved from LevelDB databases. In Python 2, this is the <cite>str</cite> type; in Python
+3, this is the <cite>bytes</cite> type. Since the default string type for string literals
+differs between Python 2 and 3, it is strongly recommended to use an explicit
+<tt class="docutils literal"><span class="pre">b</span></tt> prefix for all byte string literals in both Python 2 and Python 3 code,
+e.g. <tt class="docutils literal"><span class="pre">b'this</span> <span class="pre">is</span> <span class="pre">a</span> <span class="pre">byte</span> <span class="pre">string'</span></tt>. This avoids ambiguity and ensures that your
+code keeps working as intended if you switch between Python 2 and Python 3.</p>
+</div>
+<div class="section" id="write-batches">
+<h2>Write batches<a class="headerlink" href="#write-batches" title="Permalink to this headline">¶</a></h2>
+<p>LevelDB provides <em>write batches</em> for bulk data modification. Since batches are
+faster than repeatedly calling <a class="reference internal" href="api.html#DB.put" title="DB.put"><tt class="xref py py-meth docutils literal"><span class="pre">DB.put()</span></tt></a> or <a class="reference internal" href="api.html#DB.delete" title="DB.delete"><tt class="xref py py-meth docutils literal"><span class="pre">DB.delete()</span></tt></a>,
+batches are perfect for bulk loading data. Let&#8217;s write some data:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">wb</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">write_batch</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">xrange</span><span class="p">(</span><span class="mi">100000</span><span class="p">):</span>
+<span class="go">        wb.put(bytes(i), bytes(i) * 100)</span>
+<span class="gp">...</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">wb</span><span class="o">.</span><span class="n">write</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>Since write batches are committed in an atomic way, either the complete batch is
+written, or not at all, so if your machine crashes while LevelDB writes the
+batch to disk, the database will not end up containing partial or inconsistent
+data. This makes write batches very useful for multiple modifications to the
+database that should be applied as a group.</p>
+<p>Write batches can also act as context managers. The following code does the same
+as the example above, but there is no call to <a class="reference internal" href="api.html#WriteBatch.write" title="WriteBatch.write"><tt class="xref py py-meth docutils literal"><span class="pre">WriteBatch.write()</span></tt></a>
+anymore:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="k">with</span> <span class="n">db</span><span class="o">.</span><span class="n">write_batch</span><span class="p">()</span> <span class="k">as</span> <span class="n">wb</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">xrange</span><span class="p">(</span><span class="mi">100000</span><span class="p">):</span>
+<span class="gp">... </span>        <span class="n">wb</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="nb">bytes</span><span class="p">(</span><span class="n">i</span><span class="p">),</span> <span class="nb">bytes</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="o">*</span> <span class="mi">100</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>If the <tt class="docutils literal"><span class="pre">with</span></tt> block raises an exception, pending modifications in the write
+batch will still be written to the database. This means each modification using
+<a class="reference internal" href="api.html#WriteBatch.put" title="WriteBatch.put"><tt class="xref py py-meth docutils literal"><span class="pre">put()</span></tt></a> or <a class="reference internal" href="api.html#WriteBatch.delete" title="WriteBatch.delete"><tt class="xref py py-meth docutils literal"><span class="pre">delete()</span></tt></a> that happened before
+the exception was raised will be applied to the database:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="k">with</span> <span class="n">db</span><span class="o">.</span><span class="n">write_batch</span><span class="p">()</span> <span class="k">as</span> <span class="n">wb</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="n">wb</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;key-1&#39;</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;value-1&#39;</span><span class="p">)</span>
+<span class="gp">... </span>    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;Something went wrong!&quot;</span><span class="p">)</span>
+<span class="gp">... </span>    <span class="n">wb</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;key-2&#39;</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;value-2&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>At this point the database contains <tt class="docutils literal"><span class="pre">key-1</span></tt>, but not <tt class="docutils literal"><span class="pre">key-2</span></tt>. Sometimes this
+behaviour is undesirable. If you want to discard all pending modifications in
+the write batch if an exception occurs, you can simply set the <cite>transaction</cite>
+argument:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="k">with</span> <span class="n">db</span><span class="o">.</span><span class="n">write_batch</span><span class="p">(</span><span class="n">transaction</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span> <span class="k">as</span> <span class="n">wb</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="n">wb</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;key-3&#39;</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;value-3&#39;</span><span class="p">)</span>
+<span class="gp">... </span>    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;Something went wrong!&quot;</span><span class="p">)</span>
+<span class="gp">... </span>    <span class="n">wb</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;key-4&#39;</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;value-4&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>In this case the database will not be modified, because the <tt class="docutils literal"><span class="pre">with</span></tt> block
+raised an exception. In this example this means that neither <tt class="docutils literal"><span class="pre">key-3</span></tt> nor
+<tt class="docutils literal"><span class="pre">key-4</span></tt> will be saved.</p>
+<div class="admonition note">
+<p class="first admonition-title">Note</p>
+<p class="last">Write batches will never silently suppress exceptions. Exceptions will be
+propagated regardless of the value of the <cite>transaction</cite> argument, so in the
+examples above will you will still see the ValueError.</p>
+</div>
+</div>
+<div class="section" id="snapshots">
+<h2>Snapshots<a class="headerlink" href="#snapshots" title="Permalink to this headline">¶</a></h2>
+<p>A snapshot is a consistent read-only view over the entire database. Any data
+that is modified after the snapshot was taken, will not be seen by the snapshot.
+Let&#8217;s store a value:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">db</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;key&#39;</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;first-value&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Now we&#8217;ll make a snapshot using <a class="reference internal" href="api.html#DB.snapshot" title="DB.snapshot"><tt class="xref py py-meth docutils literal"><span class="pre">DB.snapshot()</span></tt></a>:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">sn</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">snapshot</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">sn</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;key&#39;</span><span class="p">)</span>
+<span class="go">&#39;first-value&#39;</span>
+</pre></div>
+</div>
+<p>At this point any modifications to the database will not be visible by the
+snapshot:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">db</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;key&#39;</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;second-value&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">sn</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;key&#39;</span><span class="p">)</span>
+<span class="go">&#39;first-value&#39;</span>
+</pre></div>
+</div>
+<p>Long-lived snapshots may consume significant resources in your LevelDB database,
+since the snapshot prevents LevelDB from cleaning up old data that is still
+accessible by the snapshot. This means that you should never keep a snapshot
+around longer than necessary. The snapshot and its associated resources will be
+released automatically when the variable goes out of scope and the garbage
+collector comes by to clean it up. Alternatively, you can delete it yourself:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="k">del</span> <span class="n">sn</span>
+</pre></div>
+</div>
+</div>
+<div class="section" id="iterators">
+<h2>Iterators<a class="headerlink" href="#iterators" title="Permalink to this headline">¶</a></h2>
+<p>All key/value pairs in a LevelDB database will be sorted by key. Because of
+this, data can be efficiently retrieved in sorted order. This is what iterators
+are for. Iterators allow you to efficiently iterate over all sorted key/value
+pairs in the database, or more likely, a range of the database.</p>
+<p>Let&#8217;s fill the database with some data first:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">db</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;key-1&#39;</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;value-1&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">db</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;key-5&#39;</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;value-5&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">db</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;key-3&#39;</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;value-3&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">db</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;key-2&#39;</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;value-2&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">db</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;key-4&#39;</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;value-4&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Now we can iterate over all data using a simple <tt class="docutils literal"><span class="pre">for</span></tt> loop, which will return
+all key/value pairs in lexicographical key order:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">db</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="k">print</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+<span class="gp">... </span>    <span class="k">print</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+<span class="gp">...</span>
+<span class="go">key-1</span>
+<span class="go">value-1</span>
+<span class="go">key-2</span>
+<span class="go">value-2</span>
+<span class="go">key-3</span>
+<span class="go">value-3</span>
+<span class="go">key-4</span>
+<span class="go">value-4</span>
+<span class="go">key-5</span>
+</pre></div>
+</div>
+<p>While the complete database can be iterated over by just looping over the
+<a class="reference internal" href="api.html#DB" title="DB"><tt class="xref py py-class docutils literal"><span class="pre">DB</span></tt></a> instance, this is generally not useful. The
+<a class="reference internal" href="api.html#DB.iterator" title="DB.iterator"><tt class="xref py py-meth docutils literal"><span class="pre">DB.iterator()</span></tt></a> method allows you to obtain more specific iterators. This
+method takes several optional arguments to specify how the iterator should
+behave.</p>
+<div class="section" id="iterating-over-a-key-range">
+<h3>Iterating over a key range<a class="headerlink" href="#iterating-over-a-key-range" title="Permalink to this headline">¶</a></h3>
+<p>Limiting the range of values that you want the iterator to iterate over can be
+achieved by supplying <cite>start</cite> and/or <cite>stop</cite> arguments:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">db</span><span class="o">.</span><span class="n">iterator</span><span class="p">(</span><span class="n">start</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;key-2&#39;</span><span class="p">,</span> <span class="n">stop</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;key-4&#39;</span><span class="p">):</span>
+<span class="gp">... </span>    <span class="k">print</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+<span class="gp">...</span>
+<span class="go">key-2</span>
+<span class="go">key-3</span>
+</pre></div>
+</div>
+<p>Any combination of <cite>start</cite> and <cite>stop</cite> arguments is possible. For example, to
+iterate from a specific start key until the end of the database:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">db</span><span class="o">.</span><span class="n">iterator</span><span class="p">(</span><span class="n">start</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;key-3&#39;</span><span class="p">):</span>
+<span class="gp">... </span>    <span class="k">print</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+<span class="gp">...</span>
+<span class="go">key-3</span>
+<span class="go">key-4</span>
+<span class="go">key-5</span>
+</pre></div>
+</div>
+<p>By default the start key is <em>inclusive</em> and the stop key is <em>exclusive</em>. This
+matches the behaviour of Python&#8217;s built-in <tt class="xref py py-func docutils literal"><span class="pre">range()</span></tt> function. If you
+want different behaviour, you can use the <cite>include_start</cite> and <cite>include_stop</cite>
+arguments:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">db</span><span class="o">.</span><span class="n">iterator</span><span class="p">(</span><span class="n">start</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;key-2&#39;</span><span class="p">,</span> <span class="n">include_start</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span>
+<span class="gp">... </span>                              <span class="n">stop</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;key-5&#39;</span><span class="p">,</span> <span class="n">include_stop</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+<span class="gp">... </span>    <span class="k">print</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+<span class="go">key-3</span>
+<span class="go">key-4</span>
+<span class="go">key-5</span>
+</pre></div>
+</div>
+<p>Instead of specifying <cite>start</cite> and <cite>stop</cite> keys, you can also specify a <cite>prefix</cite>
+for keys. In this case the iterator will only return key/value pairs whose key
+starts with the specified prefix. In our example, all keys have the same prefix,
+so this will return all key/value pairs:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">db</span><span class="o">.</span><span class="n">iterator</span><span class="p">(</span><span class="n">prefix</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;ke&#39;</span><span class="p">):</span>
+<span class="gp">... </span>    <span class="k">print</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+<span class="go">key-1</span>
+<span class="go">key-2</span>
+<span class="go">key-3</span>
+<span class="go">key-4</span>
+<span class="go">key-5</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">db</span><span class="o">.</span><span class="n">iterator</span><span class="p">(</span><span class="n">prefix</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;key-4&#39;</span><span class="p">):</span>
+<span class="gp">... </span>    <span class="k">print</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+<span class="go">key-4</span>
+</pre></div>
+</div>
+</div>
+<div class="section" id="limiting-the-returned-data">
+<h3>Limiting the returned data<a class="headerlink" href="#limiting-the-returned-data" title="Permalink to this headline">¶</a></h3>
+<p>If you&#8217;re only interested in either the key or the value, you can use the
+<cite>include_key</cite> and <cite>include_value</cite> arguments to omit data you don&#8217;t need:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="nb">list</span><span class="p">(</span><span class="n">db</span><span class="o">.</span><span class="n">iterator</span><span class="p">(</span><span class="n">start</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;key-2&#39;</span><span class="p">,</span> <span class="n">stop</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;key-4&#39;</span><span class="p">,</span> <span class="n">include_value</span><span class="o">=</span><span class="bp">False</span><span class="p">))</span>
+<span class="go">[&#39;key-2&#39;, &#39;key-3&#39;]</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">list</span><span class="p">(</span><span class="n">db</span><span class="o">.</span><span class="n">iterator</span><span class="p">(</span><span class="n">start</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;key-2&#39;</span><span class="p">,</span> <span class="n">stop</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;key-4&#39;</span><span class="p">,</span> <span class="n">include_key</span><span class="o">=</span><span class="bp">False</span><span class="p">))</span>
+<span class="go">[&#39;value-2&#39;, &#39;value-3&#39;]</span>
+</pre></div>
+</div>
+<p>Only requesting the data that you are interested in results in slightly faster
+iterators, since Plyvel will avoid unnecessary memory copies and object
+construction in this case.</p>
+</div>
+<div class="section" id="iterating-in-reverse-order">
+<h3>Iterating in reverse order<a class="headerlink" href="#iterating-in-reverse-order" title="Permalink to this headline">¶</a></h3>
+<p>LevelDB also supports reverse iteration. Just set the <cite>reverse</cite> argument to
+<cite>True</cite> to obtain a reverse iterator:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="nb">list</span><span class="p">(</span><span class="n">db</span><span class="o">.</span><span class="n">iterator</span><span class="p">(</span><span class="n">start</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;key-2&#39;</span><span class="p">,</span> <span class="n">stop</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;key-4&#39;</span><span class="p">,</span> <span class="n">include_value</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">reverse</span><span class="o">=</span><span class="bp">True</span><span class="p">))</span>
+<span class="go">[&#39;key-3&#39;, &#39;key-2&#39;]</span>
+</pre></div>
+</div>
+<p>Note that the <cite>start</cite> and <cite>stop</cite> keys are the same; the only difference is the
+<cite>reverse</cite> argument.</p>
+</div>
+<div class="section" id="iterating-over-snapshots">
+<h3>Iterating over snapshots<a class="headerlink" href="#iterating-over-snapshots" title="Permalink to this headline">¶</a></h3>
+<p>In addition to directly iterating over the database, LevelDB also supports
+iterating over snapshots using the <a class="reference internal" href="api.html#Snapshot.iterator" title="Snapshot.iterator"><tt class="xref py py-meth docutils literal"><span class="pre">Snapshot.iterator()</span></tt></a> method. This
+method works exactly the same as <a class="reference internal" href="api.html#DB.iterator" title="DB.iterator"><tt class="xref py py-meth docutils literal"><span class="pre">DB.iterator()</span></tt></a>, except that it operates
+on the snapshot instead of the complete database.</p>
+</div>
+<div class="section" id="advanced-iterator-usage">
+<h3>Advanced iterator usage<a class="headerlink" href="#advanced-iterator-usage" title="Permalink to this headline">¶</a></h3>
+<p>In the examples above, we&#8217;ve only used Python&#8217;s standard iteration methods using
+a <tt class="docutils literal"><span class="pre">for</span></tt> loop and the <tt class="xref py py-func docutils literal"><span class="pre">list()</span></tt> constructor. This suffices for most
+applications, but sometimes more advanced iterator tricks can be useful. Plyvel
+exposes pretty much all features of the LevelDB iterators using extra functions
+on the <a class="reference internal" href="api.html#Iterator" title="Iterator"><tt class="xref py py-class docutils literal"><span class="pre">Iterator</span></tt></a> instance that <a class="reference internal" href="api.html#DB.iterator" title="DB.iterator"><tt class="xref py py-meth docutils literal"><span class="pre">DB.iterator()</span></tt></a> and
+<a class="reference internal" href="api.html#Snapshot.iterator" title="Snapshot.iterator"><tt class="xref py py-meth docutils literal"><span class="pre">Snapshot.iterator()</span></tt></a> returns.</p>
+<p>For instance, you can step forward and backward over the same iterator. For
+forward stepping, Python&#8217;s standard <tt class="xref py py-func docutils literal"><span class="pre">next()</span></tt> built-in function can be
+used (this is also what a standard <tt class="docutils literal"><span class="pre">for</span></tt> loop does). For backward stepping,
+you will need to call the <a class="reference internal" href="api.html#Iterator.prev" title="Iterator.prev"><tt class="xref py py-meth docutils literal"><span class="pre">prev()</span></tt></a> method on the iterator:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">it</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">iterator</span><span class="p">(</span><span class="n">include_value</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">next</span><span class="p">(</span><span class="n">it</span><span class="p">)</span>
+<span class="go">&#39;key-1&#39;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">next</span><span class="p">(</span><span class="n">it</span><span class="p">)</span>
+<span class="go">&#39;key-2&#39;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">next</span><span class="p">(</span><span class="n">it</span><span class="p">)</span>
+<span class="go">&#39;key-3&#39;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">it</span><span class="o">.</span><span class="n">prev</span><span class="p">()</span>
+<span class="go">&#39;key-3&#39;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">next</span><span class="p">(</span><span class="n">it</span><span class="p">)</span>
+<span class="go">&#39;key-3&#39;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">next</span><span class="p">(</span><span class="n">it</span><span class="p">)</span>
+<span class="go">&#39;key-4&#39;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">next</span><span class="p">(</span><span class="n">it</span><span class="p">)</span>
+<span class="go">&#39;key-5&#39;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">next</span><span class="p">(</span><span class="n">it</span><span class="p">)</span>
+<span class="gt">Traceback (most recent call last):</span>
+  <span class="c">...</span>
+<span class="gr">StopIteration</span>
+
+<span class="gp">&gt;&gt;&gt; </span><span class="n">it</span><span class="o">.</span><span class="n">prev</span><span class="p">()</span>
+<span class="go">&#39;key-5&#39;</span>
+</pre></div>
+</div>
+<p>Note that for reverse iterators, the definition of &#8216;forward&#8217; and &#8216;backward&#8217; is
+inverted, i.e. calling <tt class="docutils literal"><span class="pre">next(it)</span></tt> on a reverse iterator will return the key
+that sorts <em>before</em> the key that was most recently returned.</p>
+<p>Additionally, Plyvel supports seeking on iterators. See the <a class="reference internal" href="api.html#Iterator" title="Iterator"><tt class="xref py py-class docutils literal"><span class="pre">Iterator</span></tt></a>
+API reference for more information about advanced iterator usage.</p>
+</div>
+</div>
+<div class="section" id="prefixed-databases">
+<h2>Prefixed databases<a class="headerlink" href="#prefixed-databases" title="Permalink to this headline">¶</a></h2>
+<p>LevelDB databases have a single key space. A common way to split a LevelDB
+database into separate partitions is to use a prefix for each partition. Plyvel
+makes this very easy to do using the <a class="reference internal" href="api.html#DB.prefixed_db" title="DB.prefixed_db"><tt class="xref py py-meth docutils literal"><span class="pre">DB.prefixed_db()</span></tt></a> method:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">my_sub_db</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">prefixed_db</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;example-&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The <tt class="docutils literal"><span class="pre">my_sub_db</span></tt> variable in this example points to an instance of the
+<a class="reference internal" href="api.html#PrefixedDB" title="PrefixedDB"><tt class="xref py py-class docutils literal"><span class="pre">PrefixedDB</span></tt></a> class. This class behaves mostly like a normal Plyvel
+<a class="reference internal" href="api.html#DB" title="DB"><tt class="xref py py-class docutils literal"><span class="pre">DB</span></tt></a> instance, but all operations will transparently add the key
+prefix to all keys that it accepts (e.g. in <a class="reference internal" href="api.html#PrefixedDB.get" title="PrefixedDB.get"><tt class="xref py py-meth docutils literal"><span class="pre">PrefixedDB.get()</span></tt></a>), and
+strip the key prefix from all keys that it returns (e.g. from
+<a class="reference internal" href="api.html#PrefixedDB.iterator" title="PrefixedDB.iterator"><tt class="xref py py-meth docutils literal"><span class="pre">PrefixedDB.iterator()</span></tt></a>). Examples:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">my_sub_db</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;some-key&#39;</span><span class="p">)</span>  <span class="c"># this looks up b&#39;example-some-key&#39;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">my_sub_db</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;some-key&#39;</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;value&#39;</span><span class="p">)</span>  <span class="c"># this sets b&#39;example-some-key&#39;</span>
+</pre></div>
+</div>
+<p>Almost all functionality available on <a class="reference internal" href="api.html#DB" title="DB"><tt class="xref py py-class docutils literal"><span class="pre">DB</span></tt></a> is also available from
+<a class="reference internal" href="api.html#PrefixedDB" title="PrefixedDB"><tt class="xref py py-class docutils literal"><span class="pre">PrefixedDB</span></tt></a>: write batches, iterators, snapshots, and also iterators
+over snapshots. A <a class="reference internal" href="api.html#PrefixedDB" title="PrefixedDB"><tt class="xref py py-class docutils literal"><span class="pre">PrefixedDB</span></tt></a> is simply a lightweight object that
+delegates to the the real <a class="reference internal" href="api.html#DB" title="DB"><tt class="xref py py-class docutils literal"><span class="pre">DB</span></tt></a>, which is accessible using the
+<a class="reference internal" href="api.html#PrefixedDB.db" title="PrefixedDB.db"><tt class="xref py py-attr docutils literal"><span class="pre">db</span></tt></a> attribute:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">real_db</span> <span class="o">=</span> <span class="n">my_sub_db</span><span class="o">.</span><span class="n">db</span>
+</pre></div>
+</div>
+<p>You can even nest key spaces by creating prefixed prefixed databases using
+<a class="reference internal" href="api.html#PrefixedDB.prefixed_db" title="PrefixedDB.prefixed_db"><tt class="xref py py-meth docutils literal"><span class="pre">PrefixedDB.prefixed_db()</span></tt></a>:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">my_sub_sub_db</span> <span class="o">=</span> <span class="n">my_sub_db</span><span class="o">.</span><span class="n">prefixed_db</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;other-prefix&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="section" id="custom-comparators">
+<h2>Custom comparators<a class="headerlink" href="#custom-comparators" title="Permalink to this headline">¶</a></h2>
+<p>LevelDB provides an ordered data store, which means all keys are stored in
+sorted order. By default, a byte-wise comparator that works like
+<tt class="xref c c-func docutils literal"><span class="pre">strcmp()</span></tt> is used, but this behaviour can be changed by providing a
+custom comparator. Plyvel allows you to use a Python callable as a custom
+LevelDB comparator.</p>
+<p>The signature for a comparator callable is simple: it takes two byte strings and
+should return either a positive number, zero, or a negative number, depending on
+whether the first byte string is greater than, equal to or less than the second
+byte string. (These are the same semantics as the built-in <tt class="xref py py-func docutils literal"><span class="pre">cmp()</span></tt>,
+which has been removed in Python 3 in favour of the so-called ‘rich’ comparison
+methods.)</p>
+<p>A simple comparator function for case insensitive comparisons might look like
+this:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="k">def</span> <span class="nf">comparator</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span>
+    <span class="n">a</span> <span class="o">=</span> <span class="n">a</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+    <span class="n">b</span> <span class="o">=</span> <span class="n">b</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+
+    <span class="k">if</span> <span class="n">a</span> <span class="o">&lt;</span> <span class="n">b</span><span class="p">:</span>
+        <span class="c"># a sorts before b</span>
+        <span class="k">return</span> <span class="o">-</span><span class="mi">1</span>
+
+    <span class="k">if</span> <span class="n">a</span> <span class="o">&gt;</span> <span class="n">b</span><span class="p">:</span>
+        <span class="c"># a sorts after b</span>
+        <span class="k">return</span> <span class="mi">1</span>
+
+    <span class="c"># a and b are equal</span>
+    <span class="k">return</span> <span class="mi">0</span>
+</pre></div>
+</div>
+<p>(This is a toy example. It only works properly for byte strings with characters
+in the ASCII range.)</p>
+<p>To use this comparator, pass the <cite>comparator</cite> and <cite>comparator_name</cite> arguments to
+the <a class="reference internal" href="api.html#DB" title="DB"><tt class="xref py py-class docutils literal"><span class="pre">DB</span></tt></a> constructor:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">db</span> <span class="o">=</span> <span class="n">DB</span><span class="p">(</span><span class="s">&#39;/path/to/database/&#39;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="n">comparator</span><span class="o">=</span><span class="n">comparator</span><span class="p">,</span>  <span class="c"># the function defined above</span>
+<span class="gp">... </span>        <span class="n">comparator_name</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;CaseInsensitiveComparator&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The comparator name, which must be a byte string, will be stored in the
+database. LevelDB refuses to open existing databases if the provided comparator
+name does not match the one in the database.</p>
+<p>LevelDB invokes the comparator callable repeatedly during many of its
+operations, including storing and retrieving data, but also during background
+compactions. Background compaction uses threads that are ‘invisible’ from
+Python. This means that custom comparator callables <em>must not</em> raise any
+exceptions, since there is no proper way to recover from those. If an exception
+happens nonetheless, Plyvel will print the traceback to <cite>stderr</cite> and immediately
+abort your program to avoid database corruption.</p>
+<p>A final thing to keep in mind is that custom comparators written in Python come
+with a considerable performance impact. Experiments with simple Python
+comparator functions like the example above show a 4× slowdown for bulk writes
+compared to the built-in LevelDB comparator.</p>
+<p class="rubric">Next steps</p>
+<p>The user guide should be enough to get you started with Plyvel. A complete
+description of the Plyvel API is available from the <a class="reference internal" href="api.html"><em>API reference</em></a>.</p>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">User guide</a><ul>
+<li><a class="reference internal" href="#getting-started">Getting started</a></li>
+<li><a class="reference internal" href="#basic-operations">Basic operations</a></li>
+<li><a class="reference internal" href="#important-note-about-byte-strings">Important note about byte strings</a></li>
+<li><a class="reference internal" href="#write-batches">Write batches</a></li>
+<li><a class="reference internal" href="#snapshots">Snapshots</a></li>
+<li><a class="reference internal" href="#iterators">Iterators</a><ul>
+<li><a class="reference internal" href="#iterating-over-a-key-range">Iterating over a key range</a></li>
+<li><a class="reference internal" href="#limiting-the-returned-data">Limiting the returned data</a></li>
+<li><a class="reference internal" href="#iterating-in-reverse-order">Iterating in reverse order</a></li>
+<li><a class="reference internal" href="#iterating-over-snapshots">Iterating over snapshots</a></li>
+<li><a class="reference internal" href="#advanced-iterator-usage">Advanced iterator usage</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#prefixed-databases">Prefixed databases</a></li>
+<li><a class="reference internal" href="#custom-comparators">Custom comparators</a></li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="installation.html"
+                        title="previous chapter">Installation guide</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="api.html"
+                        title="next chapter">API reference</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/user.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="api.html" title="API reference"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="installation.html" title="Installation guide"
+             >previous</a> |</li>
+        <li><a href="index.html">Plyvel 0.1 documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2012, Wouter Bolsterlee.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>
