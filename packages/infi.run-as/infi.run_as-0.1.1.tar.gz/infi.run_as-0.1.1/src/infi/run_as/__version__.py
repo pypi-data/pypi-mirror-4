@@ -1,0 +1,10 @@
+__version__ = "0.1.1"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '9587958ca81ad8e50daf052f7825df9ed0f4d34d'
+__git_head_subject__ = 'Finished release v0.1.1.'
+__git_head_message__ = '* release/v0.1.1:\n  TRIVIAL setting current directory in a different way\n  buildout.cfg: adding mock to requirements\n  TRIVIAL fixing previous commit\n  TRIVIAL setting current directory for new process\n  empty commit after version v0.1'
+__git_dirty_diff__ = ''
