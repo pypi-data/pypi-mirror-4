@@ -1,0 +1,53 @@
+'''
+User interface utilities
+'''
+#from mako.template import Template
+
+def print_diff(text_a, text_b):
+    ''' Print difference between two values '''
+    a_lines = text_a.splitlines(1)
+    b_lines = text_b.splitlines(1)
+    diff = ndiff(a_lines, b_lines)
+
+    for line in diff:
+        print('\033[%sm%s\033[0m' % ({
+            '-':91,
+            '+':92,
+            '?':94,
+        }.get(line[0], 0), line[:-1]))
+
+def ask_y_n(question):
+    while True:
+        ans = input(question)
+        if ans.lower() == 'y':
+            return True
+        if ans.lower() == 'n':
+            return False
+        if not ans.strip():
+            return ''
+        print('дозволені тільки відповіді y/n та порожня')
+
+
+def shift_block(block, spaces):
+    ''' shifts lines of block of text to right '''
+    lines = block.splitlines()
+    lines = [' ' * spaces + line.strip() for line in lines]
+    return '\n'.join(lines).strip()
+
+def link(text):
+    print(text)
+    if isinstance(text, tuple):
+        text = '|'.join(text)
+    return '[[{}]]'.format(text) if text else text
+
+def link_list(items, separator=', '):
+    if isinstance(items, str):
+        items = eval(items)
+    return separator.join(map(link, items))
+
+def render(template, **kwargs):
+    return Template(template).render(
+        link=link,
+        link_list=link_list,
+        **kwargs
+    )
