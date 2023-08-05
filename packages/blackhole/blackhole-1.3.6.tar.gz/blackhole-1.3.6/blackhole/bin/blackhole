@@ -1,0 +1,120 @@
+#!/usr/bin/env python
+
+# std
+import os
+import pwd
+import grp
+import functools
+import socket
+import random
+import re
+import sys
+import socket
+
+# ssl check
+try:
+    import ssl
+except ImportError:
+    ssl = None
+
+# install checks
+try:
+    import tornado
+except ImportError:
+    print "Tornado is not installed but is required. Please run 'pip install tornado==2.2.1'"
+    sys.exit(1)
+
+try:
+    import setproctitle
+except ImportError:
+    print "setproctitle is not installed but is required. Please run 'pip install setproctitle'"
+    sys.exit(1)
+
+# Just in case some tit tries to run the file in /bin
+try:
+    from blackhole import __pname__
+except ImportError:
+    print "blackhole is not installed, please install it using the instructions in the README file"
+    sys.exit(1)
+
+# pip stuff
+import setproctitle
+import tornado
+from tornado import ioloop
+from tornado.options import options
+from deiman.deiman import Deiman
+
+# blackhole
+from blackhole import __pname__, __fullname__
+from blackhole.opts import *
+from blackhole.log import log
+from blackhole.connection import connection_ready, sockets
+from blackhole.ssl_utils import verify_ssl_opts, BlackholeSSLException,\
+    sslkwargs
+from blackhole.utils import chgrp, chown
+
+
+setproctitle.setproctitle(__pname__)
+
+tornado.options.parse_command_line()
+if options.conf and os.path.exists(options.conf):
+    tornado.options.parse_config_file(options.conf)
+
+if options.ssl and not ssl:
+    log.error("Unable to use SSL as ssl library is not compiled in")
+    sys.exit(1)
+
+if __name__ == "__main__":
+    action = None
+    for arg in sys.argv[1:]:
+        if arg in ("--version", "-v"):
+            print "Version:", __fullname__
+            sys.exit(0)
+        if not arg.startswith("--"):
+            action = arg
+    if action not in ('start', 'stop', 'status') or action is None:
+        print_help()
+        sys.exit(2)
+
+    if len(sys.argv) == 1:
+        print_help()
+        sys.exit(2)
+
+    if options.ssl:
+        try:
+            verify_ssl_opts()
+        except BlackholeSSLException, e:
+            log.error(e)
+            sys.exit(1)
+        sslkwargs['keyfile'] = options.ssl_key
+        sslkwargs['certfile'] = options.ssl_cert
+
+    io_loop = ioloop.IOLoop.instance()
+    d = Deiman(options.pid)
+
+    # Change group and owner and start the ioloop
+    chgrp()
+    chown()
+
+    # Do the daemon actions
+    if action == "start":
+        d.start()
+    elif action == "stop":
+        d.stop()
+        sys.exit(0)
+    elif action == "status":
+        d.status()
+        sys.exit(0)
+
+    # Iterate over the dictionary of socket connections
+    # and add them to the IOLoop
+    for _, sock in sockets().iteritems():
+        callback = functools.partial(connection_ready, sock)
+        io_loop.add_handler(sock.fileno(), callback, io_loop.READ)
+
+    try:
+        io_loop.start()
+    except KeyboardInterrupt, SystemExit:
+        io_loop.stop()
+        d.stop()
+        sys.exit(0)
