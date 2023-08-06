@@ -1,0 +1,46 @@
+StructuRX interprets medication prescriptions into a structured format using
+dependency parses [1] or third-party drug NER pipeline [2].
+
+The dependency-parse version uses a hand-crafted set of rules as described in
+[1] based on the output of the `ClearParser dependency parser
+<https://code.google.com/p/clearparser>`_, while the alternative method
+described in [2] uses the output of the drug NER pipeline from the `cTAKES
+clinical NER system <http://sourceforge.net/projects/ohnlp/files/cTAKES/>`_.
+
+Created by Andrew MacKinlay from the `Biomedical Informatics team 
+<http://nicta.com.au/business/health/biomedical_informatics>`_ at `NICTA 
+<http://nicta.com.au>`_, and licensed under the Apache License 2.0.
+
+Recommended installation method:
+
+::
+
+  $ pip install StructuRX
+
+But of course you can instead do an old-fashioned:
+
+::
+
+ $ python setup.py install
+
+from a `VCS checkout <https://bitbucket.org/nicta_biomed/structurx/src>`_ or 
+`tarball/zip download <https://bitbucket.org/nicta_biomed/structurx/downloads>`_.
+In the latter case you will need to ensure that `ClearWrap 
+<https://bitbucket.org/nicta_biomed/clearwrap>`_ is 
+installed, and in either case you will need a copy of the 
+`NICTA fork <https://bitbucket.org/nicta_biomed/clearparser_flex>`_
+of `ClearParser <https://code.google.com/p/clearparser>`_ available to do the
+dependency parsing. We highly recommend installing into a virtualenv.
+If you wish to test against cTAKES, that will naturally need to be installed as 
+well. 
+
+After installing, run the provided script ``structurx-run.py`` and follow
+the instructions for configuration.
+
+* [1] A. MacKinlay and K. Verspoor. 2012. `Extracting structured information
+  from free-text medication prescriptions using dependencies
+  <http://www.nicta.com.au/pub?id=6102>`_. DTMBIO 2012. 
+* [2] A. MacKinlay and K.
+  Verspoor. 2013. A Comparison of Strategies for Extracting Structured
+  Information from Free-Text Medication Prescriptions. LOUHI 2013.
+
