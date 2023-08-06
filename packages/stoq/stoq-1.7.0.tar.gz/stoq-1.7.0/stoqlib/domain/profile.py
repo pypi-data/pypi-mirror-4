@@ -1,0 +1,122 @@
+# -*- coding: utf-8 -*-
+# vi:si:et:sw=4:sts=4:ts=4
+
+##
+## Copyright (C) 2005-2007 Async Open Source <http://www.async.com.br>
+## All rights reserved
+##
+## This program is free software; you can redistribute it and/or modify
+## it under the terms of the GNU Lesser General Public License as published by
+## the Free Software Foundation; either version 2 of the License, or
+## (at your option) any later version.
+##
+## This program is distributed in the hope that it will be useful,
+## but WITHOUT ANY WARRANTY; without even the implied warranty of
+## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+## GNU Lesser General Public License for more details.
+##
+## You should have received a copy of the GNU Lesser General Public License
+## along with this program; if not, write to the Free Software
+## Foundation, Inc., or visit: http://www.gnu.org/.
+##
+##
+##  Author(s): Stoq Team <stoq-devel@async.com.br>
+##
+""" User profile management for applications"""
+
+from kiwi.component import get_utility
+from storm.references import Reference, ReferenceSet
+
+from stoqlib.database.properties import UnicodeCol, IntCol, BoolCol
+from stoqlib.domain.base import Domain
+from stoqlib.lib.interfaces import IApplicationDescriptions
+from stoqlib.lib.translation import stoqlib_gettext as _
+
+
+class ProfileSettings(Domain):
+    """Profile settings for user profile instances. Each instance of this
+    class stores information about the access availability in a certain
+    application."""
+
+    __storm_table__ = 'profile_settings'
+    app_dir_name = UnicodeCol()
+    has_permission = BoolCol(default=False)
+    user_profile_id = IntCol()
+    user_profile = Reference(user_profile_id, 'UserProfile.id')
+
+    @classmethod
+    def set_permission(cls, store, profile, app, permission):
+        """
+        Set the permission for a user profile to use a application
+        :param store: a store
+        :param profile: a UserProfile
+        :param app: name of the application
+        :param permission: a boolean of the permission
+        """
+        setting = store.find(cls, user_profile=profile,
+                             app_dir_name=app).one()
+        setting.has_permission = permission
+
+
+class UserProfile(Domain):
+    """User profile definition."""
+
+    __storm_table__ = 'user_profile'
+    name = UnicodeCol()
+    profile_settings = ReferenceSet('id', 'ProfileSettings.user_profile_id')
+
+    @classmethod
+    def create_profile_template(cls, store, name,
+                                has_full_permission=False):
+        profile = cls(store=store, name=name)
+        descr = get_utility(IApplicationDescriptions)
+        for app_dir in descr.get_application_names():
+            ProfileSettings(store=store,
+                            has_permission=has_full_permission,
+                            app_dir_name=app_dir, user_profile=profile)
+        return profile
+
+    @classmethod
+    def get_default(cls, store):
+        # FIXME: We need a way to set the default profile in the interface,
+        # instead of relying on the name (the user may change it)
+        profile = store.find(cls, name=_(u'Salesperson')).one()
+        # regression: check if it was not created in english.
+        if not profile:
+            profile = store.find(cls, name=u'Salesperson').one()
+
+        # Just return any other profile, so that the user is created with
+        # one.
+        if not profile:
+            profile = store.find(cls).any()
+        return profile
+
+    def add_application_reference(self, app_name, has_permission=False):
+        store = self.store
+        ProfileSettings(store=store, app_dir_name=app_name,
+                        has_permission=has_permission, user_profile=self)
+
+    def check_app_permission(self, app_name):
+        """Check if the user has permission to use an application
+        :param app_name: name of application to check
+        """
+        store = self.store
+        return bool(store.find(ProfileSettings,
+            user_profile=self,
+            app_dir_name=app_name,
+            has_permission=True).one())
+
+
+def update_profile_applications(store, profile=None):
+    """This method checks for all available applications and perform a
+    comparision with the application names stored in user profiles. If a
+    certain application is not there it is added.
+    """
+    app_list = get_utility(IApplicationDescriptions).get_application_names()
+    profiles = profile and [profile] or store.find(UserProfile)
+    for app_name in app_list:
+        for profile in profiles:
+            settings = profile.profile_settings
+            app_names = [s.app_dir_name for s in settings]
+            if not app_name in app_names:
+                profile.add_application_reference(app_name)
