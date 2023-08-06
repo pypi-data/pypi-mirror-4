@@ -1,0 +1,67 @@
+# optional and settable from the command line
+working_dir: './working'
+
+# optional
+ssh_options:
+  agent: true # default False
+  identities: # default []
+    - "/home/batch/.ssh/id_dsa-nopasswd"
+
+# optional
+notification_options:
+  smtp_host: localhost
+  notification_addr: batch+errors@example.com
+
+command_context:
+  PYTHON: /usr/bin/python
+  TMPDIR: /tmp
+
+# required
+nodes:
+  - name: node1
+    hostname: 'batch1'
+    username: 'tronuser'
+  - name: node2
+    hostname: 'batch2'
+    username: 'tronuser'
+
+node_pools:
+  - name: pool
+    nodes: [node1, node2]
+
+jobs:
+  - name: "job0"
+    node: pool
+    all_nodes: True
+    schedule:
+        start_time: 04:00:00
+    queueing: False
+    actions:
+      - name: verify_logs_present
+        command: >
+            ls /var/log/app/log_%(shortdate-1).txt
+      - name: convert_logs
+        command: >
+            convert_logs /var/log/app/log_%(shortdate-1).txt \
+                /var/log/app_converted/log_%(shortdate-1).txt
+        requires: [verify_logs_present]
+    # this will run when the job succeeds or fails
+    cleanup_action:
+        command: "rm /%(TMPDIR)s/random_temp_file"
+
+  - name: "job1"
+    node: node
+    schedule: "every monday at 09:00"
+    queueing: False
+    actions:
+      - name: "actionAlone"
+        command: "cat big.txt; sleep 10"
+
+services:
+  - name: "testserv"
+    node: pool
+    count: 10
+    monitor_interval: 20
+    restart_interval: 60
+    pid_file: "/var/run/%(name)s-%(instance_number)s.pid"
+    command: "sleep 10; echo %! > %(pid_file)s"

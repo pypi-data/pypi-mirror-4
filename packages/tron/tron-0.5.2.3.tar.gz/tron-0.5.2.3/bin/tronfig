@@ -1,0 +1,130 @@
+#!/usr/bin/env python
+from __future__ import with_statement
+import logging
+import os
+import tempfile
+import optparse
+import sys
+
+import tron
+from tron import commands
+from tron.commands.client import Client
+from tron.config import config_parse
+from tron.config import schema, manager, ConfigError
+
+
+log = logging.getLogger('tronfig')
+
+
+def parse_options():
+    parser = optparse.OptionParser("usage: %prog [<name>] [options] [-]",
+                                   version="%%prog %s" % tron.__version__)
+
+    parser.add_option("--print", "-p", action="store_true",
+                      dest="print_config",
+                      help="Print config to stdout, rather than uploading",
+                      default=False)
+    parser.add_option("--verbose", "-v", action="count", dest="verbose",
+                      help="Verbose logging", default=0)
+    parser.add_option("--server", action="store", dest="server",
+                      help="Server URL to connect to", default=None)
+    parser.add_option("--save", "-s", action="store_true", dest="save_config",
+                      help="Save options used on this job for next time.",
+                      default=False)
+
+    options, args = parser.parse_args(sys.argv)
+    if args[-1] == '-':
+        options.from_stdin = True
+        args = args[:-1]
+    else:
+        options.from_stdin = False
+
+    options.config_name = args[1] if len(args) > 1 else schema.MASTER_NAMESPACE
+    return options
+
+
+def upload_config(client, config_name, contents, config_hash):
+    response = client.config(config_name,
+                             config_data=contents, config_hash=config_hash)
+    if 'error' in response:
+        log.error(response['error'])
+        return False
+    print >>sys.stderr, "Configuration uploaded successfully"
+    return True
+
+
+def edit_config(contents):
+    fi = tempfile.NamedTemporaryFile(suffix='.yaml')
+    fi.write(contents)
+    fi.flush()
+
+    editor = os.getenv('EDITOR') or os.getenv('VISUAL') or 'vim'
+    while os.system("%s %s" % (editor, fi.name)):
+        response = raw_input(
+            "Editor returned an error. Continue editing? (y/n): ")
+        if response[:1].lower() == 'n':
+            return
+
+    with open(fi.name) as upload_file:
+        return upload_file.read()
+
+
+def validate(config_name, config_content):
+    try:
+        config_data = manager.from_string(config_content)
+        config_parse.validate_fragment(config_name, config_data)
+        return True
+    except ConfigError, e:
+        log.error(e)
+
+
+
+def print_config(client, config_name):
+    print client.config(config_name)['config']
+
+
+def update_from_stdin(client, config_name):
+    config_content = sys.stdin.read()
+    config_hash = client.config(config_name)['hash']
+    if validate(config_name, config_content):
+        upload_config(client, config_name, config_content, config_hash)
+
+
+def update_with_editor(client, config_name):
+    if not sys.stdout.isatty():
+        raise SystemExit("No editing possible.")
+
+    response        = client.config(config_name)
+    config_content  = response['config']
+    config_hash     = response['hash']
+    while True:
+        config_content = edit_config(config_content)
+        if not config_content:
+            log.warn("Cancelling edit.")
+            return
+
+        if validate(config_name, config_content):
+            if upload_config(client, config_name, config_content, config_hash):
+                return
+
+        response = raw_input(
+            "There are errors in your configuration. Continue editing? (y/n): ")
+        if response[:1].lower() == 'n':
+            return
+
+
+if __name__ == '__main__':
+    options = parse_options()
+    commands.setup_logging(options)
+    commands.load_config(options)
+    client = Client(options)
+    config_name = options.config_name
+
+    if options.print_config:
+        print_config(client, config_name)
+
+    elif options.from_stdin:
+        update_from_stdin(client, config_name)
+
+    else:
+        update_with_editor(client, config_name)
