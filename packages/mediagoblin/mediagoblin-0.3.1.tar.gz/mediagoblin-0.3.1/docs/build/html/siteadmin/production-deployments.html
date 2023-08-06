@@ -1,0 +1,206 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Considerations for Production Deployments &mdash; GNU MediaGoblin 0.3.2.dev documentation</title>
+    
+    <link rel="stylesheet" href="../_static/mg.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '0.3.2.dev',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <link rel="top" title="GNU MediaGoblin 0.3.2.dev documentation" href="../index.html" />
+    <link rel="next" title="Configuring MediaGoblin" href="configuration.html" />
+    <link rel="prev" title="Deploying MediaGoblin" href="deploying.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="configuration.html" title="Configuring MediaGoblin"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="deploying.html" title="Deploying MediaGoblin"
+             accesskey="P">previous</a> |</li>
+        <li><a href="../index.html">GNU MediaGoblin 0.3.2.dev documentation</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="considerations-for-production-deployments">
+<h1>Considerations for Production Deployments<a class="headerlink" href="#considerations-for-production-deployments" title="Permalink to this headline">¶</a></h1>
+<p>This document contains a number of suggestions for deploying
+MediaGoblin in actual production environments. Consider
+&#8220;<a class="reference internal" href="deploying.html"><em>Deploying MediaGoblin</em></a>&#8221; for a basic overview of how to deploy MediaGoblin.</p>
+<div class="section" id="deploy-with-paste">
+<h2>Deploy with Paste<a class="headerlink" href="#deploy-with-paste" title="Permalink to this headline">¶</a></h2>
+<p>The instance configured with <tt class="docutils literal"><span class="pre">./lazyserver.sh</span></tt> is not ideal for a
+production MediaGoblin deployment. Ideally, you should be able to use
+an &#8220;init&#8221; or &#8220;control&#8221; script to launch and restart the MediaGoblin
+process.</p>
+<p>Use the following command as the basis for such a script:</p>
+<div class="highlight-python"><pre>CELERY_ALWAYS_EAGER=true \
+ /srv/mediagoblin.example.org/mediagoblin/bin/paster serve \
+ /srv/mediagoblin.example.org/mediagoblin/paste.ini \
+ --pid-file=/var/run/mediagoblin.pid \
+ --server-name=fcgi fcgi_host=127.0.0.1 fcgi_port=26543</pre>
+</div>
+<p>The above configuration places MediaGoblin in &#8220;always eager&#8221; mode
+with Celery, this means that submissions of content will be processed
+synchronously, and the user will advance to the next page only after
+processing is complete. If we take Celery out of &#8220;always eager mode,&#8221;
+the user will be able to immediately return to the MediaGoblin site
+while processing is ongoing. In these cases, use the following command
+as the basis for your script:</p>
+<div class="highlight-python"><pre>CELERY_ALWAYS_EAGER=false \
+ /srv/mediagoblin.example.org/mediagoblin/bin/paster serve \
+ /srv/mediagoblin.example.org/mediagoblin/paste.ini \
+ --pid-file=/var/run/mediagoblin.pid \
+ --server-name=fcgi fcgi_host=127.0.0.1 fcgi_port=26543</pre>
+</div>
+</div>
+<div class="section" id="separate-celery">
+<h2>Separate Celery<a class="headerlink" href="#separate-celery" title="Permalink to this headline">¶</a></h2>
+<p>While the <tt class="docutils literal"><span class="pre">./lazyserer.sh</span></tt> configuration provides an efficient way to
+start using a MediaGoblin instance, it is not suitable for production
+deployments for several reasons:</p>
+<p>In nearly every scenario, work on the Celery queue will need to
+balance with the demands of other processes, and cannot proceed
+synchronously. This is a particularly relevant problem if you use
+MediaGoblin to host video content. Processing with Celery ought to be
+operationally separate from the MediaGoblin application itself, this
+simplifies management and support better workload distribution.</p>
+<p>Basically, if you&#8217;re doing anything beyond a trivial workload, such as
+image hosting for a small set of users, or have limited media types
+such as &#8220;ASCII art&#8221; or icon sharing, you will need to run <tt class="docutils literal"><span class="pre">celeryd</span></tt>
+as a separate process.</p>
+<p>Build an <a class="reference internal" href="#init-script"><em>init script</em></a> around the following
+command:</p>
+<div class="highlight-python"><pre>CELERY_CONFIG_MODULE=mediagoblin.init.celery.from_celery ./bin/celeryd</pre>
+</div>
+<p>Modify your existing MediaGoblin and application init scripts, if
+necessary, to prevent them from starting their own <tt class="docutils literal"><span class="pre">celeryd</span></tt>
+processes.</p>
+</div>
+<div class="section" id="use-an-init-script">
+<span id="init-script"></span><h2>Use an Init Script<a class="headerlink" href="#use-an-init-script" title="Permalink to this headline">¶</a></h2>
+<p>Look in your system&#8217;s <tt class="docutils literal"><span class="pre">/etc/init.d/</span></tt> or <tt class="docutils literal"><span class="pre">/etc/rc.d/</span></tt> directory for
+examples of how to build scripts that will start, stop, and restart
+MediaGoblin and Celery. These scripts will vary by
+distribution/operating system.</p>
+<p>These are scripts provided by the MediaGoblin community:</p>
+<dl class="docutils">
+<dt>Debian</dt>
+<dd><ul class="first last simple">
+<li><a class="reference external" href="https://github.com/jwandborg/mediagoblin-init-scripts">GNU MediaGoblin init scripts</a>
+by <a class="reference external" href="http://wandborg.se">Joar Wandborg</a></li>
+</ul>
+</dd>
+<dt>Arch Linux</dt>
+<dd><ul class="first last simple">
+<li><a class="reference external" href="http://whird.jpope.org/2012/04/14/mediagoblin-archlinux-rcd-scripts">MediaGoblin - ArchLinux rc.d scripts</a>
+by <a class="reference external" href="http://jpope.org/">Jeremy Pope</a></li>
+<li><a class="reference external" href="http://chimo.chromic.org/2012/03/01/mediagoblin-init-script-on-archlinux/">Mediagoblin init script on Archlinux</a>
+by <a class="reference external" href="http://chimo.chromic.org/">Chimo</a></li>
+</ul>
+</dd>
+</dl>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+            <p class="logo"><a href="../index.html">
+              <img class="logo" src="../_static/logo_docs.png" alt="Logo"/>
+            </a></p>
+  <h3><a href="../index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Considerations for Production Deployments</a><ul>
+<li><a class="reference internal" href="#deploy-with-paste">Deploy with Paste</a></li>
+<li><a class="reference internal" href="#separate-celery">Separate Celery</a></li>
+<li><a class="reference internal" href="#use-an-init-script">Use an Init Script</a></li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="deploying.html"
+                        title="previous chapter">Deploying MediaGoblin</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="configuration.html"
+                        title="next chapter">Configuring MediaGoblin</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="../_sources/siteadmin/production-deployments.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="configuration.html" title="Configuring MediaGoblin"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="deploying.html" title="Deploying MediaGoblin"
+             >previous</a> |</li>
+        <li><a href="../index.html">GNU MediaGoblin 0.3.2.dev documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+    <div>
+
+MediaGoblin documentation released into the public domain via <a href="http://creativecommons.org/publicdomain/zero/1.0/">CC0</a>.
+
+    Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+    </div>
+  </body>
+</html>

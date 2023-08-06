@@ -1,0 +1,416 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Deploying MediaGoblin &mdash; GNU MediaGoblin 0.3.2.dev documentation</title>
+    
+    <link rel="stylesheet" href="../_static/mg.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '0.3.2.dev',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <link rel="top" title="GNU MediaGoblin 0.3.2.dev documentation" href="../index.html" />
+    <link rel="next" title="Considerations for Production Deployments" href="production-deployments.html" />
+    <link rel="prev" title="About GNU MediaGoblin" href="about.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="production-deployments.html" title="Considerations for Production Deployments"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="about.html" title="About GNU MediaGoblin"
+             accesskey="P">previous</a> |</li>
+        <li><a href="../index.html">GNU MediaGoblin 0.3.2.dev documentation</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="deploying-mediagoblin">
+<span id="deploying-chapter"></span><h1>Deploying MediaGoblin<a class="headerlink" href="#deploying-mediagoblin" title="Permalink to this headline">¶</a></h1>
+<p>GNU MediaGoblin is fairly new and so at the time of writing, there
+aren&#8217;t easy package-manager-friendly methods to install MediaGoblin.
+However, doing a basic install isn&#8217;t too complex in and of itself.</p>
+<p>There&#8217;s an almost infinite way to deploy things... for now, we&#8217;ll keep
+it simple with some assumptions and use a setup that combines
+mediagoblin + virtualenv + fastcgi + nginx on a .deb or .rpm based
+GNU/Linux distro.</p>
+<div class="admonition note">
+<p class="first admonition-title">Note</p>
+<p>These tools are for site administrators wanting to deploy a fresh
+install.  If instead you want to join in as a contributor, see our
+<a class="reference external" href="http://wiki.mediagoblin.org/HackingHowto">Hacking HOWTO</a> instead.</p>
+<p class="last">There are also many ways to install servers... for the sake of
+simplicity, our instructions below describe installing with nginx.
+For more recipes, including Apache, see
+<a class="reference external" href="http://wiki.mediagoblin.org/Deployment">our wiki</a>.</p>
+</div>
+<div class="section" id="prepare-system">
+<h2>Prepare System<a class="headerlink" href="#prepare-system" title="Permalink to this headline">¶</a></h2>
+<div class="section" id="dependencies">
+<h3>Dependencies<a class="headerlink" href="#dependencies" title="Permalink to this headline">¶</a></h3>
+<p>MediaGoblin has the following core dependencies:</p>
+<ul class="simple">
+<li>Python 2.6 or 2.7</li>
+<li><a class="reference external" href="http://lxml.de/">python-lxml</a></li>
+<li><a class="reference external" href="http://git-scm.com/">git</a></li>
+<li><a class="reference external" href="http://www.sqlite.org/">SQLite</a>/<a class="reference external" href="http://www.postgresql.org/">PostgreSQL</a></li>
+<li><a class="reference external" href="http://www.pythonware.com/products/pil/">Python Imaging Library</a>  (PIL)</li>
+<li><a class="reference external" href="http://www.virtualenv.org/">virtualenv</a></li>
+</ul>
+<p>On a DEB-based system (e.g Debian, gNewSense, Trisquel, Ubuntu, and
+derivatives) issue the following command:</p>
+<div class="highlight-python"><pre>sudo apt-get install git-core python python-dev python-lxml \
+    python-imaging python-virtualenv</pre>
+</div>
+<p>On a RPM-based system (e.g. Fedora, RedHat, and derivatives) issue the
+following command:</p>
+<div class="highlight-python"><pre>yum install python-paste-deploy python-paste-script \
+    git-core python python-devel python-lxml python-imaging \
+    python-virtualenv</pre>
+</div>
+</div>
+<div class="section" id="configure-postgresql">
+<h3>Configure PostgreSQL<a class="headerlink" href="#configure-postgresql" title="Permalink to this headline">¶</a></h3>
+<div class="admonition note">
+<p class="first admonition-title">Note</p>
+<p>MediaGoblin currently supports PostgreSQL and SQLite. The default is a
+local SQLite database. This will &#8220;just work&#8221; for small deployments.</p>
+<p>For medium to large deployments we recommend PostgreSQL.</p>
+<p class="last">If you don&#8217;t want/need postgres, skip this section.</p>
+</div>
+<p>These are the packages needed for Debian Wheezy (testing):</p>
+<div class="highlight-python"><pre>sudo apt-get install postgresql postgresql-client python-psycopg2</pre>
+</div>
+<p>The installation process will create a new <em>system</em> user named <tt class="docutils literal"><span class="pre">postgres</span></tt>,
+it will have privilegies sufficient to manage the database. We will create a
+new database user with restricted privilegies and a new database owned by our
+restricted database user for our MediaGoblin instance.</p>
+<p>In this example, the database user will be <tt class="docutils literal"><span class="pre">mediagoblin</span></tt> and the database
+name will be <tt class="docutils literal"><span class="pre">mediagoblin</span></tt> too.</p>
+<p>To create our new user, run:</p>
+<div class="highlight-python"><pre>sudo -u postgres createuser mediagoblin</pre>
+</div>
+<p>then answer NO to <em>all</em> the questions:</p>
+<div class="highlight-python"><pre>Shall the new role be a superuser? (y/n) n
+Shall the new role be allowed to create databases? (y/n) n
+Shall the new role be allowed to create more new roles? (y/n) n</pre>
+</div>
+<p>then create the database all our MediaGoblin data should be stored in:</p>
+<div class="highlight-python"><pre>sudo -u postgres createdb -E UNICODE -O mediagoblin mediagoblin</pre>
+</div>
+<p>where the first <tt class="docutils literal"><span class="pre">mediagoblin</span></tt> is the database owner and the second
+<tt class="docutils literal"><span class="pre">mediagoblin</span></tt> is the database name.</p>
+<div class="admonition caution">
+<p class="first admonition-title">Caution</p>
+<p>Where is the password?</p>
+<p>These steps enable you to authenticate to the database in a password-less
+manner via local UNIX authentication provided you run the MediaGoblin
+application as a user with the same name as the user you created in
+PostgreSQL.</p>
+<p class="last">More on this in <a class="reference internal" href="#drop-privileges-for-mediagoblin"><em>Drop Privileges for MediaGoblin</em></a>.</p>
+</div>
+</div>
+<div class="section" id="drop-privileges-for-mediagoblin">
+<span id="id1"></span><h3>Drop Privileges for MediaGoblin<a class="headerlink" href="#drop-privileges-for-mediagoblin" title="Permalink to this headline">¶</a></h3>
+<p>As MediaGoblin does not require special permissions or elevated
+access, you should run MediaGoblin under an existing non-root user or
+preferably create a dedicated user for the purpose of running
+MediaGoblin. Consult your distribution&#8217;s documentation on how to
+create &#8220;system account&#8221; or dedicated service user. Ensure that it is
+not possible to log in to your system with as this user.</p>
+<p>You should create a working directory for MediaGoblin. This document
+assumes your local git repository will be located at
+<tt class="docutils literal"><span class="pre">/srv/mediagoblin.example.org/mediagoblin/</span></tt> for this documentation.
+Substitute your prefer ed local deployment path as needed.</p>
+<p>This document assumes that all operations are performed as this
+user. To drop privileges to this user, run the following command:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="n">su</span> <span class="o">-</span> <span class="p">[</span><span class="n">mediagoblin</span><span class="p">]</span>
+</pre></div>
+</div>
+<p>Where, &#8220;<tt class="docutils literal"><span class="pre">[mediagoblin]</span></tt>&#8221; is the username of the system user that will
+run MediaGoblin.</p>
+</div>
+</div>
+<div class="section" id="install-mediagoblin-and-virtualenv">
+<h2>Install MediaGoblin and Virtualenv<a class="headerlink" href="#install-mediagoblin-and-virtualenv" title="Permalink to this headline">¶</a></h2>
+<div class="admonition note">
+<p class="first admonition-title">Note</p>
+<p class="last">MediaGoblin is still developing rapidly. As a result
+the following instructions recommend installing from the <tt class="docutils literal"><span class="pre">master</span></tt>
+branch of the git repository. Eventually production deployments will
+want to transition to running from more consistent releases.</p>
+</div>
+<p>Issue the following commands, to create and change the working
+directory. Modify these commands to reflect your own environment:</p>
+<div class="highlight-python"><pre>mkdir -p /srv/mediagoblin.example.org/
+cd /srv/mediagoblin.example.org/</pre>
+</div>
+<p>Clone the MediaGoblin repository:</p>
+<div class="highlight-python"><pre>git clone git://gitorious.org/mediagoblin/mediagoblin.git</pre>
+</div>
+<p>And set up the in-package virtualenv:</p>
+<div class="highlight-python"><pre>cd mediagoblin
+(virtualenv --system-site-packages . || virtualenv .) &amp;&amp; ./bin/python setup.py develop</pre>
+</div>
+<div class="admonition note">
+<p class="first admonition-title">Note</p>
+<p class="last">If you have problems here, consider trying to install virtualenv
+with the <tt class="docutils literal"><span class="pre">--distribute</span></tt> or <tt class="docutils literal"><span class="pre">--no-site-packages</span></tt> options. If
+your system&#8217;s default Python is in the 3.x series you may need to
+run <tt class="docutils literal"><span class="pre">virtualenv</span></tt> with the  <tt class="docutils literal"><span class="pre">--python=python2.7</span></tt> or
+<tt class="docutils literal"><span class="pre">--python=python2.6</span></tt> options.</p>
+</div>
+<p>The above provides an in-package install of <tt class="docutils literal"><span class="pre">virtualenv</span></tt>. While this
+is counter to the conventional <tt class="docutils literal"><span class="pre">virtualenv</span></tt> configuration, it is
+more reliable and considerably easier to configure and illustrate. If
+you&#8217;re familiar with Python packaging you may consider deploying with
+your preferred method.</p>
+<p>Assuming you are going to deploy with FastCGI, you should also install
+flup:</p>
+<div class="highlight-python"><pre>./bin/easy_install flup</pre>
+</div>
+<p>This concludes the initial configuration of the development
+environment. In the future, when you update your
+codebase, you should also run:</p>
+<div class="highlight-python"><pre>./bin/python setup.py develop --upgrade &amp;&amp; ./bin/gmg dbupdate</pre>
+</div>
+<p>Note: If you are running an active site, depending on your server
+configuration, you may need to stop it first or the dbupdate command
+may hang (and it&#8217;s certainly a good idea to restart it after the
+update)</p>
+</div>
+<div class="section" id="deploy-mediagoblin-services">
+<h2>Deploy MediaGoblin Services<a class="headerlink" href="#deploy-mediagoblin-services" title="Permalink to this headline">¶</a></h2>
+<div class="section" id="configure-mediagoblin-to-use-the-postgresql-database">
+<h3>Configure MediaGoblin to use the PostgreSQL database<a class="headerlink" href="#configure-mediagoblin-to-use-the-postgresql-database" title="Permalink to this headline">¶</a></h3>
+<p>If you are using postgres, edit the <tt class="docutils literal"><span class="pre">[mediagoblin]</span></tt> section in your
+<tt class="docutils literal"><span class="pre">mediagoblin_local.ini</span></tt> and put in:</p>
+<div class="highlight-python"><pre>sql_engine = postgresql:///mediagoblin</pre>
+</div>
+<p>if you are running the MediaGoblin application as the same &#8216;user&#8217; as the
+database owner.</p>
+</div>
+<div class="section" id="update-database-data-structures">
+<h3>Update database data structures<a class="headerlink" href="#update-database-data-structures" title="Permalink to this headline">¶</a></h3>
+<p>Before you start using the database, you need to run:</p>
+<div class="highlight-python"><pre>./bin/gmg dbupdate</pre>
+</div>
+<p>to populate the database with the MediaGoblin data structures.</p>
+</div>
+<div class="section" id="test-the-server">
+<h3>Test the Server<a class="headerlink" href="#test-the-server" title="Permalink to this headline">¶</a></h3>
+<p>At this point MediaGoblin should be properly installed.  You can
+test the deployment with the following command:</p>
+<div class="highlight-python"><pre>./lazyserver.sh --server-name=broadcast</pre>
+</div>
+<p>You should be able to connect to the machine on port 6543 in your
+browser to confirm that the service is operable.</p>
+</div>
+<div class="section" id="connect-the-webserver-to-mediagoblin-with-fastcgi">
+<span id="webserver-config"></span><h3>Connect the Webserver to MediaGoblin with FastCGI<a class="headerlink" href="#connect-the-webserver-to-mediagoblin-with-fastcgi" title="Permalink to this headline">¶</a></h3>
+<p>This section describes how to configure MediaGoblin to work via
+FastCGI. Our configuration example will use nginx, however, you may
+use any webserver of your choice as long as it supports the FastCGI
+protocol. If you do not already have a web server, consider nginx, as
+the configuration files may be more clear than the
+alternatives.</p>
+<p>Create a configuration file at
+<tt class="docutils literal"><span class="pre">/srv/mediagoblin.example.org/nginx.conf</span></tt> and create a symbolic link
+into a directory that will be included in your <tt class="docutils literal"><span class="pre">nginx</span></tt> configuration
+(e.g. &#8220;<tt class="docutils literal"><span class="pre">/etc/nginx/sites-enabled</span></tt> or <tt class="docutils literal"><span class="pre">/etc/nginx/conf.d</span></tt>) with
+one of the following commands (as the root user):</p>
+<div class="highlight-python"><pre>ln -s /srv/mediagoblin.example.org/nginx.conf /etc/nginx/conf.d/
+ln -s /srv/mediagoblin.example.org/nginx.conf /etc/nginx/sites-enabled/</pre>
+</div>
+<p>Modify these commands and locations depending on your preferences and
+the existing configuration of your nginx instance. The contents of
+this <tt class="docutils literal"><span class="pre">nginx.conf</span></tt> file should be modeled on the following:</p>
+<div class="highlight-python"><pre>server {
+ #################################################
+ # Stock useful config options, but ignore them :)
+ #################################################
+ include /etc/nginx/mime.types;
+
+ autoindex off;
+ default_type  application/octet-stream;
+ sendfile on;
+
+ # Gzip
+ gzip on;
+ gzip_min_length 1024;
+ gzip_buffers 4 32k;
+ gzip_types text/plain text/html application/x-javascript text/javascript text/xml text/css;
+
+ #####################################
+ # Mounting MediaGoblin stuff
+ # This is the section you should read
+ #####################################
+
+ # Change this to update the upload size limit for your users
+ client_max_body_size 8m;
+
+ server_name mediagoblin.example.org www.mediagoblin.example.org;
+ access_log /var/log/nginx/mediagoblin.example.access.log;
+ error_log /var/log/nginx/mediagoblin.example.error.log;
+
+ # MediaGoblin's stock static files: CSS, JS, etc.
+ location /mgoblin_static/ {
+    alias /srv/mediagoblin.example.org/mediagoblin/mediagoblin/static/;
+ }
+
+ # Instance specific media:
+ location /mgoblin_media/ {
+    alias /srv/mediagoblin.example.org/mediagoblin/user_dev/media/public/;
+ }
+
+ # Theme static files (usually symlinked in)
+ location /theme_static/ {
+    alias /srv/mediagoblin.example.org/mediagoblin/user_dev/theme_static/;
+ }
+
+ # Mounting MediaGoblin itself via FastCGI.
+ location / {
+    fastcgi_pass 127.0.0.1:26543;
+    include /etc/nginx/fastcgi_params;
+
+    # our understanding vs nginx's handling of script_name vs
+    # path_info don't match :)
+    fastcgi_param PATH_INFO $fastcgi_script_name;
+    fastcgi_param SCRIPT_NAME "";
+ }
+}</pre>
+</div>
+<p>Now, nginx instance is configured to serve the MediaGoblin
+application. Perform a quick test to ensure that this configuration
+works. Restart nginx so it picks up your changes, with a command that
+resembles one of the following (as the root user):</p>
+<div class="highlight-python"><pre>sudo /etc/init.d/nginx restart
+sudo /etc/rc.d/nginx restart</pre>
+</div>
+<p>Now start MediaGoblin. Use the following command sequence as an
+example:</p>
+<div class="highlight-python"><pre>cd /srv/mediagoblin.example.org/mediagoblin/
+./lazyserver.sh --server-name=fcgi fcgi_host=127.0.0.1 fcgi_port=26543</pre>
+</div>
+<p>Visit the site you&#8217;ve set up in your browser by visiting
+&lt;<a class="reference external" href="http://mediagoblin.example.org">http://mediagoblin.example.org</a>&gt;. You should see MediaGoblin!</p>
+<div class="admonition note">
+<p class="first admonition-title">Note</p>
+<p class="last">The configuration described above is sufficient for development and
+smaller deployments. However, for larger production deployments
+with larger processing requirements, see the
+&#8220;<a class="reference internal" href="production-deployments.html"><em>Considerations for Production Deployments</em></a>&#8221; documentation.</p>
+</div>
+</div>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+            <p class="logo"><a href="../index.html">
+              <img class="logo" src="../_static/logo_docs.png" alt="Logo"/>
+            </a></p>
+  <h3><a href="../index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Deploying MediaGoblin</a><ul>
+<li><a class="reference internal" href="#prepare-system">Prepare System</a><ul>
+<li><a class="reference internal" href="#dependencies">Dependencies</a></li>
+<li><a class="reference internal" href="#configure-postgresql">Configure PostgreSQL</a></li>
+<li><a class="reference internal" href="#drop-privileges-for-mediagoblin">Drop Privileges for MediaGoblin</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#install-mediagoblin-and-virtualenv">Install MediaGoblin and Virtualenv</a></li>
+<li><a class="reference internal" href="#deploy-mediagoblin-services">Deploy MediaGoblin Services</a><ul>
+<li><a class="reference internal" href="#configure-mediagoblin-to-use-the-postgresql-database">Configure MediaGoblin to use the PostgreSQL database</a></li>
+<li><a class="reference internal" href="#update-database-data-structures">Update database data structures</a></li>
+<li><a class="reference internal" href="#test-the-server">Test the Server</a></li>
+<li><a class="reference internal" href="#connect-the-webserver-to-mediagoblin-with-fastcgi">Connect the Webserver to MediaGoblin with FastCGI</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="about.html"
+                        title="previous chapter">About GNU MediaGoblin</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="production-deployments.html"
+                        title="next chapter">Considerations for Production Deployments</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="../_sources/siteadmin/deploying.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="production-deployments.html" title="Considerations for Production Deployments"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="about.html" title="About GNU MediaGoblin"
+             >previous</a> |</li>
+        <li><a href="../index.html">GNU MediaGoblin 0.3.2.dev documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+    <div>
+
+MediaGoblin documentation released into the public domain via <a href="http://creativecommons.org/publicdomain/zero/1.0/">CC0</a>.
+
+    Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+    </div>
+  </body>
+</html>
