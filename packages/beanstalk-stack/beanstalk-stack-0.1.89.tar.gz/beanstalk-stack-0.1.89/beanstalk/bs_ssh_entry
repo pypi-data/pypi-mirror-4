@@ -1,0 +1,54 @@
+#!/usr/bin/env python
+
+import os
+import re
+import shlex
+import sys
+from beanstalk.tasks.utils import load_role_settings
+
+valid_commands = [r'^rsync --server .*', r'^bsjack server\..+', '^bsjack info\..+']
+fabric_pattern = re.compile(r'^/bin/bash -l -c "(?P<command>.*)"$')
+
+
+def fabric_command(command):
+    match = fabric_pattern.match(command)
+    return match.groupdict()['command'].replace('\\', '') if match else command
+
+
+def validate_command(command):
+    for valid_command in valid_commands:
+        if re.compile(valid_command).match(command) is not None:
+            # rsync path check
+            if command.startswith('rsync --server'):
+                beanstalk_settings = load_role_settings(role='server')
+                target_path = shlex.split(command)[-1]
+                for path_prefix in [beanstalk_settings['BEANSTALK_STACK_BASE'], '/tmp']:
+                    if target_path.startswith(path_prefix):
+                        # Valid path. Go!
+                        return True
+                # Rsync to invalid path.
+                return False
+            # Not rsync. Let you go
+            return True
+    # Not a valid command
+    return False
+
+
+def main():
+    command = os.environ.get('SSH_ORIGINAL_COMMAND', None)
+    if command is None:
+        print 'You cannot use SSH as beanstalk directly.'
+        sys.exit(1)
+
+    command = fabric_command(command)
+    if not validate_command(command):
+        if not command.startswith('rsync'):
+            # Make rsync quiet
+            print 'Invalid command: {command}'.format(command=command)
+        sys.exit(2)
+
+    os.system(command)
+
+
+if __name__ == '__main__':
+    main()
