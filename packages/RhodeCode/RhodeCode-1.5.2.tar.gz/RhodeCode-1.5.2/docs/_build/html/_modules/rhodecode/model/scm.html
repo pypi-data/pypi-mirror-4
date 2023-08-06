@@ -1,0 +1,731 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>rhodecode.model.scm &mdash; RhodeCode 1.5.2 documentation</title>
+    
+    <link rel="stylesheet" href="../../../_static/nature.css" type="text/css" />
+    <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../../',
+        VERSION:     '1.5.2',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../../_static/doctools.js"></script>
+    <link rel="top" title="RhodeCode 1.5.2 documentation" href="../../../index.html" />
+    <link rel="up" title="rhodecode.model" href="../model.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../../index.html">RhodeCode 1.5.2 documentation</a> &raquo;</li>
+          <li><a href="../../index.html" >Module code</a> &raquo;</li>
+          <li><a href="../model.html" accesskey="U">rhodecode.model</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for rhodecode.model.scm</h1><div class="highlight"><pre>
+<span class="c"># -*- coding: utf-8 -*-</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    rhodecode.model.scm</span>
+<span class="sd">    ~~~~~~~~~~~~~~~~~~~</span>
+
+<span class="sd">    Scm model for RhodeCode</span>
+
+<span class="sd">    :created_on: Apr 9, 2010</span>
+<span class="sd">    :author: marcink</span>
+<span class="sd">    :copyright: (C) 2010-2012 Marcin Kuzminski &lt;marcin@python-works.com&gt;</span>
+<span class="sd">    :license: GPLv3, see COPYING for more details.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="c"># This program is free software: you can redistribute it and/or modify</span>
+<span class="c"># it under the terms of the GNU General Public License as published by</span>
+<span class="c"># the Free Software Foundation, either version 3 of the License, or</span>
+<span class="c"># (at your option) any later version.</span>
+<span class="c">#</span>
+<span class="c"># This program is distributed in the hope that it will be useful,</span>
+<span class="c"># but WITHOUT ANY WARRANTY; without even the implied warranty of</span>
+<span class="c"># MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the</span>
+<span class="c"># GNU General Public License for more details.</span>
+<span class="c">#</span>
+<span class="c"># You should have received a copy of the GNU General Public License</span>
+<span class="c"># along with this program.  If not, see &lt;http://www.gnu.org/licenses/&gt;.</span>
+<span class="kn">from</span> <span class="nn">__future__</span> <span class="kn">import</span> <span class="n">with_statement</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">import</span> <span class="nn">traceback</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">import</span> <span class="nn">cStringIO</span>
+<span class="kn">import</span> <span class="nn">pkg_resources</span>
+<span class="kn">from</span> <span class="nn">os.path</span> <span class="kn">import</span> <span class="n">dirname</span> <span class="k">as</span> <span class="n">dn</span><span class="p">,</span> <span class="n">join</span> <span class="k">as</span> <span class="n">jn</span>
+
+<span class="kn">from</span> <span class="nn">sqlalchemy</span> <span class="kn">import</span> <span class="n">func</span>
+<span class="kn">from</span> <span class="nn">pylons.i18n.translation</span> <span class="kn">import</span> <span class="n">_</span>
+
+<span class="kn">import</span> <span class="nn">rhodecode</span>
+<span class="kn">from</span> <span class="nn">rhodecode.lib.vcs</span> <span class="kn">import</span> <span class="n">get_backend</span>
+<span class="kn">from</span> <span class="nn">rhodecode.lib.vcs.exceptions</span> <span class="kn">import</span> <span class="n">RepositoryError</span>
+<span class="kn">from</span> <span class="nn">rhodecode.lib.vcs.utils.lazy</span> <span class="kn">import</span> <span class="n">LazyProperty</span>
+<span class="kn">from</span> <span class="nn">rhodecode.lib.vcs.nodes</span> <span class="kn">import</span> <span class="n">FileNode</span>
+<span class="kn">from</span> <span class="nn">rhodecode.lib.vcs.backends.base</span> <span class="kn">import</span> <span class="n">EmptyChangeset</span>
+
+<span class="kn">from</span> <span class="nn">rhodecode</span> <span class="kn">import</span> <span class="n">BACKENDS</span>
+<span class="kn">from</span> <span class="nn">rhodecode.lib</span> <span class="kn">import</span> <span class="n">helpers</span> <span class="k">as</span> <span class="n">h</span>
+<span class="kn">from</span> <span class="nn">rhodecode.lib.utils2</span> <span class="kn">import</span> <span class="n">safe_str</span><span class="p">,</span> <span class="n">safe_unicode</span>
+<span class="kn">from</span> <span class="nn">rhodecode.lib.auth</span> <span class="kn">import</span> <span class="n">HasRepoPermissionAny</span><span class="p">,</span> <span class="n">HasReposGroupPermissionAny</span>
+<span class="kn">from</span> <span class="nn">rhodecode.lib.utils</span> <span class="kn">import</span> <span class="n">get_repos</span> <span class="k">as</span> <span class="n">get_filesystem_repos</span><span class="p">,</span> <span class="n">make_ui</span><span class="p">,</span> \
+    <span class="n">action_logger</span><span class="p">,</span> <span class="n">REMOVED_REPO_PAT</span>
+<span class="kn">from</span> <span class="nn">rhodecode.model</span> <span class="kn">import</span> <span class="n">BaseModel</span>
+<span class="kn">from</span> <span class="nn">rhodecode.model.db</span> <span class="kn">import</span> <span class="n">Repository</span><span class="p">,</span> <span class="n">RhodeCodeUi</span><span class="p">,</span> <span class="n">CacheInvalidation</span><span class="p">,</span> \
+    <span class="n">UserFollowing</span><span class="p">,</span> <span class="n">UserLog</span><span class="p">,</span> <span class="n">User</span><span class="p">,</span> <span class="n">RepoGroup</span><span class="p">,</span> <span class="n">PullRequest</span>
+
+<span class="n">log</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="n">__name__</span><span class="p">)</span>
+
+
+<span class="k">class</span> <span class="nc">UserTemp</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">user_id</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">user_id</span> <span class="o">=</span> <span class="n">user_id</span>
+
+    <span class="k">def</span> <span class="nf">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s">&quot;&lt;</span><span class="si">%s</span><span class="s">(&#39;id:</span><span class="si">%s</span><span class="s">&#39;)&gt;&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">user_id</span><span class="p">)</span>
+
+
+<span class="k">class</span> <span class="nc">RepoTemp</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">repo_id</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">repo_id</span> <span class="o">=</span> <span class="n">repo_id</span>
+
+    <span class="k">def</span> <span class="nf">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s">&quot;&lt;</span><span class="si">%s</span><span class="s">(&#39;id:</span><span class="si">%s</span><span class="s">&#39;)&gt;&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">repo_id</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="CachedRepoList"><a class="viewcode-back" href="../../../api/models.html#rhodecode.model.scm.CachedRepoList">[docs]</a><span class="k">class</span> <span class="nc">CachedRepoList</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Cached repo list, uses in-memory cache after initialization, that is</span>
+<span class="sd">    super fast</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">db_repo_list</span><span class="p">,</span> <span class="n">repos_path</span><span class="p">,</span> <span class="n">order_by</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">db_repo_list</span> <span class="o">=</span> <span class="n">db_repo_list</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">repos_path</span> <span class="o">=</span> <span class="n">repos_path</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">order_by</span> <span class="o">=</span> <span class="n">order_by</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">reversed</span> <span class="o">=</span> <span class="p">(</span><span class="n">order_by</span> <span class="ow">or</span> <span class="s">&#39;&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;-&#39;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">db_repo_list</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s">&#39;&lt;</span><span class="si">%s</span><span class="s"> (</span><span class="si">%s</span><span class="s">)&gt;&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">__len__</span><span class="p">())</span>
+
+    <span class="k">def</span> <span class="nf">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># pre-propagated cache_map to save executing select statements</span>
+        <span class="c"># for each repo</span>
+        <span class="n">cache_map</span> <span class="o">=</span> <span class="n">CacheInvalidation</span><span class="o">.</span><span class="n">get_cache_map</span><span class="p">()</span>
+
+        <span class="k">for</span> <span class="n">dbr</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_repo_list</span><span class="p">:</span>
+            <span class="n">scmr</span> <span class="o">=</span> <span class="n">dbr</span><span class="o">.</span><span class="n">scm_instance_cached</span><span class="p">(</span><span class="n">cache_map</span><span class="p">)</span>
+            <span class="c"># check permission at this level</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">HasRepoPermissionAny</span><span class="p">(</span>
+                <span class="s">&#39;repository.read&#39;</span><span class="p">,</span> <span class="s">&#39;repository.write&#39;</span><span class="p">,</span> <span class="s">&#39;repository.admin&#39;</span>
+            <span class="p">)(</span><span class="n">dbr</span><span class="o">.</span><span class="n">repo_name</span><span class="p">,</span> <span class="s">&#39;get repo check&#39;</span><span class="p">):</span>
+                <span class="k">continue</span>
+
+            <span class="k">if</span> <span class="n">scmr</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">log</span><span class="o">.</span><span class="n">error</span><span class="p">(</span>
+                    <span class="s">&#39;</span><span class="si">%s</span><span class="s"> this repository is present in database but it &#39;</span>
+                    <span class="s">&#39;cannot be created as an scm instance&#39;</span> <span class="o">%</span> <span class="n">dbr</span><span class="o">.</span><span class="n">repo_name</span>
+                <span class="p">)</span>
+                <span class="k">continue</span>
+
+            <span class="n">last_change</span> <span class="o">=</span> <span class="n">scmr</span><span class="o">.</span><span class="n">last_change</span>
+            <span class="n">tip</span> <span class="o">=</span> <span class="n">h</span><span class="o">.</span><span class="n">get_changeset_safe</span><span class="p">(</span><span class="n">scmr</span><span class="p">,</span> <span class="s">&#39;tip&#39;</span><span class="p">)</span>
+
+            <span class="n">tmp_d</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;name&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">dbr</span><span class="o">.</span><span class="n">repo_name</span>
+            <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;name_sort&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;name&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+            <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;raw_name&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;name&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+            <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;description&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">dbr</span><span class="o">.</span><span class="n">description</span>
+            <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;description_sort&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;description&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+            <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;last_change&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">last_change</span>
+            <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;last_change_sort&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">mktime</span><span class="p">(</span><span class="n">last_change</span><span class="o">.</span><span class="n">timetuple</span><span class="p">())</span>
+            <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;tip&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tip</span><span class="o">.</span><span class="n">raw_id</span>
+            <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;tip_sort&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tip</span><span class="o">.</span><span class="n">revision</span>
+            <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;rev&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tip</span><span class="o">.</span><span class="n">revision</span>
+            <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;contact&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">dbr</span><span class="o">.</span><span class="n">user</span><span class="o">.</span><span class="n">full_contact</span>
+            <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;contact_sort&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;contact&#39;</span><span class="p">]</span>
+            <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;owner_sort&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;contact&#39;</span><span class="p">]</span>
+            <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;repo_archives&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">scmr</span><span class="o">.</span><span class="n">_get_archives</span><span class="p">())</span>
+            <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;last_msg&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tip</span><span class="o">.</span><span class="n">message</span>
+            <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;author&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tip</span><span class="o">.</span><span class="n">author</span>
+            <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;dbrepo&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">dbr</span><span class="o">.</span><span class="n">get_dict</span><span class="p">()</span>
+            <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;dbrepo_fork&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">dbr</span><span class="o">.</span><span class="n">fork</span><span class="o">.</span><span class="n">get_dict</span><span class="p">()</span> <span class="k">if</span> <span class="n">dbr</span><span class="o">.</span><span class="n">fork</span> <span class="k">else</span> <span class="p">{}</span>
+            <span class="k">yield</span> <span class="n">tmp_d</span>
+
+</div>
+<div class="viewcode-block" id="SimpleCachedRepoList"><a class="viewcode-back" href="../../../api/models.html#rhodecode.model.scm.SimpleCachedRepoList">[docs]</a><span class="k">class</span> <span class="nc">SimpleCachedRepoList</span><span class="p">(</span><span class="n">CachedRepoList</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Lighter version of CachedRepoList without the scm initialisation</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">dbr</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_repo_list</span><span class="p">:</span>
+            <span class="c"># check permission at this level</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">HasRepoPermissionAny</span><span class="p">(</span>
+                <span class="s">&#39;repository.read&#39;</span><span class="p">,</span> <span class="s">&#39;repository.write&#39;</span><span class="p">,</span> <span class="s">&#39;repository.admin&#39;</span>
+            <span class="p">)(</span><span class="n">dbr</span><span class="o">.</span><span class="n">repo_name</span><span class="p">,</span> <span class="s">&#39;get repo check&#39;</span><span class="p">):</span>
+                <span class="k">continue</span>
+
+            <span class="n">tmp_d</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;name&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">dbr</span><span class="o">.</span><span class="n">repo_name</span>
+            <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;name_sort&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;name&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+            <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;raw_name&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;name&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+            <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;description&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">dbr</span><span class="o">.</span><span class="n">description</span>
+            <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;description_sort&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;description&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+            <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;dbrepo&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">dbr</span><span class="o">.</span><span class="n">get_dict</span><span class="p">()</span>
+            <span class="n">tmp_d</span><span class="p">[</span><span class="s">&#39;dbrepo_fork&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">dbr</span><span class="o">.</span><span class="n">fork</span><span class="o">.</span><span class="n">get_dict</span><span class="p">()</span> <span class="k">if</span> <span class="n">dbr</span><span class="o">.</span><span class="n">fork</span> <span class="k">else</span> <span class="p">{}</span>
+            <span class="k">yield</span> <span class="n">tmp_d</span>
+
+</div>
+<span class="k">class</span> <span class="nc">GroupList</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">db_repo_group_list</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">db_repo_group_list</span> <span class="o">=</span> <span class="n">db_repo_group_list</span>
+
+    <span class="k">def</span> <span class="nf">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">db_repo_group_list</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s">&#39;&lt;</span><span class="si">%s</span><span class="s"> (</span><span class="si">%s</span><span class="s">)&gt;&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">__len__</span><span class="p">())</span>
+
+    <span class="k">def</span> <span class="nf">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">dbgr</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_repo_group_list</span><span class="p">:</span>
+            <span class="c"># check permission at this level</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">HasReposGroupPermissionAny</span><span class="p">(</span>
+                <span class="s">&#39;group.read&#39;</span><span class="p">,</span> <span class="s">&#39;group.write&#39;</span><span class="p">,</span> <span class="s">&#39;group.admin&#39;</span>
+            <span class="p">)(</span><span class="n">dbgr</span><span class="o">.</span><span class="n">group_name</span><span class="p">,</span> <span class="s">&#39;get group repo check&#39;</span><span class="p">):</span>
+                <span class="k">continue</span>
+
+            <span class="k">yield</span> <span class="n">dbgr</span>
+
+
+<div class="viewcode-block" id="ScmModel"><a class="viewcode-back" href="../../../api/models.html#rhodecode.model.scm.ScmModel">[docs]</a><span class="k">class</span> <span class="nc">ScmModel</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Generic Scm Model</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__get_repo</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">instance</span><span class="p">):</span>
+        <span class="n">cls</span> <span class="o">=</span> <span class="n">Repository</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">instance</span><span class="p">,</span> <span class="n">cls</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">instance</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">instance</span><span class="p">,</span> <span class="nb">int</span><span class="p">)</span> <span class="ow">or</span> <span class="n">safe_str</span><span class="p">(</span><span class="n">instance</span><span class="p">)</span><span class="o">.</span><span class="n">isdigit</span><span class="p">():</span>
+            <span class="k">return</span> <span class="n">cls</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">instance</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">instance</span><span class="p">,</span> <span class="nb">basestring</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">cls</span><span class="o">.</span><span class="n">get_by_repo_name</span><span class="p">(</span><span class="n">instance</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">instance</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s">&#39;given object must be int, basestr or Instance&#39;</span>
+                            <span class="s">&#39; of </span><span class="si">%s</span><span class="s"> got </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">cls</span><span class="p">),</span> <span class="nb">type</span><span class="p">(</span><span class="n">instance</span><span class="p">)))</span>
+
+    <span class="nd">@LazyProperty</span>
+<div class="viewcode-block" id="ScmModel.repos_path"><a class="viewcode-back" href="../../../api/models.html#rhodecode.model.scm.ScmModel.repos_path">[docs]</a>    <span class="k">def</span> <span class="nf">repos_path</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get&#39;s the repositories root path from database</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="n">q</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sa</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">RhodeCodeUi</span><span class="p">)</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">RhodeCodeUi</span><span class="o">.</span><span class="n">ui_key</span> <span class="o">==</span> <span class="s">&#39;/&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">one</span><span class="p">()</span>
+
+        <span class="k">return</span> <span class="n">q</span><span class="o">.</span><span class="n">ui_value</span>
+</div>
+<div class="viewcode-block" id="ScmModel.repo_scan"><a class="viewcode-back" href="../../../api/models.html#rhodecode.model.scm.ScmModel.repo_scan">[docs]</a>    <span class="k">def</span> <span class="nf">repo_scan</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">repos_path</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Listing of repositories in given path. This path should not be a</span>
+<span class="sd">        repository itself. Return a dictionary of repository objects</span>
+
+<span class="sd">        :param repos_path: path to directory containing repositories</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="k">if</span> <span class="n">repos_path</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">repos_path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">repos_path</span>
+
+        <span class="n">log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&#39;scanning for repositories in </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">repos_path</span><span class="p">)</span>
+
+        <span class="n">baseui</span> <span class="o">=</span> <span class="n">make_ui</span><span class="p">(</span><span class="s">&#39;db&#39;</span><span class="p">)</span>
+        <span class="n">repos</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">path</span> <span class="ow">in</span> <span class="n">get_filesystem_repos</span><span class="p">(</span><span class="n">repos_path</span><span class="p">,</span> <span class="n">recursive</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+            <span class="c"># skip removed repos</span>
+            <span class="k">if</span> <span class="n">REMOVED_REPO_PAT</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">name</span><span class="p">)</span> <span class="ow">or</span> <span class="n">path</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">continue</span>
+
+            <span class="c"># name need to be decomposed and put back together using the /</span>
+            <span class="c"># since this is internal storage separator for rhodecode</span>
+            <span class="n">name</span> <span class="o">=</span> <span class="n">Repository</span><span class="o">.</span><span class="n">normalize_repo_name</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">repos</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="n">RepositoryError</span><span class="p">(</span><span class="s">&#39;Duplicate repository name </span><span class="si">%s</span><span class="s"> &#39;</span>
+                                          <span class="s">&#39;found in </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">path</span><span class="p">))</span>
+                <span class="k">else</span><span class="p">:</span>
+
+                    <span class="n">klass</span> <span class="o">=</span> <span class="n">get_backend</span><span class="p">(</span><span class="n">path</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+
+                    <span class="k">if</span> <span class="n">path</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;hg&#39;</span> <span class="ow">and</span> <span class="n">path</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">in</span> <span class="n">BACKENDS</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                        <span class="n">repos</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">klass</span><span class="p">(</span><span class="n">safe_str</span><span class="p">(</span><span class="n">path</span><span class="p">[</span><span class="mi">1</span><span class="p">]),</span> <span class="n">baseui</span><span class="o">=</span><span class="n">baseui</span><span class="p">)</span>
+
+                    <span class="k">if</span> <span class="n">path</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;git&#39;</span> <span class="ow">and</span> <span class="n">path</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">in</span> <span class="n">BACKENDS</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                        <span class="n">repos</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">klass</span><span class="p">(</span><span class="n">path</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+            <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+                <span class="k">continue</span>
+
+        <span class="k">return</span> <span class="n">repos</span>
+</div>
+<div class="viewcode-block" id="ScmModel.get_repos"><a class="viewcode-back" href="../../../api/models.html#rhodecode.model.scm.ScmModel.get_repos">[docs]</a>    <span class="k">def</span> <span class="nf">get_repos</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">all_repos</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">sort_key</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">simple</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get all repos from db and for each repo create it&#39;s</span>
+<span class="sd">        backend instance and fill that backed with information from database</span>
+
+<span class="sd">        :param all_repos: list of repository names as strings</span>
+<span class="sd">            give specific repositories list, good for filtering</span>
+
+<span class="sd">        :param sort_key: initial sorting of repos</span>
+<span class="sd">        :param simple: use SimpleCachedList - one without the SCM info</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">all_repos</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">all_repos</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sa</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">Repository</span><span class="p">)</span>\
+                        <span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">Repository</span><span class="o">.</span><span class="n">group_id</span> <span class="o">==</span> <span class="bp">None</span><span class="p">)</span>\
+                        <span class="o">.</span><span class="n">order_by</span><span class="p">(</span><span class="n">func</span><span class="o">.</span><span class="n">lower</span><span class="p">(</span><span class="n">Repository</span><span class="o">.</span><span class="n">repo_name</span><span class="p">))</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">simple</span><span class="p">:</span>
+            <span class="n">repo_iter</span> <span class="o">=</span> <span class="n">SimpleCachedRepoList</span><span class="p">(</span><span class="n">all_repos</span><span class="p">,</span>
+                                             <span class="n">repos_path</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">repos_path</span><span class="p">,</span>
+                                             <span class="n">order_by</span><span class="o">=</span><span class="n">sort_key</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">repo_iter</span> <span class="o">=</span> <span class="n">CachedRepoList</span><span class="p">(</span><span class="n">all_repos</span><span class="p">,</span>
+                                       <span class="n">repos_path</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">repos_path</span><span class="p">,</span>
+                                       <span class="n">order_by</span><span class="o">=</span><span class="n">sort_key</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">repo_iter</span>
+</div>
+    <span class="k">def</span> <span class="nf">get_repos_groups</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">all_groups</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">all_groups</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">all_groups</span> <span class="o">=</span> <span class="n">RepoGroup</span><span class="o">.</span><span class="n">query</span><span class="p">()</span>\
+                <span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">RepoGroup</span><span class="o">.</span><span class="n">group_parent_id</span> <span class="o">==</span> <span class="bp">None</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+        <span class="n">group_iter</span> <span class="o">=</span> <span class="n">GroupList</span><span class="p">(</span><span class="n">all_groups</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">group_iter</span>
+
+<div class="viewcode-block" id="ScmModel.mark_for_invalidation"><a class="viewcode-back" href="../../../api/models.html#rhodecode.model.scm.ScmModel.mark_for_invalidation">[docs]</a>    <span class="k">def</span> <span class="nf">mark_for_invalidation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">repo_name</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Puts cache invalidation task into db for</span>
+<span class="sd">        further global cache invalidation</span>
+
+<span class="sd">        :param repo_name: this repo that should invalidation take place</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">CacheInvalidation</span><span class="o">.</span><span class="n">set_invalidate</span><span class="p">(</span><span class="n">repo_name</span><span class="o">=</span><span class="n">repo_name</span><span class="p">)</span>
+        <span class="n">repo</span> <span class="o">=</span> <span class="n">Repository</span><span class="o">.</span><span class="n">get_by_repo_name</span><span class="p">(</span><span class="n">repo_name</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">repo</span><span class="p">:</span>
+            <span class="n">repo</span><span class="o">.</span><span class="n">update_changeset_cache</span><span class="p">()</span>
+</div>
+    <span class="k">def</span> <span class="nf">toggle_following_repo</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">follow_repo_id</span><span class="p">,</span> <span class="n">user_id</span><span class="p">):</span>
+
+        <span class="n">f</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sa</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">UserFollowing</span><span class="p">)</span>\
+            <span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">UserFollowing</span><span class="o">.</span><span class="n">follows_repo_id</span> <span class="o">==</span> <span class="n">follow_repo_id</span><span class="p">)</span>\
+            <span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">UserFollowing</span><span class="o">.</span><span class="n">user_id</span> <span class="o">==</span> <span class="n">user_id</span><span class="p">)</span><span class="o">.</span><span class="n">scalar</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="n">f</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">sa</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+                <span class="n">action_logger</span><span class="p">(</span><span class="n">UserTemp</span><span class="p">(</span><span class="n">user_id</span><span class="p">),</span>
+                              <span class="s">&#39;stopped_following_repo&#39;</span><span class="p">,</span>
+                              <span class="n">RepoTemp</span><span class="p">(</span><span class="n">follow_repo_id</span><span class="p">))</span>
+                <span class="k">return</span>
+            <span class="k">except</span><span class="p">:</span>
+                <span class="n">log</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">traceback</span><span class="o">.</span><span class="n">format_exc</span><span class="p">())</span>
+                <span class="k">raise</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">f</span> <span class="o">=</span> <span class="n">UserFollowing</span><span class="p">()</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">user_id</span> <span class="o">=</span> <span class="n">user_id</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">follows_repo_id</span> <span class="o">=</span> <span class="n">follow_repo_id</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">sa</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+
+            <span class="n">action_logger</span><span class="p">(</span><span class="n">UserTemp</span><span class="p">(</span><span class="n">user_id</span><span class="p">),</span>
+                          <span class="s">&#39;started_following_repo&#39;</span><span class="p">,</span>
+                          <span class="n">RepoTemp</span><span class="p">(</span><span class="n">follow_repo_id</span><span class="p">))</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">traceback</span><span class="o">.</span><span class="n">format_exc</span><span class="p">())</span>
+            <span class="k">raise</span>
+
+    <span class="k">def</span> <span class="nf">toggle_following_user</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">follow_user_id</span><span class="p">,</span> <span class="n">user_id</span><span class="p">):</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sa</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">UserFollowing</span><span class="p">)</span>\
+            <span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">UserFollowing</span><span class="o">.</span><span class="n">follows_user_id</span> <span class="o">==</span> <span class="n">follow_user_id</span><span class="p">)</span>\
+            <span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">UserFollowing</span><span class="o">.</span><span class="n">user_id</span> <span class="o">==</span> <span class="n">user_id</span><span class="p">)</span><span class="o">.</span><span class="n">scalar</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="n">f</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">sa</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+                <span class="k">return</span>
+            <span class="k">except</span><span class="p">:</span>
+                <span class="n">log</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">traceback</span><span class="o">.</span><span class="n">format_exc</span><span class="p">())</span>
+                <span class="k">raise</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">f</span> <span class="o">=</span> <span class="n">UserFollowing</span><span class="p">()</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">user_id</span> <span class="o">=</span> <span class="n">user_id</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">follows_user_id</span> <span class="o">=</span> <span class="n">follow_user_id</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">sa</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">traceback</span><span class="o">.</span><span class="n">format_exc</span><span class="p">())</span>
+            <span class="k">raise</span>
+
+    <span class="k">def</span> <span class="nf">is_following_repo</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">repo_name</span><span class="p">,</span> <span class="n">user_id</span><span class="p">,</span> <span class="n">cache</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="n">r</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sa</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">Repository</span><span class="p">)</span>\
+            <span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">Repository</span><span class="o">.</span><span class="n">repo_name</span> <span class="o">==</span> <span class="n">repo_name</span><span class="p">)</span><span class="o">.</span><span class="n">scalar</span><span class="p">()</span>
+
+        <span class="n">f</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sa</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">UserFollowing</span><span class="p">)</span>\
+            <span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">UserFollowing</span><span class="o">.</span><span class="n">follows_repository</span> <span class="o">==</span> <span class="n">r</span><span class="p">)</span>\
+            <span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">UserFollowing</span><span class="o">.</span><span class="n">user_id</span> <span class="o">==</span> <span class="n">user_id</span><span class="p">)</span><span class="o">.</span><span class="n">scalar</span><span class="p">()</span>
+
+        <span class="k">return</span> <span class="n">f</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span>
+
+    <span class="k">def</span> <span class="nf">is_following_user</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">username</span><span class="p">,</span> <span class="n">user_id</span><span class="p">,</span> <span class="n">cache</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="n">u</span> <span class="o">=</span> <span class="n">User</span><span class="o">.</span><span class="n">get_by_username</span><span class="p">(</span><span class="n">username</span><span class="p">)</span>
+
+        <span class="n">f</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sa</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">UserFollowing</span><span class="p">)</span>\
+            <span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">UserFollowing</span><span class="o">.</span><span class="n">follows_user</span> <span class="o">==</span> <span class="n">u</span><span class="p">)</span>\
+            <span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">UserFollowing</span><span class="o">.</span><span class="n">user_id</span> <span class="o">==</span> <span class="n">user_id</span><span class="p">)</span><span class="o">.</span><span class="n">scalar</span><span class="p">()</span>
+
+        <span class="k">return</span> <span class="n">f</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span>
+
+    <span class="k">def</span> <span class="nf">get_followers</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">repo</span><span class="p">):</span>
+        <span class="n">repo</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_repo</span><span class="p">(</span><span class="n">repo</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">sa</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">UserFollowing</span><span class="p">)</span>\
+                <span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">UserFollowing</span><span class="o">.</span><span class="n">follows_repository</span> <span class="o">==</span> <span class="n">repo</span><span class="p">)</span><span class="o">.</span><span class="n">count</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">get_forks</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">repo</span><span class="p">):</span>
+        <span class="n">repo</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_repo</span><span class="p">(</span><span class="n">repo</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">sa</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">Repository</span><span class="p">)</span>\
+                <span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">Repository</span><span class="o">.</span><span class="n">fork</span> <span class="o">==</span> <span class="n">repo</span><span class="p">)</span><span class="o">.</span><span class="n">count</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">get_pull_requests</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">repo</span><span class="p">):</span>
+        <span class="n">repo</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_repo</span><span class="p">(</span><span class="n">repo</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">sa</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">PullRequest</span><span class="p">)</span>\
+                <span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">PullRequest</span><span class="o">.</span><span class="n">other_repo</span> <span class="o">==</span> <span class="n">repo</span><span class="p">)</span><span class="o">.</span><span class="n">count</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">mark_as_fork</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">repo</span><span class="p">,</span> <span class="n">fork</span><span class="p">,</span> <span class="n">user</span><span class="p">):</span>
+        <span class="n">repo</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__get_repo</span><span class="p">(</span><span class="n">repo</span><span class="p">)</span>
+        <span class="n">fork</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__get_repo</span><span class="p">(</span><span class="n">fork</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">fork</span> <span class="ow">and</span> <span class="n">repo</span><span class="o">.</span><span class="n">repo_id</span> <span class="o">==</span> <span class="n">fork</span><span class="o">.</span><span class="n">repo_id</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s">&quot;Cannot set repository as fork of itself&quot;</span><span class="p">)</span>
+        <span class="n">repo</span><span class="o">.</span><span class="n">fork</span> <span class="o">=</span> <span class="n">fork</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">sa</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">repo</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">repo</span>
+
+    <span class="k">def</span> <span class="nf">pull_changes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">repo</span><span class="p">,</span> <span class="n">username</span><span class="p">):</span>
+        <span class="n">dbrepo</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__get_repo</span><span class="p">(</span><span class="n">repo</span><span class="p">)</span>
+        <span class="n">clone_uri</span> <span class="o">=</span> <span class="n">dbrepo</span><span class="o">.</span><span class="n">clone_uri</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">clone_uri</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s">&quot;This repository doesn&#39;t have a clone uri&quot;</span><span class="p">)</span>
+
+        <span class="n">repo</span> <span class="o">=</span> <span class="n">dbrepo</span><span class="o">.</span><span class="n">scm_instance</span>
+        <span class="kn">from</span> <span class="nn">rhodecode</span> <span class="kn">import</span> <span class="n">CONFIG</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">extras</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s">&#39;ip&#39;</span><span class="p">:</span> <span class="s">&#39;&#39;</span><span class="p">,</span>
+                <span class="s">&#39;username&#39;</span><span class="p">:</span> <span class="n">username</span><span class="p">,</span>
+                <span class="s">&#39;action&#39;</span><span class="p">:</span> <span class="s">&#39;push_remote&#39;</span><span class="p">,</span>
+                <span class="s">&#39;repository&#39;</span><span class="p">:</span> <span class="n">dbrepo</span><span class="o">.</span><span class="n">repo_name</span><span class="p">,</span>
+                <span class="s">&#39;scm&#39;</span><span class="p">:</span> <span class="n">repo</span><span class="o">.</span><span class="n">alias</span><span class="p">,</span>
+                <span class="s">&#39;config&#39;</span><span class="p">:</span> <span class="n">CONFIG</span><span class="p">[</span><span class="s">&#39;__file__&#39;</span><span class="p">],</span>
+                <span class="s">&#39;make_lock&#39;</span><span class="p">:</span> <span class="bp">None</span><span class="p">,</span>
+                <span class="s">&#39;locked_by&#39;</span><span class="p">:</span> <span class="p">[</span><span class="bp">None</span><span class="p">,</span> <span class="bp">None</span><span class="p">]</span>
+            <span class="p">}</span>
+
+            <span class="n">Repository</span><span class="o">.</span><span class="n">inject_ui</span><span class="p">(</span><span class="n">repo</span><span class="p">,</span> <span class="n">extras</span><span class="o">=</span><span class="n">extras</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">repo</span><span class="o">.</span><span class="n">alias</span> <span class="o">==</span> <span class="s">&#39;git&#39;</span><span class="p">:</span>
+                <span class="n">repo</span><span class="o">.</span><span class="n">fetch</span><span class="p">(</span><span class="n">clone_uri</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">repo</span><span class="o">.</span><span class="n">pull</span><span class="p">(</span><span class="n">clone_uri</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">mark_for_invalidation</span><span class="p">(</span><span class="n">dbrepo</span><span class="o">.</span><span class="n">repo_name</span><span class="p">)</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">traceback</span><span class="o">.</span><span class="n">format_exc</span><span class="p">())</span>
+            <span class="k">raise</span>
+
+<div class="viewcode-block" id="ScmModel.commit_change"><a class="viewcode-back" href="../../../api/models.html#rhodecode.model.scm.ScmModel.commit_change">[docs]</a>    <span class="k">def</span> <span class="nf">commit_change</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">repo</span><span class="p">,</span> <span class="n">repo_name</span><span class="p">,</span> <span class="n">cs</span><span class="p">,</span> <span class="n">user</span><span class="p">,</span> <span class="n">author</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span>
+                      <span class="n">content</span><span class="p">,</span> <span class="n">f_path</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Commits changes</span>
+
+<span class="sd">        :param repo: SCM instance</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="k">if</span> <span class="n">repo</span><span class="o">.</span><span class="n">alias</span> <span class="o">==</span> <span class="s">&#39;hg&#39;</span><span class="p">:</span>
+            <span class="kn">from</span> <span class="nn">rhodecode.lib.vcs.backends.hg</span> <span class="kn">import</span> \
+                <span class="n">MercurialInMemoryChangeset</span> <span class="k">as</span> <span class="n">IMC</span>
+        <span class="k">elif</span> <span class="n">repo</span><span class="o">.</span><span class="n">alias</span> <span class="o">==</span> <span class="s">&#39;git&#39;</span><span class="p">:</span>
+            <span class="kn">from</span> <span class="nn">rhodecode.lib.vcs.backends.git</span> <span class="kn">import</span> \
+                <span class="n">GitInMemoryChangeset</span> <span class="k">as</span> <span class="n">IMC</span>
+
+        <span class="c"># decoding here will force that we have proper encoded values</span>
+        <span class="c"># in any other case this will throw exceptions and deny commit</span>
+        <span class="n">content</span> <span class="o">=</span> <span class="n">safe_str</span><span class="p">(</span><span class="n">content</span><span class="p">)</span>
+        <span class="n">path</span> <span class="o">=</span> <span class="n">safe_str</span><span class="p">(</span><span class="n">f_path</span><span class="p">)</span>
+        <span class="c"># message and author needs to be unicode</span>
+        <span class="c"># proper backend should then translate that into required type</span>
+        <span class="n">message</span> <span class="o">=</span> <span class="n">safe_unicode</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+        <span class="n">author</span> <span class="o">=</span> <span class="n">safe_unicode</span><span class="p">(</span><span class="n">author</span><span class="p">)</span>
+        <span class="n">m</span> <span class="o">=</span> <span class="n">IMC</span><span class="p">(</span><span class="n">repo</span><span class="p">)</span>
+        <span class="n">m</span><span class="o">.</span><span class="n">change</span><span class="p">(</span><span class="n">FileNode</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">content</span><span class="p">))</span>
+        <span class="n">tip</span> <span class="o">=</span> <span class="n">m</span><span class="o">.</span><span class="n">commit</span><span class="p">(</span><span class="n">message</span><span class="o">=</span><span class="n">message</span><span class="p">,</span>
+                       <span class="n">author</span><span class="o">=</span><span class="n">author</span><span class="p">,</span>
+                       <span class="n">parents</span><span class="o">=</span><span class="p">[</span><span class="n">cs</span><span class="p">],</span> <span class="n">branch</span><span class="o">=</span><span class="n">cs</span><span class="o">.</span><span class="n">branch</span><span class="p">)</span>
+
+        <span class="n">action</span> <span class="o">=</span> <span class="s">&#39;push_local:</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">tip</span><span class="o">.</span><span class="n">raw_id</span>
+        <span class="n">action_logger</span><span class="p">(</span><span class="n">user</span><span class="p">,</span> <span class="n">action</span><span class="p">,</span> <span class="n">repo_name</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">mark_for_invalidation</span><span class="p">(</span><span class="n">repo_name</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">tip</span>
+</div>
+    <span class="k">def</span> <span class="nf">create_node</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">repo</span><span class="p">,</span> <span class="n">repo_name</span><span class="p">,</span> <span class="n">cs</span><span class="p">,</span> <span class="n">user</span><span class="p">,</span> <span class="n">author</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="n">content</span><span class="p">,</span>
+                      <span class="n">f_path</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">repo</span><span class="o">.</span><span class="n">alias</span> <span class="o">==</span> <span class="s">&#39;hg&#39;</span><span class="p">:</span>
+            <span class="kn">from</span> <span class="nn">rhodecode.lib.vcs.backends.hg</span> <span class="kn">import</span> <span class="n">MercurialInMemoryChangeset</span> <span class="k">as</span> <span class="n">IMC</span>
+        <span class="k">elif</span> <span class="n">repo</span><span class="o">.</span><span class="n">alias</span> <span class="o">==</span> <span class="s">&#39;git&#39;</span><span class="p">:</span>
+            <span class="kn">from</span> <span class="nn">rhodecode.lib.vcs.backends.git</span> <span class="kn">import</span> <span class="n">GitInMemoryChangeset</span> <span class="k">as</span> <span class="n">IMC</span>
+        <span class="c"># decoding here will force that we have proper encoded values</span>
+        <span class="c"># in any other case this will throw exceptions and deny commit</span>
+
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">content</span><span class="p">,</span> <span class="p">(</span><span class="nb">basestring</span><span class="p">,)):</span>
+            <span class="n">content</span> <span class="o">=</span> <span class="n">safe_str</span><span class="p">(</span><span class="n">content</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">content</span><span class="p">,</span> <span class="p">(</span><span class="nb">file</span><span class="p">,</span> <span class="n">cStringIO</span><span class="o">.</span><span class="n">OutputType</span><span class="p">,)):</span>
+            <span class="n">content</span> <span class="o">=</span> <span class="n">content</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s">&#39;Content is of unrecognized type </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span>
+                <span class="nb">type</span><span class="p">(</span><span class="n">content</span><span class="p">)</span>
+            <span class="p">))</span>
+
+        <span class="n">message</span> <span class="o">=</span> <span class="n">safe_unicode</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+        <span class="n">author</span> <span class="o">=</span> <span class="n">safe_unicode</span><span class="p">(</span><span class="n">author</span><span class="p">)</span>
+        <span class="n">path</span> <span class="o">=</span> <span class="n">safe_str</span><span class="p">(</span><span class="n">f_path</span><span class="p">)</span>
+        <span class="n">m</span> <span class="o">=</span> <span class="n">IMC</span><span class="p">(</span><span class="n">repo</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">cs</span><span class="p">,</span> <span class="n">EmptyChangeset</span><span class="p">):</span>
+            <span class="c"># EmptyChangeset means we we&#39;re editing empty repository</span>
+            <span class="n">parents</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">parents</span> <span class="o">=</span> <span class="p">[</span><span class="n">cs</span><span class="p">]</span>
+
+        <span class="n">m</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">FileNode</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">content</span><span class="o">=</span><span class="n">content</span><span class="p">))</span>
+        <span class="n">tip</span> <span class="o">=</span> <span class="n">m</span><span class="o">.</span><span class="n">commit</span><span class="p">(</span><span class="n">message</span><span class="o">=</span><span class="n">message</span><span class="p">,</span>
+                       <span class="n">author</span><span class="o">=</span><span class="n">author</span><span class="p">,</span>
+                       <span class="n">parents</span><span class="o">=</span><span class="n">parents</span><span class="p">,</span> <span class="n">branch</span><span class="o">=</span><span class="n">cs</span><span class="o">.</span><span class="n">branch</span><span class="p">)</span>
+
+        <span class="n">action</span> <span class="o">=</span> <span class="s">&#39;push_local:</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">tip</span><span class="o">.</span><span class="n">raw_id</span>
+        <span class="n">action_logger</span><span class="p">(</span><span class="n">user</span><span class="p">,</span> <span class="n">action</span><span class="p">,</span> <span class="n">repo_name</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">mark_for_invalidation</span><span class="p">(</span><span class="n">repo_name</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">tip</span>
+
+<div class="viewcode-block" id="ScmModel.get_nodes"><a class="viewcode-back" href="../../../api/models.html#rhodecode.model.scm.ScmModel.get_nodes">[docs]</a>    <span class="k">def</span> <span class="nf">get_nodes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">repo_name</span><span class="p">,</span> <span class="n">revision</span><span class="p">,</span> <span class="n">root_path</span><span class="o">=</span><span class="s">&#39;/&#39;</span><span class="p">,</span> <span class="n">flat</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        recursive walk in root dir and return a set of all path in that dir</span>
+<span class="sd">        based on repository walk function</span>
+
+<span class="sd">        :param repo_name: name of repository</span>
+<span class="sd">        :param revision: revision for which to list nodes</span>
+<span class="sd">        :param root_path: root path to list</span>
+<span class="sd">        :param flat: return as a list, if False returns a dict with decription</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">_files</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+        <span class="n">_dirs</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">_repo</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__get_repo</span><span class="p">(</span><span class="n">repo_name</span><span class="p">)</span>
+            <span class="n">changeset</span> <span class="o">=</span> <span class="n">_repo</span><span class="o">.</span><span class="n">scm_instance</span><span class="o">.</span><span class="n">get_changeset</span><span class="p">(</span><span class="n">revision</span><span class="p">)</span>
+            <span class="n">root_path</span> <span class="o">=</span> <span class="n">root_path</span><span class="o">.</span><span class="n">lstrip</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">topnode</span><span class="p">,</span> <span class="n">dirs</span><span class="p">,</span> <span class="n">files</span> <span class="ow">in</span> <span class="n">changeset</span><span class="o">.</span><span class="n">walk</span><span class="p">(</span><span class="n">root_path</span><span class="p">):</span>
+                <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">files</span><span class="p">:</span>
+                    <span class="n">_files</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">path</span> <span class="k">if</span> <span class="n">flat</span> <span class="k">else</span> <span class="p">{</span><span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="n">f</span><span class="o">.</span><span class="n">path</span><span class="p">,</span>
+                                                       <span class="s">&quot;type&quot;</span><span class="p">:</span> <span class="s">&quot;file&quot;</span><span class="p">})</span>
+                <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">dirs</span><span class="p">:</span>
+                    <span class="n">_dirs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">d</span><span class="o">.</span><span class="n">path</span> <span class="k">if</span> <span class="n">flat</span> <span class="k">else</span> <span class="p">{</span><span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="n">d</span><span class="o">.</span><span class="n">path</span><span class="p">,</span>
+                                                      <span class="s">&quot;type&quot;</span><span class="p">:</span> <span class="s">&quot;dir&quot;</span><span class="p">})</span>
+        <span class="k">except</span> <span class="n">RepositoryError</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">traceback</span><span class="o">.</span><span class="n">format_exc</span><span class="p">())</span>
+            <span class="k">raise</span>
+
+        <span class="k">return</span> <span class="n">_dirs</span><span class="p">,</span> <span class="n">_files</span>
+</div>
+    <span class="k">def</span> <span class="nf">get_unread_journal</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">sa</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">UserLog</span><span class="p">)</span><span class="o">.</span><span class="n">count</span><span class="p">()</span>
+
+<div class="viewcode-block" id="ScmModel.get_repo_landing_revs"><a class="viewcode-back" href="../../../api/models.html#rhodecode.model.scm.ScmModel.get_repo_landing_revs">[docs]</a>    <span class="k">def</span> <span class="nf">get_repo_landing_revs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">repo</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Generates select option with tags branches and bookmarks (for hg only)</span>
+<span class="sd">        grouped by type</span>
+
+<span class="sd">        :param repo:</span>
+<span class="sd">        :type repo:</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="n">hist_l</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">choices</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">repo</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__get_repo</span><span class="p">(</span><span class="n">repo</span><span class="p">)</span>
+        <span class="n">hist_l</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="s">&#39;tip&#39;</span><span class="p">,</span> <span class="n">_</span><span class="p">(</span><span class="s">&#39;latest tip&#39;</span><span class="p">)])</span>
+        <span class="n">choices</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;tip&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">repo</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">choices</span><span class="p">,</span> <span class="n">hist_l</span>
+
+        <span class="n">repo</span> <span class="o">=</span> <span class="n">repo</span><span class="o">.</span><span class="n">scm_instance</span>
+
+        <span class="n">branches_group</span> <span class="o">=</span> <span class="p">([(</span><span class="n">k</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span>
+                           <span class="n">repo</span><span class="o">.</span><span class="n">branches</span><span class="o">.</span><span class="n">iteritems</span><span class="p">()],</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;Branches&quot;</span><span class="p">))</span>
+        <span class="n">hist_l</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">branches_group</span><span class="p">)</span>
+        <span class="n">choices</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">branches_group</span><span class="p">[</span><span class="mi">0</span><span class="p">]])</span>
+
+        <span class="k">if</span> <span class="n">repo</span><span class="o">.</span><span class="n">alias</span> <span class="o">==</span> <span class="s">&#39;hg&#39;</span><span class="p">:</span>
+            <span class="n">bookmarks_group</span> <span class="o">=</span> <span class="p">([(</span><span class="n">k</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span>
+                                <span class="n">repo</span><span class="o">.</span><span class="n">bookmarks</span><span class="o">.</span><span class="n">iteritems</span><span class="p">()],</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;Bookmarks&quot;</span><span class="p">))</span>
+            <span class="n">hist_l</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">bookmarks_group</span><span class="p">)</span>
+            <span class="n">choices</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">bookmarks_group</span><span class="p">[</span><span class="mi">0</span><span class="p">]])</span>
+
+        <span class="n">tags_group</span> <span class="o">=</span> <span class="p">([(</span><span class="n">k</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span>
+                       <span class="n">repo</span><span class="o">.</span><span class="n">tags</span><span class="o">.</span><span class="n">iteritems</span><span class="p">()],</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;Tags&quot;</span><span class="p">))</span>
+        <span class="n">hist_l</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">tags_group</span><span class="p">)</span>
+        <span class="n">choices</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">tags_group</span><span class="p">[</span><span class="mi">0</span><span class="p">]])</span>
+
+        <span class="k">return</span> <span class="n">choices</span><span class="p">,</span> <span class="n">hist_l</span>
+</div>
+<div class="viewcode-block" id="ScmModel.install_git_hook"><a class="viewcode-back" href="../../../api/models.html#rhodecode.model.scm.ScmModel.install_git_hook">[docs]</a>    <span class="k">def</span> <span class="nf">install_git_hook</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">repo</span><span class="p">,</span> <span class="n">force_create</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Creates a rhodecode hook inside a git repository</span>
+
+<span class="sd">        :param repo: Instance of VCS repo</span>
+<span class="sd">        :param force_create: Create even if same name hook exists</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="n">loc</span> <span class="o">=</span> <span class="n">jn</span><span class="p">(</span><span class="n">repo</span><span class="o">.</span><span class="n">path</span><span class="p">,</span> <span class="s">&#39;hooks&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">repo</span><span class="o">.</span><span class="n">bare</span><span class="p">:</span>
+            <span class="n">loc</span> <span class="o">=</span> <span class="n">jn</span><span class="p">(</span><span class="n">repo</span><span class="o">.</span><span class="n">path</span><span class="p">,</span> <span class="s">&#39;.git&#39;</span><span class="p">,</span> <span class="s">&#39;hooks&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="n">loc</span><span class="p">):</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">loc</span><span class="p">)</span>
+
+        <span class="n">tmpl_post</span> <span class="o">=</span> <span class="n">pkg_resources</span><span class="o">.</span><span class="n">resource_string</span><span class="p">(</span>
+            <span class="s">&#39;rhodecode&#39;</span><span class="p">,</span> <span class="n">jn</span><span class="p">(</span><span class="s">&#39;config&#39;</span><span class="p">,</span> <span class="s">&#39;post_receive_tmpl.py&#39;</span><span class="p">)</span>
+        <span class="p">)</span>
+        <span class="n">tmpl_pre</span> <span class="o">=</span> <span class="n">pkg_resources</span><span class="o">.</span><span class="n">resource_string</span><span class="p">(</span>
+            <span class="s">&#39;rhodecode&#39;</span><span class="p">,</span> <span class="n">jn</span><span class="p">(</span><span class="s">&#39;config&#39;</span><span class="p">,</span> <span class="s">&#39;pre_receive_tmpl.py&#39;</span><span class="p">)</span>
+        <span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">h_type</span><span class="p">,</span> <span class="n">tmpl</span> <span class="ow">in</span> <span class="p">[(</span><span class="s">&#39;pre&#39;</span><span class="p">,</span> <span class="n">tmpl_pre</span><span class="p">),</span> <span class="p">(</span><span class="s">&#39;post&#39;</span><span class="p">,</span> <span class="n">tmpl_post</span><span class="p">)]:</span>
+            <span class="n">_hook_file</span> <span class="o">=</span> <span class="n">jn</span><span class="p">(</span><span class="n">loc</span><span class="p">,</span> <span class="s">&#39;</span><span class="si">%s</span><span class="s">-receive&#39;</span> <span class="o">%</span> <span class="n">h_type</span><span class="p">)</span>
+            <span class="n">_rhodecode_hook</span> <span class="o">=</span> <span class="bp">False</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;Installing git hook in repo </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">repo</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">_hook_file</span><span class="p">):</span>
+                <span class="c"># let&#39;s take a look at this hook, maybe it&#39;s rhodecode ?</span>
+                <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;hook exists, checking if it is from rhodecode&#39;</span><span class="p">)</span>
+                <span class="n">_HOOK_VER_PAT</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&#39;^RC_HOOK_VER&#39;</span><span class="p">)</span>
+                <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">_hook_file</span><span class="p">,</span> <span class="s">&#39;rb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+                    <span class="n">data</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+                    <span class="n">matches</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&#39;(?:</span><span class="si">%s</span><span class="s">)\s*=\s*(.*)&#39;</span>
+                                         <span class="o">%</span> <span class="s">&#39;RC_HOOK_VER&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">matches</span><span class="p">:</span>
+                        <span class="k">try</span><span class="p">:</span>
+                            <span class="n">ver</span> <span class="o">=</span> <span class="n">matches</span><span class="o">.</span><span class="n">groups</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
+                            <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;got </span><span class="si">%s</span><span class="s"> it is rhodecode&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">ver</span><span class="p">))</span>
+                            <span class="n">_rhodecode_hook</span> <span class="o">=</span> <span class="bp">True</span>
+                        <span class="k">except</span><span class="p">:</span>
+                            <span class="n">log</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">traceback</span><span class="o">.</span><span class="n">format_exc</span><span class="p">())</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c"># there is no hook in this dir, so we want to create one</span>
+                <span class="n">_rhodecode_hook</span> <span class="o">=</span> <span class="bp">True</span>
+
+            <span class="k">if</span> <span class="n">_rhodecode_hook</span> <span class="ow">or</span> <span class="n">force_create</span><span class="p">:</span>
+                <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;writing </span><span class="si">%s</span><span class="s"> hook file !&#39;</span> <span class="o">%</span> <span class="n">h_type</span><span class="p">)</span>
+                <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">_hook_file</span><span class="p">,</span> <span class="s">&#39;wb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+                    <span class="n">tmpl</span> <span class="o">=</span> <span class="n">tmpl</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&#39;_TMPL_&#39;</span><span class="p">,</span> <span class="n">rhodecode</span><span class="o">.</span><span class="n">__version__</span><span class="p">)</span>
+                    <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">tmpl</span><span class="p">)</span>
+                <span class="n">os</span><span class="o">.</span><span class="n">chmod</span><span class="p">(</span><span class="n">_hook_file</span><span class="p">,</span> <span class="mo">0755</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;skipping writing hook file&#39;</span><span class="p">)</span></div></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<h3>Support RhodeCode development.</h3>
+<div style="text-align:center">
+	<form action="https://www.paypal.com/cgi-bin/webscr" method="post">
+	<input type="hidden" name="cmd" value="_s-xclick">
+	<input type="hidden" name="hosted_button_id" value="8U2LLRPLBKWDU">
+	<input style="border:0px !important" type="image" src="https://www.paypal.com/en_US/i/btn/btn_donate_SM.gif"
+	border="0" name="submit" alt="PayPal - The safer, easier way to pay online!">
+	<img alt="" border="0" src="https://www.paypal.com/en_US/i/scr/pixel.gif" width="1" height="1">
+	</form>
+    <div style="padding:5px">
+     <a href="http://flattr.com/thing/167489/RhodeCode" target="_blank">
+     <img src="http://api.flattr.com/button/flattr-badge-large.png" alt="Flattr this" title="Flattr this" border="0" /></a>
+   </div>
+</div>
+
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../../index.html">RhodeCode 1.5.2 documentation</a> &raquo;</li>
+          <li><a href="../../index.html" >Module code</a> &raquo;</li>
+          <li><a href="../model.html" >rhodecode.model</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2013, Marcin Kuzminski.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>
