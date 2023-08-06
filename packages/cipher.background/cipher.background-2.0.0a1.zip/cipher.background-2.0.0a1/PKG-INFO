@@ -1,0 +1,122 @@
+Metadata-Version: 1.1
+Name: cipher.background
+Version: 2.0.0a1
+Summary: Background thread support with ZODB support
+Home-page: http://pypi.python.org/pypi/cipher.background/
+Author: Zope Foundation and Contributors
+Author-email: zope-dev@zope.org
+License: ZPL 2.1
+Description: cipher.background
+        =================
+        
+        A library for creating background threads that can talk to the ZODB and use
+        local site components.
+        
+        We're probably reinventing Celery.
+        
+        
+        Example
+        -------
+        
+        Let's assume we have a DMS with a simple publication workflow. We
+        have two states "DRAFT" and "PUBLISH". The Problem in this example
+        is: that the transition form "DRAFT" to "PUBLISH" takes some minutes,
+        and we don't want the user to be waiting.
+        
+        First we have create a WorkflowTransition-BackgroundThread:
+        
+        .. code-block:: python
+        
+            class MyWorkflowTransition(BackgroundWorkerThread):
+                execute = True
+                description = "background worker thread (%(class_name)s) for %(site_name)s User %(user_name)s"
+        
+                def __init__(self, site_db, site_oid, site_name, user_name, daemon=True, object_oid=None):
+                    self.object_oid = object_oid
+                    super(MyWorker, self).__init__(site_db, site_oid, site_name, user_name, daemon=True)
+        
+                def scheduleNextWork(self):
+                    return self.execute
+        
+                def getObjectFromOID(self):
+                    conn = getSite()._p_jar
+                    return conn.get(self.object_oid)
+        
+                def doWork(self):
+                    sleep(15) # This is our long TASK
+                    self.execute = False
+                    document = self.getObjectFromOID()
+                    document.wf_status = "PUBLISHED"
+        
+        
+        We have a simple Document with an initial Workflow-State draft.
+        
+        .. code-block:: python
+        
+           class Document(Persistent):
+               wf_state = "DRAFT"
+        
+        
+        Now we have to call our WorkflowTransition.
+        
+        .. code-block:: python
+        
+            def setWorkflow(site, document_oid, user_name):
+                worker = MyWorkflowTransition(
+                    site_db = site._p_jar.db(), 
+                    site_oid = site._p_oid,
+                    site_name = site.__name__,
+                    user_name = user_name,
+                    object_oid = document_oid,
+                    )
+                worker.start()
+        
+        When calling worker.start() the thread goes into "Background" and the user
+        don't have to wait until the Transition is finished.
+        
+        
+        
+        =======
+        CHANGES
+        =======
+        
+        
+        2.0.0a1 (2013-03-06)
+        --------------------
+        
+        - Added support for Python 3.3.
+        
+        - Dropped support for Python 2.4 and 2.5.
+        
+        
+        1.0.2 (2012-07-31)
+        ------------------
+        
+        - Refactor BackgroundWorkerThread to have the site returned from getSite()
+        
+        
+        1.0.1 (2012-04-05)
+        ------------------
+        
+        
+        1.0.0 (2012-02-10)
+        ------------------
+        
+        - Initial release as a separate package.
+        
+Keywords: CipherHealth background thread ZODB
+Platform: UNKNOWN
+Classifier: Development Status :: 4 - Beta
+Classifier: Environment :: Web Environment
+Classifier: Intended Audience :: Developers
+Classifier: Programming Language :: Python
+Classifier: Programming Language :: Python :: 2
+Classifier: Programming Language :: Python :: 2.6
+Classifier: Programming Language :: Python :: 2.7
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.3
+Classifier: Programming Language :: Python :: Implementation :: CPython
+Classifier: Natural Language :: English
+Classifier: Operating System :: OS Independent
+Classifier: Topic :: Internet :: WWW/HTTP
+Classifier: Framework :: Zope3
