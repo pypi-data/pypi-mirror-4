@@ -1,0 +1,180 @@
+#!/usr/bin/env python
+
+DATETIME_FORMAT = '%a %d %B %Y %H:%M:%S %Z'
+
+# python, logging
+import os
+import datetime
+import logging
+
+# matplotlib + wx
+import matplotlib
+matplotlib.use('WXAgg')
+import wxversion
+wxversion.ensureMinimal('2.8')
+import wx
+import pytz
+
+# application core
+from sidc_gui.core.conf import settings
+from sidc_gui.core.about import about_box
+from sidc_gui.core.utils import xrc
+from sidc_gui.core.utils.functional import paply
+from sidc_gui.core.handler import WxLogger
+from sidc_gui.core.threads import InfoThread
+from sidc_gui.core.elements import build_tab
+
+logging.debug('Entry')
+
+class SidcUI(wx.App):
+    def OnInit(self):
+        logging.debug('wx Init')
+        self.res = xrc.load('app.xrc')
+
+        self.frame = self.res.LoadFrame(None, 'main_frame')
+        self.frame.SetMinSize((500,500))
+
+        # wx logger
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        handler = WxLogger(self.get('console_textarea'))
+        handler.setFormatter(formatter)
+        handler.setLevel(int(settings.con_log_level))
+        logging.getLogger().addHandler(handler)
+
+        logging.debug('wx Logger set')
+
+        self.ts = self.get('tablist')
+        # get pannels
+        self.p_config = self.get('config')
+        self.p_console = self.get('console')
+        self.p_status = self.get('status')
+        self.p_live = self.get('live')
+
+        # bind menu items
+        def bind_menu(menu_id, fn):
+            self.Bind(wx.EVT_MENU, fn, id=self.getid('menu_'+menu_id))
+
+        bind_menu('exit', self.on_exit)
+        bind_menu('load', self.on_load)
+        bind_menu('config', paply(self.toggle, self.p_config))
+        bind_menu('console', paply(self.toggle, self.p_console))
+        bind_menu('about', about_box)
+
+        self.frame.GetMenuBar().Check(self.getid('menu_console'), True)
+        self.frame.GetMenuBar().Check(self.getid('menu_config'), False)
+
+        # bind buttons
+        def bind_btn(btnid, fn):
+            self.Bind(wx.EVT_BUTTON, fn, id=self.getid(btnid))
+        bind_btn('status_update', self.run_info_thread)
+
+        self.cfg_list = self.get('config_list')
+        self.cfg_list.InsertColumn(0, 'Option')
+        self.cfg_list.InsertColumn(1, 'Value')
+        self.cfg_list.Bind(wx.EVT_LIST_ITEM_SELECTED, self.on_cfg_list_click)
+
+        self.SetTopWindow(self.frame)
+        self.frame.Show(True)
+        self.frame.SetSize((802,603))
+
+        logging.debug('wx Init done')
+        logging.debug('Starting info thread')
+        self.run_info_thread()
+
+        logging.debug('Init done')
+        return True
+
+    def on_exit(self, event=None):
+        settings.save()
+        self.frame.Close(True)
+
+    def on_load(self, event=None):
+        dlg = wx.FileDialog(self.frame, "Open a file", style=wx.OPEN,
+            defaultDir=settings.last_data_path)
+        dlg.SetWildcard("Sidc data files (.dat)|*.dat|All files (*.*)|*.*")
+        if dlg.ShowModal() == wx.ID_OK:
+            self.ts.AddPage(build_tab(self.ts, dlg.GetPath()),
+                os.path.basename(dlg.GetPath()), True)
+            settings.last_data_path = os.path.dirname(dlg.GetPath())
+        dlg.Destroy()
+
+    def run_info_thread(self, event=None):
+        self.thread_info = InfoThread(self, self.on_info_result)
+
+    def on_info_result(self, event=None):
+        logging.debug('Info received')
+
+        self.status = event.data[0]
+        self.config = event.data[1]
+
+
+        if self.config is not None:
+            self.cfg_list.DeleteAllItems()
+            # sort
+
+            for (key,val) in sorted(self.config.iteritems(), key=lambda x: x[0]):
+                logging.debug('%s = %s' % (repr(key), repr(val)))
+                self.cfg_list.Append([key+' '*10, val])
+
+            self.cfg_list.SetColumnWidth(0, -1)
+            self.cfg_list.SetColumnWidth(1, -1)
+            if settings.last_data_path == os.path.expanduser('~'):
+                settings.last_data_path = self.config['datadir']
+
+        if self.status is not None:
+            logging.debug(self.status)
+            self.get('status_c').SetLabel('Running')
+            started = self.status['create_datetime']
+            uptime = datetime.datetime.now() - started
+            hours, remainder = divmod(uptime.seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            days, hours = divmod(hours, 24)
+
+            uptime_fmt = '%d:%02d:%02d' % (hours, minutes, seconds)
+            if days != 0:
+                uptime_fmt = '%d days %d:%02d:%02d' % (days, hours,
+                    minutes, seconds)
+
+            self.get('uptime_c').SetLabel(uptime_fmt)
+            self.get('start_c').SetLabel(started.strftime(DATETIME_FORMAT))
+            if 'datadir' in self.config:
+                fname = datetime.datetime.now(pytz.timezone('GMT')).strftime(
+                    self.config['output_files'])
+                fpath = os.path.join(self.config['datadir'], fname)
+                logging.info('Trying to open live file [%s]' % fpath)
+                if os.path.isfile(fpath):
+                    logging.info('File found')
+                    self.ts.AddPage(build_tab(self.ts, fpath), fname, True)
+                else:
+                    logging.error('File not found, please fire a bug report')
+
+        else:
+            self.get('status_c').SetLabel('Not running')
+            self.get('uptime_c').SetLabel('')
+            self.get('start_c').SetLabel('')
+
+        self.p_status.Show()
+
+    def on_cfg_list_click(self, event=None):
+        key = event.GetItem().GetText().strip()
+        value = self.cfg_list.GetItem(event.GetIndex(), 1).GetText()
+        self.get('config_key').SetValue(key)
+        self.get('config_value').SetValue(value)
+
+    def toggle(self, to_toggle, event):
+        if event.Checked():
+            to_toggle.Show()
+        else:
+            to_toggle.Hide()
+
+    def get(self, xrc_name):
+        return xrc.get(xrc_name, self.frame)
+
+    def getid(self, xrc_id):
+        return xrc.get(xrc_id)
+
+
+if __name__ == '__main__':
+    app = SidcUI(0)
+    app.MainLoop()
