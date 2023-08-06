@@ -1,0 +1,96 @@
+#!/usr/bin/env python
+
+# This file is part of StorageAPI, by Luke Granger-Brown
+# and is licensed under the MIT license, under the terms listed within
+# LICENSE which is included with the source of this package
+
+import argparse
+import os
+import os.path
+
+from storage import QueryAuth, ApiV1
+
+
+def upload(parser, api, args):
+    if not os.path.exists(args.filename):
+        parser.error("File does not exist")
+    with open(args.filename, 'rb') as fh:
+        try:
+            f = api.object_upload(fh, os.path.basename(args.filename))
+            print("Upload successful")
+            print(" - File ID: %s" % (f.object_id,))
+            print(" - File URL: %s" % (f.url,))
+        except Exception as e:
+            print("Upload failed")
+            print(e)
+
+
+def info(parser, api, args):
+    try:
+        f = api.object(args.file_id)
+        fi = f.info()
+        print("File ID: " + fi['name'])
+        print("File URL: " + f.url)
+        print()
+        print("Original filename: " + fi['original'])
+        print("File extension:" + fi['extension'])
+        print("MIME type: " + fi['mime'])
+        print()
+        print("Created at: " + fi['created_at'])
+        print("Updated at: " + fi['updated_at'])
+        print()
+        print("File size (bytes): " + fi['size'])
+    except Exception as e:
+        print("Fetching file info failed")
+        print(e)
+
+
+def delete(parser, api, args):
+    try:
+        f = api.object(args.file_id)
+        f.delete()
+        print("File deleted successfully")
+    except Exception as e:
+        print("Couldn't delete that file")
+        print(e)
+
+
+parser = argparse.ArgumentParser(description='interact with Storage')
+parser.add_argument(
+    "-a", "--api-key", dest='api_key',
+    help="API key"
+)
+subparsers = parser.add_subparsers(help='sub-command help')
+
+upl_parser = subparsers.add_parser('upload', help='upload a file')
+upl_parser.add_argument(
+    'filename', type=str, help='path to file to upload'
+)
+upl_parser.set_defaults(exc=upload)
+
+inf_parser = subparsers.add_parser('info', help='get info for a file')
+inf_parser.add_argument(
+    'file_id', type=str, help='file ID'
+)
+inf_parser.set_defaults(exc=info)
+
+del_parser = subparsers.add_parser('delete', help='delete a file')
+del_parser.add_argument(
+    'file_id', type=str, help='file ID'
+)
+del_parser.set_defaults(exc=delete)
+
+args = parser.parse_args()
+
+auth_key = None
+if args.api_key:
+    auth_key = args.api_key
+elif 'STORAGE_API_KEY' in os.environ:
+    auth_key = os.environ['STORAGE_API_KEY']
+else:
+    parser.error('You need to provide an API key on the command line or ' +
+                 'as STORAGE_API_KEY as an environment variable.')
+
+auth = QueryAuth(auth_key)
+api = ApiV1(auth)
+args.exc(parser, api, args)
