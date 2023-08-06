@@ -1,0 +1,91 @@
+#------------------------------------------------------------------------------
+#  Copyright (c) 2011, Enthought, Inc.
+#  All rights reserved.
+#------------------------------------------------------------------------------
+""" Synchronize the selection of two TableViews.
+
+On the left is a single-column table. On the right is a multi column table. 
+Both have their selection modes set to be the same: extended selection on 
+whole rows. Both use RowSelectionModels and synchronize their selected rows
+to the same external model class. As you make selections in one table, they
+should be reflected in the other. The row indices should be printed out to
+the terminal as you do so.
+
+The 'clicked', 'double_clicked', and 'activated' events for the right-hand 
+table will also be printed as they happen.
+
+"""
+from enaml.stdlib.list_model import ListModel
+from enaml.stdlib.table_model import TableModel
+from enaml.styling.brush import Brush
+from enaml.styling.color import Color
+
+import numpy as np
+from traits.api import HasTraits, List, Int
+
+
+# A single row of data with 1k elements
+rows = range(1000)
+
+# A simple list model to display a single row of data
+list_model = ListModel(rows)
+
+# A (1000, 100) array of data
+table = np.arange(1000*100).reshape((1000, 100))
+
+# A simple coloring function for the bg color of the table
+shade_brush = Brush(Color(237, 237, 237)) 
+def table_background(val, row, col):
+    if row % 2 == 0:
+        return shade_brush
+
+# A simple table model to view the 2D array of data.
+table_model = TableModel(table, background_brush_func=table_background)
+
+
+def printer(event):
+    """ Print a ModelIndex notification event.
+
+    """
+    msg = '{name}: {index.row!r}, {index.column!r}'
+    msg = msg.format(name=event.name, index=event.new)
+    print msg
+
+
+class SimpleSelectionModel(HasTraits):
+    """ A simple selection model class which prints a message when
+    its selection changes.
+
+    """
+    selected_rows = List(Int)
+
+    def _selected_rows_changed(self, new):
+        print 'Selected Rows: {!r}'.format(new)
+
+
+enamldef Main(MainWindow):
+    attr simple_selection_model = SimpleSelectionModel()
+    title = 'Table Selections'
+    Container:
+        constraints = [
+            hbox(tv1, tv2),
+            width >= 800,
+            height >= 600,
+        ]
+        TableView: 
+            id: tv1
+            hug_width = 'strong'
+            item_model = list_model
+            RowSelectionModel:
+                selection_mode = 'extended'
+                selected_rows := simple_selection_model.selected_rows
+        TableView:
+            id: tv2
+            item_model = table_model
+            activated :: printer(event)
+            clicked :: printer(event)
+            double_clicked :: printer(event)
+            RowSelectionModel:
+                selection_mode = 'extended'
+                selected_rows := simple_selection_model.selected_rows
+
