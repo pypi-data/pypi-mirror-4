@@ -1,0 +1,102 @@
+Skin Switching based on specific domains
+========================================
+
+Tests for new features by Ed Crewe, Internet Development (University
+of Bristol) August 2008.
+
+Check for switching via specific domains so that new or existing sites
+do not have to use the fixed edit URL subdomain of cms, edit or manage.
+
+First, we must perform some setup of the test browser.
+
+    >>> try:
+    ...     from Testing.testbrowser import Browser
+    ... except ImportError:
+    ...     from Products.Five.testbrowser import Browser
+    >>> portal_url = portal.absolute_url()
+    >>> browser = Browser()
+    >>> browser.handleErrors = False
+    >>> from collective.editskinswitcher.tests.utils import clear_log_entries
+    >>> from collective.editskinswitcher.tests.utils import print_latest_log_entry
+    >>> clear_log_entries(self.portal)
+
+And we make sure we are logged out:
+
+    >>> browser.open(portal_url + '/logout')
+    >>> print_latest_log_entry(self.portal)
+
+Skin switching is done when the switch_skin_action is 'based on
+specific domains' so lets switch on skin changing based on specific
+domains and add a couple:
+
+    >>> from Products.CMFCore.utils import getToolByName
+    >>> portal_props = getToolByName(portal, 'portal_properties')
+    >>> editskin_props = portal_props.get('editskin_switcher')
+    >>> editskin_props.switch_skin_action = 'based on specific domains'
+    >>> editskin_props.specific_domains = "http://www.specifically.this:123\nhttp://www.specifically.orthat"
+    >>> switch_skin_action = editskin_props.getProperty('switch_skin_action')
+    >>> switch_skin_action == 'based on specific domains'
+    True
+
+We rely on the getURL() method.  So we check that we can fool the test
+instance into believing it is on a different url:
+
+    >>> from collective.editskinswitcher.tests.utils import TestRequest
+    >>> TestRequest().getURL()
+    'http://127.0.0.1'
+    >>> TestRequest(SERVER_URL='http://www.specifically.this:123').getURL()
+    'http://www.specifically.this:123'
+
+On localhost we show visitors the default skin.  We test that by
+faking traversal:
+
+    >>> from collective.editskinswitcher.tests.utils import FakeTraversalEvent
+    >>> from collective.editskinswitcher.traversal import switch_skin
+    >>> request = TestRequest(SERVER_URL='http://localhost')
+    >>> event = FakeTraversalEvent(portal, request)
+    >>> switch_skin(portal, event)
+    >>> portal.getCurrentSkinName()
+    'Monty Python Skin'
+    >>> request.get('editskinswitched',0)
+    0
+
+Check that the default skin is really the Monty Python skin via the
+browser by testing the changed template in the skin:
+
+    >>> browser.open(portal_url + '/accessibility-info')
+    >>> portal.portal_skins.getCurrentSkinName()
+    'Monty Python Skin'
+    >>> 'Monty Python' in browser.contents
+    True
+
+When accessing the edit skin users go via one of our specific urls:
+
+    >>> request = TestRequest(SERVER_URL='http://www.specifically.this:123')
+    >>> event = FakeTraversalEvent(portal, request)
+    >>> switch_skin(portal, event)
+    >>> portal.getCurrentSkinName()
+    'Sunburst Theme'
+
+Confirm that via the browser testing the changed template in the skin
+is not changed:
+
+    >>> browser.open(portal_url + '/accessibility-info')
+    >>> 'Monty Python' in browser.contents
+    False
+
+In these tests we need to manually switch the skin back to our
+default, which normally happens automatically when your browser makes
+a new request.
+
+    >>> from collective.editskinswitcher.tests.utils import changeSkin
+    >>> changeSkin(portal, 'Monty Python Skin', portal.REQUEST)
+
+Visitors on localhost still see our fabulous Monty Python Skin:
+
+    >>> request = TestRequest(SERVER_URL='http://localhost')
+    >>> event = FakeTraversalEvent(portal, request)
+    >>> switch_skin(portal, event)
+    >>> portal.getCurrentSkinName()
+    'Monty Python Skin'
+
+
