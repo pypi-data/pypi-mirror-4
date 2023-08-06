@@ -1,0 +1,143 @@
+Workflow
+========
+Optional you can install eea.workflow package in order to add conditional
+workflow transitions. In other words, in order to publish a news item, for example,
+you have to provide an expiration date. Or, if you want to retract an event you
+will have to provide a reason.
+
+As this package is about relations we can apply this theory on relations, too:
+In order to publish an article about a bird you need to provide a relation
+with a Bird.
+
+How does it works
+-----------------
+
+  Add in your workflow transition a guard expresion:
+
+  /profiles/default/workflows/my_workflow/definition.xml
+    ...
+    <transition transition_id="publish">
+      ...
+      <guard>
+        ...
+        <guard-expression>python:path('here/@@get_readiness').is_ready_for('published')</guard-expression>
+      </guard>
+    </transition>
+    ...
+
+  You can check eea.workflow to see how it works, but basically it queries
+  for 2 adapter:
+
+      eea.workflow.interfaces.IRequiredFor
+      eea.workflow.interfaces.IValueProvider
+
+This package provides this adapters for eea.relations.field.EEAReferenceField.
+
+Scenario
+--------
+For your portal in order to publish a document it should provide at least
+one relation with a file.
+
+Let's add some restrictions
+
+    >>> self.loginAsPortalOwner()
+    >>> from Products.CMFCore.utils import getToolByName
+    >>> rtool = getToolByName(portal, 'portal_relations')
+
+Cleanup default relations
+
+    >>> rtool.manage_delObjects(rtool.objectIds())
+    >>> rtool.objectIds()
+    []
+
+Add possible relations. We will use EEARefBrowserDemo as document content-type
+as it already has a schema containing EEAReferenceField
+
+    >>> from zope.component import queryMultiAdapter
+    >>> from Products.GenericSetup.interfaces import IBody
+    >>> from Products.GenericSetup.testing import DummySetupEnviron
+    >>> importer = queryMultiAdapter((rtool, DummySetupEnviron()), IBody)
+
+    >>> importer.body = '''<?xml version="1.0" encoding="utf-8"?>
+    ... <object name="portal_relations" meta_type="EEARelationsTool">
+    ...  <object name="demo" meta_type="EEARelationsContentType">
+    ...   <property name="title">Demo</property>
+    ...   <property name="ct_type">EEARefBrowserDemo</property>
+    ...  </object>
+    ...  <object name="file" meta_type="EEARelationsContentType">
+    ...   <property name="title">File</property>
+    ...   <property name="ct_type">File</property>
+    ...  </object>
+    ...  <object name="demo-to-demo" meta_type="EEAPossibleRelation">
+    ...   <property name="title">Demo -> Demo</property>
+    ...   <property name="from">demo</property>
+    ...   <property name="to">demo</property>
+    ...  </object>
+    ...  <object name="demo-to-file" meta_type="EEAPossibleRelation">
+    ...   <property name="title">Demo -> File</property>
+    ...   <property name="from">demo</property>
+    ...   <property name="to">file</property>
+    ...   <property name="required_for">
+    ...    <element value="published" />
+    ...   </property>
+    ...  </object>
+    ... </object>
+    ... '''
+
+    >>> graph = queryMultiAdapter((rtool, rtool.REQUEST), name=u'graph.dot')
+    >>> print graph()
+    digraph G {
+    "node-demo" [label="Demo"];
+    "node-file" [label="File"];
+    "node-demo" -> "node-demo";
+    "node-demo" -> "node-file"  [fontcolor="#74AE0B", label="published"];
+    }
+
+Now let's add some content to our portal
+
+    >>> name = folder.invokeFactory('Folder', 'sandbox')
+    >>> sandbox = folder._getOb(name)
+    >>> name = sandbox.invokeFactory('EEARefBrowserDemo', 'my-doc')
+    >>> document = sandbox._getOb(name)
+    >>> name = sandbox.invokeFactory('File', 'my-file')
+    >>> file = sandbox._getOb(name)
+
+Let's do what eea.workflow does in order to publish our document
+
+Check for required_for_published fields
+
+    >>> from zope.component import getMultiAdapter
+    >>> from eea.relations.field.interfaces import IRequiredFor
+    >>> field = document.getField('relatedItems')
+    >>> required_for = getMultiAdapter((document, field), IRequiredFor)
+    >>> required_for('visible')
+    False
+    >>> required_for('published')
+    True
+
+Check to see if field has required relations for publishing
+
+    >>> from eea.relations.field.interfaces import IValueProvider
+    >>> provider = getMultiAdapter((document, field), IValueProvider)
+    >>> provider.has_value(state='published')
+    False
+
+Let's try to fool it by adding a relation with another content type
+
+    >>> name = sandbox.invokeFactory('EEARefBrowserDemo', 'other-document')
+    >>> other_document = sandbox._getOb(name)
+    >>> document.processForm(values={
+    ...  'relatedItems': [other_document.UID(),],
+    ... }, data=1, metadata=1)
+
+    >>> provider.has_value(state='published')
+    False
+
+Ok, now let's add the required relation
+
+    >>> document.processForm(values={
+    ...  'relatedItems': [other_document.UID(), file.UID()],
+    ... }, data=1, metadata=1)
+
+    >>> provider.has_value(state='published')
+    True
