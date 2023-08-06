@@ -1,0 +1,1345 @@
+Metadata-Version: 1.1
+Name: zope.mimetype
+Version: 2.0.0a1
+Summary: A simple package for working with MIME content types
+Home-page: http://pypi.python.org/pypi/zope.mimetype
+Author: Zope Foundation and Contributors
+Author-email: zope-dev@zope.org
+License: ZPL 2.1
+Description: This package provides a way to work with MIME content types.  There
+        are several interfaces defined here, many of which are used primarily
+        to look things up based on different bits of information.
+        
+        
+        .. contents::
+        
+        ============================
+        The Zope MIME Infrastructure
+        ============================
+        
+        This package provides a way to work with MIME content types.  There
+        are several interfaces defined here, many of which are used primarily
+        to look things up based on different bits of information.
+        
+        The basic idea behind this is that content objects should provide an
+        interface based on the actual content type they implement.  For
+        example, objects that represent text/xml or application/xml documents
+        should be marked mark with the `IContentTypeXml` interface.  This can
+        allow additional views to be registered based on the content type, or
+        subscribers may be registered to perform other actions based on the
+        content type.
+        
+        One aspect of the content type that's important for all documents is
+        that the content type interface determines whether the object data is
+        interpreted as an encoded text document.  Encoded text documents, in
+        particular, can be decoded to obtain a single Unicode string.  The
+        content type intefaces for encoded text must derive from
+        `IContentTypeEncoded`.  (All content type interfaces derive from
+        `IContentType` and directly provide `IContentTypeInterface`.)
+        
+        The default configuration provides direct support for a variety of
+        common document types found in office environments.
+        
+        Supported lookups
+        -----------------
+        
+        Several different queries are supported by this package:
+        
+        - Given a MIME type expressed as a string, the associated interface,
+          if any, can be retrieved using::
+        
+            # `mimeType` is the MIME type as a string
+            interface = queryUtility(IContentTypeInterface, mimeType)
+        
+        - Given a charset name, the associated `ICodec` instance can be
+          retrieved using::
+        
+            # `charsetName` is the charset name as a string
+            codec = queryUtility(ICharsetCodec, charsetName)
+        
+        - Given a codec, the preferred charset name can be retrieved using::
+        
+            # `codec` is an `ICodec` instance:
+            charsetName = getUtility(ICodecPreferredCharset, codec.name).name
+        
+        - Given any combination of a suggested file name, file data, and
+          content type header, a guess at a reasonable MIME type can be made
+          using::
+        
+            # `filename` is a suggested file name, or None
+            # `data` is uploaded data, or None
+            # `content_type` is a Content-Type header value, or None
+            #
+            mimeType = getUtility(IMimeTypeGetter)(
+                name=filename, data=data, content_type=content_type)
+        
+        - Given any combination of a suggested file name, file data, and
+          content type header, a guess at a reasonable charset name can be
+          made using::
+        
+            # `filename` is a suggested file name, or None
+            # `data` is uploaded data, or None
+            # `content_type` is a Content-Type header value, or None
+            #
+            charsetName = getUtility(ICharsetGetter)(
+                name=filename, data=data, content_type=content_type)
+        
+        
+        ===================================
+        Retrieving Content Type Information
+        ===================================
+        
+        MIME Types
+        ----------
+        
+        We'll start by initializing the interfaces and registrations for the
+        content type interfaces.  This is normally done via ZCML.
+        
+            >>> from zope.mimetype import mtypes
+            >>> mtypes.setup()
+        
+        A utility is used to retrieve MIME types.
+        
+            >>> from zope import component
+            >>> from zope.mimetype import typegetter
+            >>> from zope.mimetype.interfaces import IMimeTypeGetter
+            >>> component.provideUtility(typegetter.smartMimeTypeGuesser,
+            ...                          provides=IMimeTypeGetter)
+            >>> mime_getter = component.getUtility(IMimeTypeGetter)
+        
+        To map a particular file name, file contents, and content type to a MIME type.
+        
+            >>> mime_getter(name='file.txt', data='A text file.',
+            ...             content_type='text/plain')
+            'text/plain'
+        
+        In the default implementation if not enough information is given to discern a
+        MIME type, None is returned.
+        
+            >>> mime_getter() is None
+            True
+        
+        Character Sets
+        --------------
+        
+        A utility is also used to retrieve character sets (charsets).
+        
+            >>> from zope.mimetype.interfaces import ICharsetGetter
+            >>> component.provideUtility(typegetter.charsetGetter,
+            ...                          provides=ICharsetGetter)
+            >>> charset_getter = component.getUtility(ICharsetGetter)
+        
+        To map a particular file name, file contents, and content type to a charset.
+        
+            >>> charset_getter(name='file.txt', data='This is a text file.',
+            ...                content_type='text/plain;charset=ascii')
+            'ascii'
+        
+        In the default implementation if not enough information is given to discern a
+        charset, None is returned.
+        
+            >>> charset_getter() is None
+            True
+        
+        Finding Interfaces
+        ------------------
+        
+        Given a MIME type we need to be able to find the appropriate interface.
+        
+            >>> from zope.mimetype.interfaces import IContentTypeInterface
+            >>> component.getUtility(IContentTypeInterface, name=u'text/plain')
+            <InterfaceClass zope.mimetype.mtypes.IContentTypeTextPlain>
+        
+        It is also possible to enumerate all content type interfaces.
+        
+            >>> utilities = list(component.getUtilitiesFor(IContentTypeInterface))
+        
+        If you want to find an interface from a MIME string, you can use the
+        utilityies.
+        
+            >>> component.getUtility(IContentTypeInterface, name='text/plain')
+            <InterfaceClass zope.mimetype.mtypes.IContentTypeTextPlain>
+        
+        
+        ==============
+        Codec handling
+        ==============
+        
+        We can create codecs programatically. Codecs are registered as
+        utilities for ICodec with the name of their python codec.
+        
+           >>> from zope import component
+           >>> from zope.mimetype.interfaces import ICodec
+           >>> from zope.mimetype.codec import addCodec
+           >>> sorted(component.getUtilitiesFor(ICodec))
+           []
+           >>> addCodec('iso8859-1', 'Western (ISO-8859-1)')
+           >>> codec = component.getUtility(ICodec, name='iso8859-1')
+           >>> codec
+           <zope.mimetype.codec.Codec ...>
+           >>> codec.name
+           'iso8859-1'
+           >>> addCodec('utf-8', 'Unicode (UTF-8)')
+           >>> codec2 = component.getUtility(ICodec, name='utf-8')
+        
+        We can programmatically add charsets to a given codec. This registers
+        each charset as a named utility for ICharset. It also registers the codec
+        as a utility for ICharsetCodec with the name of the charset.
+        
+           >>> from zope.mimetype.codec import addCharset
+           >>> from zope.mimetype.interfaces import ICharset, ICharsetCodec
+           >>> sorted(component.getUtilitiesFor(ICharset))
+           []
+           >>> sorted(component.getUtilitiesFor(ICharsetCodec))
+           []
+           >>> addCharset(codec.name, 'latin1')
+           >>> charset = component.getUtility(ICharset, name='latin1')
+           >>> charset
+           <zope.mimetype.codec.Charset ...>
+           >>> charset.name
+           'latin1'
+           >>> component.getUtility(ICharsetCodec, name='latin1') is codec
+           True
+        
+        When adding a charset we can state that we want that charset to be the
+        preferred charset for its codec.
+        
+           >>> addCharset(codec.name, 'iso8859-1', preferred=True)
+           >>> addCharset(codec2.name, 'utf-8', preferred=True)
+        
+        A codec can have at most one preferred charset.
+        
+           >>> addCharset(codec.name, 'test', preferred=True)
+           Traceback (most recent call last):
+           ...
+           ValueError: Codec already has a preferred charset.
+        
+        Preferred charsets are registered as utilities for
+        ICodecPreferredCharset under the name of the python codec.
+        
+           >>> from zope.mimetype.interfaces import ICodecPreferredCharset
+           >>> preferred = component.getUtility(ICodecPreferredCharset, name='iso8859-1')
+           >>> preferred
+           <zope.mimetype.codec.Charset ...>
+           >>> preferred.name
+           'iso8859-1'
+           >>> sorted(component.getUtilitiesFor(ICodecPreferredCharset))
+           [(u'iso8859-1', <zope.mimetype.codec.Charset ...>),
+            (u'utf-8', <zope.mimetype.codec.Charset ...>)]
+        
+        We can look up a codec by the name of its charset:
+        
+           >>> component.getUtility(ICharsetCodec, name='latin1') is codec
+           True
+           >>> component.getUtility(ICharsetCodec, name='utf-8') is codec2
+           True
+        
+        Or we can look up all codecs:
+        
+           >>> sorted(component.getUtilitiesFor(ICharsetCodec))
+           [(u'iso8859-1', <zope.mimetype.codec.Codec ...>),
+            (u'latin1', <zope.mimetype.codec.Codec ...>),
+            (u'test', <zope.mimetype.codec.Codec ...>),
+            (u'utf-8', <zope.mimetype.codec.Codec ...>)]
+        
+        
+        
+        ===================================
+        Constraint Functions for Interfaces
+        ===================================
+        
+        The `zope.mimetype.interfaces` module defines interfaces that use some
+        helper functions to define constraints on the accepted data.  These
+        helpers are used to determine whether values conform to the what's
+        allowed for parts of a MIME type specification and other parts of a
+        Content-Type header as specified in RFC 2045.
+        
+        Single Token
+        ------------
+        
+        The first is the simplest:  the `tokenConstraint()` function returns
+        `True` if the ASCII string it is passed conforms to the `token`
+        production in section 5.1 of the RFC.  Let's import the function::
+        
+          >>> from zope.mimetype.interfaces import tokenConstraint
+        
+        Typical token are the major and minor parts of the MIME type and the
+        parameter names for the Content-Type header.  The function should
+        return `True` for these values::
+        
+          >>> tokenConstraint("text")
+          True
+          >>> tokenConstraint("plain")
+          True
+          >>> tokenConstraint("charset")
+          True
+        
+        The function should also return `True` for unusual but otherwise
+        normal token that may be used in some situations::
+        
+          >>> tokenConstraint("not-your-fathers-token")
+          True
+        
+        It must also allow extension tokens and vendor-specific tokens::
+        
+          >>> tokenConstraint("x-magic")
+          True
+        
+          >>> tokenConstraint("vnd.zope.special-data")
+          True
+        
+        Since we expect input handlers to normalize values to lower case,
+        upper case text is not allowed::
+        
+          >>> tokenConstraint("Text")
+          False
+        
+        Non-ASCII text is also not allowed::
+        
+          >>> tokenConstraint("\x80")
+          False
+          >>> tokenConstraint("\xC8")
+          False
+          >>> tokenConstraint("\xFF")
+          False
+        
+        Note that lots of characters are allowed in tokens, and there are no
+        constraints that the token "look like" something a person would want
+        to read::
+        
+          >>> tokenConstraint(".-.-.-.")
+          True
+        
+        Other characters are disallowed, however, including all forms of
+        whitespace::
+        
+          >>> tokenConstraint("foo bar")
+          False
+          >>> tokenConstraint("foo\tbar")
+          False
+          >>> tokenConstraint("foo\nbar")
+          False
+          >>> tokenConstraint("foo\rbar")
+          False
+          >>> tokenConstraint("foo\x7Fbar")
+          False
+        
+        Whitespace before or after the token is not accepted either::
+        
+          >>> tokenConstraint(" text")
+          False
+          >>> tokenConstraint("plain ")
+          False
+        
+        Other disallowed characters are defined in the `tspecials` production
+        from the RFC (also in section 5.1)::
+        
+          >>> tokenConstraint("(")
+          False
+          >>> tokenConstraint(")")
+          False
+          >>> tokenConstraint("<")
+          False
+          >>> tokenConstraint(">")
+          False
+          >>> tokenConstraint("@")
+          False
+          >>> tokenConstraint(",")
+          False
+          >>> tokenConstraint(";")
+          False
+          >>> tokenConstraint(":")
+          False
+          >>> tokenConstraint("\\")
+          False
+          >>> tokenConstraint('"')
+          False
+          >>> tokenConstraint("/")
+          False
+          >>> tokenConstraint("[")
+          False
+          >>> tokenConstraint("]")
+          False
+          >>> tokenConstraint("?")
+          False
+          >>> tokenConstraint("=")
+          False
+        
+        A token must contain at least one character, so `tokenConstraint()`
+        returns false for an empty string::
+        
+          >>> tokenConstraint("")
+          False
+        
+        
+        MIME Type
+        ---------
+        
+        A MIME type is specified using two tokens separated by a slash;
+        whitespace between the tokens and the slash must be normalized away in
+        the input handler.
+        
+        The `mimeTypeConstraint()` function is available to test a normalized
+        MIME type value; let's import that function now::
+        
+          >>> from zope.mimetype.interfaces import mimeTypeConstraint
+        
+        Let's test some common MIME types to make sure the function isn't
+        obviously insane::
+        
+          >>> mimeTypeConstraint("text/plain")
+          True
+          >>> mimeTypeConstraint("application/xml")
+          True
+          >>> mimeTypeConstraint("image/svg+xml")
+          True
+        
+        If parts of the MIME type are missing, it isn't accepted::
+        
+          >>> mimeTypeConstraint("text")
+          False
+          >>> mimeTypeConstraint("text/")
+          False
+          >>> mimeTypeConstraint("/plain")
+          False
+        
+        As for individual tokens, whitespace is not allowed::
+        
+          >>> mimeTypeConstraint("foo bar/plain")
+          False
+          >>> mimeTypeConstraint("text/foo bar")
+          False
+        
+        Whitespace is not accepted around the slash either::
+        
+          >>> mimeTypeConstraint("text /plain")
+          False
+          >>> mimeTypeConstraint("text/ plain")
+          False
+        
+        Surrounding whitespace is also not accepted::
+        
+          >>> mimeTypeConstraint(" text/plain")
+          False
+          >>> mimeTypeConstraint("text/plain ")
+          False
+        
+        
+        ===================================
+        Minimal IContentInfo Implementation
+        ===================================
+        
+        The `zope.mimetype.contentinfo` module provides a minimal
+        `IContentInfo` implementation that adds no information to what's
+        provided by a content object.  This represents the most conservative
+        content-type policy that might be useful.
+        
+        Let's take a look at how this operates by creating a couple of
+        concrete content-type interfaces::
+        
+          >>> from zope.mimetype import interfaces
+        
+          >>> class ITextPlain(interfaces.IContentTypeEncoded):
+          ...     """text/plain"""
+        
+          >>> class IApplicationOctetStream(interfaces.IContentType):
+          ...     """application/octet-stream"""
+        
+        Now, we'll create a minimal content object that provide the necessary
+        information::
+        
+          >>> import zope.interface
+        
+          >>> @zope.interface.implementer(interfaces.IContentTypeAware)
+          ... class Content(object):
+          ...     def __init__(self, mimeType, charset=None):
+          ...         self.mimeType = mimeType
+          ...         self.parameters = {}
+          ...         if charset:
+          ...             self.parameters["charset"] = charset
+        
+        We can now create examples of both encoded and non-encoded content::
+        
+          >>> encoded = Content("text/plain", "utf-8")
+          >>> zope.interface.alsoProvides(encoded, ITextPlain)
+        
+          >>> unencoded = Content("application/octet-stream")
+          >>> zope.interface.alsoProvides(unencoded, IApplicationOctetStream)
+        
+        The minimal IContentInfo implementation only exposes the information
+        available to it from the base content object.  Let's take a look at
+        the unencoded content first::
+        
+          >>> from zope.mimetype import contentinfo
+          >>> ci = contentinfo.ContentInfo(unencoded)
+          >>> ci.effectiveMimeType
+          'application/octet-stream'
+          >>> ci.effectiveParameters
+          {}
+          >>> ci.contentType
+          'application/octet-stream'
+        
+        For unencoded content, there is never a codec::
+        
+          >>> print(ci.getCodec())
+          None
+        
+        It is also disallowed to try decoding such content::
+        
+          >>> ci.decode("foo")
+          Traceback (most recent call last):
+          ...
+          ValueError: no matching codec found
+        
+        Attemping to decode data using an uncoded object causes an exception
+        to be raised::
+        
+          >>> print(ci.decode("data"))
+          Traceback (most recent call last):
+          ...
+          ValueError: no matching codec found
+        
+        If we try this with encoded data, we get somewhat different behavior::
+        
+          >>> ci = contentinfo.ContentInfo(encoded)
+          >>> ci.effectiveMimeType
+          'text/plain'
+          >>> ci.effectiveParameters
+          {'charset': 'utf-8'}
+          >>> ci.contentType
+          'text/plain;charset=utf-8'
+        
+        The `getCodec()` and `decode()` methods can be used to handle encoded
+        data using the encoding indicated by the ``charset`` parameter.  Let's
+        store some UTF-8 data in a variable::
+        
+          >>> utf8_data = b"\xAB\xBB".decode("iso-8859-1").encode("utf-8")
+          >>> utf8_data
+          '\xc2\xab\xc2\xbb'
+        
+        We want to be able to decode the data using the `IContentInfo`
+        object.  Let's try getting the corresponding `ICodec` object using
+        `getCodec()`::
+        
+          >>> codec = ci.getCodec()
+          Traceback (most recent call last):
+          ...
+          ValueError: unsupported charset: 'utf-8'
+        
+        So, we can't proceed without some further preparation.  What we need
+        is to register an `ICharset` for UTF-8.  The `ICharset` will need a
+        reference (by name) to a `ICodec` for UTF-8.  So let's create those
+        objects and register them::
+        
+          >>> import codecs
+          >>> from zope.mimetype.i18n import _
+        
+          >>> @zope.interface.implementer(interfaces.ICodec)
+          ... class Utf8Codec(object):
+          ...
+          ...     name = "utf-8"
+          ...     title = _("UTF-8")
+          ...
+          ...     def __init__(self):
+          ...         ( self.encode,
+          ...           self.decode,
+          ...           self.reader,
+          ...           self.writer
+          ...           ) = codecs.lookup(self.name)
+        
+          >>> utf8_codec = Utf8Codec()
+        
+          >>> @zope.interface.implementer(interfaces.ICharset)
+          ... class Utf8Charset(object):
+          ...
+          ...     name = utf8_codec.name
+          ...     encoding = name
+        
+          >>> utf8_charset = Utf8Charset()
+        
+          >>> import zope.component
+        
+          >>> zope.component.provideUtility(
+          ...     utf8_codec, interfaces.ICodec, utf8_codec.name)
+          >>> zope.component.provideUtility(
+          ...     utf8_charset, interfaces.ICharset, utf8_charset.name)
+        
+        Now that that's been initialized, let's try getting the codec again::
+        
+          >>> codec = ci.getCodec()
+          >>> codec.name
+          'utf-8'
+        
+          >>> codec.decode(utf8_data)
+          (u'\xab\xbb', 4)
+        
+        We can now check that the `decode()` method of the `IContentInfo` will
+        decode the entire data, returning the Unicode representation of the
+        text::
+        
+          >>> ci.decode(utf8_data)
+          u'\xab\xbb'
+        
+        Another possibilty, of course, is that you have content that you know
+        is encoded text of some sort, but you don't actually know what
+        encoding it's in::
+        
+          >>> encoded2 = Content("text/plain")
+          >>> zope.interface.alsoProvides(encoded2, ITextPlain)
+        
+          >>> ci = contentinfo.ContentInfo(encoded2)
+          >>> ci.effectiveMimeType
+          'text/plain'
+          >>> ci.effectiveParameters
+          {}
+          >>> ci.contentType
+          'text/plain'
+        
+          >>> ci.getCodec()
+          Traceback (most recent call last):
+          ...
+          ValueError: charset not known
+        
+        It's also possible that the initial content type information for an
+        object is incorrect for some reason.  If the browser provides a
+        content type of "text/plain; charset=utf-8", the content will be seen
+        as encoded.  A user correcting this content type using UI elements
+        can cause the content to be considered un-encoded.  At this point,
+        there should no longer be a charset parameter to the content type, and
+        the content info object should reflect this, though the previous
+        encoding information will be retained in case the content type should
+        be changed to an encoded type in the future.
+        
+        Let's see how this behavior will be exhibited in this API.  We'll
+        start by creating some encoded content::
+        
+          >>> content = Content("text/plain", "utf-8")
+          >>> zope.interface.alsoProvides(content, ITextPlain)
+        
+        We can see that the encoding information is included in the effective
+        MIME type information provided by the content-info object::
+        
+          >>> ci = contentinfo.ContentInfo(content)
+          >>> ci.effectiveMimeType
+          'text/plain'
+          >>> ci.effectiveParameters
+          {'charset': 'utf-8'}
+        
+        We now change the content type information for the object::
+        
+          >>> ifaces = zope.interface.directlyProvidedBy(content)
+          >>> ifaces -= ITextPlain
+          >>> ifaces += IApplicationOctetStream
+          >>> zope.interface.directlyProvides(content, *ifaces)
+          >>> content.mimeType = 'application/octet-stream'
+        
+        At this point, a content type object would provide different
+        information::
+        
+          >>> ci = contentinfo.ContentInfo(content)
+          >>> ci.effectiveMimeType
+          'application/octet-stream'
+          >>> ci.effectiveParameters
+          {}
+        
+        The underlying content type parameters still contain the original
+        encoding information, however::
+        
+          >>> content.parameters
+          {'charset': 'utf-8'}
+        
+        
+        ===============================
+        Events and content-type changes
+        ===============================
+        
+        The `IContentTypeChangedEvent` is fired whenever an object's
+        `IContentTypeInterface` is changed.  This includes the cases when a
+        content type interface is applied to an object that doesn't have one,
+        and when the content type interface is removed from an object.
+        
+        Let's start the demonstration by defining a subscriber for the event
+        that simply prints out the information from the event object::
+        
+          >>> def handler(event):
+          ...     print("changed content type interface:")
+          ...     print("  from:", event.oldContentType)
+          ...     print("    to:", event.newContentType)
+        
+        We'll also define a simple content object::
+        
+          >>> import zope.interface
+        
+          >>> class IContent(zope.interface.Interface):
+          ...     pass
+        
+          >>> @zope.interface.implementer(IContent)
+          ... class Content(object):
+          ...     def __str__(self):
+          ...         return "<MyContent>"
+        
+          >>> obj = Content()
+        
+        We'll also need a couple of content type interfaces::
+        
+          >>> from zope.mimetype import interfaces
+        
+          >>> class ITextPlain(interfaces.IContentTypeEncoded):
+          ...     """text/plain"""
+          >>> ITextPlain.setTaggedValue("mimeTypes", ["text/plain"])
+          >>> ITextPlain.setTaggedValue("extensions", [".txt"])
+          >>> zope.interface.directlyProvides(
+          ...     ITextPlain, interfaces.IContentTypeInterface)
+        
+          >>> class IOctetStream(interfaces.IContentType):
+          ...     """application/octet-stream"""
+          >>> IOctetStream.setTaggedValue("mimeTypes", ["application/octet-stream"])
+          >>> IOctetStream.setTaggedValue("extensions", [".bin"])
+          >>> zope.interface.directlyProvides(
+          ...     IOctetStream, interfaces.IContentTypeInterface)
+        
+        Let's register our subscriber::
+        
+          >>> import zope.component
+          >>> import zope.component.interfaces
+          >>> zope.component.provideHandler(
+          ...     handler,
+          ...     (zope.component.interfaces.IObjectEvent,))
+        
+        Changing the content type interface on an object is handled by the
+        `zope.mimetype.event.changeContentType()` function.  Let's import that
+        module and demonstrate that the expected event is fired
+        appropriately::
+        
+          >>> from zope.mimetype import event
+        
+        Since the object currently has no content type interface, "removing"
+        the interface does not affect the object and the event is not fired::
+        
+          >>> event.changeContentType(obj, None)
+        
+        Setting a content type interface on an object that doesn't have one
+        will cause the event to be fired, with the `.oldContentType` attribute
+        on the event set to `None`::
+        
+          >>> event.changeContentType(obj, ITextPlain)
+          changed content type interface:
+            from: None
+              to: <InterfaceClass __builtin__.ITextPlain>
+        
+        Calling the `changeContentType()` function again with the same "new"
+        content type interface causes no change, so the event is not fired
+        again::
+        
+          >>> event.changeContentType(obj, ITextPlain)
+        
+        Providing a new interface does cause the event to be fired again::
+        
+          >>> event.changeContentType(obj, IOctetStream)
+          changed content type interface:
+            from: <InterfaceClass __builtin__.ITextPlain>
+              to: <InterfaceClass __builtin__.IOctetStream>
+        
+        Similarly, removing the content type interface triggers the event as
+        well::
+        
+          >>> event.changeContentType(obj, None)
+          changed content type interface:
+            from: <InterfaceClass __builtin__.IOctetStream>
+              to: None
+        
+        
+        ======================================
+        MIME type and character set extraction
+        ======================================
+        
+        The `zope.mimetype.typegetter` module provides a selection of MIME
+        type extractors and charset extractors.  These may be used to
+        determine what the MIME type and character set for uploaded data
+        should be.
+        
+        These two interfaces represent the site policy regarding interpreting
+        upload data in the face of missing or inaccurate input.
+        
+        Let's go ahead and import the module::
+        
+          >>> from zope.mimetype import typegetter
+        
+        MIME types
+        ----------
+        
+        There are a number of interesting MIME-type extractors:
+        
+        `mimeTypeGetter()`
+          A minimal extractor that never attempts to guess.
+        
+        `mimeTypeGuesser()`
+          An extractor that tries to guess the content type based on the name
+          and data if the input contains no content type information.
+        
+        `smartMimeTypeGuesser()`
+          An extractor that checks the content for a variety of constructs to
+          try and refine the results of the `mimeTypeGuesser()`.  This is able
+          to do things like check for XHTML that's labelled as HTML in upload
+          data.
+        
+        
+        `mimeTypeGetter()`
+        ~~~~~~~~~~~~~~~~~~
+        
+        We'll start with the simplest, which does no content-based guessing at
+        all, but uses the information provided by the browser directly.  If
+        the browser did not provide any content-type information, or if it
+        cannot be parsed, the extractor simply asserts a "safe" MIME type of
+        application/octet-stream.  (The rationale for selecting this type is
+        that since there's really nothing productive that can be done with it
+        other than download it, it's impossible to mis-interpret the data.)
+        
+        When there's no information at all about the content, the extractor
+        returns None::
+        
+          >>> print(typegetter.mimeTypeGetter())
+          None
+        
+        Providing only the upload filename or data, or both, still produces
+        None, since no guessing is being done::
+        
+          >>> print(typegetter.mimeTypeGetter(name="file.html"))
+          None
+        
+          >>> print(typegetter.mimeTypeGetter(data="<html>...</html>"))
+          None
+        
+          >>> print(typegetter.mimeTypeGetter(
+          ...     name="file.html", data="<html>...</html>"))
+          None
+        
+        If a content type header is available for the input, that is used
+        since that represents explicit input from outside the application
+        server.  The major and minor parts of the content type are extracted
+        and returned as a single string::
+        
+          >>> typegetter.mimeTypeGetter(content_type="text/plain")
+          'text/plain'
+        
+          >>> typegetter.mimeTypeGetter(content_type="text/plain; charset=utf-8")
+          'text/plain'
+        
+        If the content-type information is provided but malformed (not in
+        conformance with RFC 2822), it is ignored, since the intent cannot be
+        reliably guessed::
+        
+          >>> print(typegetter.mimeTypeGetter(content_type="foo bar"))
+          None
+        
+        This combines with ignoring the other values that may be provided as
+        expected::
+        
+          >>> print(typegetter.mimeTypeGetter(
+          ...     name="file.html", data="<html>...</html>", content_type="foo bar"))
+          None
+        
+        
+        `mimeTypeGuesser()`
+        ~~~~~~~~~~~~~~~~~~~
+        
+        A more elaborate extractor that tries to work around completely
+        missing information can be found as the `mimeTypeGuesser()` function.
+        This function will only guess if there is no usable content type
+        information in the input.  This extractor can be thought of as having
+        the following pseudo-code::
+        
+          def mimeTypeGuesser(name=None, data=None, content_type=None):
+              type = mimeTypeGetter(name=name, data=data, content_type=content_type)
+              if type is None:
+                  type = guess the content type
+              return type
+        
+        Let's see how this affects the results we saw earlier.  When there's
+        no input to use, we still get None::
+        
+          >>> print(typegetter.mimeTypeGuesser())
+          None
+        
+        Providing only the upload filename or data, or both, now produces a
+        non-None guess for common content types::
+        
+          >>> typegetter.mimeTypeGuesser(name="file.html")
+          'text/html'
+        
+          >>> typegetter.mimeTypeGuesser(data="<html>...</html>")
+          'text/html'
+        
+          >>> typegetter.mimeTypeGuesser(name="file.html", data="<html>...</html>")
+          'text/html'
+        
+        Note that if the filename and data provided separately produce
+        different MIME types, the result of providing both will be one of
+        those types, but which is unspecified::
+        
+          >>> mt_1 = typegetter.mimeTypeGuesser(name="file.html")
+          >>> mt_1
+          'text/html'
+        
+          >>> mt_2 = typegetter.mimeTypeGuesser(data="<?xml version='1.0'?>...")
+          >>> mt_2
+          'text/xml'
+        
+          >>> mt = typegetter.mimeTypeGuesser(
+          ...     data="<?xml version='1.0'?>...", name="file.html")
+          >>> mt in (mt_1, mt_2)
+          True
+        
+        If a content type header is available for the input, that is used in
+        the same way as for the `mimeTypeGetter()` function::
+        
+          >>> typegetter.mimeTypeGuesser(content_type="text/plain")
+          'text/plain'
+        
+          >>> typegetter.mimeTypeGuesser(content_type="text/plain; charset=utf-8")
+          'text/plain'
+        
+        If the content-type information is provided but malformed, it is
+        ignored::
+        
+          >>> print(typegetter.mimeTypeGetter(content_type="foo bar"))
+          None
+        
+        When combined with values for the filename or content data, those are
+        still used to provide reasonable guesses for the content type::
+        
+          >>> typegetter.mimeTypeGuesser(name="file.html", content_type="foo bar")
+          'text/html'
+        
+          >>> typegetter.mimeTypeGuesser(
+          ...     data="<html>...</html>", content_type="foo bar")
+          'text/html'
+        
+        Information from a parsable content-type is still used even if a guess
+        from the data or filename would provide a different or more-refined
+        result::
+        
+          >>> typegetter.mimeTypeGuesser(
+          ...     data="GIF89a...", content_type="application/octet-stream")
+          'application/octet-stream'
+        
+        
+        `smartMimeTypeGuesser()`
+        ~~~~~~~~~~~~~~~~~~~~~~~~
+        
+        The `smartMimeTypeGuesser()` function applies more knowledge to the
+        process of determining the MIME-type to use.  Essentially, it takes
+        the result of the `mimeTypeGuesser()` function and attempts to refine
+        the content-type based on various heuristics.
+        
+        We still see the basic behavior that no input produces None::
+        
+          >>> print(typegetter.smartMimeTypeGuesser())
+          None
+        
+        An unparsable content-type is still ignored::
+        
+          >>> print(typegetter.smartMimeTypeGuesser(content_type="foo bar"))
+          None
+        
+        The interpretation of uploaded data will be different in at least some
+        interesting cases.  For instance, the `mimeTypeGuesser()` function
+        provides these results for some XHTML input data::
+        
+          >>> typegetter.mimeTypeGuesser(
+          ...     data="<?xml version='1.0' encoding='utf-8'?><html>...</html>",
+          ...     name="file.html")
+          'text/html'
+        
+        The smart extractor is able to refine this into more usable data::
+        
+          >>> typegetter.smartMimeTypeGuesser(
+          ...     data="<?xml version='1.0' encoding='utf-8'?>...",
+          ...     name="file.html")
+          'application/xhtml+xml'
+        
+        In this case, the smart extractor has refined the information
+        determined from the filename using information from the uploaded
+        data.  The specific approach taken by the extractor is not part of the
+        interface, however.
+        
+        
+        `charsetGetter()`
+        ~~~~~~~~~~~~~~~~~
+        
+        If you're interested in the character set of textual data, you can use
+        the `charsetGetter` function (which can also be registered as the
+        `ICharsetGetter` utility):
+        
+        The simplest case is when the character set is already specified in the
+        content type.
+        
+          >>> typegetter.charsetGetter(content_type='text/plain; charset=mambo-42')
+          'mambo-42'
+        
+        Note that the charset name is lowercased, because all the default ICharset
+        and ICharsetCodec utilities are registered for lowercase names.
+        
+          >>> typegetter.charsetGetter(content_type='text/plain; charset=UTF-8')
+          'utf-8'
+        
+        If it isn't, `charsetGetter` can try to guess by looking at actual data
+        
+          >>> typegetter.charsetGetter(content_type='text/plain', data=b'just text')
+          'ascii'
+        
+          >>> typegetter.charsetGetter(content_type='text/plain', data=b'\xe2\x98\xba')
+          'utf-8'
+        
+          >>> import codecs
+          >>> typegetter.charsetGetter(data=codecs.BOM_UTF16_BE + b'\x12\x34')
+          'utf-16be'
+        
+          >>> typegetter.charsetGetter(data=codecs.BOM_UTF16_LE + b'\x12\x34')
+          'utf-16le'
+        
+        If the character set cannot be determined, `charsetGetter` returns None.
+        
+          >>> typegetter.charsetGetter(content_type='text/plain', data=b'\xff')
+          >>> typegetter.charsetGetter()
+        
+        
+        
+        ===============================
+        Source for MIME type interfaces
+        ===============================
+        
+        Some sample interfaces have been created in the zope.mimetype.tests
+        module for use in this test.  Let's import them::
+        
+          >>> from zope.mimetype.tests import (
+          ...     ISampleContentTypeOne, ISampleContentTypeTwo)
+        
+        The source should only include `IContentTypeInterface` interfaces that
+        have been registered.  Let's register one of these two interfaces so
+        we can test this::
+        
+          >>> import zope.component
+          >>> from zope.mimetype.interfaces import IContentTypeInterface
+        
+          >>> zope.component.provideUtility(
+          ...     ISampleContentTypeOne, IContentTypeInterface, name="type/one")
+        
+          >>> zope.component.provideUtility(
+          ...     ISampleContentTypeOne, IContentTypeInterface, name="type/two")
+        
+        We should see that these interfaces are included in the source::
+        
+          >>> from zope.mimetype import source
+        
+          >>> s = source.ContentTypeSource()
+        
+          >>> ISampleContentTypeOne in s
+          True
+          >>> ISampleContentTypeTwo in s
+          False
+        
+        Interfaces that do not implement the `IContentTypeInterface` are not
+        included in the source::
+        
+          >>> import zope.interface
+          >>> class ISomethingElse(zope.interface.Interface):
+          ...    """This isn't a content type interface."""
+        
+          >>> ISomethingElse in s
+          False
+        
+        The source is iterable, so we can get a list of the values::
+        
+          >>> values = list(s)
+        
+          >>> len(values)
+          1
+          >>> values[0] is ISampleContentTypeOne
+          True
+        
+        We can get terms for the allowed values::
+        
+          >>> terms = source.ContentTypeTerms(s, None)
+          >>> t = terms.getTerm(ISampleContentTypeOne)
+          >>> terms.getValue(t.token) is ISampleContentTypeOne
+          True
+        
+        Interfaces that are not in the source cause an error when a term is
+        requested::
+        
+          >>> terms.getTerm(ISomethingElse)
+          Traceback (most recent call last):
+          ...
+          LookupError: value is not an element in the source
+        
+        The term provides a token based on the module name of the interface::
+        
+          >>> t.token
+          'zope.mimetype.tests.ISampleContentTypeOne'
+        
+        The term also provides the title based on the "title" tagged value
+        from the interface::
+        
+          >>> t.title
+          u'Type One'
+        
+        Each interface provides a list of MIME types with which the interface
+        is associated.  The term object provides access to this list::
+        
+          >>> t.mimeTypes
+          ['type/one', 'type/foo']
+        
+        A list of common extensions for files of this type is also available,
+        though it may be empty::
+        
+          >>> t.extensions
+          []
+        
+        The term's value, of course, is the interface passed in::
+        
+          >>> t.value is ISampleContentTypeOne
+          True
+        
+        This extended term API is defined by the `IContentTypeTerm`
+        interface::
+        
+          >>> from zope.mimetype.interfaces import IContentTypeTerm
+          >>> IContentTypeTerm.providedBy(t)
+          True
+        
+        The value can also be retrieved using the `getValue()` method::
+        
+          >>> iface = terms.getValue('zope.mimetype.tests.ISampleContentTypeOne')
+          >>> iface is ISampleContentTypeOne
+          True
+        
+        Attempting to retrieve an interface that isn't in the source using the
+        terms object generates a LookupError::
+        
+          >>> terms.getValue('zope.mimetype.tests.ISampleContentTypeTwo')
+          Traceback (most recent call last):
+          ...
+          LookupError: token does not represent an element in the source
+        
+        Attempting to look up a junk token also generates an error::
+        
+          >>> terms.getValue('just.some.dotted.name.that.does.not.exist')
+          Traceback (most recent call last):
+          ...
+          LookupError: could not import module for token
+        
+        
+        ==============================
+        TranslatableSourceSelectWidget
+        ==============================
+        
+        TranslatableSourceSelectWidget is a SourceSelectWidget that translates
+        and sorts the choices.
+        
+        We will borrow the boring set up code from the SourceSelectWidget test
+        (source.txt in zope.formlib).
+        
+            >>> import zope.interface
+            >>> import zope.component
+            >>> import zope.schema
+            >>> import zope.schema.interfaces
+        
+            >>> @zope.interface.implementer(zope.schema.interfaces.IIterableSource)
+            ... class SourceList(list):
+            ...     pass
+        
+            >>> import base64, binascii
+            >>> import zope.publisher.interfaces.browser
+            >>> from zope.browser.interfaces import ITerms
+            >>> from zope.schema.vocabulary import SimpleTerm
+            >>> @zope.interface.implementer(ITerms)
+            ... class ListTerms:
+            ...
+            ...     def __init__(self, source, request):
+            ...         pass # We don't actually need the source or the request :)
+            ...
+            ...     def getTerm(self, value):
+            ...         title = value.decode() if isinstance(value, bytes) else value
+            ...         try:
+            ...             token = base64.b64encode(title.encode()).strip().decode()
+            ...         except binascii.Error:
+            ...             raise LookupError(token)
+            ...         return SimpleTerm(value, token=token, title=title)
+            ...
+            ...     def getValue(self, token):
+            ...         return token.decode('base64')
+        
+            >>> zope.component.provideAdapter(
+            ...     ListTerms,
+            ...     (SourceList, zope.publisher.interfaces.browser.IBrowserRequest))
+        
+            >>> dog = zope.schema.Choice(
+            ...    __name__ = 'dog',
+            ...    title=u"Dogs",
+            ...    source=SourceList(['spot', 'bowser', 'prince', 'duchess', 'lassie']),
+            ...    )
+            >>> dog = dog.bind(object())
+        
+        Now that we have a field and a working source, we can construct and render
+        a widget.
+        
+            >>> from zope.mimetype.widget import TranslatableSourceSelectWidget
+            >>> from zope.publisher.browser import TestRequest
+            >>> request = TestRequest()
+            >>> widget = TranslatableSourceSelectWidget(
+            ...     dog, dog.source, request)
+        
+            >>> print(widget())
+            <div>
+            <div class="value">
+            <select id="field.dog" name="field.dog" size="5" >
+            <option value="Ym93c2Vy">bowser</option>
+            <option value="ZHVjaGVzcw==">duchess</option>
+            <option value="bGFzc2ll">lassie</option>
+            <option value="cHJpbmNl">prince</option>
+            <option value="c3BvdA==">spot</option>
+            </select>
+            </div>
+            <input name="field.dog-empty-marker" type="hidden" value="1" />
+            </div>
+        
+        Note that the options are ordered alphabetically.
+        
+        If the field is not required, we will also see a special choice labeled
+        "(nothing selected)" at the top of the list
+        
+            >>> dog.required = False
+            >>> print(widget())
+            <div>
+            <div class="value">
+            <select id="field.dog" name="field.dog" size="5" >
+            <option selected="selected" value="">(nothing selected)</option>
+            <option value="Ym93c2Vy">bowser</option>
+            <option value="ZHVjaGVzcw==">duchess</option>
+            <option value="bGFzc2ll">lassie</option>
+            <option value="cHJpbmNl">prince</option>
+            <option value="c3BvdA==">spot</option>
+            </select>
+            </div>
+            <input name="field.dog-empty-marker" type="hidden" value="1" />
+            </div>
+        
+        
+        The utils module contains various helpers for working with data goverened
+        by MIME content type information, as found in the HTTP Content-Type header:
+        mime types and character sets.
+        
+        The decode function takes a string and an IANA character set name and
+        returns a unicode object decoded from the string, using the codec associated
+        with the character set name.  Errors will generally arise from the unicode
+        conversion rather than the mapping of character set to codec, and will be
+        LookupErrors (the character set did not cleanly convert to a codec that
+        Python knows about) or UnicodeDecodeErrors (the string included characters
+        that were not in the range of the codec associated with the character set).
+        
+            >>> original = b'This is an o with a slash through it: \xb8.'
+            >>> charset = 'Latin-7' # Baltic Rim or iso-8859-13
+            >>> from zope.mimetype import utils
+            >>> utils.decode(original, charset)
+            u'This is an o with a slash through it: \xf8.'
+            >>> utils.decode(original, 'foo bar baz')
+            Traceback (most recent call last):
+            ...
+            LookupError: unknown encoding: foo bar baz
+            >>> utils.decode(original, 'iso-ir-6') # alias for ASCII
+            ... # doctest: +ELLIPSIS
+            Traceback (most recent call last):
+            ...
+            UnicodeDecodeError: 'ascii' codec can't decode...
+        
+        
+        =======
+        CHANGES
+        =======
+        
+        2.0.0a1 (2013-02-27)
+        --------------------
+        
+        - Added support for Python 3.3.
+        
+        - Replaced deprecated ``zope.component.adapts`` usage with equivalent
+          ``zope.component.adapter`` decorator.
+        
+        - Replaced deprecated ``zope.interface.implements`` usage with equivalent
+          ``zope.interface.implementer`` decorator.
+        
+        - Dropped support for Python 2.4 and 2.5.
+        
+        
+        1.3.1 (2010-11-10)
+        ------------------
+        
+        - No longer depending on `zope.app.form` in `configure.zcml` by using
+          `zope.formlib` instead, where the needed interfaces are living now.
+        
+        1.3.0 (2010-06-26)
+        ------------------
+        
+        - Added testing dependency on ``zope.component [test]``.
+        
+        - Use zope.formlib instead of zope.app.form.browser for select widget.
+        
+        - Conform to repository policy.
+        
+        1.2.0 (2009-12-26)
+        ------------------
+        
+        - Converted functional tests to unit tests and get rid of all extra test
+          dependencies as a result.
+        
+        - Use the ITerms interface from zope.browser.
+        
+        - Declared missing dependencies, resolved direct dependency on
+          zope.app.publisher.
+        
+        - Import content-type parser from zope.contenttype, adding a dependency on
+          that package.
+        
+        1.1.2 (2009-05-22)
+        ------------------
+        
+        - No longer depends on ``zope.app.component``.
+        
+        1.1.1 (2009-04-03)
+        ------------------
+        
+        - Fixed wrong package version (version ``1.1.0`` was released as ``0.4.0`` at
+          `pypi` but as ``1.1dev`` at `download.zope.org/distribution`)
+        
+        - Fixed author email and home page address.
+        
+        1.1.0 (2007-11-01)
+        ------------------
+        
+        - Package data update.
+        
+        - First public release.
+        
+        1.0.0 (2007-??-??)
+        ------------------
+        
+        - Initial release.
+        
+Keywords: file content mimetype
+Platform: UNKNOWN
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Environment :: Web Environment
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: Zope Public License
+Classifier: Programming Language :: Python
+Classifier: Programming Language :: Python :: 2
+Classifier: Programming Language :: Python :: 2.6
+Classifier: Programming Language :: Python :: 2.7
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.3
+Classifier: Programming Language :: Python :: Implementation :: CPython
+Classifier: Natural Language :: English
+Classifier: Operating System :: OS Independent
+Classifier: Topic :: Internet :: WWW/HTTP
+Classifier: Framework :: Zope3
