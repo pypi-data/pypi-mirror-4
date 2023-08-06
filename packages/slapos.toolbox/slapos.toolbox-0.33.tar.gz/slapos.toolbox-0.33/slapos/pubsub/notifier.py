@@ -1,0 +1,96 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import argparse
+import csv
+import httplib
+import os
+import socket
+import subprocess
+import sys
+import time
+import urllib2
+import urlparse
+import uuid
+
+
+def main():
+  parser = argparse.ArgumentParser()
+  parser.add_argument('-l', '--log', nargs=1, required=True,
+                      dest='logfile', metavar='logfile',
+                      help="Logging file")
+  parser.add_argument('-t', '--title', nargs=1, required=True,
+                      help="Entry title.")
+  parser.add_argument('-f', '--feed', nargs=1, required=True,
+                      dest='feed_url', help="Url of the feed.")
+  parser.add_argument('--notification-url', dest='notification_url',
+                      nargs='*', required=True,
+                      help="Notification url")
+  parser.add_argument('--executable', nargs=1, dest='executable',
+                      help="Executable to wrap")
+
+  args = parser.parse_args()
+
+  with open(os.devnull) as devnull:
+    command = subprocess.Popen(args.executable[0],
+                               stdin=subprocess.PIPE,
+                               stdout=devnull,
+                               stderr=subprocess.PIPE,
+                               close_fds=True)
+    command.stdin.flush()
+    command.stdin.close()
+
+    command_failed = (command.wait() != 0)
+    command_stderr = command.stderr.read()
+
+    if command_failed:
+      content = ("<p>Failed with returncode <em>%d</em>.</p>"
+                 "<p>Standard error output is :</p><pre>%s</pre>") % (
+        command.poll(),
+        command_stderr.replace('&', '&amp;')\
+                      .replace('<', '&lt;')\
+                      .replace('>', '&gt;'),
+      )
+    else:
+      content = "<p>Everything went well.</p>"
+
+  with open(args.logfile[0], 'a') as file_:
+    cvsfile = csv.writer(file_)
+    cvsfile.writerow([
+      int(time.time()),
+      args.title[0],
+      content,
+      'slapos:%s' % uuid.uuid4(),
+    ])
+
+  if command_failed:
+    sys.stderr.write('%s\n' % command_stderr)
+    sys.exit(1)
+
+  feed = urllib2.urlopen(args.feed_url[0])
+  body = feed.read()
+
+  some_notification_failed = False
+  for notif_url in args.notification_url:
+    notification_url = urlparse.urlparse(notif_url)
+    notification_port = notification_url.port
+    if notification_port is None:
+      notification_port = socket.getservbyname(notification_url.scheme)
+
+    headers = {'Content-Type': feed.info().getheader('Content-Type')}
+    notification = httplib.HTTPConnection(notification_url.hostname,
+                                          notification_port)
+    notification.request('POST', notification_url.path, body, headers)
+    response = notification.getresponse()
+
+    if not (200 <= response.status < 300):
+      sys.stderr.write("The remote server at %s didn't send a successful reponse.\n" % notif_url)
+      sys.stderr.write("Its response was %r\n" % response.reason)
+      some_notification_failed = True
+
+  if some_notification_failed:
+    sys.exit(1)
+
+if __name__ == '__main__':
+  main()
+
