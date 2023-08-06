@@ -1,0 +1,485 @@
+Metadata-Version: 1.1
+Name: zope.session
+Version: 4.0.0a1
+Summary: Client identification and sessions for Zope
+Home-page: http://pypi.python.org/pypi/zope.session
+Author: Zope Foundation and Contributors
+Author-email: zope-dev@zope.org
+License: ZPL 2.1
+Description: This package provides interfaces for client identification and session
+        support and their implementations for zope.publisher's request objects.
+        
+        
+        .. contents::
+        
+        Sessions
+        ========
+        
+        Sessions provide a way to temporarily associate information with a
+        client without requiring the authentication of a principal.  We
+        associate an identifier with a particular client. Whenever we get a
+        request from that client, we compute the identifier and use the
+        identifier to look up associated information, which is stored on the
+        server.
+        
+        A major disadvantage of sessions is that they require management of
+        information on the server. This can have major implications for
+        scalability.  It is possible for a framework to make use of session
+        data very easy for the developer.  This is great if scalability is not
+        an issue, otherwise, it is a booby trap.
+        
+        Design Issues
+        -------------
+        
+        Sessions introduce a number of issues to be considered:
+        
+        - Clients have to be identified. A number of approaches are possible,
+          including:
+        
+          o Using HTTP cookies. The application assigns a client identifier,
+            which is stored in a cookie.  This technique is the most
+            straightforward, but can be defeated if the client does not
+            support HTTP cookies (usually because the feature has been
+            disabled).
+        
+          o Using URLs.  The application assigns a client identifier, which is
+            stored in the URL.  This makes URLs a bit uglier and requires some
+            care. If people copy URLs and send them to others, then you could
+            end up with multiple clients with the same session
+            identifier. There are a number of ways to reduce the risk of
+            accidental reuse of session identifiers:
+        
+            - Embed the client IP address in the identifier
+        
+            - Expire the identifier
+        
+          o Use hidden form variables.  This complicates applications. It
+            requires all requests to be POST requests and requires the
+            maintenance of the hidden variables.
+        
+          o Use the client IP address
+        
+            This doesn't work very well, because an IP address may be shared by
+            many clients.
+        
+        - Data storage
+        
+          Data can be simply stored in the object database. This provides lots
+          of flexibility. You can store pretty much anything you want as long
+          as it is persistent. You get the full benefit of the object database,
+          such as transactions, transparency, clustering, and so on.  Using
+          the object database is especially useful when:
+        
+          - Writes are infrequent
+        
+          - Data are complex
+        
+          If writes are frequent, then the object database introduces
+          scalability problems.  Really, any transactional database is likely
+          to introduce problems with frequent writes. If you are tempted to
+          update session data on every request, think very hard about it.  You
+          are creating a scalability problem.
+        
+          If you know that scalability is not (and never will be) an issue,
+          you can just use the object database.
+        
+          If you have client data that needs to be updated often (as in every
+          request), consider storing the data on the client.  (Like all data
+          received from a client, it may be tainted and, in most instances,
+          should not be trusted. Sensitive information that the user should
+          not see should likewise not be stored on the client, unless
+          encrypted with a key the client has no access to.)  If you can't
+          store it on the client, then consider some other storage mechanism,
+          like a fast database, possibly without transaction support.
+        
+          You may be tempted to store session data in memory for speed.  This
+          doesn't turn out to work very well.  If you need scalability, then
+          you need to be able to use an application-server cluster and storage
+          of session data in memory defeats that.  You can use
+          "server-affinity" to assure that requests from a client always go
+          back to the same server, but not all load balancers support server
+          affinity, and, for those that do, enabling server affinity tends to
+          defeat load balancing.
+        
+        - Session expiration
+        
+          You may wish to ensure that sessions terminate after some period of
+          time. This may be for security reasons, or to avoid accidental
+          sharing of a session among multiple clients.  The policy might be
+          expressed in terms of total session time, or maximum inactive time,
+          or some combination.
+        
+          There are a number of ways to approach this.  You can expire client
+          ids. You can expire session data.
+        
+        - Data expiration
+        
+          Because HTTP is a stateless protocol, you can't tell whether a user
+          is thinking about a task or has simply stopped working on it.  Some
+          means is needed to free server session storage that is no-longer needed.
+        
+          The simplest strategy is to never remove data. This strategy has
+          some obvious disadvantages.  Other strategies can be viewed as
+          optimizations of the basic strategy.  It is important to realize that
+          a data expiration strategy can be informed by, but need not be
+          constrained by a session-expiration strategy.
+        
+        
+        
+        Zope3 Session Implementation
+        ============================
+        
+        Overview
+        --------
+        
+        .. CAUTION::
+            Session data is maintained on the server. This gives a security
+            advantage in that we can assume that a client has not tampered with
+            the data.  However, this can have major implications for scalability
+            as modifying session data too frequently can put a significant load
+            on servers and in extreme situations render your site unusable.
+            Developers should keep this in mind when writing code or risk
+            problems when their application is run in a production environment.
+        
+            Applications requiring write-intensive session implementations (such
+            as page counters) should consider using cookies or specialized
+            session implementations.
+        
+        Sessions allow us to fake state over a stateless protocol - HTTP.
+        We do this by having a unique identifier stored across multiple
+        HTTP requests, be it a cookie or some id mangled into the URL.
+        
+        
+        The `IClientIdManager` Utility provides this unique id. It is
+        responsible for propagating this id so that future requests from
+        the client get the same id (eg. by setting an HTTP cookie). This
+        utility is used when we adapt the request to the unique client id:
+        
+            >>> client_id = IClientId(request)
+        
+        The `ISession` adapter gives us a mapping that can be used to store
+        and retrieve session data. A unique key (the package id) is used
+        to avoid namespace clashes:
+        
+            >>> pkg_id = 'products.foo'
+            >>> session = ISession(request)[pkg_id]
+            >>> session['color'] = 'red'
+        
+            >>> session2 = ISession(request)['products.bar']
+            >>> session2['color'] = 'blue'
+        
+            >>> session['color']
+            'red'
+            >>> session2['color']
+            'blue'
+        
+        
+        Data Storage
+        ------------
+        
+        The actual data is stored in an `ISessionDataContainer` utility.
+        `ISession` chooses which `ISessionDataContainer` should be used by
+        looking up as a named utility using the package id. This allows
+        the site administrator to configure where the session data is actually
+        stored by adding a registration for desired `ISessionDataContainer`
+        with the correct name.
+        
+            >>> import zope.component
+            >>> sdc = zope.component.getUtility(ISessionDataContainer, pkg_id)
+            >>> sdc[client_id][pkg_id] is session
+            True
+            >>> sdc[client_id][pkg_id]['color']
+            'red'
+        
+        If no `ISessionDataContainer` utility can be located by name using the
+        package id, then the unnamed `ISessionDataContainer` utility is used as
+        a fallback. An unnamed `ISessionDataContainer` is automatically created
+        for you, which may replaced with a different implementation if desired.
+        
+            >>> ISession(request)['unknown'] \
+            ...     is zope.component.getUtility(ISessionDataContainer)[client_id]\
+            ...         ['unknown']
+            True
+        
+        The `ISessionDataContainer` contains `ISessionData` objects, and
+        `ISessionData` objects in turn contain `ISessionPkgData` objects. You
+        should never need to know this unless you are writing administrative
+        views for the session machinery.
+        
+            >>> ISessionData.providedBy(sdc[client_id])
+            True
+            >>> ISessionPkgData.providedBy(sdc[client_id][pkg_id])
+            True
+        
+        The `ISessionDataContainer` is responsible for expiring session data.
+        The expiry time can be configured by settings its `timeout` attribute.
+        
+            >>> sdc.timeout = 1200 # 1200 seconds or 20 minutes
+        
+        
+        Restrictions
+        ------------
+        
+        Data stored in the session must be persistent or picklable.
+        
+            >>> session['oops'] = open(__file__)
+            >>> import transaction
+            >>> transaction.commit()
+            Traceback (most recent call last):
+                [...]
+            TypeError: ...
+        
+        Clean up:
+        
+            >>> transaction.abort()
+        
+        
+        Page Templates
+        --------------
+        
+        Session data may be accessed in page template documents using TALES::
+        
+            <span tal:content="request/session:products.foo/color | default">
+                green
+            </span>
+        
+        or::
+        
+            <div tal:define="session request/session:products.foo">
+                <script type="text/server-python">
+                    try:
+                        session['count'] += 1
+                    except KeyError:
+                        session['count'] = 1
+                </script>
+        
+                <span tal:content="session/count" />
+            </div>
+        
+        
+        Session Timeout
+        ---------------
+        
+        Sessions have a timeout (defaulting to an hour, in seconds).
+        
+            >>> import zope.session.session
+            >>> data_container = zope.session.session.PersistentSessionDataContainer()
+            >>> data_container.timeout
+            3600
+        
+        We need to keep up with when the session was last used (to know when it needs
+        to be expired), but it would be too resource-intensive to write the last access
+        time every, single time the session data is touched.  The session machinery
+        compromises by only recording the last access time periodically.  That period
+        is called the "resolution".  That also means that if the last-access-time +
+        the-resolution < now, then the session is considered to have timed out.
+        
+        The default resolution is 10 minutes (600 seconds), meaning that a users
+        session will actually time out sometime between 50 and 60 minutes.
+        
+            >>> data_container.resolution
+            600
+        
+        
+        CHANGES
+        =======
+        
+        4.0.0a1 (2013-02-21)
+        --------------------
+        
+        - Added support for Python 3.3
+        
+        - Replaced deprecated ``zope.component.adapts`` usage with equivalent
+          ``zope.component.adapter`` decorator.
+        
+        - Replaced deprecated ``zope.interface.implements`` usage with equivalent
+          ``zope.interface.implementer`` decorator.
+        
+        - Dropped support for Python 2.4 and 2.5.
+        
+        
+        3.9.5 (2011-08-11)
+        ------------------
+        
+        - LP #824355:  enable support for HttpOnly cookies.
+        
+        - Fix a bug in ``zope.session.session.Session`` that would trigger an
+          infinite loop if either iteration or a containment test were
+          attempted on an instance.
+        
+        
+        3.9.4 (2011-03-07)
+        ------------------
+        
+        - Added an explicit `provides` to the IClientId adapter declaration in
+          adapter.zcml.
+        
+        - Added option to disable implicit sweeps in
+          PersistentSessionDataContainer.
+        
+        
+        3.9.3 (2010-09-25)
+        ------------------
+        
+        - Added test extra to declare test dependency on ``zope.testing``.
+        
+        - Using Python's ``doctest`` module instead of depreacted
+          ``zope.testing.doctest``.
+        
+        
+        3.9.2 (2009-11-23)
+        ------------------
+        
+        - Fix Python 2.4 hmac compatibility issue by only using hashlib in
+          Python versions 2.5 and above.
+        
+        - Use the CookieClientIdManager's secret as the hmac key instead of the
+          message when constructing and verifying client ids.
+        
+        - Make it possible to construct CookieClientIdManager passing cookie namespace
+          and/or secret as constructor's arguments.
+        
+        - Use zope.schema.fieldproperty.FieldProperty for "namespace" attribute of
+          CookieClientIdManager, just like for other attributes in its interface.
+          Also, make ICookieClientIdManager's "namespace" field an ASCIILine, so
+          it accepts only non-unicode strings for cookie names.
+        
+        
+        3.9.1 (2009-04-20)
+        ------------------
+        
+        - Restore compatibility with Python 2.4.
+        
+        
+        3.9.0 (2009-03-19)
+        ------------------
+        
+        - Don't raise deprecation warnings on Python 2.6.
+        
+        - Drop dependency on ``zope.annotation``. Instead, we make classes implement
+          `IAttributeAnnotatable` in ZCML configuration, only if ``zope.annotation``
+          is available. If your code relies on annotatable `CookieClientIdManager`
+          and `PersistentSessionDataContainer` and you don't include the zcml classes
+          configuration of this package, you'll need to use `classImplements` function
+          from ``zope.interface`` to make those classes implement `IAttributeAnnotatable`
+          again.
+        
+        - Drop dependency on zope.app.http, use standard date formatting function
+          from the ``email.utils`` module.
+        
+        - Zope 3 application bootstrapping code for session utilities was moved into
+          zope.app.appsetup package, thus drop dependency on zope.app.appsetup in this
+          package.
+        
+        - Drop testing dependencies, as we don't need anything behind zope.testing and
+          previous dependencies was simply migrated from zope.app.session before.
+        
+        - Remove zpkg files and zcml slugs.
+        
+        - Update package's description a bit.
+        
+        
+        3.8.1 (2009-02-23)
+        ------------------
+        
+        - Add an ability to set cookie effective domain for CookieClientIdManager.
+          This is useful for simple cases when you have your application set up on
+          one domain and you want your identification cookie be active for subdomains.
+        
+        - Python 2.6 compatibility change. Encode strings before calling hmac.new()
+          as the function no longer accepts the unicode() type.
+        
+        
+        3.8.0 (2008-12-31)
+        ------------------
+        
+        - Add missing test dependency on ``zope.site`` and
+          ``zope.app.publication``.
+        
+        
+        3.7.1 (2008-12-30)
+        ------------------
+        
+        - Specify i18n_domain for titles in apidoc.zcml
+        
+        - ZODB 3.9 no longer contains
+          ZODB.utils.ConflictResolvingMappingStorage, fixed tests, so they
+          work both with ZODB 3.8 and 3.9.
+        
+        
+        3.7.0 (2008-10-03)
+        ------------------
+        
+        New features:
+        
+        - Added a 'postOnly' option on CookieClientIdManagers to only allow setting
+          the client id cookie on POST requests.  This is to further reduce risk from
+          broken caches handing the same client id out to multiple users. (Of
+          course, it doesn't help if caches are broken enough to cache POSTs.)
+        
+        
+        3.6.0 (2008-08-12)
+        ------------------
+        
+        New features:
+        
+        - Added a 'secure' option on CookieClientIdManagers to cause the secure
+          set-cookie option to be used, which tells the browser not to send the
+          cookie over http.
+        
+          This provides enhanced security for ssl-only applications.
+        
+        - Only set the client-id cookie if it isn't already set and try to
+          prevent the header from being cached.  This is to minimize risk from
+          broken caches handing the same client id out to multiple users.
+        
+        
+        3.5.2 (2008-06-12)
+        ------------------
+        
+        - Remove ConflictErrors caused on SessionData caused by setting
+          ``lastAccessTime``.
+        
+        
+        3.5.1 (2008-04-30)
+        ------------------
+        
+        - Split up the ZCML to make it possible to re-use more reasonably.
+        
+        
+        3.5.0 (2008-03-11)
+        ------------------
+        
+        - Change the default session "resolution" to a sane value and document/test it.
+        
+        
+        3.4.1 (2007-09-25)
+        ------------------
+        
+        - Fixed some meta data and switch to tgz release.
+        
+        
+        3.4.0 (2007-09-25)
+        ------------------
+        
+        - Initial release
+        
+        - Moved parts from ``zope.app.session`` to this packages
+        
+Keywords: zope3 session
+Platform: UNKNOWN
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Environment :: Web Environment
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: Zope Public License
+Classifier: Programming Language :: Python
+Classifier: Programming Language :: Python :: 2
+Classifier: Programming Language :: Python :: 2.6
+Classifier: Programming Language :: Python :: 2.7
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.3
+Classifier: Programming Language :: Python :: Implementation :: CPython
+Classifier: Natural Language :: English
+Classifier: Operating System :: OS Independent
+Classifier: Topic :: Internet :: WWW/HTTP
+Classifier: Framework :: Zope3
