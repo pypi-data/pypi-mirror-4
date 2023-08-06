@@ -1,0 +1,424 @@
+#!/usr/bin/env python
+# Copyright (c) 2012-2013 SwiftStack, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import os
+import re
+import sys
+import time
+import math
+import logging
+import argparse
+import subprocess
+from os import environ
+import cPickle as pickle
+from gzip import GzipFile
+from datetime import datetime
+
+from ssbench.master import Master
+from ssbench.scenario import Scenario, ScenarioNoop
+
+DEFAULT_OBJECTS_PER_CONTAINER = 1000
+DEFAULT_STATS_PATH = '/tmp/ssbench-results/%s.%s.stat'
+DEFAULT_STATS_PATH_DEFAULT = '/tmp/ssbench-results/%s.%s.stat' % (
+    '<scenario_name>', '<timestamp>')
+
+
+def kill_workers(master, args):
+    master.kill_workers()
+
+
+def run_scenario(master, args):
+    container_count = int(args.container_count) \
+            if args.container_count != 'value from scenario' else None
+    user_count = int(args.user_count) \
+            if args.user_count != 'value from scenario' else None
+    operation_count = int(args.op_count) \
+            if args.op_count != 'value from scenario' else None
+    if args.noop:
+        scenario_class = ScenarioNoop
+        logging.info('NOTE: --noop was specified; not testing Swift.')
+    else:
+        scenario_class = Scenario
+    scenario = scenario_class(args.scenario_file,
+                              container_count=container_count,
+                              user_count=user_count,
+                              operation_count=operation_count)
+
+    if args.stats_file == DEFAULT_STATS_PATH_DEFAULT:
+        munged_name = re.sub('[%s\s]+' % os.path.sep, '_', scenario.name)
+        timestamp = datetime.now().strftime('%F.%H%M%S')
+        args.stats_file = DEFAULT_STATS_PATH % (munged_name, timestamp)
+        if not os.path.exists(os.path.dirname(args.stats_file)):
+            os.makedirs(os.path.dirname(args.stats_file))
+    stats_file_path = args.stats_file + '.gz'
+
+    # Attempt open prior to benchmark run so we get errors earlier
+    # if there's a problem.
+    args.stats_file = GzipFile(stats_file_path, 'wb+')
+    worker_count = getattr(args, 'workers', 0)
+    local_workers, local_worker_logs = [], []
+    try:
+        # Spawn local worker(s), if necessary
+        if worker_count:
+            users_per_worker = int(math.ceil(float(scenario.user_count) /
+                                             worker_count))
+            zmq_host = '127.0.0.1' if args.zmq_bind_ip == '0.0.0.0' \
+                    else args.zmq_bind_ip
+            worker_cmd = [
+                'ssbench-worker', '--zmq-host', zmq_host,
+                '--zmq-work-port', str(args.zmq_work_port),
+                '--zmq-results-port', str(args.zmq_results_port),
+                '--concurrency', str(users_per_worker)]
+            if args.profile:
+                worker_cmd = worker_cmd + [
+                    '--profile-count',
+                    str(int(math.ceil(
+                        float(operation_count) / worker_count * 0.8)))]
+            if args.verbose:
+                worker_cmd.append('-v')
+            for i in xrange(getattr(args, 'workers', 0)):
+                cmd_i = worker_cmd + [str(i)]
+                log_path = '/tmp/ssbench-worker-local-%d.log' % i
+                logging.info('Spawning local ssbench-worker (logging to %s) '
+                             'with %s', log_path, ' '.join(cmd_i))
+                logfp = open(log_path, 'wb')
+                local_workers.append(subprocess.Popen(cmd_i,
+                                                      stdout=logfp,
+                                                      stderr=logfp,
+                                                      close_fds=True))
+                local_worker_logs.append((log_path, logfp))
+
+        results = master.run_scenario(scenario, auth_url=args.auth_url,
+                                      user=args.user, key=args.key,
+                                      auth_version=args.auth_version,
+                                      os_options=args.os_options,
+                                      cacert=args.os_cacert,
+                                      insecure=args.insecure,
+                                      storage_url=args.storage_url,
+                                      token=args.token, noop=args.noop,
+                                      with_profiling=args.profile,
+                                      keep_objects=args.keep_objects)
+        pickle.dump([scenario, results], args.stats_file)
+    finally:
+        # Make sure any local spawned workers get killed
+        if worker_count:
+            for worker in local_workers:
+                worker.terminate()
+            time.sleep(1)
+            for worker in local_workers:
+                if worker.poll() is None:
+                    worker.kill()
+            for log_path, logfp in local_worker_logs:
+                if not logfp.closed:
+                    logfp.close()
+                    if 'SUDO_UID' in os.environ and 'SUDO_GID' in os.environ:
+                        os.chown(log_path, int(os.environ['SUDO_UID']),
+                                 int(os.environ['SUDO_GID']))
+
+    if not args.no_default_report:
+        args.stats_file.close()
+        args.stats_file = stats_file_path
+        args.report_file = sys.stdout
+        args.rps_histogram = None
+        report_scenario(master, args)
+    else:
+        args.stats_file.close()
+
+    # Chown stats_file back to SUDO_USER if appropriate
+    if 'SUDO_UID' in os.environ and 'SUDO_GID' in os.environ:
+        os.chown(stats_file_path, int(os.environ['SUDO_UID']),
+                 int(os.environ['SUDO_GID']))
+
+    logging.info('Scenario run results saved to %s', stats_file_path)
+    logging.info('You may generate a report with:\n  '
+                 '%s report-scenario -s %s', sys.argv[0], stats_file_path)
+
+
+def report_scenario(master, args):
+    if args.stats_file.endswith('.gz'):
+        args.stats_file = GzipFile(args.stats_file, 'rb')
+    else:
+        args.stats_file = open(args.stats_file, 'rb')
+    scenario, results = pickle.load(args.stats_file)
+    stats = master.calculate_scenario_stats(scenario, results,
+                                            nth_pctile=args.pctile)
+    args.report_file.write(master.generate_scenario_report(scenario, stats))
+    if args.rps_histogram:
+        master.write_rps_histogram(stats, args.rps_histogram)
+        # Note: not explicitly closing here in case it's redirected to STDOUT
+        # (i.e. "-")
+
+
+if __name__ == "__main__":
+    arg_parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        description='Benchmark your Swift installation')
+    arg_parser.add_argument('-v', '--verbose', action='store_true',
+                            default=False, help='Enable more verbose output.')
+
+    subparsers = arg_parser.add_subparsers()
+
+    kill_workers_arg_parser = subparsers.add_parser(
+        "kill-workers", help="""
+        Tell all workers to exit.
+        """.strip(),
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    kill_workers_arg_parser.add_argument(
+        '--zmq-bind-ip', metavar='BIND_IP', type=str, default='0.0.0.0',
+        help='The IP to which the 2 ZMQ sockets will bind')
+    kill_workers_arg_parser.add_argument(
+        '--zmq-work-port', metavar='PORT', type=int, default=13579,
+        help='TCP port (on this host) from which workers will PULL work')
+    kill_workers_arg_parser.add_argument(
+        '--zmq-results_port', metavar='PORT', type=int, default=13580,
+        help='TCP port (on this host) to which workers will PUSH results')
+    kill_workers_arg_parser.set_defaults(func=kill_workers)
+
+    run_scenario_arg_parser = subparsers.add_parser(
+        "run-scenario", help="""
+        Run CRUD scenario, saving statistics.
+
+        You must supply a valid set of v1.0 or v2.0 auth credentials.  See usage
+        message for run-scenario for more details.
+        """.strip(),
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    run_scenario_arg_parser.add_argument(
+        '-f', '--scenario-file', required=True, type=str)
+    run_scenario_arg_parser.add_argument(
+        '--zmq-bind-ip', metavar='BIND_IP', type=str, default='0.0.0.0',
+        help='The IP to which the 2 ZMQ sockets will bind')
+    run_scenario_arg_parser.add_argument(
+        '--zmq-work-port', metavar='PORT', type=int, default=13579,
+        help='TCP port (on this host) from which workers will PULL work')
+    run_scenario_arg_parser.add_argument(
+        '--zmq-results_port', metavar='PORT', type=int, default=13580,
+        help='TCP port (on this host) to which workers will PUSH results')
+    #
+    run_scenario_arg_parser.add_argument(
+        '-V', '--auth-version', dest='auth_version',
+        default=environ.get('ST_AUTH_VERSION', '1.0'),
+        type=str, help='Specify a version for authentication.')
+    run_scenario_arg_parser.add_argument(
+        '-A', '--auth-url', default=os.environ.get('ST_AUTH', None),
+        help='Auth URL for the Swift cluster under test.')
+    run_scenario_arg_parser.add_argument(
+        '-U', '--user', default=os.environ.get('ST_USER', None),
+        help='The X-Auth-User value to use for authentication.')
+    run_scenario_arg_parser.add_argument(
+        '-K', '--key', default=os.environ.get('ST_KEY', None),
+        help='The X-Auth-Key value to use for authentication.')
+    run_scenario_arg_parser.add_argument(
+        '--os-username', metavar='<auth-user-name>',
+        default=environ.get('OS_USERNAME'),
+        help='Openstack username (env[OS_USERNAME]).')
+    run_scenario_arg_parser.add_argument(
+        '--os_username', help=argparse.SUPPRESS)
+    run_scenario_arg_parser.add_argument(
+        '--os-password', metavar='<auth-password>',
+        default=environ.get('OS_PASSWORD'),
+        help='Openstack password (env[OS_PASSWORD]).')
+    run_scenario_arg_parser.add_argument(
+        '--os_password', help=argparse.SUPPRESS)
+    run_scenario_arg_parser.add_argument(
+        '--os-tenant-id', metavar='<auth-tenant-id>',
+        default=environ.get('OS_TENANT_ID'),
+        help='OpenStack tenant ID (env[OS_TENANT_ID]).')
+    run_scenario_arg_parser.add_argument(
+        '--os_tenant_id', help=argparse.SUPPRESS)
+    run_scenario_arg_parser.add_argument(
+        '--os-tenant-name', metavar='<auth-tenant-name>',
+        default=environ.get('OS_TENANT_NAME'),
+        help='Openstack tenant name (env[OS_TENANT_NAME]).')
+    run_scenario_arg_parser.add_argument(
+        '--os_tenant_name', help=argparse.SUPPRESS)
+    run_scenario_arg_parser.add_argument(
+        '--os-auth-url', metavar='<auth-url>',
+        default=environ.get('OS_AUTH_URL'),
+        help='Openstack auth URL (env[OS_AUTH_URL]).')
+    run_scenario_arg_parser.add_argument(
+        '--os_auth_url', help=argparse.SUPPRESS)
+    run_scenario_arg_parser.add_argument(
+        '--os-auth-token', metavar='<auth-token>',
+        default=environ.get('OS_AUTH_TOKEN'),
+        help='Openstack token (env[OS_AUTH_TOKEN]).')
+    run_scenario_arg_parser.add_argument(
+        '--os_auth_token', help=argparse.SUPPRESS)
+    run_scenario_arg_parser.add_argument(
+        '--os-storage-url', metavar='<storage-url>',
+        default=environ.get('OS_STORAGE_URL'),
+        help='Openstack storage URL (env[OS_STORAGE_URL]).')
+    run_scenario_arg_parser.add_argument(
+        '--os_storage_url', help=argparse.SUPPRESS)
+    run_scenario_arg_parser.add_argument(
+        '--os-region-name', metavar='<region-name>',
+        default=environ.get('OS_REGION_NAME'),
+        help='Openstack region name (env[OS_REGION_NAME]).')
+    run_scenario_arg_parser.add_argument(
+        '--os_region_name', help=argparse.SUPPRESS)
+    run_scenario_arg_parser.add_argument(
+        '--os-service-type', metavar='<service-type>',
+        default=environ.get('OS_SERVICE_TYPE'),
+        help='Openstack Service type (env[OS_SERVICE_TYPE]).')
+    run_scenario_arg_parser.add_argument(
+        '--os_service_type', help=argparse.SUPPRESS)
+    run_scenario_arg_parser.add_argument(
+        '--os-endpoint-type', metavar='<endpoint-type>',
+        default=environ.get('OS_ENDPOINT_TYPE'),
+        help='Openstack Endpoint type (env[OS_ENDPOINT_TYPE]).')
+    run_scenario_arg_parser.add_argument(
+        '--os-cacert', metavar='<ca-certificate>',
+        default=environ.get('OS_CACERT'),
+        help='Specify a CA bundle file to use in verifying a '
+        'TLS (https) server certificate (env[OS_CACERT]).')
+    run_scenario_arg_parser.add_argument(
+        '--insecure', action="store_true", dest="insecure",
+        default='',
+        help='Allow swiftclient to access insecure keystone server; '
+        'the keystone\'s certificate will not be verified.')
+    
+    #
+    run_scenario_arg_parser.add_argument(
+        '-S', '--storage-url', help='A specific X-Storage-Url to use; mutually '
+        'exclusive with -A, -U, and -K; requires -T')
+    run_scenario_arg_parser.add_argument(
+        '-T', '--token', help='A specific X-Storage-Token to use; mutually '
+        'exclusive with -A, -U, and -K; requires -S')
+    #
+    run_scenario_arg_parser.add_argument(
+        '-c', '--container-count', default='value from scenario',
+        metavar='COUNT',
+        help='Override the container count specified in the scenario file.')
+    run_scenario_arg_parser.add_argument(
+        '-u', '--user-count', default='value from scenario',
+        metavar='COUNT',
+        help='Override the user count (concurrency) specified in the '
+        'scenario file.')
+    run_scenario_arg_parser.add_argument(
+        '-o', '--op-count', default='value from scenario',
+        metavar='COUNT',
+        help='Override the operation count specified in the '
+        'scenario file.')
+    run_scenario_arg_parser.add_argument(
+        '--workers', metavar='COUNT', type=int,
+        help='Spawn COUNT local ssbench-worker processes just for this '
+        'run. To workers on other hosts, they must be started manually.')
+    run_scenario_arg_parser.add_argument(
+        '-q', '--quiet', action='store_true', default=False,
+        help='Suppress most output (including progress characters during '
+        'run).')
+    run_scenario_arg_parser.add_argument(
+        '--profile', action='store_true', default=False,
+        help='Profile the main benchmark run.')
+    run_scenario_arg_parser.add_argument(
+        '--noop', action='store_true', default=False,
+        help='Exercise benchmark infrastructure without talking to cluster.')
+    run_scenario_arg_parser.add_argument(
+        '-k', '--keep-objects', action='store_true', default=False,
+        help='Keep all uploaded objects in cluster; do not delete any.')
+    #
+    run_scenario_arg_parser.add_argument(
+        '-s', '--stats-file', type=str,
+        help='File into which benchmarking statistics will be saved',
+        default=DEFAULT_STATS_PATH_DEFAULT)
+    run_scenario_arg_parser.add_argument(
+        '-r', '--no-default-report', action='store_true', default=False,
+        help="Suppress the default immediate generation of a benchmark "
+        "report to STDOUT after saving stats-file")
+    run_scenario_arg_parser.add_argument(
+        '--pctile', type=int, metavar='PERCENTILE', default=95,
+        help='Report on the N-th percentile, if generating a report.')
+    run_scenario_arg_parser.set_defaults(func=run_scenario)
+
+
+    report_scenario_arg_parser = subparsers.add_parser(
+        "report-scenario",
+        help="Generate a report from saved scenario statistics",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    report_scenario_arg_parser.add_argument(
+        '-s', '--stats-file', type=str, required=True,
+        help='An existing stats file from a previous '
+        '--run-scenario invocation')
+    report_scenario_arg_parser.add_argument(
+        '-f', '--report-file', type=argparse.FileType('w'), default=sys.stdout,
+        help='The file to which the report should be written')
+    report_scenario_arg_parser.add_argument(
+        '--pctile', type=int, metavar='PERCENTILE', default=95,
+        help='Report on the N-th percentile.')
+    report_scenario_arg_parser.add_argument(
+        '-r', '--rps-histogram', type=argparse.FileType('w'),
+        help='Also write a CSV file with requests completed per second '
+        'histogram data')
+    report_scenario_arg_parser.set_defaults(func=report_scenario)
+
+    args = arg_parser.parse_args(sys.argv[1:])
+
+    if args.func == run_scenario:
+        if not args.auth_url or not args.user or not args.key:
+            # Use 2.0 auth if any of the old args are missing
+            args.auth_version = '2.0'
+
+        # Use new-style args if old ones not present or if v2.0
+        is_v2 = args.auth_version.startswith('2')
+        if is_v2 or (not args.auth_url and args.os_auth_url):
+            args.auth_url = args.os_auth_url
+        if is_v2 or (not args.user and args.os_username):
+            args.user = args.os_username
+        if is_v2 or (not args.key and args.os_password):
+            args.key = args.os_password
+
+        # Specific OpenStack args
+        args.os_options = {
+            'tenant_id': args.os_tenant_id,
+            'tenant_name': args.os_tenant_name,
+            'service_type': args.os_service_type,
+            'endpoint_type': args.os_endpoint_type,
+            'auth_token': args.os_auth_token,
+            'object_storage_url': args.os_storage_url,
+            'region_name': args.os_region_name,
+        }
+
+        if args.storage_url and args.token:
+            args.auth_url = None
+            args.user = None
+            args.key = None
+        elif not args.auth_url or not args.user or not args.key:
+            print >>sys.stderr, '''
+Auth version 1.0 requires ST_AUTH, ST_USER, and ST_KEY environment variables
+to be set or overridden with -A, -U, or -K.
+
+Auth version 2.0 requires OS_AUTH_URL, OS_USERNAME, OS_PASSWORD, and
+OS_TENANT_NAME OS_TENANT_ID to be set or overridden with --os-auth-url,
+--os-username, --os-password, --os-tenant-name or os-tenant-id.'''.strip('\n')
+            run_scenario_arg_parser.print_help(file=sys.stderr)
+            exit(1)
+    os.environ.pop('ST_AUTH', None)
+    os.environ.pop('ST_USER', None)
+    os.environ.pop('ST_KEY', None)
+
+    if args.verbose:
+        log_level = logging.DEBUG
+    elif args.func == run_scenario and args.quiet:
+        log_level = logging.WARNING
+    else:
+        log_level = logging.INFO
+    logging.basicConfig(level=log_level)
+
+    master = Master(getattr(args, 'zmq_bind_ip', None),
+                    getattr(args, 'zmq_work_port', None),
+                    getattr(args, 'zmq_results_port', None),
+                    quiet=args.func == run_scenario and args.quiet)
+
+    args.func(master, args)
