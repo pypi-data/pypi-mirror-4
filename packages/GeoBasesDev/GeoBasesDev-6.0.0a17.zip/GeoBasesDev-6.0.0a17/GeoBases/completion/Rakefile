@@ -1,0 +1,110 @@
+
+require 'erb'
+require 'yaml'
+require 'pathname'
+
+ROOT_PATH = File.expand_path File.dirname(__FILE__)
+
+if ENV['source'].nil?
+    SOURCES_CONF_PATH = File.join ROOT_PATH, '../DataSources/Sources.yaml'
+else
+    SOURCES_CONF_PATH = ENV['source']
+end
+
+if ENV['target'].nil?
+    ASSET_FILES = {
+      '_GeoBase.erb' => '_GeoBase'
+    }
+else
+    ASSET_FILES = {
+      '_GeoBase.erb' => ENV['target']
+    }
+end
+
+BUILD_PATH = File.join ROOT_PATH, '.'
+ASSETS_PATH = File.join ROOT_PATH, '.'
+
+# Read YAML configuration
+#File.open(SOURCES_CONF_PATH) { |f| YAML.load f }.each do |param, val|
+#  Object.const_set "CONF_#{param.upcase}", val
+#end
+SOURCES = YAML.load File.open(SOURCES_CONF_PATH)
+
+# Config enhancements
+SOURCES.each do |data, config|
+    if config.nil?
+        SOURCES[data] = { 'headers' => [] }
+    end
+    if SOURCES[data]['headers'].nil?
+        SOURCES[data]['headers'] = []
+    end
+    if SOURCES[data]['join'].nil?
+        SOURCES[data]['join'] = []
+    end
+end
+
+SOURCES.each do |data, config|
+    headers = []
+
+    config['headers'].each do |h|
+        headers << h
+        if not config['subdelimiters'].nil? and
+           not config['subdelimiters'][h].nil?
+            headers << h + '@raw'
+        end
+    end
+    config['headers'] = headers
+end
+
+SOURCES.each do |data, config|
+    SOURCES[data]['add_headers'] = []
+    config['join'].each do |d|
+        if not d['fields'].is_a? String
+            d['fields'] = d['fields'].join('/')
+        end
+        SOURCES[d['with'][0]]['headers'].each do |h|
+            SOURCES[data]['add_headers'] << d['fields'] + ':' + h
+        end
+    end
+end
+
+# Special autocomplete for feed
+SOURCES['feed']['headers'] = ['H0', 'H1', 'H2', 'H3']
+
+namespace :build do
+
+  # Compute path to the distribution tree
+  def dist(*path)
+    File.join BUILD_PATH, *path
+  end
+
+  # Compute path to assets
+  def asset(*path)
+    File.join ASSETS_PATH, *path
+  end
+
+  # Distribute asset files
+  ASSET_FILES.each do |source, target|
+    if ENV['target'].nil?
+        dist_target = dist target
+    else
+        dist_target = target
+    end
+    asset_source = asset source
+    # Forcing rm -f
+    rm dist_target rescue nil
+    file dist_target => asset_source do
+      if asset_source =~ /\.erb$/
+        puts "Realize template #{asset_source} to #{dist_target}"
+        erb = ERB.new(File.read(asset_source))
+        erb.filename = File.basename asset_source
+        File.open(dist_target, 'w') { |f| f.write erb.result(binding) }
+      else
+        cp asset_source, dist_target
+      end
+    end
+    task :realize => dist_target
+  end
+end
+
+task :default => 'build:realize'
