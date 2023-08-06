@@ -1,0 +1,360 @@
+
+\chapter{Coopr Plugins}
+
+\label{chap:coopr}
+
+
+\section{Overview}
+
+A common object oriented approach for mathematical programming software is
+to use classes and class inheritance.  For example, the OPT++~\cite{Mez94}
+optimization software library defines base classes with different
+characteristics (e.g. differentiability), and a concrete optimization
+solver is instantiated as a subclass of an appropriate base class.  In this
+context, the base class can be viewed as defining the interface for the 
+solvers that inherit from it.
+
+Coopr plugins leverage the PyUtilib Component Architecture
+(PCA) to separate the declaration of component interfaces from
+their implementation.  For example, the interface to optimization solvers
+are again declared with a class.  However, solver plugins are not required to
+be subclasses of the interface class.  Instead, they are simply required to 
+provide the same interface methods and data.  
+
+The following sections detail the component interfaces that are supported in
+Coopr, and provide examples for how new plugins can be used with Coopr's 
+Pyomo modeling language.
+
+
+\section{Coopr Interfaces}
+
+Coopr defines a variety of solver interfaces that can be used to
+customized and extend core Coopr functionality.  The \code{coopr.opt}
+interfaces define capabilities that are needed perform optimization.  The main
+interface is \code{IOptSolver}, which defines how optimizers behave:
+\begin{lstlisting}
+class IOptSolver(Interface):
+    """Interface class for creating optimization solvers"""
+
+    def available(self, exception_flag=True):
+        """Determine if this optimizer is available."""
+
+    def solve(self, *args, **kwds):
+        """
+        Perform optimization and return an SolverResults object.
+        """
+
+    def reset(self):
+        """Reset the state of an optimizer"""
+
+    def set_options(self, istr):
+        """
+        Set the options in the optimizer from a string.
+        """
+\end{lstlisting}
+
+The remaining interfaces in \code{coopr.opt} support capabilities that
+are used to execute external optimizers that are executed from a 
+shell command.  Executing external optimizers requires the
+following steps:
+\begin{itemize}
+\item write files that define the optimization problem
+\item convert files into a format that can be read by the external optimizer
+\item execute the optimizer
+\item read files that define the optimizer results and execution status 
+\end{itemize}
+The \code{IProblemWriter}, \code{IProblemConverter} and
+\code{IProblemReader} interfaces are used to define components to
+execute these steps.  This allows for a very flexible infrastructure,
+since the user no longer needs to worry about the compatibility between
+the optimization software and the modeling tool.
+
+The \code{coopr.pyomo} interfaces define capabilities that are needed
+to model integer programs in Pyomo.  The \code{IPyomoExpression}
+interface is used within Pyomo to define expression types.  The
+\code{IPyomoSet} interface can be used to define new types of set objects
+(e.g. \code{Integers}).  
+
+The \code{IModelComponent} interface can be used to define new modeling
+components that are recognized by Pyomo.  The standard modeling components
+include \code{Var}, \code{Objective} and \code{Param} objects.  However,
+Pyomo generates models by sequentially constructing each component.  This 
+construction process can be customized to perform general operations on the model.  For example, the \code{BuildCheck} plugin applies a function to a 
+set of indices and validates that the function is true for all indices:
+\begin{lstlisting}
+#
+# Verify that all A[i] values are non-negative.
+#
+def rule(i, instance):
+    return instance.A[i] >= 0.0
+#
+model.check = BuildCheck(model.I, rule) 
+\end{lstlisting}
+
+Finally, the \code{IPyomoPresolver} interface can be used to define actions that are applied to Pyomo models before they are handed to solvers. 
+Pyomo current defines presolve plugins that standardize variable names,
+identify active variables, and collect linear terms.
+
+
+\section{Example: A p-Median Solver}
+
+A natural extension of Coopr is the integration of domain-specific
+heuristics.  Pyomo models provide an intuitive interface for accessing
+model data and variables.  Consequently, we expect that users will develop heuristics directly in Python.  As we shall see, setting up and applying 
+this type of solver can be done quite naturally with the \code{pyomo} command-line interface.
+
+Figure~\ref{fig:greedy} describes a plugin that implements the \code{IOptSolver} interface.  This plugin implements a \code{solve} method,
+which performs a greedy search for p-median optimization problems.\footnote{The details of the greedy search are omitted here due to space constraints.  This
+example is provided in with the Coopr examples: \code{coopr/examples/pyomo/p-median/solver.py}.}  The only other step that is needed to use Coopr's \code{SolverRegistration} function, which associates the solver name, \textit{greedy}, with the plugin class, \code{MySolver}.
+
+
+\begin{figure}
+\begin{lstlisting}
+# Imports from Coopr and PyUtilib
+from coopr.pyomo import *
+from pyutilib.plugin.core import *
+from coopr.opt import *
+
+class MySolver(object):
+
+    # Declare that this is an IOptSolver plugin
+    implements(IOptSolver)
+
+    # Solve the specified problem and return
+    # a SolverResults object
+    def solve(self, instance, **kwds):
+        print "Starting greedy heuristic"
+        val, instance = self._greedy(instance)
+        n = value(instance.N)
+        # Setup results
+        results = SolverResults()
+        results.problem.name = instance.name
+        results.problem.sense = ProblemSense.minimize
+        results.problem.num_constraints = 1
+        results.problem.num_variables = n
+        results.problem.num_objectives = 1
+        results.solver.status = SolverStatus.ok
+        soln = results.solution.create()
+        soln.value = val
+        soln.status = SolutionStatus.feasible
+        for j in range(1,n+1):
+            if instance.y[j].value is 1:
+                soln.variable[instance.y[j].name] = {``value'' : 1}
+        return results
+
+    # Perform a greedy search
+    def _greedy(self, instance):
+        # Details omited here...
+        return [best, instance]
+
+# Register the solver with the name 'greedy'
+SolverRegistration("greedy", MySolver)
+\end{lstlisting}
+\caption{\label{fig:greedy} A simple customized solver for p-Median problems.}
+\end{figure}
+
+
+Activating this plugin simply requires importing the Python module that 
+contains it.  All other registration is automated within Coopr.  For example, if
+this plugin is in the file \code{solver.py}, then the following Python script 
+can be used to allocate and apply this solver to Coopr's p-median example:
+\begin{lstlisting}
+import coopr.opt
+import pmedian
+import solver
+
+instance=pmedian.model.create('pmedian.dat')
+opt = coopr.opt.SolverFactory('greedy')
+results = opt.solve(instance)
+print results
+\end{lstlisting}
+
+The \code{pyomo} command-line interface can also be used to apply a
+custom optimizer in a natural manner.  The following command-line is 
+used to solve the Coopr's p-median example with the \code{cbc} integer programming solver:
+\begin{lstlisting}
+pyomo --solver=cbc pmedian.py pmedian.dat
+\end{lstlisting}
+Applying the custom solver requires the specification of the solver name, \code{greedy}, and indicating that the \code{solver.py} file should be 
+imported before optimization:
+\begin{lstlisting}
+pyomo --solver=greedy --preprocess=solver.py pmedian.py pmedian.dat
+\end{lstlisting}
+Thus, the user can develop custom solvers in Python modules, which are tested directlying using the \code{pyomo} command-line interface.
+
+
+\section{Deploying Plugin Packages}
+
+\subsection{Background}
+
+The Python \code{setuptools} package is the \textit{de facto}
+standard for deploying Python software.  This package extends Python's
+\code{distutils} functionality.  A key element of this extension is the
+\code{easy\_install} command, which allows the installation of Python
+software from remote repositories.  In particular, the Python Package
+Index (PyPI) provides a convenient repository for hosting Python packages.
+The \code{easy\_install} command can easily upload and download packages
+from PyPI, thereby simplifying the distribution of Packages like Coopr,
+which depends on a variety of freely available packages.
+
+Coopr's Python software architecture leverages features of the
+\code{setuptools} package to facilitate the integration of Python packages that contain plugin components.  Here are the details:
+\begin{itemize}
+
+\item The \code{coopr.plugins} subpackage is a \textit{namespace package}.
+Namespace packages are a mechanism for splitting a single Python package
+across multiple directories on disk.  This allows different Python packages to provide plugin components in separate plugin subpackages (e.g. \code{coopr.plugins.mine} and \code{coopr.plugins.yours}).
+
+\item Subpackages in Coopr have been setup to dynamically load plugins
+that are registered in \code{coopr.plugins} packages.  This leverages the \code{pkg\_resources} package that included with \code{setuptools} by defining \textit{entry points} for the Python packages that are loaded
+under the \code{coopr.plugins} namespace.
+
+\end{itemize}
+Although configuring Coopr to leverage these capabilities requires some
+black magic, we hope that Coopr developers will not need to delve into
+the details of this mechanism.  The following section provides some
+guidelines for configuring a package such that its plugin components
+are automatically loaded when Coopr is imported.
+
+
+\subsection{Example: coopr.plugins.neos}
+
+The \code{coopr.plugins.neos} package is hosted by the Coopr Forum
+repository~\cite{CooprForum}, which facilitates community involvement in Coopr.  Coopr Forum
+allows people to contribute code extensions and plugins without going
+directly through the Coopr software repository.  The \code{coopr.plugins.neos} package
+provides a simple example of how Coopr can be extended with plugins to enable optimization
+on the NEOS optimization server~\cite{NEOS}.
+
+This package illustrates the basic organization that is needed to seamlessly integrate plugins from external software packages with Coopr.  There are a variety of important details, which we enumerate in the following sections.
+
+\subsubsection{Directory Structure}
+
+The trunk version of the \code{coopr.plugins.neos} package is available at\newline
+\code{http://coopr-forum.googlecode.com/svn/neos/trunk/}.  This package has the following directory structure:
+\begin{lstlisting}
+setup.py
+coopr/
+coopr/__init__.py
+coopr/plugins/
+coopr/plugins/__init__.py
+coopr/plugins/neos/
+coopr/plugins/neos/__init__.py
+coopr/plugins/neos/NEOS.py
+coopr/plugins/neos/NEOS_CBC.py
+coopr/plugins/neos/kestrel.py
+coopr/plugins/neos/kestrel_plugin.py
+\end{lstlisting}
+
+A key aspect of this directory structure is that it mimics the structure in Coopr.  Further, the files \code{coopr/\_\_init\_\_.py} and \code{coopr/plugins/\_\_init\_\_.py} must have the following definitions to ensure that \code{coopr.plugins} is a 
+namespace package:
+\begin{lstlisting}
+# this is a namespace package
+try:
+    import pkg_resources
+    pkg_resources.declare_namespace(__name__)
+except ImportError:
+    import pkgutil
+    __path__ = pkgutil.extend_path(__path__, __name__)
+\end{lstlisting}
+
+
+\subsubsection{Plugin Modules}
+
+There are few restrictions on the content of the modules in
+\code{coopr/plugins/neos}.  However, automatic loading of
+plugin components requires that their associated Python modules are imported by \code{coopr/plugins/neos/\_\_init\_\_.py}.  In this package, plugin components are defined in the \code{kestrel\_plugin.py} and \code{NEOS\_CBC.py} modules, which are imported by the 
+\code{\_\_init\_\_.py} module.
+
+
+\subsubsection{Package Configuration}
+
+The \code{setuptools} package uses the \code{setup.py} module to configure the installation 
+of\newline
+\code{coopr.plugins.neos}.  Figure~\ref{fig:setup} contains the listing of this 
+file.  Only a handful of these arguments are specific to an installation with
+\code{setuptools}:
+\begin{itemize}
+
+\item The \code{packages} options lists all package directories that
+are included in this package.
+
+\item The \code{namespace\_packages} options lists all package directories that
+are namespace packages.  There are two namespace packges in Coopr that need
+to be specified:  \code{coopr} and \code{coopr.plugins}.
+
+\item The \code{entry\_points} option specifies how components of this package
+are registered with \code{setuptools}.  The \code{entry\_points} option
+specifies a dictionary.  The keys of this dictionary are \textit{group names} that 
+specify a set of related entry points.  Coopr uses this dictionary to load
+packages that have been installed with \code{setuptools}.  By convention, Coopr packages load plugins with the same group name;  for example, the \code{coopr.opt} package
+imports entry points with the 'coopr.opt' group name.
+
+\end{itemize}
+
+\begin{figure}
+\begin{lstlisting}
+from setuptools import setup, find_packages
+
+classifiers = """\
+Development Status :: 3 - Alpha
+Intended Audience :: End Users/Desktop
+Intended Audience :: Science/Research
+License :: OSI Approved :: BSD License
+Natural Language :: English
+Operating System :: Microsoft :: Windows
+Operating System :: Unix
+Programming Language :: Python
+Topic :: Scientific/Engineering :: Mathematics
+Topic :: Software Development :: Libraries :: Python Modules
+"""
+
+import coopr.plugins.neos
+doclines = coopr.plugins.neos.__doc__.split("\n")
+
+setup(name = "coopr.plugins.neos",
+      version = coopr.plugins.neos.__version__,
+      maintainer = coopr.plugins.neos.__maintainer__,
+      maintainer_email = coopr.plugins.neos.__maintainer_email__,
+      url = coopr.plugins.neos.__url__,
+      license = coopr.plugins.neos.__license__,
+      platforms = ["any"],
+      description = doclines[0],
+      classifiers = filter(None, classifiers.split("\n")),
+      long_description = "\n".join(doclines[2:]),
+      packages = ['coopr', 'coopr.plugins', 'coopr.plugins.neos'],
+      keywords = ['optimization'],
+      namespace_packages=['coopr', 'coopr.plugins'],
+      entry_points = {
+        'coopr.opt': [
+            'solvermanager.neos = coopr.plugins.neos.kestrel_plugin',
+            'solver.neos_cplex = coopr.plugins.neos.NEOS_CPLEX',
+        ]
+      },
+      install_requires=['Coopr>=1.2']
+      )
+\end{lstlisting}
+\caption{\label{fig:setup} The \code{setup.py} file used by \code{coopr.plugins.neos}.}
+\end{figure}
+
+As this example
+illustrates, an entry point relates an \textit{entry name} with a package
+in the software repository.  Although these entry names must be unique,
+Coopr does not rely on them having any particular syntax or semantics.
+Instead, Coopr simply loads each entry point within a given group.
+This triggers the registration of plugin components within Coopr, which
+is the desired result.
+
+
+\subsubsection{Uploading Package Releases}
+
+Once your Python package is ready for a release to other users, you can upload it to the PyPI 
+repository using the following command:
+\begin{lstlisting}
+python setup.py sdist upload -s
+\end{lstlisting}
+Note that before you upload the first time you will need to register your 
+package with the following command:
+\begin{lstlisting}
+python setup.py register
+\end{lstlisting}

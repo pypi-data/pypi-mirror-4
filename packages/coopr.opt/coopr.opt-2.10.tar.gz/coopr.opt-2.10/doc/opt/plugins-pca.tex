@@ -1,0 +1,474 @@
+
+\chapter{PyUtilib Component Architecture}
+
+\label{chap:pca}
+
+The PyUtilib Component Architecture (PCA) is an extension of the Trac
+plugin framework~\cite{Trac} that is included in the PyUtilib software
+package~\cite{PyUtilib}.  There does not appear to be a standard
+Python plugin framework, though there are some mature packages that
+support plugins including Zope~\cite{Zope}, Envisage~\cite{Envisage},
+Trac~\cite{Trac}, yapsy~\cite{yapsy} and SprinklesPy~\cite{SprinklesPy}.
+Although we discuss the design requirements for PCA later, PCA was
+initially motivated by the need to have a Trac-like plugin framework that was
+self-contained.  The core of PCA is provided by PyUtilib's
+\code{pyutilib.plugin.core} module.
+
+\section{Overview}
+
+The PCA is comprised of a small set of Python classes. A \textit{plugin}
+is a class that implements a set of related methods the context of the
+application, and a \textit{service} is an instance of a plugin class. Two
+different types of plugins are available: singleton and non-singleton
+plugins. There is at most one service for a singleton plugin, whereas
+there can be multiple services of non-singleton plugins.
+
+A software application can declare \textit{extension points} that other
+components can \textit{plug in} to. This mechanisms supports a flexible,
+modular programming paradigm that enables software applications to
+be extended in a dynamic manner. Extension points and the extensions
+contributed to them are stored in a global registry, and execution of
+these extensions is handled in a standardized manner. Thus, an application
+developer can define extension points without knowing how they will be
+implemented, and extension developers can register extensions without
+needing to know the details of how they are employed.
+
+Extension points are defined with respect to an \textit{interface} class, 
+which defines the type that plugins use to register their capabilies.
+A plugin class includes declarations that denote that it implements
+one-or-more interfaces. An interface is defined by the methods and data
+that are used. However, the PCA does not enforce
+this interface or support interface conversions (see Zope~\cite{Zope}
+and Envisage~\cite{Envisage} for examples of plugin frameworks that
+support this functionality).
+
+
+\section{Core Plugin Classes}
+
+The PyUtilib plugin framework consists of the following core classes:
+\begin{description}
+\item[pyutilib.plugin.core.Interface] Subclasses of this class declare plugin interfaces that are registered in the framework 
+\item[pyutilib.plugin.core.ExtensionPoint] A class used to declare extension points, which can access services with a particular interface 
+\item[pyutilib.plugin.core.Plugin] Subclasses of this class declare plugins, which can be used to implement interfaces within this plugin framework. 
+\item[pyutilib.plugin.core.SingletonPlugin] Subclasses of this class declare singleton plugins, for which a single service is constructed. 
+\item[pyutilib.plugin.core.PluginEnvironment] A class that maintains the registries for interfaces, extension points, plugins and services. 
+\item[pyutilib.plugin.core.PluginGlobals] A class that maintains global data concerning the set of environments that are currently being used. 
+\item[pyutilib.plugin.core.PluginError] The exception class that is raised when errors arise in this framework. 
+\end{description}
+
+\subsection{Interfaces and Extension Points}
+
+A subclass of the \code{Interface} class is used to declare extension
+points in an application. The \code{ExtensionPoint} class is used to declare
+an extension point and to retrieve information about the plugins that
+implement the specified interface. For example, the following is a
+minimal declaration of an interface and extension point:
+\begin{lstlisting}
+class MyInterface(Interface):
+   """An interface subclass"""
+
+ep = ExtensionPoint(MyInterface)
+\end{lstlisting}
+Note that the \code{MyInterface} class is not required to define the API of the
+interface. The PCA does not enforce checking of
+API conformance for plugins, and hence any declaration in the \code{MyInterface}
+class would be ignored. Additionally, note that an instance of \code{MyInterface}
+is not created; the \code{MyInterface} class is simply used to declare a type that is used to index related plugins.
+
+An instance of \code{ExtensionPoint} can be used to iterate through
+all extensions, or to search for an extension that matches a particular
+keyword. For example, the following code iterates through all extensions
+and applies the \code{pprint} method:
+\begin{lstlisting}
+for service in ep:
+  service.pprint()
+\end{lstlisting}
+If you wish to know the number of services that are registered with an
+extension point, you can call the standard \code{len} function:
+\begin{lstlisting}
+print len(ep)
+\end{lstlisting}
+Several other methods can be used to more carefully select services from
+an extension point. The \code{extensions} method returns a Python \code{set} object
+that contains the services:
+\begin{lstlisting}
+#
+# This loop iterates over all services, just the same as when an
+# the iterator method is used (see above).
+#
+for service in ep.extensions():
+  service.pprint()
+
+#
+# This loop iterates over all services, including the 'disabled'
+# services.
+#
+for service in ep.extensions(all=True):
+  service.pprint()
+\end{lstlisting}
+This example illustrates the optional argument that indicates whether
+the set returned by \code{extensions} includes all disabled services. It is
+convenient to explicitly support enabling and disabling services in many
+applications, though services are enabled by default. Disabled services
+remain in the registry, but by default they are not included in the set
+returned by an extension point.
+
+Finally, the PCA can support \textit{named services}, which requires that
+the services have a \code{name} attribute. Service names are not required
+to be unique. For example, when multiple instances of a non-singleton
+plugin are created, then these services can be accessed as follows:
+\begin{lstlisting}
+#
+# A simple plugin that implements the MyInterface interface
+#
+class MyPlugin(Plugin):
+  implements(MyInterface)
+
+  def __init__(self):
+      self.name="myname"
+
+#
+# Another simple plugin that implements the MyInterface interface
+#
+class MyOtherPlugin(Plugin):
+  implements(MyInterface)
+
+  def __init__(self):
+      self.name="myothername"
+
+#
+# Constructing services
+#
+service1 = MyPlugin()
+service2 = MyPlugin()
+service3 = MyOtherPlugin()
+
+#
+# A function that iterates over all MyInterface services, and
+# returns the MyPlugin instances (which are service1 and service2).
+#
+def get_services():
+    ep = ExtensionPoint(MyInterface)
+    return ep("myname")
+\end{lstlisting}
+In some applications, there is a one-to-one correspondence between service
+names and their instances. In this context, a simpler syntax is to use
+the \code{service} method:
+\begin{lstlisting}
+class MySingletonPlugin(SingletonPlugin):
+  implements(MyInterface)
+
+  def __init__(self):
+      self.name="mysingletonname"
+
+ep = ExtensionPoint(MyInterface)
+ep.service("mysingletonname").pprint()
+\end{lstlisting}
+The \code{service} method raises a \code{PluginError} if there is more than one service
+with a given name. Note, however, that this method returns \code{None} if no
+service has been registered with the specified name.
+
+Note that an integer cannot be used to select a service from an extension
+point. Services are not registered in an indexable array, so this option
+does not make sense.
+
+
+\subsection{Plugins and Environments}
+
+PCA plugins are subclasses of either the \code{Plugin} or \code{SingletonPlugin}
+classes. Subclasses of \code{Plugin} need to be explicitly constructed,
+but otherwise they do not need to be registered; simply constructing a
+subclass of \code{Plugin} invokes the registration of that instance. Similarly,
+simply declaring a subclass of \code{SingletonPlugin} invokes both the construction
+and registration of this plugin service.
+
+PCA plugins are registered with different interfaces using the \code{implements}
+function (which is a static method of \code{Plugin}). Note that a plugin can be
+registered with more than one interface. Plugins are applied to different
+extension points independently, but they can maintain state information
+that impacts their use across different extension points.
+
+The plugin and interfaces are organized within namespaces using the
+\code{PluginEnvironment} class. A global registry of plugin environments
+is maintained by the \code{PluginGlobals} class. This registry is a stack
+of environments, and the top of this stack defines the current
+environment. When an interface is declared, its namespace is the name
+of the current environment. For example:
+\begin{lstlisting}
+#
+# Declare an interface in the current environment
+#
+class Interface1(Interface):
+   pass
+
+#
+# Set the current environment to 'new_environ'
+#
+PluginGlobals.push_env( "new_environ" )
+
+#
+# Declare an interface in the 'new_environ' environment
+#
+
+class Interface2(Interface):
+   pass
+
+#
+# Go back to the original environment
+#
+PluginGlobals.pop_env()
+\end{lstlisting}
+The namespace that an \code{Interface} subclass is declared in defines the
+namespace where plugin services will be registered. Additionally,
+a plugin service will be registered in the namespace where it is
+declared. For example:
+\begin{lstlisting}
+#
+# Declare Interface1 in namespace env1
+#
+PluginGlobals.push_env("env1")
+
+class Interface1(Interface):
+   pass
+
+#
+# Declare Interface2 in namespace env2
+#
+PluginGlobals.push_env("env2")
+
+class Interface2(Interface):
+   pass
+
+PluginGlobals.pop_env()
+
+#
+# Declare Plugin1 in namespace env3
+#
+PluginGlobals.push_env("env3")
+
+class Plugin1(Plugin):
+
+   implements(Interface1)
+   implements(Interface2)
+   implements(Interface1,"env4")
+
+PluginGlobals.pop_env()
+\end{lstlisting}
+When \code{Plugin1} is instantiated, it's services are registered in the 
+following environments:
+\begin{lstlisting}
+    env1 for Interface1
+    env2 for Interface2
+    env4 for Interface1
+    env3
+\end{lstlisting}
+The last registration is the default. A plugin service is always
+registered in the environment in which it was declared.
+
+Namespaces provide a mechanism for organizing plugin services in an
+extensible manner. Applications can define new namespaces that contain
+their services without worrying about conflicts with services defined
+in other Python libraries.
+
+\subsection{Global Plugin Data}
+
+Global plugin data in PCA is managed in the \code{PluginGlobals} class. This
+class contains a variety of static methods that are used to access
+this data:
+\begin{description}
+\item[default\_env] This method returns the default environment, which is constructed when the plugins framework is loaded. 
+\item[env] This method returns the current environment if no argument is specified. Otherwise, it returns the specified environment. 
+\item[push\_env,pop\_env] These methods respectively push a new environment onto the environment stack and pop the current environment from the stack. 
+\item[services] This method returns the plugin services in the current environment (or the named environment if one is specified). 
+\item[load\_services] Load services using IPluginLoader extension points. 
+\item[pprint] This method provides a text summary of the registered interfaces, plugins and services. 
+\item[clear] This method empties the environment stack and defines a new default environment. This setup then bootstraps the configuration of the \code{pyutilib.plugin.core} environment. Note that this does not clear the plugin registry; in practice that may not make sense since it is not easy to reload modules in Python. 
+\end{description}
+
+
+\section{A Simple Example}
+
+Figure~\ref{fig:example1} provides a simple example that is adapted from the description of the Trac component architecture~\cite{TCA}. This example illustrates the three main steps to setting up a plugin:
+\begin{enumerate}
+\item Defining an interface
+\item Declaring extension points
+\item Defining classes that implement the interface. 
+\end{enumerate}
+In this example, a singleton plugin is declared, which automatically registers the plugin service. Non-singleton plugin services need to explicitly created, but they are also automatically registered.
+
+If the script in Figure~\ref{fig:example1} 
+is in the \code{todo.py} file, then the following Python script 
+illustrates how this plugin is used:
+\begin{lstlisting}
+from todo import *
+
+# Construct a TodoList object and then add several items.
+todo_list = TodoList()
+todo_list.add('Make coffee', 'Really need to make some coffee')
+todo_list.add('Bug triage',
+        'Double-check that all known issues were addressed')
+\end{lstlisting}
+This script generates the following output:
+\begin{lstlisting}
+Task: Make coffee
+      Really need to make some coffee
+Task: Bug triage
+      Double-check that all known issues were addressed
+\end{lstlisting}
+
+
+\begin{figure}
+
+\begin{lstlisting}
+# A simple example that manages a TODO list.  An observer 
+# interface is used to add actions that occur when a TODO 
+# item is added.
+from pyutilib.plugin.core import *
+
+# An interface class that defines the API for plugins that
+# observe when a TODO item is added.
+class ITodoObserver(Interface):
+
+        def todo_added(name, description):
+            """Called when a to-do item is added."""
+
+# The TODO application, which declares an extension point
+# for observers.  Observers are notified when a new TODO
+# item is added to the TODO list.
+class TodoList(object):
+        observers = ExtensionPoint(ITodoObserver)
+
+        def __init__(self):
+            """
+            The TodoList constructor, which initializes the list
+            """
+            self.todos = {}
+
+        def add(self, name, description):
+            """Add a TODO, and notify the observers"""
+            assert not name in self.todos, 'To-do already in list'
+            self.todos[name] = description
+            for observer in self.observers:
+                observer.todo_added(name, description)
+
+# A plugin that prints information about TODO items when they
+# are added.
+class TodoPrinter(SingletonPlugin):
+        implements(ITodoObserver)
+
+        def todo_added(self, name, description):
+            print 'Task:', name
+            print '     ', description
+\end{lstlisting}
+
+\caption{\label{fig:example1} A simple example of the Python Component Architecture}
+\end{figure}
+
+
+\section{Plugin Implementations}
+
+In addition to the core plugin framework, PCA includes implementations
+for a variety of plugins that support commonly used functionality. The
+following sections briefly describe these plugins.
+
+\subsection{Options and Configuration Files}
+
+The \code{pyutilib.plugin.config} package defines interfaces and plugins
+for managing service options. The \code{Configuration} service is used to manage
+the global configuration of all services. This class coordinates with
+\code{Option} services. Plugins can declare options with the \code{declare\_option}
+method, which registers these options with the \code{Configuration} service. This
+service reads and writes options to configuration files (using Python's
+\code{ConfigParser} package).
+
+This package also declares the \code{ManagedPlugin} and \code{ManagedSingletonPlugin}
+classes, which are plugin base classes that include options that can be
+used to enable or disable services using the \code{Configuration} service. In
+practice, most plugins will be derived from these plugin base classes.
+
+\subsection{Plugin Loaders}
+
+PCA plugins can be loaded from either Python modules or Python eggs. This
+capability supports the runtime extension of the plugins framework,
+which has proven very powerful in frameworks like Trac. The core plugin
+framework defines extension points that use these loaders, which can be
+applied as follows:
+\begin{lstlisting}
+import sys
+import os
+env = sys.environ["PATH"]
+PluginGlobals.load_services(path=env.split(os.sep))
+\end{lstlisting}
+In this example, the user's \code{PATH} environment is used to define the list
+of directories that are searched for Python modules and eggs.
+
+\subsection{Registering Executables}
+
+The \code{ExternalExecutable} plugin is used to define services that provide
+information about external executables. Services declare the executable
+name and user documentation, and then service methods indicate whether
+the executable is enabled (i.e. whether it is found, and the path of
+the executable:
+\begin{lstlisting}
+service = ExternalExecutable(name='ls', 
+            doc='A utility to list file in Unix operating systems')
+
+service.enabled()     
+# Returns True if the executable is found on the user path.
+
+service.get_path()
+# Returns a string that defines the path to this executable, 
+# or None if service is disabled.
+\end{lstlisting}
+
+
+\section{Related Frameworks}
+
+The general design of PCA is adapted from Trac~\cite{Trac}. The PCA
+generalizes the Trac component architecture by supporting namespace
+management of plugins, as well as non-singleton plugins. For those
+familiar with Trac, the following classes roughly correspond with
+each other:
+\begin{table}
+\begin{center}
+\begin{tabular}{|l|l|} \hline
+    Trac Class Name &	PyUtilib Class Name \\ \hline
+    Interface 	& Interface \\
+    ExtensionPoint 	& ExtensionPoint \\
+    Component 	& SingletonPlugin \\
+    ComponentManager 	& PluginEnvironment \\ \hline
+\end{tabular}
+\end{center}
+\end{table}
+The \code{PluginEnvironment} class is used to manage plugins, but unlike Trac this class does not need to be explicitly constructed. 
+
+As we noted earlier, there are a variety of mature component architectures
+that support plugins.  The following requirements were motivated by our
+plugin use cases, which ultimately led to the development of PCA:
+\begin{itemize}
+
+\item \textit{Well-defined framework core}: Many component architectures
+are embedded in larger software frameworks, which makes it difficult
+to extract and use just the software packages related to the component
+architecture.
+
+\item \textit{Non-Singleton plugins}:  The computational science
+applications that motivate PCA require both singleton and non-singleton
+plugins.
+
+\item \textit{Namespaces}:  Using plugins in large software projects
+requires management across multiple libraries.  Namespaces are needed
+to effectively manage plugins in these complex software projects.
+
+\item \textit{Caching}:  PCA plugins need to be used in applications
+where plugin services are called many times.  Thus, caching of extension
+point setup is needed to minimize the overhead of the PCA infrastructure.
+
+\item \textit{Loading from EGGs}:  Support for loading EGG files is
+invaluable in dynamic applications.  Further, loading plugins from EGG
+files provides another level of modularity to the management of software
+applications.
+
+\end{itemize}
+
+
