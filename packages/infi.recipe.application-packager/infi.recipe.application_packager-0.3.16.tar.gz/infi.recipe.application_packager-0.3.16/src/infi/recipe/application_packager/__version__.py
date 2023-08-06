@@ -1,0 +1,10 @@
+__version__ = "0.3.16"
+__git_commiter_name__ = "Arnon Yaari"
+__git_commiter_email__ = "arnony@infinidat.com"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '70c86848c25101e82157ad5425a90289f65a70a9'
+__git_head_subject__ = 'amend last commit'
+__git_head_message__ = ''
+__git_dirty_diff__ = ''
