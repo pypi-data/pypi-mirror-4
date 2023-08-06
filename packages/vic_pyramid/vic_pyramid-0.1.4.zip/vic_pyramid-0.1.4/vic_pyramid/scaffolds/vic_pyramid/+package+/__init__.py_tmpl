@@ -1,0 +1,58 @@
+import os
+
+import yaml
+from pyramid.config import Configurator
+from pyramid.authentication import AuthTktAuthenticationPolicy
+from pyramid.authorization import ACLAuthorizationPolicy
+from pyramid_beaker import session_factory_from_settings
+
+from .auth import get_group
+from .models import setup_database
+from .request import WebRequest
+
+def load_app_cfg():
+    """Load application configuration and return
+    
+    """
+    app_dir = os.path.abspath(os.path.dirname(__file__))
+    app_dir, _ = os.path.split(app_dir)
+    app_cfg_path = os.path.join(app_dir, 'app_cfg.yaml')
+    app_cfg_env = 'APP_CFG_PATH'
+    if app_cfg_env in os.environ:
+        app_cfg_path = os.environ[app_cfg_env]
+    with open(app_cfg_path, 'rt') as f:
+        app_cfg = yaml.load(f)
+    return app_cfg
+
+def main(global_config, **settings):
+    """ This function returns a Pyramid WSGI application.
+    
+    """
+    # load app cfg
+    app_cfg = load_app_cfg()
+    settings.update(app_cfg)
+    
+    # setup database
+    settings = setup_database(global_config, **settings)
+    authentication_policy = AuthTktAuthenticationPolicy(
+        secret=settings['auth_secret_key'],
+        callback=get_group)
+    authorization_policy = ACLAuthorizationPolicy()
+    session_factory = session_factory_from_settings(settings)
+    config = Configurator(settings=settings,
+                          authentication_policy=authentication_policy,
+                          authorization_policy=authorization_policy,
+                          session_factory=session_factory,
+                          request_factory=WebRequest)
+    # activate translation
+    config.add_translation_dirs('{{package}}:locale/')
+    # add Genshi renderer
+    config.include('pyramid_genshi')
+    # setup modules
+    config.include('.modules')
+    # add static view
+    config.add_static_view('static', '{{package}}:static')
+    # scan modules
+    config.scan()
+    return config.make_wsgi_app()
+

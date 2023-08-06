@@ -1,0 +1,82 @@
+from pyramid.request import Request
+from pyramid.decorator import reify
+from pyramid.events import subscriber
+from pyramid.events import NewRequest
+
+from {{package}}.i18n import normalize_locale_name
+
+@subscriber(NewRequest)
+def select_lanuage(event):
+    """Select language from accept-languages header of request
+    
+    """
+    request = event.request
+    if request.cookies.get('_LOCALE_'):
+        return
+    settings = request.registry.settings
+    offers = [lang.replace('_', '-').lower() 
+              for lang, _ in settings['available_langs']]
+    accept = request.accept_language
+    match = accept.best_match(offers, settings['default_locale_name'])
+    match = match.replace('-', '_')
+    match = normalize_locale_name(match)
+    request._LOCALE_ = match
+    request.response.set_cookie('_LOCALE_', match)
+
+class WebRequest(Request):
+    
+    @reify
+    def read_session_maker(self):
+        """Read-only session maker
+        
+        """
+        settions = self.registry.settings
+        return settions['read_session_maker']
+    
+    @reify
+    def read_session(self):
+        """Read-only session, optimized for read
+        
+        """
+        return self.read_session_maker()
+    
+    @reify
+    def write_session_maker(self):
+        """Read/Write session, use this session only for updating database
+        
+        """
+        settions = self.registry.settings
+        return settions['write_session_maker']
+    
+    @reify
+    def write_session(self):
+        """Read-only session, optimized for read
+        
+        """
+        return self.write_session_maker()
+    
+    @reify
+    def user_id(self):
+        """Current logged in user object
+        
+        """
+        from pyramid.security import authenticated_userid
+        user_id = authenticated_userid(self)
+        return user_id
+    
+    @reify
+    def user(self):
+        """Current logged in user
+        
+        """
+        from .models.user import UserModel
+        if self.user_id is None:
+            return None
+        model = UserModel(self.read_session)
+        user = model.get_user_by_id(self.user_id)
+        return user
+    
+    def add_flash(self, *args, **kwargs):
+        from .flash import add_flash
+        return add_flash(self, *args, **kwargs)
+    
