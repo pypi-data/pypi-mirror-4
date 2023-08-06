@@ -1,0 +1,68 @@
+#!/usr/bin/env python
+import client
+import argparse
+import cmd
+import signal
+import sys
+import json
+import os
+from util import hasattrs, read_api_key_and_secret_or_die, api_key_name, api_secret_name, dedent
+
+parser = argparse.ArgumentParser(prog = "stackmob-cli", description='Access your StackMob API')
+parser.add_argument("--%s"%(api_key_name), help="the API key for your app", metavar="api-key", required=False, dest=api_key_name)
+parser.add_argument("--%s"%(api_secret_name), help="the API secret for your app", metavar="api-secret", required=False, dest=api_secret_name)
+parser.add_argument("--verbose", help="output details on requests made to stackmob", dest="verbose", type=bool)
+
+subparsers = parser.add_subparsers(help="CLI session types")
+
+get_parser = subparsers.add_parser('GET', help="execute a GET command")
+get_parser.add_argument('get_path', help='the path for the GET request', type=str, metavar="PATH")
+
+post_parser = subparsers.add_parser('POST', help="execute a POST command")
+post_parser.add_argument('post_path', help='the path for the POST request', type=str, metavar="PATH")
+post_parser.add_argument('post_body', help='the body to send with the POST request', type=str, metavar="BODY")
+
+put_parser = subparsers.add_parser('PUT', help="execute a PUT command")
+post_parser.add_argument('put_path', help='the path for the PUT request', type=str, metavar="PATH")
+post_parser.add_argument('put_body', help='the body to send with the PUT request', type=str, metavar="BODY")
+
+delete_parser = subparsers.add_parser('DELETE', help="execute a DELETE command")
+post_parser.add_argument('delete_path', help='the path for the DELETE request', type=str, metavar="PATH")
+
+def signal_handler(signal, frame):
+	print ""
+	sys.exit(0)
+
+def print_resp(resp):
+	print dedent("""
+	response code: %d
+	response headers: %s
+	response body: %s
+	"""%(resp.status_code, resp.headers, resp.text))
+
+if __name__=="__main__":
+	signal.signal(signal.SIGINT, signal_handler)
+	args = parser.parse_args()
+	api_key, api_secret = read_api_key_and_secret_or_die(vars(args))
+
+	debug_level = 0
+	if(args.verbose):	
+		print "using verbose mode"
+		debug_level = 1
+	
+	api_client = client.DatastoreClient(api_key, api_secret, debug_level=debug_level)
+	#GET
+	if hasattr(args, "get_path"):
+		print_resp(api_client.get(args.get_path))
+	#POST
+	elif hasattrs(args, ["post_path", "post_body"]):
+		api_client.post(args.post_path, args.post_body)
+	#PUT
+	elif hasattrs(args, ["put_path", "put_body"]):
+		api_client.put(args.put_path, args.put_body)
+	#DELETE
+	elif hasattr(args, "delete_path"):
+		api_client.delete(args.delete_path)
+	else:
+		print "%s not recognized. nothing to do"%(args.type)
+		sys.exit(1)
