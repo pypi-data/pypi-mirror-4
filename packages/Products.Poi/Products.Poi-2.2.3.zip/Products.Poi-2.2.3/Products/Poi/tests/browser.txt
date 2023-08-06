@@ -1,0 +1,220 @@
+Test browser tests for Poi
+==========================
+
+Tracker
+-------
+
+We start a test browser::
+
+    >>> try:
+    ...     from Testing.testbrowser import Browser
+    ... except ImportError:
+    ...     from Products.Five.testbrowser import Browser
+    >>> browser = Browser()
+    >>> browser.handleErrors = False
+    >>> browser.addHeader('Accept-Language', 'en-US')
+    >>> self.portal.error_log._ignored_exceptions = ()
+
+We log in::
+
+    >>> browser.open(portal.absolute_url() + '/login_form')
+    >>> browser.getControl(name='__ac_name').value = 'test_user_1_'
+    >>> browser.getControl(name='__ac_password').value = 'secret'
+    >>> browser.getControl('Log in').click()
+    >>> 'You are now logged in' in browser.contents
+    True
+
+And make ourselves manager::
+
+    >>> self.setRoles(['Manager'])
+
+We create a tracker::
+
+    >>> url = self.portal.absolute_url()
+    >>> browser.open(url)
+    >>> browser.open(url + '/createObject?type_name=PoiTracker')
+    >>> browser.getControl(name='title').value = 'Issues'
+    >>> try:
+    ...     button = browser.getControl(name='form.button.save')
+    ... except LookupError:
+    ...     button = browser.getControl(name='form_submit')
+    >>> button.click()
+    >>> tracker = self.portal.issues
+
+Now we create an issue::
+
+    >>> url = tracker.absolute_url()
+    >>> browser.open(url + '/createObject?type_name=PoiIssue')
+    >>> browser.getControl(name='title').value = 'Something is wrong.'
+    >>> browser.getControl(name='details').value = '#1 is a big issue.'
+    >>> browser.getControl(name='area').value = ('ui',)
+    >>> browser.getControl(name='issueType').value = ('bug',)
+    >>> browser.getControl(name='contactEmail').value = 'maurits@vanrees.org'
+    >>> try:
+    ...     button = browser.getControl(name='form.button.save')
+    ... except LookupError:
+    ...     button = browser.getControl(name='form_submit')
+    >>> button.click()
+    >>> 'Changes saved.' in browser.contents
+    True
+    >>> issue = tracker['1']
+
+We check some values of the issue before adding a response::
+
+    >>> from Products.CMFCore.utils import getToolByName
+    >>> workflow = getToolByName(self.portal, 'portal_workflow')
+    >>> workflow.getInfoFor(issue, 'review_state')
+    'unconfirmed'
+    >>> issue.getResponsibleManager()
+    '(UNASSIGNED)'
+    >>> issue.getSeverity()
+    'Medium'
+
+
+If we just click the submit button without filling in text, an error
+occurs::
+    >>> browser.getForm(action='@@create_response').getControl('Submit').click()
+    >>> "No response text added and no issue changes made." in browser.contents
+    True
+
+Leaving the text empty but changing a value is fine.  We test setting
+the severity::
+
+    >>> '>Important</a>' in browser.contents
+    False
+    >>> browser.getControl(name='severity').value = ('Important',)
+    >>> browser.getForm(action='@@create_response').getControl('Submit').click()
+    >>> issue.getSeverity()
+    'Important'
+    >>> '<a href="http://nohost/plone/issues/poi_issue_search?state=open&amp;state=in-progress&amp;state=unconfirmed&amp;severity=Important">Important</a>' in browser.contents
+    True
+    >>> "No response text added and no issue changes made." in browser.contents
+    False
+
+We check the values of this response::
+
+    >>> from Products.Poi.adapters import IResponseContainer
+    >>> folder = IResponseContainer(issue)
+    >>> response = folder[0]
+    >>> response.text
+    ''
+    >>> response.text
+    ''
+    >>> len(response.changes)
+    1
+    >>> response.changes[0] == {'before': 'Medium', 'after': 'Important', 'id': 'severity', 'name': u'Severity'}
+    True
+    >>> str(response.creator)
+    'test_user_1_'
+    >>> response.date
+    DateTime(...)
+    >>> response.type
+    'clarification'
+    >>> from Products.Poi.config import DEFAULT_ISSUE_MIME_TYPE
+    >>> response.mimetype == DEFAULT_ISSUE_MIME_TYPE
+    True
+
+Now we add a response::
+
+    >>> browser.getControl(name='response').value = 'Possibly fixed in r99.'
+    >>> browser.getControl(name='transition').value = ('accept-unconfirmed',)
+    >>> browser.getControl(name='responsibleManager').value = ('test_user_1_',)
+    >>> browser.getForm(action='@@create_response').getControl('Submit').click()
+
+We check the current status in the browser contents::
+    >>> 'class="issue-open">Confirmed</a>' in browser.contents
+    True
+    >>> '<a href="http://nohost/plone/issues/poi_issue_search?state=open&amp;state=in-progress&amp;state=unconfirmed&amp;area=ui">User interface</a>' in browser.contents
+    True
+    >>> '<a href="http://nohost/plone/issues/poi_issue_search?state=open&amp;state=in-progress&amp;state=unconfirmed&amp;issueType=bug">Bug</a>' in browser.contents
+    True
+    >>> '<a href="http://nohost/plone/issues/poi_issue_search?state=open&amp;state=in-progress&amp;state=unconfirmed&amp;severity=Important">Important</a>' in browser.contents
+    True
+
+And we check the issue to be sure:
+
+    >>> workflow.getInfoFor(issue, 'review_state')
+    'open'
+    >>> issue.getResponsibleManager()
+    'test_user_1_'
+
+This response was a clarification from the original poster::
+
+    >>> 'class="response-clarification"' in browser.contents
+    True
+
+We check the values of the response::
+
+    >>> response = folder[1]
+    >>> response.text
+    'Possibly fixed in r99.'
+    >>> len(response.changes)
+    2
+    >>> response.changes[0] == {'before': 'Unconfirmed', 'after': 'Confirmed', 'id': 'review_state', 'name': u'Issue state'}
+    True
+    >>> response.changes[1] == {'before': '(UNASSIGNED)', 'after': 'test_user_1_', 'id': 'responsibleManager', 'name': u'Responsible manager'}
+    True
+    >>> str(response.creator)
+    'test_user_1_'
+    >>> response.date
+    DateTime(...)
+    >>> response.type
+    'clarification'
+    >>> response.mimetype == DEFAULT_ISSUE_MIME_TYPE
+    True
+
+We can edit this second response::
+
+    >>> browser.getControl('Edit', index=2).click()
+    >>> browser.url
+    'http://nohost/plone/issues/1/@@poi_response_edit'
+    >>> 'Edit response' in browser.contents
+    True
+
+The original response text is there::
+
+    >>> 'Possibly fixed in r99.' in browser.contents
+    True
+
+We change the text and save it::
+
+    >>> browser.getControl(name='response').value = 'Certainly fixed in r100.'
+    >>> browser.getControl('Submit').click()
+    >>> 'Changes saved' in browser.contents
+    True
+    >>> 'Certainly fixed in r100.' in browser.contents
+    True
+    >>> browser.url
+    'http://nohost/plone/issues/1'
+
+Now we delete the response::
+
+    >>> browser.getControl('Delete', index=1).click()
+    >>> browser.url
+    'http://nohost/plone/issues/1'
+    >>> 'Removed response' in browser.contents
+    True
+    >>> 'Certainly fixed in r100.' in browser.contents
+    False
+
+We also take a look at the log of the tracker:
+
+    >>> browser.open(tracker.absolute_url() + '/log')
+    >>> 'An overview of recent activity in the tracker.' in browser.contents
+    True
+    >>> 'added a new response to' in browser.contents
+    True
+    >>> 'New issue' in browser.contents
+    True
+
+We can toggle if we want to 'watch' this issue or not; meaning: do we
+want to receive emails or not.
+
+    >>> issue.getWatchers()
+    ('maurits@vanrees.org', 'test_user_1_')
+    >>> browser.open(tracker.absolute_url() + '/1/@@toggle_watching')
+    >>> issue.getWatchers()
+    ('maurits@vanrees.org',)
+    >>> browser.open(tracker.absolute_url() + '/1/@@toggle_watching')
+    >>> issue.getWatchers()
+    ('maurits@vanrees.org', 'test_user_1_')
