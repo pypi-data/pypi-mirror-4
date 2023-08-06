@@ -1,0 +1,70 @@
+#!/usr/bin/env python
+"""
+    Receives from an SQS queue and outputs JSON/string object to stdout
+
+
+    @author: Jean-Lou Dupont
+"""
+__version__="0.4"
+import os, sys, argparse
+op=os.path
+
+try:
+    if os.environ.get("DEVMODE", False):
+        raise    
+    import jldaws #@UnusedImport
+except:
+    ### must be in dev mode then    
+    this_dir=op.dirname(__file__)
+    lib_path=op.abspath(op.join(this_dir, ".."))
+    sys.path.insert(0, lib_path)
+    import jldaws #@UnusedImport
+
+########################################################################
+
+DESC="""Receive JSON object from an SQS queue - v%s
+
+The option '-em' can be used with a python 'format string' to retrieve exception message. If this option is used, network errors won't cause the program to raise exceptions.
+""" % __version__
+DEFS={
+          "batch_size": 10
+          ,"polling_interval": 30
+          }
+
+def main():
+    try:
+        import jldaws.do_setup  #@UnusedImport
+        import logging
+        import jldaws.do_checks #@UnusedImport
+        
+        parser=argparse.ArgumentParser(description=DESC, fromfile_prefix_chars='@', formatter_class=argparse.RawTextHelpFormatter)
+        parser.add_argument('-e',    dest="propagate_error",  action="store_true", help="Propagate SQS error", default=False)        
+        parser.add_argument('-w',    dest="format_any",  action="store_true", help="Any message format accepted i.e. not just JSON", default=False)        
+        parser.add_argument('-fq',   dest="flush_queue", action="store_true", help="Flush SQS queue at startup")
+        parser.add_argument('-p',    dest="polling_interval", type=int, help="Polling interval (seconds)", default=DEFS["polling_interval"])
+        parser.add_argument('-bs',   dest="batch_size", type=int, help="Maximum batch size per interval", default=DEFS["batch_size"])
+        parser.add_argument('-qn',   dest="queue_name", type=str, help="SQS queue name", required=True)
+        parser.add_argument('-r',    dest="retry_always",  action="store_true", help="Always retry (includes backoff)", default=False)
+        parser.add_argument('-trm',  dest="trigger_none_msg", type=str, help="String to send on stdout when no queue message available (trigger mode only)", default=None)
+        parser.add_argument('-tr',   dest="wait_trigger",   action="store_true", help="Wait for stdin trigger", default=False)
+        parser.add_argument('-trt',  dest="trigger_topic",  type=str, help="Trigger topic (JSON mode)", default=None)
+        parser.add_argument('-doe',  dest="delete_on_error", action="store_true", help="Delete message on processing error", default=False)
+        parser.add_argument('-dpt',  dest="dont_pass_through", action="store_true", help="Don't pass through stdin-->stdout", default=False)
+        parser.add_argument('-se',   dest="simulate_error", action="store_true", help="Simulate a network error accessing SQS", default=False)
+        parser.add_argument('-em',   dest="error_msg",    type=str,            help="String to send on stdout when a receive error is detected", default=None)
+        
+        from jldaws.script_rxsqs import run
+        from jldaws.tools_sys import process_command_line
+        args=process_command_line(parser)
+        run(**args)
+
+    except KeyboardInterrupt:
+        logging.info("..Exiting")
+        sys.exit(0)##no probs
+        
+    except Exception,e:
+        logging.error(str(e))
+        sys.exit(1)
+        
+
+sys.exit(main())
