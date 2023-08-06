@@ -1,0 +1,2 @@
+from gadgets.devices.switch.shift_register_switch import shift_register_switch_factory
+from gadgets.devices.switch.switch_factory import switch_factory
