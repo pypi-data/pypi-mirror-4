@@ -1,0 +1,231 @@
+Metadata-Version: 1.1
+Name: pmr2.z3cform
+Version: 0.1
+Summary: Customized z3c.form and plone.z3cform library for PMR2
+Home-page: https://github.com/PMR2/pmr2.z3cform
+Author: Tommy Yu
+Author-email: tommy.yu@auckland.ac.nz
+License: GPL
+Description: Introduction
+        ============
+        
+        This package extends z3c.form and plone.z3cform for usage within PMR2
+        and related libraries.  Problems this package attempt to tackle are:
+        
+          - Ensure the correct root template is adapted when forms (and views/
+            pages) are rendered, such that there will only be one class used for
+            testing and production, without having to subclass for specific uses
+            or make use of wrapper classes/methods.  It may be possible to
+            support other frameworks by registering the root view to the desired
+            layer.
+          - CSRF (Cross-Site Request Forgery) prevention via the use of
+            appropriate form authenticators, e.g. plone.protect for Plone.
+          - Offer the same adaptable browser class (pages) to standard non-form
+            views.
+          - Forms with traversal subpaths.
+        
+        Installation and usage
+        ----------------------
+        
+        Just add or modified the ``install_requires`` option into the setup
+        function in a typical ``setup.py``.   Example::
+        
+            from setuptools import setup
+            
+            setup(
+                ...
+                install_requires=[
+                    ...
+                    'pmr2.z3cform',
+                ]
+            )
+        
+        Forms
+        =====
+        
+        Forms in PMR2 are built on top of z3c.forms.  There are certain changes
+        we made to allow this library to better fit into our use cases.  There
+        are a couple modifications, the first being the enforcement of request
+        method, and the other is CSRF (Cross-site Request Forgery) protection.
+        
+        First we import some base classes and create a test form class::
+        
+            >>> import zope.interface
+            >>> import zope.schema
+            >>> import z3c.form.field
+            >>> from z3c.form.testing import TestRequest
+            >>> from pmr2.z3cform.tests import base
+            >>> from pmr2.z3cform.form import AddForm
+            >>>
+            >>> class IDummy(zope.interface.Interface):
+            ...     id = zope.schema.DottedName(title=u'id')
+            ...
+            >>> class Dummy(object):
+            ...     zope.interface.implements(IDummy)
+            ...     def __init__(self, id_):
+            ...         self.id = id_
+            ...
+            >>> class TestAddForm(AddForm):
+            ...     fields = z3c.form.field.Fields(IDummy)
+            ...     def create(self, data):
+            ...         return Dummy(data['id'])
+            ...     def add_data(self, ctxobject):
+            ...         ctxobject.id = self._data['id']
+            ...     def add(self, obj):
+            ...         self.context.append(obj)
+            ...     def nextURL(self):
+            ...         return ''  # unnecessary.
+        
+        First thing to demonstrate is is the request method verification.  Forms
+        that manipulate data must not be activated by a simple GET request::
+        
+            >>> context = []
+            >>> request = TestRequest(form={
+            ...     'form.widgets.id': 'test',
+            ...     'form.buttons.add': '1',
+            ... })
+            >>> request.method = 'GET'
+            >>> form = TestAddForm(context, request)
+            >>> result = form()
+            Traceback (most recent call last):
+            ...
+            Unauthorized: Unauthorized()
+            >>> context == []
+            True
+        
+        On the other hand, POST requests will not trigger the permission error::
+        
+            >>> request.method = 'POST'
+            >>> form = TestAddForm(context, request)
+            >>> form.disableAuthenticator = True
+            >>> result = form()
+            >>> print context[0].id
+            test
+        
+        However, notice that the security authenticator is disabled.  What this
+        provide is the check for a CSRF prevention token that must be part of a
+        request.  Now try the above with the check enabled, as it will be by
+        default::
+        
+            >>> context = []
+            >>> request.method = 'POST'
+            >>> form = TestAddForm(context, request)
+            >>> result = form()
+            Traceback (most recent call last):
+            ...
+            Unauthorized: Unauthorized()
+            >>> context == []
+            True
+        
+        If the token is provided, as part of a normal form submission process
+        using a form rendered by this site, the token will be included within
+        a hidden input field.  In the case of Plone, this token is provided by
+        an authenticator view.  If we include the generated token the form
+        will be submitted properly::
+        
+            >>> context = []
+            >>> authed_request = base.TestRequest(form=request.form)
+            >>> authed_request.method = 'POST'
+            >>> '_authenticator' in authed_request.form
+            True
+            >>> form = TestAddForm(context, authed_request)
+            >>> result = form()
+            >>> print context[0].id
+            test
+        
+        Pages
+        =====
+        
+        These were just simple rendering pages meant for wrapping by the layout
+        classes to be replaced by more standard Plone way of rendering 
+        templates.
+        
+        Let's subclass one::
+        
+            >>> from pmr2.z3cform.tests.base import TestRequest
+            >>> from pmr2.z3cform.page import SimplePage
+            >>>
+            >>> class TestPage(SimplePage):
+            ...     template = lambda x: 'Hello'
+        
+        Then render it::
+        
+            >>> context = self.portal
+            >>> request = TestRequest()
+            >>> page = TestPage(context, request)
+            >>> print page()
+            <h1 class="documentFirstHeading">Plone site</h1>
+            <div id="content-core">
+              <div>Hello</div>
+            </div>
+        
+        If we register this view on the main site, we should be able to render
+        this using the testbrowser.  This will then render the same page with
+        all the templates associated with Plone::
+        
+            >>> import zope.component
+            >>> from Testing.testbrowser import Browser
+            >>> zope.component.provideAdapter(TestPage, (None, None),
+            ...     zope.publisher.interfaces.browser.IBrowserView,
+            ...     name='pmr2z3cform-testpage')
+            ... 
+            >>> tb = Browser()
+            >>> tb.open(context.absolute_url() + '/@@pmr2z3cform-testpage')
+            >>> 'Plone - http://plone.org' in tb.contents
+            True
+            >>> '<div>Hello</div>' in tb.contents
+            True
+        
+        While traversal views are generally implementation specific, a quick
+        demonstration is still possible.  Try subclassing one::
+        
+            >>> from pmr2.z3cform.page import TraversePage
+            >>>
+            >>> class TestTraversePage(TraversePage):
+            ...     _template = 'Subpath is: %s'
+            ...     def template(self):
+            ...          subpath = '/'.join(self.traverse_subpath)
+            ...          return self._template % subpath
+        
+        Manually simulate traversal and render the form::
+        
+            >>> context = self.portal
+            >>> request = TestRequest()
+            >>> page = TestTraversePage(context, request)
+            >>> p = page.publishTraverse(request, 'a')
+            >>> p = page.publishTraverse(request, 'b')
+            >>> print page()
+            <h1 class="documentFirstHeading">Plone site</h1>
+            <div id="content-core">
+              <div>Subpath is: a/b</div>
+            </div>
+        
+        Much like the SimplePage example, do the registration again::
+        
+            >>> zope.component.provideAdapter(TestTraversePage, (None, None),
+            ...     zope.publisher.interfaces.browser.IBrowserView,
+            ...     name='pmr2z3cform-testtraversepage')
+            ... 
+            >>> tb = Browser()
+            >>> tb.open(context.absolute_url() + '/@@pmr2z3cform-testtraversepage' +
+            ...     '/a/b/c/some_path')
+            >>> 'Plone - http://plone.org' in tb.contents
+            True
+            >>> '<div>Subpath is: a/b/c/some_path</div>' in tb.contents
+            True
+        
+        Changelog
+        =========
+        
+        0.1 - 2013-01-17
+        ----------------
+        
+        * Initial release of various helper forms and view classes for the pmr2
+          libraries.
+        * Provide a wrapped BrowserView class that can adapt to multiple wrapper
+          templates much like how plone.z3cform does, so that views don't invoke
+          items that may not be available due to lack of a full portal.
+        
+Platform: UNKNOWN
+Classifier: Programming Language :: Python
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
