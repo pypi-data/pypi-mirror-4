@@ -1,0 +1,635 @@
+==================
+Available Checkers
+==================
+
+path
+----
+
+This checker will copy the file or folder in the path specified into
+the configuration folder. It will also create a listing file next to
+the copied path containing a recursive listing of the copied file or
+folder containing as much ownership and permission information is
+available from the operating system on which Checker is running.
+
+For example, the following configuration lines::
+
+  path:/some/folder
+  path:/another/file.cfg
+
+.. -> checker_txt
+
+results in the following files and folders being present in the
+configuration folder:: 
+
+  checker.txt
+  another/file.cfg
+  another/file.cfg.listing
+  some/folder.listing
+  some/folder/afile.cfg
+  some/folder/bfile.cfg
+
+.. -> expected
+
+The listing files will contain information in the following style on
+unix systems::
+
+  /some/folder:
+  drwxr-xr-x root root .
+  -rw-r--r-- root root afile.cfg
+  -rw-r--r-- root root bfile.cfg
+
+.. -> expected_content
+
+.. However, what was written likely looked more like:
+
+  /some/folder:
+  total 36
+  drwxr-xr-x  2 root root 4096  .
+  drwxr-xr-x 46 root root 4096  ..
+  -rw-r--r--  1 root root 2425  afile.cfg
+  -rw-r--r--  1 root root 1421  bfile.cfg
+  
+.. -> initial_content
+  
+.. invisible-code-block: python
+
+  from __future__ import with_statement
+  from checker.tests.base import CommandContext,listall
+  from testfixtures import compare
+  with CommandContext() as c:
+    # pretend we're not on windows
+    c.r.replace('subprocess.mswindows',False)
+    # pretend the paths exist
+    c.existing_paths.add('/some/folder')
+    c.existing_paths.add('/another/file.cfg')
+    # stub out the cp and ls calls
+    c.add("cp -R '/some/folder' '<config>/some'",files=(
+          ('some/folder/afile.cfg','content'),
+          ('some/folder/bfile.cfg','content'),
+          ))
+    c.add("LC_COLLATE=\"C\" ls -laR --time-style=+ '/some/folder'",
+          output=initial_content)
+    c.add("cp -R '/another/file.cfg' '<config>/another'",files=(
+          ('another/file.cfg','content'),
+          ))
+    c.add("LC_COLLATE=\"C\" ls -laR --time-style=+ '/another/file.cfg'",
+          output=initial_content)
+    # now run the config
+    c.run_with_config(checker_txt)
+    # check the calls
+    compare(c.called,[
+        "cp -R '/some/folder' '<config>/some'",
+        "LC_COLLATE=\"C\" ls -laR --time-style=+ '/some/folder'",
+        "cp -R '/another/file.cfg' '<config>/another'",
+        "LC_COLLATE=\"C\" ls -laR --time-style=+ '/another/file.cfg'",
+        'svn up -q <config>',
+        'svn status <config>'
+        ])
+    # check the files are as expected
+    compare(listall(c.dir,dir=False),expected.split())
+    compare(c.dir.read(('some','folder.listing')),expected_content)
+
+On Windows, they will look more like::
+
+
+  Directory of C:\some\folder
+
+  DOMAIN\User .
+  DOMAIN\User afile.cfg
+  DOMAIN\User bfile.cfg
+
+.. -> expected_content
+
+.. However, what was written likely looked more like:
+
+   Volume in drive C has no label.
+   Volume Serial Number is Something
+
+   Directory of C:\some\folder
+
+  11/11/2009  04:24    <DIR>          DOMAIN\User .
+  11/11/2009  04:24    <DIR>          DOMAIN\User ..
+  11/11/2009  04:19            39,546 DOMAIN\User afile.cfg
+  11/11/2009  04:27            40,776 DOMAIN\User bfile.cfg
+                 2 File(s)        242,933 bytes
+  
+       Total Files Listed:
+                 2 File(s)        242,933 bytes
+                 2 Dir(s)  16,412,004,352 bytes free
+               
+.. -> initial_content
+  
+.. invisible-code-block: python
+
+  from __future__ import with_statement
+  from checker.tests.base import CommandContext,listall
+  from testfixtures import compare
+  with CommandContext() as c:
+    # pretend we are on windows
+    c.r.replace('subprocess.mswindows',True)
+    # fake file.cfg being filelike
+    c.r.replace('os.path.isfile',
+                lambda p:p.endswith('file.cfg'))
+    # pretend the paths exist
+    c.existing_paths.add('/some/folder')
+    c.existing_paths.add('/another/file.cfg')
+    # stub out the XCOPY and DIR calls
+    c.add('xcopy /I /E /Q /H /R /Y "/some/folder" "<config>/some/folder"',files=(
+          ('some/folder/afile.cfg','content'),
+          ('some/folder/bfile.cfg','content'),
+          ))
+    c.add('dir /q /s "/some/folder"',
+          output=initial_content)
+    c.add('copy "/another/file.cfg" "<config>/another/file.cfg"',files=(
+          ('another/file.cfg','content'),
+          ))
+    c.add('dir /q /s "/another/file.cfg"',
+          output=initial_content)
+    # now run the config
+    c.run_with_config(checker_txt)
+    # check the calls
+    compare(c.called,[
+        'xcopy /I /E /Q /H /R /Y "/some/folder" "<config>/some/folder"',
+        'dir /q /s "/some/folder"',
+        'copy "/another/file.cfg" "<config>/another/file.cfg"',
+        'dir /q /s "/another/file.cfg"',
+        'svn up -q <config>',
+        'svn status <config>'
+        ])
+    # check the files are as expected
+    compare(listall(c.dir,dir=False),expected.split())
+    compare(c.dir.read(('some','folder.listing')),expected_content)
+
+This means that the implicit checker run on the configuration folder
+will show up any changes in the contents, ownership or permissions of
+any file or folder specified in a `path` checker.
+
+command
+-------
+
+This checker allows any command to be run and its output written to
+the file specified.
+
+For example, the following configuration line::
+
+  command:services:chkconfig --list
+
+.. -> checker_txt
+
+Will result in the following commands being executed::
+
+  chkconfig --list
+
+.. -> command
+
+It will also result in the following being present in the
+configuration folder::
+
+  checker.txt
+  services
+
+.. -> expected
+
+The :file:`services` file will contain the output of running the
+commands, which in this case is likely to look something like::
+
+  cpuspeed        0:off   1:on    2:on    3:on    4:on    5:on    6:off
+  sysstat         0:off   1:on    2:on    3:on    4:on    5:on    6:off
+  snmptrapd       0:off   1:off   2:off   3:off   4:off   5:off   6:off
+
+.. -> output
+
+.. invisible-code-block: python
+
+  from __future__ import with_statement
+  from checker.tests.base import CommandContext
+  from testfixtures import compare
+  with CommandContext() as c:
+    # set up the command
+    c.add('chkconfig --list',output)
+    #  run the config
+    c.run_with_config(checker_txt)
+    # check output
+    c.output.check()
+    # check the calls
+    compare(c.called,[
+        command.strip(),
+        'svn up -q <config>',
+        'svn status <config>'
+        ])
+    # check the files are as expected
+    compare(listall(c.dir,dir=False),expected.split())
+    # check the file content
+    compare(c.dir.read(('services',)),output)
+
+svn
+---
+
+This checker will perform an :command:`svn update -q` followed by an
+:command:`svn status` in the path specified.
+The output will be filtered to remove any information that doesn't
+indicate a changed file or folder, such as subversion externals that
+are present in the checkout being examined.
+
+For example, the following configuration line::
+
+  svn:/some/folder
+
+.. -> checker_txt
+
+Will result in the following commands being executed::
+
+  svn up -q /some/folder
+  svn status /some/folder
+
+.. -> commands
+
+.. output can look like this:
+
+  X       something
+  M       /some/folder/subfolder/something.conf
+
+  Performing status on external item at 'something'
+
+.. -> output
+
+.. but we want it to look like:
+
+  M       /some/folder/subfolder/something.conf
+
+.. -> wanted_output
+
+.. invisible-code-block: python
+
+  from __future__ import with_statement
+  from checker.tests.base import CommandContext
+  from testfixtures import compare
+  with CommandContext() as c:
+    # set up the command
+    c.add('svn status /some/folder',output)
+    #  run the config
+    c.run_with_config(checker_txt)
+    # check output
+    c.output.check(
+      ('root','INFO',wanted_output[:-1]),
+      )
+    # check the calls
+    compare(c.called,commands.strip().split('\n')+[
+        'svn up -q <config>',
+        'svn status <config>'
+        ])
+
+This means if there are any unknown files or files that have been
+changed in the checkout but not committed, they will be included in
+the output from checker.
+
+.. note:: This checker requires the :command:`svn` subversion client
+          to be installed.
+
+buildout
+--------
+
+This checker will execute a :command:`buildout -o -q` in the specified
+path. If the specified path is also a subversion checkout, it makes
+sense to preceed the `buildout` line with a `svn` line.
+
+For example, the following configuration line::
+
+  svn:/some/folder
+  buildout:/some/folder
+
+.. -> checker_txt
+
+Will result in the following commands being executed::
+
+  svn up -q /some/folder
+  svn status /some/folder
+  chdir /some/folder
+  bin/buildout -o -q
+
+.. -> commands
+
+.. invisible-code-block: python
+
+  from __future__ import with_statement
+  with CommandContext() as c:
+    # set up the commands
+    c.add('svn status /some/folder','svn output')
+    c.add('chdir /some/folder')
+    c.add('bin/buildout -o -q','buildout output')
+    #  run the config
+    c.run_with_config(checker_txt)
+    # check output
+    c.output.check(
+      ('root','INFO','svn output'),
+      ('root','INFO','buildout output'),
+      )
+    # check the calls
+    compare(c.called,commands.strip().split('\n')+[
+        'svn up -q <config>',
+        'svn status <config>'
+        ])
+
+This will effectively keep your buildout up to date and make sure
+that if any packages required by your buildout are not present, you
+will be notified.
+
+crontab
+-------
+
+This checker executes a :command:`crontab -l -u` for the user supplied
+in the configuration and stores the output in a file in the
+configuration folder.
+
+For example, the following configuration line::
+
+  crontab:root
+
+.. -> checker_txt
+
+Will result in the following being present in the configuration
+folder::
+
+  checker.txt
+  crontabs/root
+
+.. -> expected
+
+The `root` file is likely to contain something like the following::
+
+  # A comment
+  * * * * * /your/cron/job
+  0 0 * * * /your/other/cron job
+
+.. -> expected_root
+
+.. we expect the following command to be executed:
+
+  crontab -l -u root
+
+.. -> command
+
+.. invisible-code-block: python
+
+  from __future__ import with_statement
+  with CommandContext() as c:
+    # set up the commands
+    c.add('crontab -l -u root',expected_root)
+    #  run the config
+    c.run_with_config(checker_txt)
+    # check output
+    c.output.check()
+    # check the calls
+    compare(c.called,[
+        command.strip(),
+        'svn up -q <config>',
+        'svn status <config>'
+        ])
+    # check the files are as expected
+    compare(listall(c.dir,dir=False),expected.split())
+    # check the root file content
+    compare(c.dir.read(('crontabs','root')),expected_root)
+
+.. warning:: 
+
+  For the `crontab` checker to work, Checker must be run as
+  the `root` user.
+
+os_packages
+-----------
+
+This checker attempts to list the names and versions of the current
+packages installed by the operating system's package manager. 
+
+The following commands will be tried in the order shown, with the
+first command that exists being used:
+
+- :command:`dpkg -l`
+
+- :command:`yum list`
+
+- :command:`up2date --showall`
+
+The resulting output will be placed in a file called `os_packages` in
+the configuration folder. 
+
+For example, the following configuration line::
+
+  os_packages:
+
+.. -> checker_txt
+
+Will result in the following files being present in the configuration
+folder:: 
+
+  checker.txt
+  os_packages
+
+.. -> expected
+
+The contents of the file will depend on which command ends up being
+used. 
+
+If :command:`dpkg` is used, :file:`os_packages` will contain something like::
+
+  Desired=Unknown/Install/Remove/Purge/Hold
+  | Status=Not/Installed/Config-f/Unpacked/Failed-cfg/Half-inst/t-aWait/T-pend
+  |/ Err?=(none)/Hold/Reinst-required/X=both-problems (Status,Err: uppercase=bad)
+  ||/ Name                      Version                   Description
+  +++-=========================-=========================-==================================================================
+  ii  ack-grep                  1.80-1                    A grep-like program specifically for large source trees
+  ii  adduser                   3.105ubuntu1              add and remove users and groups
+  ii  apache2                   2.2.8-1ubuntu0.10         Next generation, scalable, extendable web server
+  
+.. -> expected_content
+
+.. invisible-code-block: python
+
+  from __future__ import with_statement
+  with CommandContext() as c:
+    # set up the commands
+    c.add('dpkg -l',expected_content)
+    #  run the config
+    c.run_with_config(checker_txt)
+    # check output
+    c.output.check()
+    # check the calls
+    compare(c.called,[
+        'which dpkg',
+        'dpkg -l',
+        'svn up -q <config>',
+        'svn status <config>'
+        ])
+    # check the files are as expected
+    compare(listall(c.dir),expected.split())
+    # check the root file content
+    compare(c.dir.read(('os_packages')),expected_content)
+
+If :command:`yum` is used, :file:`os_packages` will contain something like::
+
+  Loaded plugins: rhnplugin, security
+  Excluding Packages in global exclude list
+  Finished
+  Installed Packages
+  MAKEDEV.x86_64                3.23-1.2            installed                     
+  OpenIPMI.x86_64               2.0.16-5.el5_4.1    installed                     
+  OpenIPMI-libs.x86_64          2.0.16-5.el5_4.1    installed                     
+  SysVinit.x86_64               2.86-15.el5         installed                     
+
+.. -> expected_content
+
+.. invisible-code-block: python
+
+  from __future__ import with_statement
+  with CommandContext() as c:
+    # set up the commands
+    c.add('which dpkg',returncode=1)
+    c.add('yum list',expected_content)
+    #  run the config
+    c.run_with_config(checker_txt)
+    # check output
+    c.output.check()
+    # check the calls
+    compare(c.called,[
+        'which dpkg',
+        'which yum',
+        'yum list',
+        'svn up -q <config>',
+        'svn status <config>'
+        ])
+    # check the files are as expected
+    compare(listall(c.dir),expected.split())
+    # check the root file content
+    compare(c.dir.read(('os_packages')),expected_content)
+
+If :command:`up2date` is used, :file:`os_packages` will contain something like::
+
+  4Suite-1.0-3.el4_8.1.i386
+  Canna-3.7p3-9.el4.i386
+  Canna-devel-3.7p3-9.el4.i386
+  Canna-libs-3.7p3-9.el4.i386
+  ElectricFence-2.2.2-19.i386
+
+.. -> expected_content
+
+.. invisible-code-block: python
+
+  from __future__ import with_statement
+  with CommandContext() as c:
+    # set up the commands
+    c.add('which dpkg',returncode=1)
+    c.add('which yum',returncode=1)
+    c.add('up2date --showall',expected_content)
+    #  run the config
+    c.run_with_config(checker_txt)
+    # check output
+    c.output.check()
+    # check the calls
+    compare(c.called,[
+        'which dpkg',
+        'which yum',
+        'which up2date',
+        'up2date --showall',
+        'svn up -q <config>',
+        'svn status <config>'
+        ])
+    # check the files are as expected
+    compare(listall(c.dir),expected.split())
+    # check the root file content
+    compare(c.dir.read(('os_packages')),expected_content)
+
+init
+----
+
+This checker records the run levels and priorities for the daemon
+named in the parameter on Debian and Ubuntu systems.
+
+It does this by executing :command:`update-rc.d -n -f remove` for the
+daemon specified in the configuration and stores the output in a file
+in the configuration folder.
+
+For example, the following configuration line::
+
+  init:mysql
+
+.. -> checker_txt
+
+Will result in the following being present in the configuration
+folder::
+
+  checker.txt
+  init/mysql
+
+.. -> expected
+
+The `mysql` file is likely to contain something like the following::
+
+   /etc/rc0.d/K21mysql
+   /etc/rc1.d/K21mysql
+   /etc/rc2.d/S19mysql
+   /etc/rc3.d/S19mysql
+   /etc/rc4.d/S19mysql
+   /etc/rc5.d/S19mysql
+   /etc/rc6.d/K21mysql
+
+.. -> expected_content
+
+.. However, what was written likely looked more like:
+
+  Removing any system startup links for /etc/init.d/mysql ...
+    /etc/rc0.d/K21mysql
+    /etc/rc1.d/K21mysql
+    /etc/rc2.d/S19mysql
+    /etc/rc3.d/S19mysql
+    /etc/rc4.d/S19mysql
+    /etc/rc5.d/S19mysql
+    /etc/rc6.d/K21mysql
+               
+.. -> initial_content
+
+.. we expect the following command to be executed:
+
+  /usr/sbin/update-rc.d -n -f mysql remove
+
+.. -> command
+
+.. invisible-code-block: python
+
+  from __future__ import with_statement
+  with CommandContext() as c:
+    # set up the commands
+    command = command.strip()
+    c.add(command,initial_content[:-1])
+    #  run the config
+    c.run_with_config(checker_txt)
+    # check output
+    c.output.check()
+    # check the calls
+    compare(c.called,[
+        command,
+        'svn up -q <config>',
+        'svn status <config>'
+        ])
+    # check the files are as expected
+    compare(listall(c.dir,dir=False),expected.split())
+    # check the mysql file content
+    compare(c.dir.read(('init','mysql')),expected_content)
+
+jenkins
+-------
+
+This checker will copy the xml files from a Jenkins or Hudson
+home directory into the configuration folder. The tree structure of
+the home directory will be maintained.
+
+For example, the following configuration line::
+
+  jenkins:/home/users/jenkins
+
+Will result in something like the following being present in the
+configuration folder::
+
+  checker.txt
+  home/users/jenkins/hudson.model.UpdateCenter.xml
+  home/users/jenkins/nodeMonitors.xml
+  home/users/jenkins/jobs/some_job/config.xml
