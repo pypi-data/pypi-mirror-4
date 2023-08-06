@@ -1,0 +1,34 @@
+#!/usr/bin/env python
+# Copyright 2013 Revel Systems
+#
+# All Rights Reserved.
+
+import sys
+import argparse
+from niice.manage import Manage
+from niice.server import Server
+from niice.server_configuration import DEFAULT_SERVER_CONFIG_PATH, server_configuration_from
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Send system info like CPU and MEM usage to niice metrics collector.")
+    parser.add_argument("-c", "--config", dest="config", help="config file.", default=DEFAULT_SERVER_CONFIG_PATH)
+    options = parser.parse_args(sys.argv[1:])
+
+    config = server_configuration_from(options.config)
+
+    manage = Manage(
+        realtime_db=config.realtime_db,
+        user=config.couchdb_user,
+        password=config.couchdb_password,
+        server=config.couchdb_host,
+        port=config.couchdb_port)
+
+    with config.rabbitmq_connection() as channel:
+        server = Server(channel, config.queue, manage.realtime_db, config.timezone)
+
+        channel.queue_declare(queue=config.queue, durable=True)
+        channel.basic_consume(server.on_raw_data,
+            queue=config.queue)
+        channel.basic_qos(prefetch_count=1)
+        channel.start_consuming()
+
