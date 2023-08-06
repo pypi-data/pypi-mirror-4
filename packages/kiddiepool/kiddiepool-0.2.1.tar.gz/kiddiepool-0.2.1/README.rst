@@ -1,0 +1,28 @@
+Kiddie Pool - Python Pooling Driver Framework
+=============================================
+
+© 2012 Urban Airship
+
+https://github.com/urbanairship/kiddiepool
+
+
+.. image:: https://secure.travis-ci.org/urbanairship/kiddiepool.png?branch=master
+   :target: http://travis-ci.org/urbanairship/kiddiepool/
+
+Goals
+-----
+
+* Create a reusable connection pool class that handles failover
+
+Creating a New Client
+---------------------
+
+Subclass at least ``KiddieClient`` to create the public API for your client
+driver.  Should call ``KiddieClient._sendall(<str>)`` to send data.
+
+Using the Pool
+--------------
+
+1. Create a ``KiddiePool`` of connections (``KiddieConnections``)
+2. Pass the pool instance to your ``KiddieClient`` subclass for use
+3. Use your client's API and it will use the pool automatically
