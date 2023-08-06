@@ -1,0 +1,10 @@
+__version__ = "0.3.11"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '87b705596972b045f030d0b57a417f4f5bd7e001'
+__git_head_subject__ = 'Finished release v0.3.11.'
+__git_head_message__ = '* release/v0.3.11:\n  HOSTDEV-651 find urls of packages by formatting a url in pypi, not through pypi manager\n  empty commit after version v0.3.10'
+__git_dirty_diff__ = ''
