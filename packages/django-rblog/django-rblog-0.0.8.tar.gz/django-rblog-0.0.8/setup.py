@@ -1,0 +1,43 @@
+# -*- coding: utf-8 -*-
+from setuptools import setup, find_packages
+
+setup(
+    name='django-rblog',
+    version='0.0.8',
+    author=u'Oscar M. Lage Guitian',
+    author_email='r0sk10@gmail.com',
+    #packages=['rblog'],
+    packages = find_packages(),
+    include_package_data = True,
+    #package_data = {'': ['rblog/templates', 'rblog/static','rblog/fixtures',], 'rblog-example': ['rblog-example/*']},
+    url='http://bitbucket.org/r0sk/django-rblog',
+    license='BSD licence, see LICENSE file',
+    description='Yet another Django Blog App',
+    zip_safe=False,
+    long_description=open('README.rst').read(),
+    install_requires=[
+        "Django >= 1.4.1",
+        "South == 0.7.5",
+        "django-tinymce >= 1.5.1b2",
+        #"django-allauth == 0.7.0",
+        #"django-email-confirmation == 0.2",
+        "PIL == 1.1.7",
+        "django-filebrowser-no-grappelli == 3.1.1",
+        "django-tagging == 0.3.1",
+        #"django-compressor == 1.1.2",
+        "sorl-thumbnail == 11.12",
+        "elementtree==1.2.7-20070827-preview",
+    ],
+    keywords = "django application flatpages",
+    classifiers=[
+        'Development Status :: 4 - Beta',
+        'Environment :: Web Environment',
+        'Framework :: Django',
+        'Intended Audience :: Developers',
+        'License :: OSI Approved :: BSD License',
+        'Operating System :: OS Independent',
+        'Programming Language :: Python',
+        'Topic :: Internet :: WWW/HTTP :: Dynamic Content',
+        'Topic :: Software Development :: Libraries :: Python Modules',
+    ],
+)
