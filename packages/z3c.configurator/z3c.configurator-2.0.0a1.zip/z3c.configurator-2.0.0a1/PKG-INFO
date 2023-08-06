@@ -1,0 +1,392 @@
+Metadata-Version: 1.1
+Name: z3c.configurator
+Version: 2.0.0a1
+Summary: Dynamic configuration
+Home-page: http://pypi.python.org/pypi/z3c.configurator
+Author: Zope Community
+Author-email: zope-dev@zope.org
+License: ZPL 2.1
+Description: This package provides a configurator which is designed to extend a component 
+        after its creation for Zope3.
+        
+        
+        .. contents::
+        
+        ================
+        The Configurator
+        ================
+        
+        The configurator is designed to extend a component after its
+        creation. Traditionally this is done by listening to ``ObjectCreatedEvent``
+        events. However, this low-level method does not suffice, since configuration
+        often depends on other configuration steps and additional data is often needed
+        to complete the configuration. And this is where the configurator comes
+        in. It uses a separate plugin mechanism to implement the mentioned high-level
+        functionality.
+        
+        Before we can demonstrate the configuration mechanism, we'll have to create an
+        interface and a component on which the configuration can act upon:
+        
+          >>> import zope.interface
+        
+          >>> class ISomething(zope.interface.Interface):
+          ...     """Some interesting interface."""
+        
+          >>> @zope.interface.implementer(ISomething)
+          ... class Something(object):
+          ...     """Implementation of something."""
+        
+          >>> something = Something()
+        
+        Now we can have the configuration act on the component:
+        
+          >>> from z3c import configurator
+          >>> configurator.configure(something, {})
+        
+        The second argument is the data dictionary, which can be used to pass in
+        additional information that might be needed during the configuration. It is up
+        to each plugin to interpret the data.
+        
+        Of course nothing happens, since no configuration plugins are
+        registered. Let's now create a new configuration plugin, which sets a new
+        attribute on the component:
+        
+          >>> import zope.component
+          >>> from z3c.configurator import interfaces
+        
+          >>> class AddFooAttribute(configurator.ConfigurationPluginBase):
+          ...     zope.component.adapts(ISomething)
+          ...
+          ...     def __call__(self, data):
+          ...         setattr(self.context, 'foo', data.get('foo'))
+        
+          >>> zope.component.provideAdapter(AddFooAttribute, name='add foo')
+        
+        If we execute the configuration again, the attribute will be added:
+        
+          >>> configurator.configure(something, {'foo': u'my value'})
+          >>> something.foo
+          u'my value'
+        
+        
+        Dependencies
+        ------------
+        
+        Now that we have simple configuration plugins, we can also develop plugins
+        that depend on another one. Let's create a configuration plugin that adds some
+        additional data to the foo attribute. Clearly, the foo attribute has to exist
+        before this step can be taken. The ``dependencies`` attribute can be used to
+        specify all plugin dependencies by name:
+        
+          >>> class ExtendFooAttribute(configurator.ConfigurationPluginBase):
+          ...     zope.component.adapts(ISomething)
+          ...     dependencies = ('add foo',)
+          ...
+          ...     def __call__(self, data):
+          ...         self.context.foo = u'Text: ' + self.context.foo
+        
+          >>> zope.component.provideAdapter(ExtendFooAttribute, name='extend foo')
+        
+        If we now execute the configuration again, the extended result should be seen:
+        
+          >>> something = Something()
+          >>> configurator.configure(something, {'foo': u'my value'})
+          >>> something.foo
+          u'Text: my value'
+        
+        
+        Data Schemas
+        ------------
+        
+        For purely informational purposes, a ``schema`` attribute is used on the
+        plugin to describe the fields that the plugin expects from the data
+        dictionary. For adding another simple attribute, this could look as follows:
+        
+          >>> import zope.schema
+          >>> class IAddBar(zope.interface.Interface):
+          ...     bar = zope.schema.Text(title=u'Bar')
+        
+          >>> class AddBarAttribute(configurator.SchemaConfigurationPluginBase):
+          ...     zope.component.adapts(ISomething)
+          ...     schema = IAddBar
+          ...
+          ...     def __call__(self, data):
+          ...         self.verify(data)
+          ...         setattr(self.context, 'bar', data.get('bar'))
+        
+          >>> zope.component.provideAdapter(AddBarAttribute, name='add bar')
+        
+        The advantage of using the base class for this case is that it provides a
+        ``verify()`` method that allows you to verify the data against the shema. We
+        can now run the configuration again:
+        
+          >>> something = Something()
+          >>> configurator.configure(something, {'foo': u'my value', 'bar': u'value'})
+          >>> something.bar
+          u'value'
+        
+        The value must exist and be valid:
+        
+          >>> something = Something()
+          >>> configurator.configure(something, {'foo': u'my value'})
+          Traceback (most recent call last):
+          ...
+          RequiredMissing: bar
+        
+          >>> something = Something()
+          >>> configurator.configure(something, {'foo': u'my value', 'bar': 1})
+          Traceback (most recent call last):
+          ...
+          WrongType: (1, <type 'unicode'>, 'bar')
+        
+        
+        Data Namespaces
+        ---------------
+        
+        In order to not confuse attribute names if two plugins share a common
+        name it is possible to pass data as a dictionary of dictionaries. The
+        keys of the dictionary is the name under which the plugins are
+        registered.
+        
+          >>> something = Something()
+          >>> data = {u'add foo': {'foo': u'foo value'},
+          ...         u'add bar': {'bar': u'bar value'}}
+          >>> configurator.configure(something, data, useNameSpaces=True)
+          >>> something.foo, something.bar
+          (u'Text: foo value', u'bar value')
+        
+        Named Configuration
+        -------------------
+        
+        Sometimes we do not want all registered configuration plugins to be
+        executed. This can be achieved by providing the names argument to the
+        configure function.
+        
+        Let us create a new something:
+        
+          >>> something = Something()
+        
+        If we now configure it without names we get both attributes set.
+        
+          >>> configurator.configure(something, {'foo': u'my value', 'bar': u'asdf'})
+          >>> sorted(something.__dict__.items())
+          [('bar', 'asdf'), ('foo', 'Text: my value')]
+        
+        Now let us just configure the plugin 'add bar'.
+        
+          >>> something = Something()
+          >>> configurator.configure(something, {'foo': u'my value', 'bar': u'asdf'},
+          ...     names=['add bar'])
+          >>> something.__dict__
+          {'bar': u'asdf'}
+        
+        Dependencies of plugins are always executed - they don't have to be
+        added to the ```names``` argument.
+        
+          >>> something = Something()
+          >>> configurator.configure(something, {'foo': u'my value'},
+          ...     names=['extend foo'])
+          >>> something.foo
+          u'Text: my value'
+        
+        Named configurations are usefull when called manually through the web
+        (see browser/README.txt). The configurator package does not look if a
+        configuration is already applied if called twice. It is the
+        responsibility of the plugin to be aware that it doesn't do things
+        twice or delete things.
+        
+        
+        Wrong Implementations
+        ---------------------
+        
+        A configurator must provide a __call__ method.
+        
+          >>> class CallNotImplemented(configurator.ConfigurationPluginBase):
+          ...     zope.component.adapts(ISomething)
+          >>> zope.component.provideAdapter(CallNotImplemented, name='no call')
+        
+          >>> configurator.configure(something, None,  names=['no call'])
+          Traceback (most recent call last):
+          ...
+          NotImplementedError
+        
+        The same must happen for a schema base configurator.
+        
+          >>> class SchemaCallNotImplemented(configurator.SchemaConfigurationPluginBase):
+          ...     zope.component.adapts(ISomething)
+          >>> zope.component.provideAdapter(SchemaCallNotImplemented, name='schema no call')
+        
+          >>> configurator.configure(something, None,  names=['schema no call'])
+          Traceback (most recent call last):
+          ...
+          NotImplementedError
+        
+        
+        No Recursion
+        ------------
+        
+        It's possible to define recursive dependencies without to run into recursion 
+        errors. Let's define a new plugin free object:
+        
+          >>> class IFoo(zope.interface.Interface):
+          ...     """Just a foo interface."""
+        
+          >>> @zope.interface.implementer(IFoo)
+          ... class Foo(object):
+          ...     """Implementation of foo."""
+        
+        Let's define another plugin named `first` which depends on a plugin named 
+        `second`.
+        
+          >>> log = []
+          >>> class FirstPlugin(configurator.ConfigurationPluginBase):
+          ...     zope.component.adapts(IFoo)
+          ...     dependencies = ('second',)
+          ...
+          ...     def __call__(self, data):
+          ...         log.append('FirstPlugin called')
+        
+          >>> zope.component.provideAdapter(FirstPlugin, name='first')
+        
+        And define a plugin named `second` which depends on `first`:
+        
+          >>> class SecondPlugin(configurator.ConfigurationPluginBase):
+          ...     zope.component.adapts(IFoo)
+          ...     dependencies = ('first',)
+          ...
+          ...     def __call__(self, data):
+          ...         log.append('SecondPlugin called')
+        
+          >>> zope.component.provideAdapter(SecondPlugin, name='second')
+        
+          >>> foo = Foo()
+          >>> configurator.configure(foo, {})
+          >>> for msg in sorted(log): print(msg)
+          FirstPlugin called
+          SecondPlugin called
+        
+        
+        =========================
+        Calling Configurators TTW
+        =========================
+        
+        A configuration view is registered to apply named configuration on any
+        object.  We defined two example configurators which we now gonna apply
+        to the site object.
+        
+          >>> from zope.testbrowser.testing import Browser
+          >>> browser = Browser()
+          >>> browser.addHeader('Authorization','Basic mgr:mgrpw')
+          >>> browser.handleErrors = False
+        
+          >>> browser.open('http://localhost/manage')
+          >>> browser.url
+          'http://localhost/@@contents.html'
+        
+        The view is registered in the zmi_views menu
+        
+          >>> browser.getLink(u'Configurators').click()
+          >>> viewURL = browser.url
+          >>> viewURL
+          'http://localhost/@@configurators.html'
+        
+          >>> sel = browser.getControl(name="form.pluginNames.to")
+        
+        First we can choose from the registered named plugins.
+        
+          >>> plugs = browser.getControl(name="form.pluginNames.from").options
+          >>> sorted(plugs)
+          ['z3c.configurator.testing.setdescription',
+           'z3c.configurator.testing.settitle']
+          >>> browser.open(viewURL + '?form.pluginNames=z3c.configurator.testing.settitle')
+        
+        We have choosen a plugin, so now we have a form for the arguments needed.
+        
+          >>> browser.getControl('Some Argument').value
+          ''
+          >>> browser.getControl('Some Argument').value = "New Title"
+          >>> browser.getControl('Apply').click()
+        
+        
+        XXX form.pluginNames have to be set, but we can't because the widget
+        uses javascript.
+        
+        
+        
+        
+        =======
+        CHANGES
+        =======
+        
+        
+        2.0.0a1 (2013-03-04)
+        --------------------
+        
+        - Added support for Python 3.3, dropped support for Python 2.4 and 2.5.
+        
+        
+        1.3.0 (2010-12-12)
+        ------------------
+        
+        - Updated test set up to run with ZTK 1.0.
+        
+        
+        Version 1.2.1 (2009-12-27)
+        --------------------------
+        
+        - Moved browser dependencies to 'zmi' extras
+        
+        
+        Version 1.2.0 (2009-12-19)
+        --------------------------
+        
+        - Made registration of browser views conditional
+        
+        - Move packages required for testing to 'test' extras
+        
+        - Remove old zpkg-related SETUP.cfg file.
+        
+        - Copyright "Zope Foundation and Contributors"
+        
+        
+        Version 1.1.2 (2009-01-04)
+        --------------------------
+        
+        - Added possibility to apply only specific named plugins in configure.
+        
+        - New option to configure allows to have namespaced data to resolve
+          naming conflicts.
+        
+        - Added a page to call configurators TTW. This is the first step
+          towards mergin z3c.configurator and z3c.sampledata into one package.
+        
+        - Added documentation to Pypi home page.
+        
+        - bugfix: Defining recursive dependent names in IConfigurationPlugin
+          dependencies, ends in recursive plugin lookup.
+        
+        - bugfix: SchemaConfigurationPluginBase now implements
+          ISchemaConfigurationPluginBase.
+        
+        
+        Version 1.1.1 (unknown)
+        -----------------------
+        
+        - Initial Release
+        
+Keywords: zope3 z3c configurator configuration
+Platform: UNKNOWN
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Environment :: Web Environment
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: Zope Public License
+Classifier: Programming Language :: Python
+Classifier: Programming Language :: Python :: 2
+Classifier: Programming Language :: Python :: 2.6
+Classifier: Programming Language :: Python :: 2.7
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.3
+Classifier: Natural Language :: English
+Classifier: Operating System :: OS Independent
+Classifier: Topic :: Internet :: WWW/HTTP
+Classifier: Framework :: Zope3
