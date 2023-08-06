@@ -1,0 +1,2 @@
+from managers import ChannelManagerTest
+from .observers import ModelObserverTest, ObjectObserverTest
