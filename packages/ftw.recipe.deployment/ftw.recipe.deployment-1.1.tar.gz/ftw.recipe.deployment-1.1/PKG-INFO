@@ -1,0 +1,715 @@
+Metadata-Version: 1.0
+Name: ftw.recipe.deployment
+Version: 1.1
+Summary: A zc.buildout recipe for Plone deployments which configures various unix system services.
+Home-page: https://github.com/4teamwork/ftw.recipe.deployment
+Author: 4teamwork GmbH
+Author-email: mailto:info@4teamwork.ch
+License: GPL2
+Description: .. contents::
+        
+        Introduction
+        ============
+        
+        This recipe provides support for configuring various unix services when
+        deploying Plone/Zope2 with buildout.
+        
+        As for now the following features are provided:
+        
+        * Create Logrotate configuration for all Zope 2 instance and ZEO parts.
+        
+        * Create RedHat-like run-control scripts.
+        
+        
+        Supported options
+        =================
+        
+        The recipe supports the following options:
+        
+        logrotate-directory
+            The directory where the logrotate configuration file will be created.
+            Defaults to ``${buildout:directory}/etc/logrotate.d``. Add this parameter
+            with no arguments to supress generation of logrotate configuration.
+        
+        logrotate-options
+            A list of logrotate options that should be added to the logrotate
+            configuration.
+        
+            Configuration for reopening rotated logfiles is added automatically if
+            ``postrotate`` is not specified in ``logrotate-options``.
+        
+            Example::
+        
+             logrotate-options =
+                 rotate 4
+                 weekly
+                 missingok
+                 notifempty
+                 nomail
+        
+        rc-directory
+            The directory where run-control scripts should be installed.
+            Defaults to ``${buildout:directory}/bin``. Add this parameter with no
+            arguments to supress generation of run-control scripts.
+        
+        rc-prefix
+            Name prefix for run-control scripts. Defaults to ``rc-``.
+        
+        rc-user
+            The name of the user used to start processes by run-control scripts.
+            Defaults to ``zope``.
+        
+        has-supervisor
+            Boolean indication whether supervisor is beeing used. If true, a run
+            control script is generated for supervisor only. If false, run control
+            scripts are generated for all zope and zeo parts. By default, the recipe
+            tries to automatically determine if supervisor is beeing used.
+        
+        zopes
+            A list of Zope 2 instance parts. Defaults to all parts using the
+            ``plone.recipe.zope2instance`` recipe.
+        
+        zeos
+            A list of ZEO server parts. Defaults to all parts using either the
+            ``plone.recipe.zeoserver`` or ``plone.recipe.zope2zeoserver`` recipe.
+        
+        
+        
+        Links
+        =====
+        
+        - Main github project repository: https://github.com/4teamwork/ftw.recipe.deployment
+        - Issue tracker: https://github.com/4teamwork/ftw.recipe.deployment/issues
+        - Package on pypi: http://pypi.python.org/pypi/ftw.recipe.deployment
+        - Continuous integration: https://jenkins.4teamwork.ch/search?q=ftw.recipe.deployment
+        
+        
+        Copyright
+        ---------
+        
+        This package is copyright by `4teamwork <http://www.4teamwork.ch/>`_.
+        
+        ``ftw.recipe.deployment`` is licensed under GNU General Public License, version 2.
+        
+        Changelog
+        =========
+        
+        1.1 (2013-03-05)
+        ----------------
+        
+        - Added option to specify the user under which run-control scripts start
+          processes.
+          [buchi]
+        
+        - Added status command to supervisor run-control script.
+          [buchi]
+        
+        
+        1.0.1 (2012-03-12)
+        ------------------
+        
+        - Fixed handling of logrotate options containing whitespaces.
+          [buchi]
+        
+        
+        1.0 (2012-03-12)
+        ----------------
+        
+        - Initial release.
+          [buchi]
+        
+        Example usage
+        =============
+        
+        First we create a fake ``plone.recipe.zope2instance`` recipe, which we can
+        use in our tests.
+        
+        Create a recipes source directory::
+        
+            >>> mkdir(sample_buildout, 'plone.recipe.zope2instance')
+        
+        and then create a source file with the fake recipe::
+        
+            >>> write(sample_buildout, 'plone.recipe.zope2instance',
+            ...       'zope2instance.py',
+            ... """
+            ... import os, zc.buildout
+            ...
+            ... class Recipe(object):
+            ...
+            ...     def __init__(self, buildout, name, options):
+            ...         self.name, self.options = name, options
+            ...         options['event-log'] = os.path.join(
+            ...                               buildout['buildout']['directory'],
+            ...                               'var', 'log', self.name + '.log'
+            ...                               )
+            ...         options['z2-log'] = os.path.join(
+            ...                               buildout['buildout']['directory'],
+            ...                               'var', 'log', self.name + '-Z2.log'
+            ...                               )
+            ...
+            ...     def install(self):
+            ...         return tuple()
+            ...
+            ...     def update(self):
+            ...         pass
+            ... """)
+        
+        Provide packaging information so that the recipe can be installed as a develop
+        egg::
+        
+            >>> write(sample_buildout, 'plone.recipe.zope2instance', 'setup.py',
+            ... """
+            ... from setuptools import setup
+            ...
+            ... setup(
+            ...     name = "plone.recipe.zope2instance",
+            ...     entry_points = {'zc.buildout': ['default = zope2instance:Recipe']},
+            ...     )
+            ... """)
+        
+        Add a README.txt to avoid an annoying warning from distutils::
+        
+            >>> write(sample_buildout, 'plone.recipe.zope2instance', 'README.txt', " ")
+        
+        We'll start by creating a simple buildout that uses our recipe::
+        
+            >>> write('buildout.cfg',
+            ... """
+            ... [buildout]
+            ... develop = plone.recipe.zope2instance
+            ... parts = instance1 deployment
+            ...
+            ... [instance1]
+            ... recipe = plone.recipe.zope2instance
+            ...
+            ... [deployment]
+            ... recipe = ftw.recipe.deployment
+            ... """)
+        
+        Running the buildout gives us::
+        
+            >>> print system(buildout)
+            Develop: '/sample-buildout/plone.recipe.zope2instance'
+            Installing instance1.
+            Installing deployment.
+            <BLANKLINE>
+        
+        We should now have a file with the same name as our buildout directory
+        containing our logrotate configuration::
+        
+            >>> cat(sample_buildout, 'etc', 'logrotate.d', 'sample-buildout')
+            ... #doctest: -NORMALIZE_WHITESPACE
+            /sample-buildout/var/log/instance1.log
+            /sample-buildout/var/log/instance1-Z2.log {
+                sharedscripts
+                postrotate
+                    /bin/kill -SIGUSR2 `cat /sample-buildout/var/instance1.pid` >/dev/null 2>&1
+                endscript
+            }
+        
+        We should also have a run-control script for instance1::
+        
+            >>> cat(sample_buildout, 'bin', 'rc-instance1')
+            #!/bin/sh
+            <BLANKLINE>
+            # chkconfig: 345 90 10
+            # description: Starts Zope
+            <BLANKLINE>
+            START_SCRIPT="/sample-buildout/bin/instance1"
+            <BLANKLINE>
+            [ -f $START_SCRIPT ] || exit 1
+            <BLANKLINE>
+            # Source function library.
+            . /etc/init.d/functions
+            <BLANKLINE>
+            RETVAL=0
+            <BLANKLINE>
+            if [ $(whoami) != "root" ]; then
+                echo "You must be root."
+                exit 1
+            fi
+            <BLANKLINE>
+            case $1 in
+                start|stop)
+                    su zope -c "$START_SCRIPT $*" </dev/null
+                    RETVAL=$?
+                    if [ $RETVAL -eq 0 ]
+                    then
+                        echo_success
+                    else
+                        echo_failure
+                    fi
+                    echo
+                    ;;
+                restart)
+                    ${0} stop
+                    sleep 1
+                    ${0} start
+                    ;;
+                *)
+                    su zope -c "$START_SCRIPT $*" </dev/null
+                    ;;
+            esac
+        
+        
+        Let's also add a zeo part. Thus we first need a fake ``plone.recipe.zeoserver``
+        recipe::
+        
+            >>> mkdir(sample_buildout, 'plone.recipe.zeoserver')
+            >>> write(sample_buildout, 'plone.recipe.zeoserver', 'zeoserver.py',
+            ... """
+            ... import os, zc.buildout
+            ...
+            ... class Recipe(object):
+            ...
+            ...     def __init__(self, buildout, name, options):
+            ...         self.name, self.options = name, options
+            ...         options['zeo-log'] = os.path.join(
+            ...                               buildout['buildout']['directory'],
+            ...                               'var', 'log', self.name + '.log'
+            ...                               )
+            ...
+            ...     def install(self):
+            ...         return tuple()
+            ...
+            ...     def update(self):
+            ...         pass
+            ... """)
+            >>> write(sample_buildout, 'plone.recipe.zeoserver', 'setup.py',
+            ... """
+            ... from setuptools import setup
+            ...
+            ... setup(
+            ...     name = "plone.recipe.zeoserver",
+            ...     entry_points = {'zc.buildout': ['default = zeoserver:Recipe']},
+            ...     )
+            ... """)
+            >>> write(sample_buildout, 'plone.recipe.zeoserver', 'README.txt', " ")
+        
+        Create a buildout with multiple instance parts and a zeo part::
+        
+            >>> write('buildout.cfg',
+            ... """
+            ... [buildout]
+            ... develop = plone.recipe.zope2instance plone.recipe.zeoserver
+            ... parts = instance1 instance2 zeo deployment
+            ...
+            ... [instance1]
+            ... recipe = plone.recipe.zope2instance
+            ...
+            ... [instance2]
+            ... <= instance1
+            ...
+            ... [zeo]
+            ... recipe = plone.recipe.zeoserver
+            ...
+            ... [deployment]
+            ... recipe = ftw.recipe.deployment
+            ... """)
+        
+        Running the buildout gives us::
+        
+            >>> print system(buildout)
+            Develop: '/sample-buildout/plone.recipe.zope2instance'
+            Develop: '/sample-buildout/plone.recipe.zeoserver'
+            Updating instance1.
+            Installing instance2.
+            Installing zeo.
+            Updating deployment.
+            <BLANKLINE>
+        
+        Verify the contents of the logrotate configuration file::
+        
+            >>> cat(sample_buildout, 'etc', 'logrotate.d', 'sample-buildout')
+            /sample-buildout/var/log/instance1.log
+            /sample-buildout/var/log/instance1-Z2.log {
+                sharedscripts
+                postrotate
+                    /bin/kill -SIGUSR2 `cat /sample-buildout/var/instance1.pid` >/dev/null 2>&1
+                endscript
+            }
+            /sample-buildout/var/log/instance2.log
+            /sample-buildout/var/log/instance2-Z2.log {
+                sharedscripts
+                postrotate
+                    /bin/kill -SIGUSR2 `cat /sample-buildout/var/instance2.pid` >/dev/null 2>&1
+                endscript
+            }
+            /sample-buildout/var/log/zeo.log {
+                copytruncate
+            }
+        
+        Verify the zeo run control script::
+        
+            >>> cat(sample_buildout, 'bin', 'rc-zeo')
+            #!/bin/sh
+            <BLANKLINE>
+            # chkconfig: 345 85 15
+            # description: Starts ZEO server
+            <BLANKLINE>
+            START_SCRIPT="/sample-buildout/bin/zeo"
+            <BLANKLINE>
+            [ -f $START_SCRIPT ] || exit 1
+            <BLANKLINE>
+            # Source function library.
+            . /etc/init.d/functions
+            <BLANKLINE>
+            RETVAL=0
+            <BLANKLINE>
+            if [ $(whoami) != "root" ]; then
+                echo "You must be root."
+                exit 1
+            fi
+            <BLANKLINE>
+            case $1 in
+                start|stop)
+                    su zope -c "$START_SCRIPT $*" </dev/null
+                    RETVAL=$?
+                    if [ $RETVAL -eq 0 ]
+                    then
+                        echo_success
+                    else
+                        echo_failure
+                    fi
+                    echo
+                    ;;
+                restart)
+                    ${0} stop
+                    sleep 1
+                    ${0} start
+                    ;;
+                *)
+                    su zope -c "$START_SCRIPT $*" </dev/null
+                    ;;
+            esac
+        
+        Verify the run control script for instance 2::
+        
+            >>> cat(sample_buildout, 'bin', 'rc-instance2')
+            #!/bin/sh
+            <BLANKLINE>
+            # chkconfig: 345 90 10
+            # description: Starts Zope
+            <BLANKLINE>
+            START_SCRIPT="/sample-buildout/bin/instance2"
+            <BLANKLINE>
+            [ -f $START_SCRIPT ] || exit 1
+            <BLANKLINE>
+            # Source function library.
+            . /etc/init.d/functions
+            <BLANKLINE>
+            RETVAL=0
+            <BLANKLINE>
+            if [ $(whoami) != "root" ]; then
+                echo "You must be root."
+                exit 1
+            fi
+            <BLANKLINE>
+            case $1 in
+                start|stop)
+                    su zope -c "$START_SCRIPT $*" </dev/null
+                    RETVAL=$?
+                    if [ $RETVAL -eq 0 ]
+                    then
+                        echo_success
+                    else
+                        echo_failure
+                    fi
+                    echo
+                    ;;
+                restart)
+                    ${0} stop
+                    sleep 1
+                    ${0} start
+                    ;;
+                *)
+                    su zope -c "$START_SCRIPT $*" </dev/null
+                    ;;
+            esac
+        
+        We can specify the user that should be used to run processes::
+        
+            >>> write('buildout.cfg',
+            ... """
+            ... [buildout]
+            ... develop = plone.recipe.zope2instance plone.recipe.zeoserver
+            ... parts = instance1 instance2 zeo deployment
+            ...
+            ... [instance1]
+            ... recipe = plone.recipe.zope2instance
+            ...
+            ... [instance2]
+            ... <= instance1
+            ...
+            ... [zeo]
+            ... recipe = plone.recipe.zeoserver
+            ...
+            ... [deployment]
+            ... recipe = ftw.recipe.deployment
+            ... rc-user = plone
+            ... """)
+        
+        Running the buildout gives us::
+        
+            >>> print system(buildout)
+            Develop: '/sample-buildout/plone.recipe.zope2instance'
+            Develop: '/sample-buildout/plone.recipe.zeoserver'
+            Uninstalling deployment.
+            Updating instance1.
+            Updating instance2.
+            Updating zeo.
+            Installing deployment.
+            <BLANKLINE>
+        
+        Verify the run control script for instance 1::
+        
+            >>> cat(sample_buildout, 'bin', 'rc-instance1')
+            #!/bin/sh
+            <BLANKLINE>
+            # chkconfig: 345 90 10
+            # description: Starts Zope
+            <BLANKLINE>
+            START_SCRIPT="/sample-buildout/bin/instance1"
+            <BLANKLINE>
+            [ -f $START_SCRIPT ] || exit 1
+            <BLANKLINE>
+            # Source function library.
+            . /etc/init.d/functions
+            <BLANKLINE>
+            RETVAL=0
+            <BLANKLINE>
+            if [ $(whoami) != "root" ]; then
+                echo "You must be root."
+                exit 1
+            fi
+            <BLANKLINE>
+            case $1 in
+                start|stop)
+                    su plone -c "$START_SCRIPT $*" </dev/null
+                    RETVAL=$?
+                    if [ $RETVAL -eq 0 ]
+                    then
+                        echo_success
+                    else
+                        echo_failure
+                    fi
+                    echo
+                    ;;
+                restart)
+                    ${0} stop
+                    sleep 1
+                    ${0} start
+                    ;;
+                *)
+                    su plone -c "$START_SCRIPT $*" </dev/null
+                    ;;
+            esac
+        
+        Before we can add a supervisor part we need a fake recipe for it::
+        
+            >>> mkdir(sample_buildout, 'collective.recipe.supervisor')
+            >>> write(sample_buildout, 'collective.recipe.supervisor', 'supervisor.py',
+            ... """
+            ... import os, zc.buildout
+            ...
+            ... class Recipe(object):
+            ...
+            ...     def __init__(self, buildout, name, options):
+            ...         pass
+            ...
+            ...     def install(self):
+            ...         return tuple()
+            ...
+            ...     def update(self):
+            ...         pass
+            ... """)
+            >>> write(sample_buildout, 'collective.recipe.supervisor', 'setup.py',
+            ... """
+            ... from setuptools import setup
+            ...
+            ... setup(
+            ...     name = "collective.recipe.supervisor",
+            ...     entry_points = {'zc.buildout': ['default = supervisor:Recipe']},
+            ...     )
+            ... """)
+            >>> write(sample_buildout, 'collective.recipe.supervisor', 'README.txt',
+            ... " ")
+        
+        Create a buildout with a supervisor part::
+        
+            >>> write('buildout.cfg',
+            ... """
+            ... [buildout]
+            ... develop =
+            ...     plone.recipe.zope2instance
+            ...     plone.recipe.zeoserver
+            ...     collective.recipe.supervisor
+            ... parts = instance1 instance2 zeo supervisor deployment
+            ...
+            ... [instance1]
+            ... recipe = plone.recipe.zope2instance
+            ...
+            ... [instance2]
+            ... <= instance1
+            ...
+            ... [zeo]
+            ... recipe = plone.recipe.zeoserver
+            ...
+            ... [supervisor]
+            ... recipe = collective.recipe.supervisor
+            ...
+            ... [deployment]
+            ... recipe = ftw.recipe.deployment
+            ... rc-user = plone
+            ... """)
+        
+        Running the buildout gives us::
+        
+            >>> print system(buildout)
+            Develop: '/sample-buildout/plone.recipe.zope2instance'
+            Develop: '/sample-buildout/plone.recipe.zeoserver'
+            Develop: '/sample-buildout/collective.recipe.supervisor'
+            Updating instance1.
+            Updating instance2.
+            Updating zeo.
+            Installing supervisor.
+            Updating deployment.
+            <BLANKLINE>
+        
+        Verify the supervisor control script::
+        
+            >>> cat(sample_buildout, 'bin', 'rc-supervisor')
+            #!/bin/sh
+            <BLANKLINE>
+            # chkconfig: 345 90 10
+            # description: Starts supervisor
+            <BLANKLINE>
+            SUPERVISORCTL="/sample-buildout/bin/supervisorctl"
+            SUPERVISORD="/sample-buildout/bin/supervisord"
+            <BLANKLINE>
+            [ -f $SUPERVISORD ] || exit 1
+            [ -f $SUPERVISORCTL ] || exit 1
+            <BLANKLINE>
+            # Source function library.
+            . /etc/init.d/functions
+            <BLANKLINE>
+            RETVAL=0
+            <BLANKLINE>
+            if [ $(whoami) != "root" ]; then
+                echo "You must be root."
+                exit 1
+            fi
+            <BLANKLINE>
+            start() {
+                echo -n "Starting supervisor: "
+                su plone -c "$SUPERVISORD"
+                RETVAL=$?
+                if [ $RETVAL -eq 0 ]; then
+                    echo_success
+                else
+                    echo_failure
+                fi
+                return $RETVAL
+            }
+            <BLANKLINE>
+            stop() {
+                echo -n "Stopping supervisor: "
+                su plone -c "$SUPERVISORCTL shutdown"
+                RETVAL=$?
+                if [ $RETVAL -eq 0 ]; then
+                    echo_success
+                else
+                    echo_failure
+                fi
+                return $RETVAL
+            }
+            <BLANKLINE>
+            status() {
+                su plone -c "$SUPERVISORCTL status"
+            }
+            <BLANKLINE>
+            case "$1" in
+                start)
+                    start
+                    ;;
+            <BLANKLINE>
+                stop)
+                    stop
+                    ;;
+            <BLANKLINE>
+                restart)
+                    stop
+                    start
+                    ;;
+            <BLANKLINE>
+                status)
+                    status
+                    ;;
+            esac
+            <BLANKLINE>
+            exit $REVAL
+        
+        We can provide some additional logrotate options::
+        
+            >>> write('buildout.cfg',
+            ... """
+            ... [buildout]
+            ... develop =
+            ...     plone.recipe.zope2instance
+            ...     plone.recipe.zeoserver
+            ...     collective.recipe.supervisor
+            ...
+            ... parts = instance1 deployment
+            ...
+            ... [instance1]
+            ... recipe = plone.recipe.zope2instance
+            ...
+            ... [deployment]
+            ... recipe = ftw.recipe.deployment
+            ... logrotate-options =
+            ...     rotate 4
+            ...     weekly
+            ...     missingok
+            ...     notifempty
+            ...     nomail
+            ... """)
+        
+        Running the buildout gives us::
+        
+            >>> print system(buildout)
+            Develop: '/sample-buildout/plone.recipe.zope2instance'
+            Develop: '/sample-buildout/plone.recipe.zeoserver'
+            Develop: '/sample-buildout/collective.recipe.supervisor'
+            Uninstalling deployment.
+            Uninstalling supervisor.
+            Uninstalling zeo.
+            Uninstalling instance2.
+            Updating instance1.
+            Installing deployment.
+            <BLANKLINE>
+        
+        Verify that the file contains our logrotate options::
+        
+            >>> cat(sample_buildout, 'etc', 'logrotate.d', 'sample-buildout') 
+            ... #doctest: -NORMALIZE_WHITESPACE
+            /sample-buildout/var/log/instance1.log
+            /sample-buildout/var/log/instance1-Z2.log {
+                rotate 4
+                weekly
+                missingok
+                notifempty
+                nomail
+                sharedscripts
+                postrotate
+                    /bin/kill -SIGUSR2 `cat /sample-buildout/var/instance1.pid` >/dev/null 2>&1
+                endscript
+            }
+        
+        
+Platform: UNKNOWN
+Classifier: Framework :: Buildout :: Recipe
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: Zope Public License
+Classifier: Programming Language :: Python
+Classifier: Topic :: Software Development :: Build Tools
