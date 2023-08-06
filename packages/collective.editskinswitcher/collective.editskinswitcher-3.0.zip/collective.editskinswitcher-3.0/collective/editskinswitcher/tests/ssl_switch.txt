@@ -1,0 +1,108 @@
+Skin Switching based on SSL
+===========================
+
+Tests for new features by Ed Crewe, Internet Development (University
+of Bristol) August 2008
+
+This tests switching to the edit skin when going via SSL and that the
+default skin is lighter ie. that it doesn't have all the big
+javascripts and KSS included.
+
+First, we must perform some setup of the test browser.
+
+    >>> try:
+    ...     from Testing.testbrowser import Browser
+    ... except ImportError:
+    ...     from Products.Five.testbrowser import Browser
+    >>> portal_url = portal.absolute_url()
+    >>> browser = Browser()
+
+The following is useful when writing and debugging testbrowser
+tests. It lets us see all error messages in the error_log.
+
+    >>> browser.handleErrors = False
+    >>> self.portal.error_log._ignored_exceptions = ()
+
+And we make sure we are logged out:
+
+    >>> browser.open(portal_url + '/logout')
+
+Skin switching is done when the switch_skin_action is 'based on SSL'
+so lets switch on skin changing due to SSL:
+
+    >>> from Products.CMFCore.utils import getToolByName
+    >>> portal_props = getToolByName(portal, 'portal_properties')
+    >>> editskin_props = portal_props.get('editskin_switcher')
+    >>> editskin_props.switch_skin_action = 'based on SSL'
+    >>> switch_skin_action = editskin_props.getProperty('switch_skin_action')
+    >>> switch_skin_action == 'based on SSL'
+    True
+
+We rely on the getURL() method.  So we check that we can fool the test
+instance into believing it is on a different url:
+
+    >>> from collective.editskinswitcher.tests.utils import TestRequest
+    >>> TestRequest().getURL()
+    'http://127.0.0.1'
+    >>> TestRequest(SERVER_URL='https://127.0.0.1').getURL()
+    'https://127.0.0.1'
+
+On localhost we show visitors the default skin.  We test that by
+faking traversal:
+
+    >>> from collective.editskinswitcher.tests.utils import FakeTraversalEvent
+    >>> from collective.editskinswitcher.traversal import switch_skin
+    >>> request = TestRequest(SERVER_URL='http://localhost')
+    >>> event = FakeTraversalEvent(portal, request)
+    >>> switch_skin(portal, event)
+
+Now lets check that our test skin is installed:
+
+    >>> testskin = portal.portal_skins.restrictedTraverse('editskinswitcher_tests')
+    >>> str(testskin.objectIds())
+    "['accessibility-info']"
+    >>> portal.getCurrentSkinName()
+    'Monty Python Skin'
+    >>> request.get('editskinswitched',0)
+    0
+
+Check that the default skin is really the Monty Python skin via the
+browser by testing the changed template in the skin:
+
+    >>> browser.open(portal_url + '/accessibility-info')
+    >>> portal.portal_skins.getCurrentSkinName()
+    'Monty Python Skin'
+    >>> 'Monty Python' in browser.contents
+    True
+
+When accessing the edit skin users must login so should go via SSL to
+protect their credentials and any private information they may be
+communicating.
+
+    >>> request = TestRequest(SERVER_URL='https://127.0.0.1')
+    >>> event = FakeTraversalEvent(portal, request)
+    >>> switch_skin(portal, event)
+    >>> portal.getCurrentSkinName()
+    'Sunburst Theme'
+
+Confirm that via the browser testing the changed template in the skin
+is not changed.
+
+    >>> browser.open(portal_url + '/accessibility-info')
+    >>> 'Monty Python' in browser.contents
+    False
+
+In these tests we need to manually switch the skin back to our
+default, which normally happens automatically when your browser makes
+a new request.
+
+    >>> from collective.editskinswitcher.tests.utils import changeSkin
+    >>> changeSkin(portal, 'Monty Python Skin')
+
+Visitors on localhost still see our fabulous Monty Python Skin")
+
+    >>> request = TestRequest(SERVER_URL='http://localhost')
+    >>> event = FakeTraversalEvent(portal, request)
+    >>> switch_skin(portal, event)
+    >>> portal.getCurrentSkinName()
+    'Monty Python Skin'

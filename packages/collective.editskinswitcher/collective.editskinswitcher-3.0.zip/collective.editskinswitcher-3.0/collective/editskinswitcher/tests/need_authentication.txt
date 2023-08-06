@@ -1,0 +1,144 @@
+Skin Switching based on authentication
+======================================
+
+By default we do not care if the user is authenticated.  This is based
+on the need_authentication property::
+
+    >>> from Products.CMFCore.utils import getToolByName
+    >>> portal_props = getToolByName(portal, 'portal_properties')
+    >>> editskin_props = portal_props.get('editskin_switcher')
+    >>> editskin_props.getProperty('need_authentication')
+    False
+
+We would want to check if we are authenticated by calling
+portal_membership.isAnonymousUser().  This works fine in our tests,
+but fails in real life.  So we check for the ``__ac`` cookie instead.
+
+We prepare a request to an edit url for someone who is logged in::
+
+    >>> from collective.editskinswitcher.tests.utils import TestRequest
+    >>> request = TestRequest(SERVER_URL='http://127.0.0.1')
+
+We used to use an AccessRule with an External Method, but now we use a
+pre-traversal event.  We fake that::
+
+    >>> from collective.editskinswitcher.tests.utils import FakeTraversalEvent
+    >>> event = FakeTraversalEvent(portal, request)
+
+On an edit url we normally get the edit skin::
+
+    >>> from collective.editskinswitcher.traversal import switch_skin
+    >>> switch_skin(portal, event)
+    >>> portal.getCurrentSkinName()
+    'Sunburst Theme'
+
+In these tests, whenever we have really changed the skin, we need to
+manually switch the skin back to our default, which normally happens
+automatically when your browser makes a new request.
+
+    >>> from collective.editskinswitcher.tests.utils import changeSkin
+    >>> changeSkin(portal, 'Monty Python Skin', portal.REQUEST)
+    >>> portal.getCurrentSkinName()
+    'Monty Python Skin'
+
+We used to simulate authentication with fake __ac cookie but that can
+break the test browser if it authenticates in this or other tests, so
+we authenticate with the test browser instead:
+
+    >>> try:
+    ...     from Testing.testbrowser import Browser
+    ... except ImportError:
+    ...     from Products.Five.testbrowser import Browser
+    >>> from Products.PloneTestCase.setup import portal_owner, default_password
+    >>> portal_url = portal.absolute_url()
+    >>> browser = Browser()
+    >>> browser.handleErrors = False
+    >>> from collective.editskinswitcher.tests.utils import clear_log_entries
+    >>> from collective.editskinswitcher.tests.utils import print_latest_log_entry
+    >>> clear_log_entries(self.portal)
+
+Logout for good measure and then login again:
+
+    >>> browser.open(portal_url + '/logout')
+    >>> print_latest_log_entry(self.portal)
+    >>> browser.open(portal_url + '/login_form')
+    >>> browser.getControl(name='__ac_name').value = portal_owner
+    >>> browser.getControl(name='__ac_password').value = default_password
+    >>> getattr(self.portal, 'logo.jpg')
+    <FSImage at /plone/logo.jpg>
+    >>> browser.getControl(name='submit').click()
+    >>> getattr(self.portal, 'logo.jpg')  # In combination with other tests, this one may fail...
+    <FSImage at /plone/logo.jpg>
+    >>> print_latest_log_entry(self.portal)
+
+We check that we get the logged-in message:
+
+    >>> "You are now logged in" in browser.contents
+    True
+
+We quickly check that the text of a viewlet specifically registered
+for this theme is visible:
+
+    >>> browser.open(portal_url + '/getCurrentSkinName')
+    >>> browser.contents
+    'Monty Python Skin'
+    >>> browser.open(portal_url + '/@@viewlet-test')
+    >>> 'We want a shrubbery!' in browser.contents
+    True
+    >>> 'collective.editskinswitcher.tests.interfaces.IMyTheme' in browser.contents
+    True
+
+Now we change the settings so the url has no influence anymore::
+
+    >>> editskin_props.switch_skin_action = 'no URL based switching'
+    >>> switch_skin(portal, event)
+    >>> portal.getCurrentSkinName()
+    'Monty Python Skin'
+
+Now we set need_authentication to True.  Since we are logged in, we
+should get the edit skin::
+
+    >>> editskin_props.need_authentication = True
+
+Now lets go to the accessibility page and see if its the standard edit
+skin rather than our Monty Python default test one:
+
+    >>> browser.open(portal_url + '/accessibility-info')
+    >>> 'Monty Python' in browser.contents
+    False
+
+We quickly check that the text of a viewlet specifically registered
+for this theme is invisible:
+
+    >>> browser.open(portal_url + '/getCurrentSkinName')
+    >>> browser.contents
+    'Sunburst Theme'
+    >>> browser.open(portal_url + '/@@viewlet-test')
+    >>> 'We want a shrubbery!' in browser.contents
+    False
+    >>> 'collective.editskinswitcher.tests.interfaces.IMyTheme' in browser.contents
+    False
+
+If we set need_authentication to False then we have neither the URL
+nor the authenticated status giving us an edit skin:
+
+    >>> editskin_props.need_authentication = False
+    >>> browser.open(portal_url + '/accessibility-info')
+    >>> 'Monty Python' in browser.contents
+    True
+
+Now we switch the edit skin via authentication back on and use it to logout::
+
+    >>> editskin_props.need_authentication = True
+    >>> browser.open(portal_url)
+    >>> browser.getLink('Log out').click()
+    >>> switch_skin(portal, event)
+    >>> portal.getCurrentSkinName()
+    'Monty Python Skin'
+
+Finally we tear down any changes to the default settings so they can't
+break other tests:
+
+    >>> editskin_props.need_authentication = False
+    >>> editskin_props.switch_skin_action = 'based on edit URL'
+    >>> clear_log_entries(self.portal)

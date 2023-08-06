@@ -1,0 +1,148 @@
+Preview the default skin via the edit skin
+==========================================
+
+Tests for new features by Ed Crewe, Internet Development (University
+of Bristol) August 2008.
+
+This test installs the preview viewlet, using it to replace the
+content in the edit skins view or as a preview action tab.  It then
+checks that the tab or view contains the iframe.  Implementation of a
+tab or view replacement is for the accompanying default theme egg.
+
+First, we must perform some setup of the test browser.
+
+    >>> try:
+    ...     from Testing.testbrowser import Browser
+    ... except ImportError:
+    ...     from Products.Five.testbrowser import Browser
+    >>> portal_url = portal.absolute_url()
+    >>> browser = Browser()
+    >>> browser.handleErrors = False
+    >>> from collective.editskinswitcher.tests.utils import clear_log_entries
+    >>> clear_log_entries(self.portal)
+
+And we make sure we are logged out:
+
+    >>> browser.open(portal_url + '/logout')
+ 
+All our tests are to do with the edit skin interface so lets switch to it:
+
+    >>> from collective.editskinswitcher.tests.utils import TestRequest
+    >>> from collective.editskinswitcher.tests.utils import FakeTraversalEvent
+    >>> from collective.editskinswitcher.traversal import switch_skin
+    >>> request = TestRequest(SERVER_URL='http://127.0.0.1')
+    >>> event = FakeTraversalEvent(portal, request)
+    >>> switch_skin(portal, event)
+    >>> portal.getCurrentSkinName()
+    'Sunburst Theme'
+
+Check we are in the edit skin via the browser
+
+    >>> browser.open(portal_url + '/accessibility-info')
+    >>> 'Monty Python' in browser.contents
+    False
+
+Now we need to login using the default user from PloneTestCase:
+
+    >>> from Products.PloneTestCase.setup import portal_owner, default_password
+
+We use the login form:
+
+    >>> browser.open(portal_url + '/login_form')
+    >>> browser.getControl(name='__ac_name').value = portal_owner
+    >>> browser.getControl(name='__ac_password').value = default_password
+    >>> browser.getControl(name='submit').click()
+
+We check that we get the logged-in message:
+
+    >>> "You are now logged in" in browser.contents
+    True
+
+
+Now lets start our editskinswitcher specific edit skin tests
+------------------------------------------------------------
+
+Make sure we have switched on an edit skins preview tab in the actions:
+
+    >>> from Products.CMFCore.utils import getToolByName
+    >>> from collective.editskinswitcher.tests.add_preview import previewChange
+
+    >>> previewChange(portal,{'add_preview_tab':True})
+
+See if the add_preview handler has done its work:
+
+    >>> a_tool = getToolByName(portal, 'portal_actions')
+    >>> ptabs = getattr(a_tool,'object',None)
+    >>> ptab = getattr(ptabs,'skinpreview',None)
+    >>> ptab.getProperty('visible')
+    True
+
+Check we have the preview tab:
+
+    >>> browser.open(portal_url)
+    >>> '@@preview' in browser.contents
+    True
+
+Click on it and see if we have the preview iframe:
+
+    >>> browser.getLink('Preview').click()
+    >>> '</iframe>' in browser.contents
+    True
+
+Lets switch it back and check again:
+
+    >>> previewChange(portal,{'add_preview_tab':False})
+    >>> ptab.getProperty('visible')
+    False
+
+Make sure we are still in the edit skin:
+
+    >>> switch_skin(portal, event)
+    >>> portal.getCurrentSkinName()
+    'Sunburst Theme'
+
+Confirm via a browser test that the preview tab is no longer there:
+
+    >>> browser.open(portal_url)
+    >>> '@@preview' in browser.contents
+    False
+
+
+Now test preview as a modified view skin
+----------------------------------------
+
+Switch it on:
+
+    >>> previewChange(portal,{'change_view_into_preview':True})
+
+Check the editskinswitcher skins have been put in the edit skin:
+
+    >>> sk_tool = getToolByName(portal, 'portal_skins')
+    >>> sk_tool.getSkinPath('Sunburst Theme').find('editskinswitcher_edit_content') > -1
+    True
+
+Make sure we are still in the edit skin:
+
+    >>> switch_skin(portal, event)
+    >>> portal.getCurrentSkinName()
+    'Sunburst Theme'
+
+Check that the view now has the preview iframe:
+
+    >>> browser.open(portal_url)
+    >>> '</iframe>' in browser.contents
+    True
+
+Now lets turn this off again and confirm the edit skin has changed:
+
+    >>> previewChange(portal,{'change_view_into_preview':False})
+    >>> sk_tool.getSkinPath('Sunburst Theme').find('editskinswitcher_edit_content') > -1
+    False
+
+Change back the skin to the default manually at the end of this test
+in case other tests expect it:
+
+    >>> from collective.editskinswitcher.tests.utils import changeSkin
+    >>> changeSkin(portal, 'Monty Python Skin', portal.REQUEST)
+    >>> browser.open(portal_url + '/logout')
+    >>> clear_log_entries(self.portal)
