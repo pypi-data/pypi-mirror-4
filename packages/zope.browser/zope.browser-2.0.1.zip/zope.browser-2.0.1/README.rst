@@ -1,0 +1,4 @@
+zope.browser
+============
+
+This package provides shared browser components for the Zope Toolkit.
