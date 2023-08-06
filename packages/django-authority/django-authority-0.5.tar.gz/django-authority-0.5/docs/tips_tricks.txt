@@ -1,0 +1,72 @@
+.. _tips-tricks:
+
+======================
+Hints, tips and tricks
+======================
+
+Within a permission class, you can refer to the user and group using self::
+
+    class CampaignPermission(permissions.BasePermission):
+        label = 'campaign_permission'
+        checks = ('do_foo',)
+
+        def do_foo(self, campaign=None):
+            print self.user
+            print self.group
+            # ...
+
+You can unregister permission classes and re-register them::
+
+    authority.unregister(Campaign)
+    authority.register(Campaign, CampaignPermission)
+
+Within a permission class, you can refer to Django's basic permissions::
+
+    class FlagpagePermisson(permissions.BasePermission):
+        label = 'flatpage_permission'
+        checks = ('do_foo',)
+
+        def do_foo(self, campaign=None):
+            if foo and self.change_flatpage():
+                # ...
+
+    authority.register(Flatpage, FlagpagePermisson)
+
+If the ``Permission`` table changes during the lifespan of a django-authority
+permission instance and the smart cache is being used, you will need to call
+invalidate_permissions_cache in order to see that changes::
+
+    class UserPermission(permission.BasePermission):
+        label = 'user_permission'
+        checks = ('do_foo',)
+    authority.register(User, UserPermission)
+
+    user_permission = UserPermission(user)
+
+    # can_foo is False here since the permission has not yet been added.
+    can_foo = user_permission.has_user_perms('foo', user)
+
+    Permission.objects.create(
+        content_type=Permission.objects.get_content_type(User),
+        object_id=user.pk,
+        codename='foo',
+        user=user,
+        approved=True,
+    )
+
+    # can_foo is still False because the permission cache has not been
+    invalidated yet.
+    can_foo = user_permission.has_user_perms('foo', user)
+
+    user_permission.invalidate_permissions_cache()
+
+    # can_foo is now True
+    can_foo = user_permission.has_user_perms('foo', user)
+
+This is particularly useful if you are using the permission instances during a
+request, where it is unlikely that the state of the ``Permission`` table will
+change.
+
+Although the previous example was only passing in a ``user`` into the
+permission, smart caching is used when getting permissions in a ``group`` as
+well.
