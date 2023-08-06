@@ -1,0 +1,60 @@
+This tests tries to make sure that change notes in an item's history are
+correctly added.
+
+First a test browser with a logged-in user holding the necessary permissions
+is needed:
+
+  >>> from plone.app.testing import setRoles
+  >>> from plone.app.testing import TEST_USER_ID
+  >>> from plone.app.testing import TEST_USER_NAME
+  >>> from plone.app.testing import TEST_USER_PASSWORD
+  >>> portal = layer['portal']
+  >>> setRoles(portal, TEST_USER_ID, ['Manager'])
+
+  >>> from plone.testing.z2 import Browser
+  >>> browser = Browser(layer['app'])
+  >>> browser.addHeader('Authorization',
+  ...     'Basic %s:%s' % (TEST_USER_NAME, TEST_USER_PASSWORD))
+
+  >>> browser.open('http://nohost/plone/')
+
+Now let's edit the front page and provide a meaningful change note:
+
+  >>> browser.getLink(url='createObject?type_name=Event').click()
+  >>> browser.getControl('Title').value = 'Test'
+  >>> browser.getControl('Save').click()
+
+  >>> browser.getLink('Edit').click()
+  >>> browser.getControl('Title').value = 'Welcome to Phone!'
+  >>> browser.getControl('Change note').value = 'Foo!'
+  >>> browser.getControl('Save').click()
+
+The given note should now appear in the "history" section and in total there
+should be two revisions listed:
+
+  >>> browser.open('http://nohost/plone/test/@@historyview')
+  >>> browser.contents
+   '...Foo!...'
+
+  >>> browser.contents.count('Revert to this revision')
+  1
+
+When editing the item again, only one new revision should be created. In
+particular, no revision with the comment "Initial revision" should be added
+again.
+
+  >>> browser.getLink('Edit').click()
+  >>> browser.getControl('Title').value = 'Welcome to Clone!'
+  >>> browser.getControl('Change note').value = 'Bar!'
+  >>> browser.getControl('Save').click()
+
+  >>> browser.open('http://nohost/plone/test/@@historyview')
+  >>> browser.contents
+  '...Bar!...
+   ...Foo!...
+   ...Initial revision...'
+
+  >>> browser.contents.count('Revert to this revision')
+  2
+  >>> browser.contents.count('Initial revision')
+  1
