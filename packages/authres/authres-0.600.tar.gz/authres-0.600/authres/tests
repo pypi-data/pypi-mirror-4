@@ -1,0 +1,454 @@
+# coding: utf-8
+
+# Copyright © 2011-2012 Julian Mehnle <julian@mehnle.net>,
+# Copyright © 2011-2013 Scott Kitterman <scott@kitterman.com>
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#  http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""
+Package for parsing ``Authentication-Results`` headers as defined in RFC 5451.
+Optional support for authentication methods defined in RFCs 5617, 6008, 6212,
+and draft-kucherawy-dmarc-base-00.
+>>> import authres
+>>> str(authres.AuthenticationResultsHeader('test.example.org', version=1))
+'Authentication-Results: test.example.org 1; none'
+
+Non-RFC example of no authentication with comment:
+>>> import authres
+>>> str(authres.AuthenticationResultsHeader(authserv_id = 'test.example.org',
+... results = [authres.NoneAuthenticationResult(comment = 'SPF not checked for localhost')]))
+'Authentication-Results: test.example.org; none (SPF not checked for localhost)'
+
+>>> import authres
+>>> arobj = authres.AuthenticationResultsHeader.parse('Authentication-Results: example.com; spf=pass smtp.mailfrom=example.net')
+>>> str(arobj.authserv_id)
+'example.com'
+>>> str(arobj.results[0])
+'spf=pass smtp.mailfrom=example.net'
+>>> str(arobj.results[0].method)
+'spf'
+>>> str(arobj.results[0].result)
+'pass'
+>>> str(arobj.results[0].smtp_mailfrom)
+'example.net'
+>>> str(arobj.results[0].smtp_helo)
+'None'
+>>> str(arobj.results[0].reason)
+'None'
+>>> str(arobj.results[0].properties[0].type)
+'smtp'
+>>> str(arobj.results[0].properties[0].name)
+'mailfrom'
+>>> str(arobj.results[0].properties[0].value)
+'example.net'
+
+# Missing parsing header comment.
+#FIXME
+>>> import authres
+>>> arobj = authres.AuthenticationResultsHeader.parse('Authentication-Results: example.com; auth=pass (cram-md5) smtp.auth=sender@example.net; spf=pass smtp.mailfrom=example.net')
+>>> str(arobj.authserv_id)
+'example.com'
+>>> str(arobj.results[0])
+'auth=pass smtp.auth=sender@example.net'
+>>> str(arobj.results[0].method)
+'auth'
+>>> str(arobj.results[0].result)
+'pass'
+>>> str(arobj.results[0].smtp_auth)
+'sender@example.net'
+>>> str(arobj.results[0].properties[0].type)
+'smtp'
+>>> str(arobj.results[0].properties[0].name)
+'auth'
+>>> str(arobj.results[0].properties[0].value)
+'sender@example.net'
+>>> str(arobj.results[1])
+'spf=pass smtp.mailfrom=example.net'
+>>> str(arobj.results[1].method)
+'spf'
+>>> str(arobj.results[1].result)
+'pass'
+>>> str(arobj.results[1].smtp_mailfrom)
+'example.net'
+>>> str(arobj.results[1].properties[0].type)
+'smtp'
+>>> str(arobj.results[1].properties[0].name)
+'mailfrom'
+>>> str(arobj.results[1].properties[0].value)
+'example.net'
+
+>>> import authres
+>>> arobj = authres.AuthenticationResultsHeader.parse('Authentication-Results: example.com; sender-id=pass header.from=example.com')
+>>> str(arobj.authserv_id)
+'example.com'
+>>> str(arobj.results[0])
+'sender-id=pass header.from=example.com'
+>>> str(arobj.results[0].method)
+'sender-id'
+>>> str(arobj.results[0].result)
+'pass'
+>>> str(arobj.results[0].header_from)
+'example.com'
+>>> try:
+...     str(arobj.results[0].smtp_mailfrom)
+... except AttributeError as x:
+...     print(x)
+'SenderIDAuthenticationResult' object has no attribute 'smtp_mailfrom'
+>>> str(arobj.results[0].properties[0].type)
+'header'
+>>> str(arobj.results[0].properties[0].name)
+'from'
+>>> str(arobj.results[0].properties[0].value)
+'example.com'
+
+# Missing parsing header comment.
+#FIXME
+>>> import authres
+>>> arobj = authres.AuthenticationResultsHeader.parse('Authentication-Results: example.com; sender-id=fail header.from=example.com; dkim=pass (good signature) header.i=sender@example.com')
+>>> str(arobj.authserv_id)
+'example.com'
+>>> str(arobj.results[0])
+'sender-id=fail header.from=example.com'
+>>> str(arobj.results[0].method)
+'sender-id'
+>>> str(arobj.results[0].result)
+'fail'
+>>> str(arobj.results[0].header_from)
+'example.com'
+>>> str(arobj.results[0].properties[0].type)
+'header'
+>>> str(arobj.results[0].properties[0].name)
+'from'
+>>> str(arobj.results[0].properties[0].value)
+'example.com'
+>>> str(arobj.results[1])
+'dkim=pass header.i=sender@example.com'
+>>> str(arobj.results[1].method)
+'dkim'
+>>> str(arobj.results[1].result)
+'pass'
+>>> str(arobj.results[1].header_i)
+'sender@example.com'
+>>> str(arobj.results[1].properties[0].type)
+'header'
+>>> str(arobj.results[1].properties[0].name)
+'i'
+>>> str(arobj.results[1].properties[0].value)
+'sender@example.com'
+
+RFC 5451 B.6(1) modified to use d= instead of i=
+>>> import authres
+>>> dar_pass = authres.DKIMAuthenticationResult(result = 'pass', result_comment = 'good signature',
+... header_d = 'mail-router.example.net')
+>>> dar_fail = authres.DKIMAuthenticationResult(result = 'fail',
+... header_d = 'newyork.example.com', result_comment = 'bad signature')
+>>> str(authres.AuthenticationResultsHeader(authserv_id = 'example.com',
+... results = [dar_pass, dar_fail]))
+'Authentication-Results: example.com; dkim=pass (good signature) header.d=mail-router.example.net; dkim=fail (bad signature) header.d=newyork.example.com'
+>>> dar_pass.match_signature('mail-router.example.net')
+True
+>>> dar_fail.match_signature('mail-router.example.net')
+False
+
+# Missing parsing header comment.
+#FIXME
+>>> import authres
+>>> arobj = authres.AuthenticationResultsHeader.parse('Authentication-Results: example.com; dkim=pass (good signature) header.i=@mail-router.example.net; dkim=fail (bad signature) header.i=@newyork.example.com')
+>>> str(arobj.results[0])
+'dkim=pass header.i=@mail-router.example.net'
+>>> str(arobj.results[0].method)
+'dkim'
+>>> str(arobj.results[0].result)
+'pass'
+>>> str(arobj.results[0].header_i)
+'@mail-router.example.net'
+>>> str(arobj.results[0].properties[0].type)
+'header'
+>>> str(arobj.results[0].properties[0].name)
+'i'
+>>> str(arobj.results[0].properties[0].value)
+'@mail-router.example.net'
+>>> str(arobj.results[1])
+'dkim=fail header.i=@newyork.example.com'
+>>> str(arobj.results[1].method)
+'dkim'
+>>> str(arobj.results[1].result)
+'fail'
+>>> str(arobj.results[1].header_i)
+'@newyork.example.com'
+>>> str(arobj.results[1].properties[0].type)
+'header'
+>>> str(arobj.results[1].properties[0].name)
+'i'
+>>> str(arobj.results[1].properties[0].value)
+'@newyork.example.com'
+
+RFC 5451bis C.6(1) modified to use d= instead of i=
+>>> import authres
+>>> dar_pass = authres.DKIMAuthenticationResult(result = 'pass', reason = 'good signature',
+... header_d = 'mail-router.example.net')
+>>> dar_fail = authres.DKIMAuthenticationResult(result = 'fail',
+... header_d = 'newyork.example.com', reason = 'bad signature')
+>>> str(authres.AuthenticationResultsHeader(authserv_id = 'example.com',
+... results = [dar_pass, dar_fail]))
+'Authentication-Results: example.com; dkim=pass reason="good signature" header.d=mail-router.example.net; dkim=fail reason="bad signature" header.d=newyork.example.com'
+>>> dar_pass.match_signature('mail-router.example.net')
+True
+>>> dar_fail.match_signature('mail-router.example.net')
+False
+
+# Missing parsing header comment.
+#FIXME
+>>> import authres
+>>> arobj = authres.AuthenticationResultsHeader.parse('Authentication-Results: example.com; dkim=pass reason="good signature" header.i=@mail-router.example.net; dkim=fail reason="bad signature" header.i=@newyork.example.com')
+>>> str(arobj.results[0])
+'dkim=pass reason="good signature" header.i=@mail-router.example.net'
+>>> str(arobj.results[0].method)
+'dkim'
+>>> str(arobj.results[0].result)
+'pass'
+>>> str(arobj.results[0].reason)
+'good signature'
+>>> str(arobj.results[0].header_i)
+'@mail-router.example.net'
+>>> str(arobj.results[0].properties[0].type)
+'header'
+>>> str(arobj.results[0].properties[0].name)
+'i'
+>>> str(arobj.results[0].properties[0].value)
+'@mail-router.example.net'
+>>> str(arobj.results[1])
+'dkim=fail reason="bad signature" header.i=@newyork.example.com'
+>>> str(arobj.results[1].method)
+'dkim'
+>>> str(arobj.results[1].result)
+'fail'
+>>> str(arobj.results[1].reason)
+'bad signature'
+>>> str(arobj.results[1].header_i)
+'@newyork.example.com'
+>>> str(arobj.results[1].properties[0].type)
+'header'
+>>> str(arobj.results[1].properties[0].name)
+'i'
+>>> str(arobj.results[1].properties[0].value)
+'@newyork.example.com'
+
+RFC 5451 B.6(2)
+>>> import authres
+>>> str(authres.AuthenticationResultsHeader(authserv_id = 'example.net',
+... results = [authres.DKIMAuthenticationResult(result = 'pass', result_comment = 'good signature',
+... header_i = '@newyork.example.com')]))
+'Authentication-Results: example.net; dkim=pass (good signature) header.i=@newyork.example.com'
+
+# Missing parsing header comment.
+#FIXME
+import authres
+>>> arobj = authres.AuthenticationResultsHeader.parse('Authentication-Results: example.net; dkim=pass (good signature) header.i=@newyork.example.com')
+>>> str(arobj.results[0])
+'dkim=pass header.i=@newyork.example.com'
+>>> str(arobj.results[0].method)
+'dkim'
+>>> str(arobj.results[0].result)
+'pass'
+>>> str(arobj.results[0].header_i)
+'@newyork.example.com'
+>>> str(arobj.results[0].properties[0].type)
+'header'
+>>> str(arobj.results[0].properties[0].name)
+'i'
+>>> str(arobj.results[0].properties[0].value)
+'@newyork.example.com'
+
+RFC 6008 A.1
+>>> import authres
+>>> import authres.dkim_b
+>>> authres_context = authres.FeatureContext(authres.dkim_b)
+>>> dar_b = authres.dkim_b.DKIMAuthenticationResult(result = 'pass', result_comment = 'good signature',
+... header_d = 'newyork.example.com', header_b = 'oINEO8hg')
+>>> str(authres_context.header(authserv_id = 'mail-router.example.net',
+... results = [dar_b, authres.dkim_b.DKIMAuthenticationResult(result = 'fail',
+... header_d = 'newyork.example.com', result_comment = 'bad signature', header_b = 'EToRSuvU')]))
+'Authentication-Results: mail-router.example.net; dkim=pass (good signature) header.d=newyork.example.com header.b=oINEO8hg; dkim=fail (bad signature) header.d=newyork.example.com header.b=EToRSuvU'
+
+RFC 6008 section 4
+>>> authres.dkim_b.DKIMAuthenticationResult.match_signature(dar_b,'newyork.example.com','oINEO8h')
+False
+>>> authres.dkim_b.DKIMAuthenticationResult.match_signature(dar_b,'newyork.example.com','oINEO8hg')
+True
+>>> authres.dkim_b.DKIMAuthenticationResult.match_signature(dar_b,'newyork.example.com','oINEO8hq')
+False
+>>> authres.dkim_b.DKIMAuthenticationResult.match_signature(dar_b,'newyork.example.com','oINEO8hq1')
+False
+>>> dar_b2 = authres.dkim_b.DKIMAuthenticationResult(result = 'pass', result_comment = 'good signature',
+... header_d = 'newyork.example.com', header_b = 'oINEO8')
+>>> authres.dkim_b.DKIMAuthenticationResult.match_signature(dar_b2,'newyork.example.com','oINEO8')
+True
+>>> authres.dkim_b.DKIMAuthenticationResult.match_signature(dar_b2,'newyork.example.com','oINEO8hq')
+False
+>>> authres.dkim_b.DKIMAuthenticationResult.match_signature(dar_b2,'newyork.example.com', None)
+False
+>>> authres.dkim_b.DKIMAuthenticationResult.match_signature(dar_b2,'newyork.example.com', None)
+False
+>>> dar_b_none = authres.dkim_b.DKIMAuthenticationResult(result = 'pass', result_comment = 'good signature',
+... header_d = 'newyork.example.com')
+>>> authres.dkim_b.DKIMAuthenticationResult.match_signature(dar_b_none,'newyork.example.com', None)
+True
+>>> authres.dkim_b.DKIMAuthenticationResult.match_signature(dar_b_none,'newyork.example.com', None, strict=True)
+False
+>>> authres.dkim_b.DKIMAuthenticationResult.match_signature(dar_b_none,'newyork.example.com','oINEO8hq')
+True
+>>> authres.dkim_b.DKIMAuthenticationResult.match_signature(dar_b_none,'newjersey.example.com', None)
+False
+
+# Missing parsing header comment.
+#FIXME
+>>> arobj = authres_context.parse('Authentication-Results: mail-router.example.net; dkim=pass (good signature) header.d=newyork.example.com header.b=oINEO8hg; dkim=fail (bad signature) header.d=newyork.example.com header.b=EToRSuvU')
+>>> str(arobj.results[0])
+'dkim=pass header.d=newyork.example.com header.b=oINEO8hg'
+>>> str(arobj.results[0].method)
+'dkim'
+>>> str(arobj.results[0].result)
+'pass'
+>>> str(arobj.results[0].header_d)
+'newyork.example.com'
+>>> str(arobj.results[0].properties[0].type)
+'header'
+>>> str(arobj.results[0].properties[0].name)
+'d'
+>>> str(arobj.results[0].properties[0].value)
+'newyork.example.com'
+>>> str(arobj.results[0].header_b)
+'oINEO8hg'
+>>> str(arobj.results[0].properties[1].type)
+'header'
+>>> str(arobj.results[0].properties[1].name)
+'b'
+>>> str(arobj.results[0].properties[1].value)
+'oINEO8hg'
+>>> str(arobj.results[1].method)
+'dkim'
+>>> str(arobj.results[1].result)
+'fail'
+>>> str(arobj.results[1].header_d)
+'newyork.example.com'
+>>> str(arobj.results[1].properties[0].type)
+'header'
+>>> str(arobj.results[1].properties[0].name)
+'d'
+>>> str(arobj.results[1].properties[0].value)
+'newyork.example.com'
+>>> str(arobj.results[1].header_b)
+'EToRSuvU'
+>>> str(arobj.results[1].properties[1].type)
+'header'
+>>> str(arobj.results[1].properties[1].name)
+'b'
+>>> str(arobj.results[1].properties[1].value)
+'EToRSuvU'
+
+# RFC 5617 (based on RFC text, no examples provided)
+>>> import authres
+>>> import authres.dkim_adsp
+>>> authres_context = authres.FeatureContext(authres.dkim_adsp)
+>>> str(authres_context.header(authserv_id = 'example.com',
+... results = [authres.DKIMAuthenticationResult(result = 'fail', result_comment = 'bad signature',
+... header_d = 'bank.example.net'), authres.dkim_adsp.DKIMADSPAuthenticationResult(result = 'discard',
+... header_from = 'phish@bank.example.com', result_comment = 'From domain and d= domain match')]))
+'Authentication-Results: example.com; dkim=fail (bad signature) header.d=bank.example.net; dkim-adsp=discard (From domain and d= domain match) header.from=phish@bank.example.com'
+
+# Missing parsing header comment.
+#FIXME
+>>> arobj = authres_context.parse('Authentication-Results: example.com; dkim=fail (bad signature) header.d=bank.example.net; dkim-adsp=discard (From domain and d= domain match) header.from=phish@bank.example.com')
+>>> str(arobj.results[1])
+'dkim-adsp=discard header.from=phish@bank.example.com'
+>>> str(arobj.results[1].method)
+'dkim-adsp'
+>>> str(arobj.results[1].result)
+'discard'
+>>> str(arobj.results[1].header_from)
+'phish@bank.example.com'
+>>> str(arobj.results[1].properties[0].type)
+'header'
+>>> str(arobj.results[1].properties[0].name)
+'from'
+>>> str(arobj.results[1].properties[0].value)
+'phish@bank.example.com'
+
+RFC 6212 A.1
+>>> import authres
+>>> import authres.dkim_b, authres.vbr
+>>> authres_context = authres.FeatureContext(authres.dkim_b, authres.vbr)
+>>> str(authres_context.header(authserv_id = 'mail-router.example.net',
+... results = [authres.dkim_b.DKIMAuthenticationResult(result = 'pass', result_comment = 'good signature',
+... header_d = 'newyork.example.com', header_b = 'oINEO8hg'), authres.vbr.VBRAuthenticationResult(result = 'pass',
+... header_md = 'newyork.example.com', result_comment = 'voucher.example.net',
+... header_mv = 'voucher.example.org')]))
+'Authentication-Results: mail-router.example.net; dkim=pass (good signature) header.d=newyork.example.com header.b=oINEO8hg; vbr=pass (voucher.example.net) header.md=newyork.example.com header.mv=voucher.example.org'
+
+# Missing parsing header comment.
+#FIXME
+>>> arobj = authres_context.parse('Authentication-Results: mail-router.example.net; dkim=pass (good signature) header.d=newyork.example.com header.b=oINEO8hg; vbr=pass (voucher.example.net) header.md=newyork.example.com header.mv=voucher.example.org')
+>>> str(arobj.results[1])
+'vbr=pass header.md=newyork.example.com header.mv=voucher.example.org'
+>>> str(arobj.results[1].method)
+'vbr'
+>>> str(arobj.results[1].result)
+'pass'
+>>> str(arobj.results[1].header_md)
+'newyork.example.com'
+>>> str(arobj.results[1].properties[0].type)
+'header'
+>>> str(arobj.results[1].properties[0].name)
+'md'
+>>> str(arobj.results[1].properties[0].value)
+'newyork.example.com'
+>>> str(arobj.results[1].header_mv)
+'voucher.example.org'
+>>> str(arobj.results[1].properties[1].type)
+'header'
+>>> str(arobj.results[1].properties[1].name)
+'mv'
+>>> str(arobj.results[1].properties[1].value)
+'voucher.example.org'
+
+draft-kucherawy-dmarc-base-00 example from opendnmarc
+>>> import authres
+>>> import authres.dmarc
+>>> new_context = authres.FeatureContext(authres.dmarc)
+>>> str(new_context.header(authserv_id = 'mail-router.example.net',
+... results = [authres.dmarc.DMARCAuthenticationResult(result = 'pass',
+... header_from = 'example.com')]))
+'Authentication-Results: mail-router.example.net; dmarc=pass header.from=example.com'
+
+# Missing parsing header comment.
+#FIXME
+>>> newarobj = new_context.parse('Authentication-Results: mail-router.example.net; dmarc=pass header.from=example.com')
+>>> str(newarobj.results[0])
+'dmarc=pass header.from=example.com'
+>>> str(newarobj.results[0].method)
+'dmarc'
+>>> str(newarobj.results[0].result)
+'pass'
+>>> str(newarobj.results[0].header_from)
+'example.com'
+>>> str(newarobj.results[0].properties[0].type)
+'header'
+>>> str(newarobj.results[0].properties[0].name)
+'from'
+>>> str(newarobj.results[0].properties[0].value)
+'example.com'
+
+"""
+
+# vim:sw=4 sts=4
