@@ -1,0 +1,10 @@
+__version__ = "0.1.50"
+__git_commiter_name__ = "root"
+__git_commiter_email__ = "root@guyr-ubuntu.infinidat.com"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '63b32463e1bfdefee1dbc40b18cc290a3e13152d'
+__git_head_subject__ = 'Finished release v0.1.50.'
+__git_head_message__ = '* release/v0.1.50:\n  Freezing dependencies\n  STORAGEMODEL-198 fix missing return\n  TRIVIAL further update doc conf.py\n  TRIVIAL fix doc conf.py\n  empty test commit\n  empty test commit\n  empty test commit\n  empty test commit\n  empty test commit\n  empty test commit\n  Unfreezing dependencies\n  empty commit after version v0.1.49'
+__git_dirty_diff__ = ''
