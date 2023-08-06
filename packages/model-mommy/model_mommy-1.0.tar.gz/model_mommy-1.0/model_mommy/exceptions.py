@@ -1,0 +1,16 @@
+#coding:utf-8
+
+class RecipeNotFound(Exception):
+    pass
+
+
+class ModelNotFound(Exception):
+    pass
+
+
+class AmbiguousModelName(Exception):
+    pass
+
+
+class InvalidQuantityException(Exception):
+    pass
