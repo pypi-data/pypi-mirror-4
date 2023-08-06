@@ -1,0 +1,102 @@
+####################################
+# New Pyomo DAE Components and Use
+####################################
+
+Components
+============
+* DiffSet
+* Differential
+
+Component Descriptions and Use
+================================
+
+-------------------------------- 
+DiffSet
+-------------------------------- 
+
+This component represents the term in the denominator of a derivative,
+i.e. what the derivative is being taken with respect to or the
+independent variable(In many cases this is time). Minimally this set
+must contain two indicies indicating the initial and final values for
+the independent variable where the initial value must be less than the
+final value. Additional indicies may be specified if the user wants to
+specify certain points in the range where finite elements must be
+located during the discretization. All indicies must be numeric
+values. Advanced users may initialize the DiffSet with all the desired
+discretization points before discretizing the model in order to save
+processing time after the discretization transformation.
+
+--------------------------------
+
+Example Use:
+model.t = DiffSet(bounds=(0,5))
+
+model.t = DiffSet(initialize=[0,1,2,5])
+
+model.t = DiffSet()
+# .dat file
+set t := 0 0.5 2.25 3.75 5;
+** Notice that if a .dat file is used to initialize a DiffSet it is
+done using the 'set' command **
+
+---------------------------------
+Differential
+---------------------------------
+This is a component used to specify differential equations in the
+model. The user must write a function which returns the right hand
+side of an equation in the form 
+dx/dt = f(x,y,u,t,p) 
+where
+x: differential variables
+y: algebraic variables
+u: control variables
+t: independent variable
+p: parameters which do not depend on the independent variable
+
+A differential has no positional arguments. The required keyword
+arguments are 'dvar' and 'rule'. 'dvar' represents the differential
+variable or the variable whos derivative is equal to the differential
+equation specified in the rule. The differential variable must be
+*explicitly* indexed by at least one DiffSet. If the differential
+variable is indexed by multiple DiffSets then the 'dset' keyword
+argument must be specified in the Differential to indicate which
+DiffSet is to be used as the independent variable in differential
+equation. If the differential is only indexed by a single DiffSet then
+that DiffSet is assumed to be the independent variable and the 'dset'
+keyword argument is optional.
+
+The 'rule' keyword argument should be set to a function which returns
+the expression for the right hand side of the differential
+equation. The indexing on the function should exactly match the
+indexing on the differential variable in order and
+number. Additionally, the indexing on the Differential object will
+match that of the differential variable.
+
+An optional 'bounds' keyword argument may be specified if one would
+like to set bounds on the derivative of the differential
+variable. 'bounds' can be set to a tuple if they are constant for all
+derivatives or they can be set to a function which computes the bounds
+for a particular derivative.
+
+Example Use:
+model.t = DiffSet(bounds=(0,5))
+model.tray = RangeSet(8)
+model.x1 = Var(model.t)
+model.x2 = Var(model.tray, model.t)
+
+def _x1dot(model, ti):
+    return model.x1[ti]**2 + ti*6
+model.x1dot = Differential(dset=model.t,dvar=model.x1, rule=_x1dot)
+
+def _x2dot(model, i, ti):
+    return model.x2[i,ti]*3 + ti**2
+model.x2dot = Differential(dvar=model.x2, rule=_x2dot, bounds=(None,5)
+
+If you would like to use a derivative in a separate constraint (such
+as setting an initial condition) you can access it like a regular
+variable. See the example below.
+
+Example Accessing a Derivative:
+def _x2dot_init(model,i):
+    return model.x2dot[i,0] == 0
+model.x2dot_init = Constraint(model.tray,rule=_x2dot_init)
