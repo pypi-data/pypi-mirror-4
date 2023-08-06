@@ -1,0 +1,189 @@
+C     THIS FILE FOR THE COMPUTING OF KENDALL TAU
+C     COMES FROM SRC OF R PACKAGE CLINFUN
+
+C     WRITTEN BY VENKATRAMAN E SESHAN 4/20/2011
+C     X, Y ARE ORDERED USING ORDER(X,Y)
+      SUBROUTINE KTAU(N, X, Y, TAU)
+      INTEGER N
+      DOUBLE PRECISION X(N), Y(N), TAU
+
+      INTEGER I, N0, NTIES
+      DOUBLE PRECISION DN, DNX, DNY, TIES
+
+C     STORAGE FOR IDX USED TO STORE INDICES FOR BLOCKS OF X
+      INTEGER, ALLOCATABLE :: IDX(:)
+      ALLOCATE(IDX(N))
+
+      DN = DFLOAT(N)*DFLOAT(N-1)/2
+
+      DNX = 0.0D0
+      NTIES = 1
+      N0 = 0
+C     FIND THE TIES IN X, CALCULATE CORRECTION FOR TIES
+C     N0 IS THE NUMBER OF UNIQUE X VALUES
+      DO 10 I = 1, N-1
+         IF (X(I) .EQ. X(I+1)) THEN
+            NTIES = NTIES + 1
+         ELSE
+            N0 = N0+1
+C     HERE IDX[I] = SUM(X == UX[I]) WHERE UX IS SORT(UNIQUE(X))
+            IDX(N0) = NTIES
+            TIES = DFLOAT(NTIES)
+            DNX = DNX + TIES*(TIES-1.0D0)/2.0D0
+            NTIES = 1
+         ENDIF
+ 10   CONTINUE
+      N0 = N0+1
+      IDX(N0) = NTIES
+      IF (X(N-1) .EQ. X(N)) THEN 
+         TIES = DFLOAT(NTIES)
+         DNX = DNX + TIES*(TIES-1.0D0)/2.0D0
+      ENDIF
+C     NOW IDX[I] = SUM(X <= UX[I]) WHERE UX IS SORT(UNIQUE(X))
+      DO 15 I = 2,N0
+         IDX(I) = IDX(I-1) + IDX(I)
+ 15   CONTINUE
+
+C     CALL THE SUBROUTINE TO COMPUTE THE #CONCORDANT - #DISCORDANT
+      CALL COUNTALL(N, Y, N0, IDX, TAU)
+
+C     THE CALL ABOVE RETURNS Y IN SORTED ORDER, NOW ADJUST FOR TIES IN Y
+      DNY = 0
+      TIES = 1.0D0
+      DO 20 I = 1, N
+         IF (Y(I) .EQ. Y(I+1)) THEN
+            TIES = TIES + 1.0D0
+         ELSE
+            DNY = DNY + TIES*(TIES-1.0D0)/2.0D0
+            TIES = 1.0D0
+         ENDIF
+ 20   CONTINUE
+      IF (Y(N-1) .EQ. Y(N)) THEN 
+         DNY = DNY + TIES*(TIES-1.0D0)/2.0D0
+      ENDIF
+
+C     CALCULATE KENDALL'S TAU-B
+      TAU = TAU/SQRT((DN-DNX)*(DN-DNY))
+
+      DEALLOCATE(IDX)
+
+      RETURN
+      END
+
+C     LOOP Y THROUGH THE UNIQUE VALUES OF X, COALESCING PAIR AT A TIME
+      SUBROUTINE COUNTALL(N, Y, N0, IDX, TAU)
+      INTEGER N, N0, IDX(N0)
+      DOUBLE PRECISION Y(N), TAU
+
+      INTEGER I, N1, M, M1, M0
+      DOUBLE PRECISION BTAU
+
+      TAU = 0
+C     THIS LOOP MERGES CONSECUTIVE PAIRS OF BLOCKS OF X 
+C     STARTING WITH INDIVIDUAL (UNIQUE) X VALUES
+C     EVENTUALLY LEADING TO A SINGLE BLOCK IN LOG2(N0) STEPS
+      DO 20 WHILE (N0 .GT. 1)
+         N1 = N0/2
+         M = IDX(2)
+         M1 = IDX(1)
+         M0 = 1
+         CALL BLOCKCOUNT(M, Y(M0), M1, BTAU)
+         TAU = TAU + BTAU
+         IDX(1) = IDX(2)
+         DO 10 I = 2,N1
+            M0 = IDX(2*(I-1)) + 1
+            M = IDX(2*I) - M0 + 1
+            M1 = IDX(2*I-1) - M0 + 1
+            CALL BLOCKCOUNT(M, Y(M0), M1, BTAU)
+            TAU = TAU + BTAU
+            IDX(I) = IDX(2*I)
+ 10      CONTINUE
+         IF (2*N1 .LT. N0) THEN
+            IDX(N1+1) = IDX(N0)
+            N0 = N1 + 1
+         ELSE
+            N0 = N1
+         ENDIF
+ 20   CONTINUE
+
+      RETURN
+      END
+
+C     BLOCKS A = 1,...,M1 AND B=M1+1,...,M; X[I] < X[J] FOR I IN A & J IN B
+C     Y'S SORTED WITHIN BLOCKS Y[1] <= ... <= Y[M1] AND Y[M1+1] <= ... <= Y[M]
+C     THIS SUBROUTINE COMPUTES {I(Y[I] < Y[J]) - I(Y[I] > Y[J])}
+C     SUMMED OVER I = 1,...,M1 AND J = M1+1,...,M. ALSO RETURNS SORTED Y
+      SUBROUTINE BLOCKCOUNT(M, Y, M1, BTAU)
+      INTEGER M, M1
+      DOUBLE PRECISION Y(M), BTAU
+
+      INTEGER I, J, L, MP1
+      DOUBLE PRECISION NUMLT, NUMEQ, NUMGT, CURY
+
+C     TEMPORARY SPACE FOR Y SO THAT SORTED Y CAN BE RETURNED
+      DOUBLE PRECISION, ALLOCATABLE :: LOCALY(:)
+C     NEED THE M+1TH VALUE FOR THE WHILE LOOP
+      MP1 = M+1
+      ALLOCATE(LOCALY(MP1))
+
+
+C     COPY Y INTO LOCALY
+      DO 10 I = 1,M
+         LOCALY(I) = Y(I)
+ 10   CONTINUE
+C     NEED LOCALY[M+1] LARGER THAN Y[M1] (MAKE IT LARGER THAN ALL Y'S)
+      LOCALY(MP1) = MAX(Y(M),Y(M1))+1
+
+C     INITIALIZE NUMBER LT, EQ, AND GT AS WELL AS BTAU
+C     AT THE START ALL Y[M1+1] TO Y[M] ARE ASSUMED LARGER
+      NUMLT = 0
+      NUMGT = DFLOAT(M-M1)
+      NUMEQ = 0
+
+C     INITIALIZE BLOCK COUNT
+      BTAU = 0
+C     START WITH CURRENT Y SMALLER THAN Y[1]
+      CURY = LOCALY(1) - 1
+      J = M1+1
+      L = 0
+C     LOOPS THROUGH Y[1] ... Y[M1]
+      DO 50 I = 1, M1
+         IF (CURY .LT. LOCALY(I)) THEN
+            CURY = LOCALY(I)
+            NUMLT = NUMLT + NUMEQ
+            NUMEQ = 0
+C     FIND Y[M1+1 ... M] LESS THAN CURRENT Y[I]
+            DO 20 WHILE ((LOCALY(J) .LT. CURY) .AND. (J .LE. M))
+C     ADD THE Y'S TO THE SORTED LIST
+               L = L+1
+               Y(L) = LOCALY(J)
+C     ADJUEST THE NUMBER GREATER AND LESS ACCORDINGLY
+               NUMLT = NUMLT + 1
+               NUMGT = NUMGT - 1
+               J = J+1
+ 20         CONTINUE
+C     NOW FIND Y[M1+1 ... M] EQUAL TO CURRENT Y[I]
+            DO 30 WHILE ((LOCALY(J) .EQ. CURY) .AND. (J .LE. M))
+C     ADD THE Y'S TO THE SORTED LIST
+               L = L+1
+               Y(L) = LOCALY(J)
+               NUMEQ = NUMEQ + 1
+               J = J+1
+ 30         CONTINUE
+C     ADJUST NUMBER GREATER THAN CURRENT Y[I]
+            NUMGT = NUMGT - NUMEQ
+            L = L+1
+            Y(L) = LOCALY(I)
+            BTAU = BTAU + NUMGT - NUMLT
+         ELSE
+C     CONTRIBUTION TO TAU WHEN Y[I] = Y[I-1] 
+            L = L+1
+            Y(L) = LOCALY(I)
+            BTAU = BTAU + NUMGT - NUMLT
+         ENDIF
+ 50   CONTINUE
+ 
+      DEALLOCATE(LOCALY)
+
+      RETURN
+      END

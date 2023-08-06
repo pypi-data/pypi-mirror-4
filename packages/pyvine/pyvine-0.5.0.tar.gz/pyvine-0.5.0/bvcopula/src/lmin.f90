@@ -1,0 +1,518 @@
+FUNCTION LOCAL_MIN ( A, B, EPS, T, LOGLIKFUN, U1, U2, NNUM, X )
+!
+! AMENDMENT BY ZFYUAN, FRI DEC 28 14:11, 2012. 
+!
+!   AMENDMENT IS DONE TO THE ORIGINAL ONE FOR FIXING BUG CAUSED BY
+!   'INTERNAL PROCEDURE XXX NOT ALLOWED IN AN ACTUAL ARGUMENT'. THE
+!   LOGLIKELIHOOD FUNCTION 'LOGLIKFUN' WITH 'U1', 'U2' AND 'N' ARE ADDED
+!   INTO THE ARGUMENT LIST OF 'LOCAL_MIN'. SINCE THE INTERFACE OF
+!   LOGLIKFUN FOR STUDENT T AND OTHER BV COPULA ARE DIFFERENT,
+!   'LOCAL_MIN_T' ARE CREATED.
+! 
+! *****************************************************************************80
+!
+!! LOCAL_MIN SEEKS A LOCAL MINIMUM OF A FUNCTION F(X) IN AN INTERVAL [A,B].
+!
+!  DISCUSSION:
+!
+!    THE METHOD USED IS A COMBINATION OF GOLDEN SECTION SEARCH AND
+!    SUCCESSIVE PARABOLIC INTERPOLATION.  CONVERGENCE IS NEVER MUCH SLOWER
+!    THAN THAT FOR A FIBONACCI SEARCH.  IF F HAS A CONTINUOUS SECOND
+!    DERIVATIVE WHICH IS POSITIVE AT THE MINIMUM (WHICH IS NOT AT A OR
+!    B), THEN CONVERGENCE IS SUPERLINEAR, AND USUALLY OF THE ORDER OF
+!    ABOUT 1.324....
+!
+!    THE VALUES EPS AND T DEFINE A TOLERANCE TOL = EPS * ABS ( X ) + T.
+!    F IS NEVER EVALUATED AT TWO POINTS CLOSER THAN TOL.  
+!
+!    IF F IS A UNIMODAL FUNCTION AND THE COMPUTED VALUES OF F ARE ALWAYS
+!    UNIMODAL WHEN SEPARATED BY AT LEAST SQEPS * ABS ( X ) + (T/3), THEN
+!    LOCAL_MIN APPROXIMATES THE ABSCISSA OF THE GLOBAL MINIMUM OF F ON THE 
+!    INTERVAL [A,B] WITH AN ERROR LESS THAN 3*SQEPS*ABS(LOCAL_MIN)+T.  
+!
+!    IF F IS NOT UNIMODAL, THEN LOCAL_MIN MAY APPROXIMATE A LOCAL, BUT 
+!    PERHAPS NON-GLOBAL, MINIMUM TO THE SAME ACCURACY.
+!
+!  LICENSING:
+!
+!    THIS CODE IS DISTRIBUTED UNDER THE GNU LGPL LICENSE. 
+!
+!  MODIFIED:
+!
+!    13 APRIL 2008
+!
+!  AUTHOR:
+!
+!    ORIGINAL FORTRAN77 VERSION BY RICHARD BRENT.
+!    FORTRAN90 VERSION BY JOHN BURKARDT.
+!
+!  REFERENCE:
+!
+!    RICHARD BRENT,
+!    ALGORITHMS FOR MINIMIZATION WITHOUT DERIVATIVES,
+!    DOVER, 2002,
+!    ISBN: 0-486-41998-3,
+!    LC: QA402.5.B74.
+!
+!  PARAMETERS:
+!
+!    INPUT, REAL ( KIND = 8 ) A, B, THE ENDPOINTS OF THE INTERVAL.
+!
+!    INPUT, REAL ( KIND = 8 ) EPS, A POSITIVE RELATIVE ERROR TOLERANCE.
+!    EPS SHOULD BE NO SMALLER THAN TWICE THE RELATIVE MACHINE PRECISION,
+!    AND PREFERABLY NOT MUCH LESS THAN THE SQUARE ROOT OF THE RELATIVE
+!    MACHINE PRECISION.
+!
+!    INPUT, REAL ( KIND = 8 ) T, A POSITIVE ABSOLUTE ERROR TOLERANCE.
+!
+!    INPUT, EXTERNAL REAL ( KIND = 8 ) F, THE NAME OF A USER-SUPPLIED
+!    FUNCTION, OF THE FORM "FUNCTION F ( X )", WHICH EVALUATES THE
+!    FUNCTION WHOSE LOCAL MINIMUM IS BEING SOUGHT.
+!
+!    OUTPUT, REAL ( KIND = 8 ) X, THE ESTIMATED VALUE OF AN ABSCISSA
+!    FOR WHICH F ATTAINS A LOCAL MINIMUM VALUE IN [A,B].
+!
+!    OUTPUT, REAL ( KIND = 8 ) LOCAL_MIN, THE VALUE F(X).
+!
+  IMPLICIT NONE
+
+  INTERFACE
+     FUNCTION LOGLIKFUN(U1, U2, PARA, N)
+       IMPLICIT NONE
+       REAL (KIND = 8) :: U1(N), U2(N), PARA
+       INTEGER         :: N
+       REAL (KIND = 8) :: LOGLIKFUN
+     END FUNCTION LOGLIKFUN
+  END INTERFACE
+  
+  REAL ( KIND = 8 ) U1(NNUM), U2(NNUM)
+  INTEGER           NNUM
+
+  REAL ( KIND = 8 ) A
+  REAL ( KIND = 8 ) B
+  REAL ( KIND = 8 ) C
+  REAL ( KIND = 8 ) D
+  REAL ( KIND = 8 ) E
+  REAL ( KIND = 8 ) EPS
+  REAL ( KIND = 8 ) FU
+  REAL ( KIND = 8 ) FV
+  REAL ( KIND = 8 ) FW
+  REAL ( KIND = 8 ) FX
+  REAL ( KIND = 8 ) LOCAL_MIN
+  REAL ( KIND = 8 ) M
+  REAL ( KIND = 8 ) P
+  REAL ( KIND = 8 ) Q
+  REAL ( KIND = 8 ) R
+  REAL ( KIND = 8 ) SA
+  REAL ( KIND = 8 ) SB
+  REAL ( KIND = 8 ) T
+  REAL ( KIND = 8 ) T2
+  REAL ( KIND = 8 ) TOL
+  REAL ( KIND = 8 ) U
+  REAL ( KIND = 8 ) V
+  REAL ( KIND = 8 ) W
+  REAL ( KIND = 8 ) X
+!
+!  C IS THE SQUARE OF THE INVERSE OF THE GOLDEN RATIO.
+!
+  C = 0.5D+00 * ( 3.0D+00 - SQRT ( 5.0D+00 ) )
+
+  SA = A
+  SB = B
+  X = SA + C * ( B - A )
+  W = X
+  V = W
+  E = 0.0D+00
+  FX =  - LOGLIKFUN(U1, U2, X, NNUM)
+  FW = FX
+  FV = FW
+
+  DO
+
+    M = 0.5D+00 * ( SA + SB ) 
+    TOL = EPS * ABS ( X ) + T
+    T2 = 2.0D+00 * TOL
+!
+!  CHECK THE STOPPING CRITERION.
+!
+    IF ( ABS ( X - M ) <= T2 - 0.5D+00 * ( SB - SA ) ) THEN
+      EXIT
+    END IF
+!
+!  FIT A PARABOLA.
+!
+    R = 0.0D+00
+    Q = R
+    P = Q
+
+    IF ( TOL < ABS ( E ) ) THEN
+
+      R = ( X - W ) * ( FX - FV )
+      Q = ( X - V ) * ( FX - FW )
+      P = ( X - V ) * Q - ( X - W ) * R
+      Q = 2.0D+00 * ( Q - R )
+
+      IF ( 0.0D+00 < Q ) THEN
+        P = - P
+      END IF
+
+      Q = ABS ( Q )
+
+      R = E
+      E = D
+
+    END IF
+
+    IF ( ABS ( P ) < ABS ( 0.5D+00 * Q * R ) .AND. &
+         Q * ( SA - X ) < P .AND. &
+         P < Q * ( SB - X ) ) THEN
+!
+!  TAKE THE PARABOLIC INTERPOLATION STEP.
+!
+      D = P / Q
+      U = X + D
+!
+!  F MUST NOT BE EVALUATED TOO CLOSE TO A OR B.
+!
+      IF ( ( U - SA ) < T2 .OR. ( SB - U ) < T2 ) THEN
+
+        IF ( X < M ) THEN
+          D = TOL
+        ELSE
+          D = - TOL
+        END IF
+
+      END IF
+!
+!  A GOLDEN-SECTION STEP.
+!
+    ELSE
+
+      IF ( X < M ) THEN
+        E = SB - X
+      ELSE
+        E = A - X
+      END IF
+
+      D = C * E
+
+    END IF
+!
+!  F MUST NOT BE EVALUATED TOO CLOSE TO X.
+!
+    IF ( TOL <= ABS ( D ) ) THEN
+      U = X + D
+    ELSE IF ( 0.0D+00 < D ) THEN
+      U = X + TOL
+    ELSE
+      U = X - TOL
+    END IF
+
+    ! FU = F ( U )
+    FU = - LOGLIKFUN( U1, U2, U, NNUM) ! ZFYUAN AMEND, FRI DEC 28 14:08 2012
+!
+!  UPDATE A, B, V, W, AND X.
+!
+    IF ( FU <= FX ) THEN
+
+      IF ( U < X ) THEN
+        SB = X
+      ELSE
+        SA = X
+      END IF
+
+      V = W
+      FV = FW
+      W = X
+      FW = FX
+      X = U
+      FX = FU
+
+    ELSE
+
+      IF ( U < X ) THEN
+        SA = U
+      ELSE
+        SB = U
+      END IF
+
+      IF ( FU <= FW .OR. W == X ) THEN
+        V = W
+        FV = FW
+        W = U
+        FW = FU
+      ELSE IF ( FU <= FV .OR. V == X .OR. V== W ) THEN
+        V = U
+        FV = FU
+      END IF
+
+    END IF
+
+  END DO
+
+  LOCAL_MIN = FX
+
+  RETURN
+
+END FUNCTION LOCAL_MIN
+
+
+
+FUNCTION LOCAL_MIN_T ( A, B, EPS, T, LOGLIKFUN, U1, U2, PARA2, NNUM, X )
+!
+! AMENDMENT BY ZFYUAN, FRI DEC 28 14:15, 2012. 
+!
+!    'LOCAL_MIN_T' FOR THE STUDENT T COPULA.
+! 
+! *****************************************************************************80
+!
+!! LOCAL_MIN SEEKS A LOCAL MINIMUM OF A FUNCTION F(X) IN AN INTERVAL [A,B].
+!
+!  DISCUSSION:
+!
+!    THE METHOD USED IS A COMBINATION OF GOLDEN SECTION SEARCH AND
+!    SUCCESSIVE PARABOLIC INTERPOLATION.  CONVERGENCE IS NEVER MUCH SLOWER
+!    THAN THAT FOR A FIBONACCI SEARCH.  IF F HAS A CONTINUOUS SECOND
+!    DERIVATIVE WHICH IS POSITIVE AT THE MINIMUM (WHICH IS NOT AT A OR
+!    B), THEN CONVERGENCE IS SUPERLINEAR, AND USUALLY OF THE ORDER OF
+!    ABOUT 1.324....
+!
+!    THE VALUES EPS AND T DEFINE A TOLERANCE TOL = EPS * ABS ( X ) + T.
+!    F IS NEVER EVALUATED AT TWO POINTS CLOSER THAN TOL.  
+!
+!    IF F IS A UNIMODAL FUNCTION AND THE COMPUTED VALUES OF F ARE ALWAYS
+!    UNIMODAL WHEN SEPARATED BY AT LEAST SQEPS * ABS ( X ) + (T/3), THEN
+!    LOCAL_MIN APPROXIMATES THE ABSCISSA OF THE GLOBAL MINIMUM OF F ON THE 
+!    INTERVAL [A,B] WITH AN ERROR LESS THAN 3*SQEPS*ABS(LOCAL_MIN)+T.  
+!
+!    IF F IS NOT UNIMODAL, THEN LOCAL_MIN MAY APPROXIMATE A LOCAL, BUT 
+!    PERHAPS NON-GLOBAL, MINIMUM TO THE SAME ACCURACY.
+!
+!  LICENSING:
+!
+!    THIS CODE IS DISTRIBUTED UNDER THE GNU LGPL LICENSE. 
+!
+!  MODIFIED:
+!
+!    13 APRIL 2008
+!
+!  AUTHOR:
+!
+!    ORIGINAL FORTRAN77 VERSION BY RICHARD BRENT.
+!    FORTRAN90 VERSION BY JOHN BURKARDT.
+!
+!  REFERENCE:
+!
+!    RICHARD BRENT,
+!    ALGORITHMS FOR MINIMIZATION WITHOUT DERIVATIVES,
+!    DOVER, 2002,
+!    ISBN: 0-486-41998-3,
+!    LC: QA402.5.B74.
+!
+!  PARAMETERS:
+!
+!    INPUT, REAL ( KIND = 8 ) A, B, THE ENDPOINTS OF THE INTERVAL.
+!
+!    INPUT, REAL ( KIND = 8 ) EPS, A POSITIVE RELATIVE ERROR TOLERANCE.
+!    EPS SHOULD BE NO SMALLER THAN TWICE THE RELATIVE MACHINE PRECISION,
+!    AND PREFERABLY NOT MUCH LESS THAN THE SQUARE ROOT OF THE RELATIVE
+!    MACHINE PRECISION.
+!
+!    INPUT, REAL ( KIND = 8 ) T, A POSITIVE ABSOLUTE ERROR TOLERANCE.
+!
+!    INPUT, EXTERNAL REAL ( KIND = 8 ) F, THE NAME OF A USER-SUPPLIED
+!    FUNCTION, OF THE FORM "FUNCTION F ( X )", WHICH EVALUATES THE
+!    FUNCTION WHOSE LOCAL MINIMUM IS BEING SOUGHT.
+!
+!    OUTPUT, REAL ( KIND = 8 ) X, THE ESTIMATED VALUE OF AN ABSCISSA
+!    FOR WHICH F ATTAINS A LOCAL MINIMUM VALUE IN [A,B].
+!
+!    OUTPUT, REAL ( KIND = 8 ) LOCAL_MIN, THE VALUE F(X).
+!
+  IMPLICIT NONE
+
+  INTERFACE
+     FUNCTION LOGLIKFUN(U1, U2, PARA2, PARA, N)
+       IMPLICIT NONE
+       REAL (KIND = 8) :: U1(N), U2(N), PARA, PARA2
+       INTEGER         :: N
+       REAL (KIND = 8) :: LOGLIKFUN
+     END FUNCTION LOGLIKFUN
+  END INTERFACE
+  
+  REAL ( KIND = 8 ) :: U1(NNUM), U2(NNUM)
+  INTEGER           :: NNUM
+  REAL ( KIND = 8 ) :: PARA2
+
+  REAL ( KIND = 8 ) A
+  REAL ( KIND = 8 ) B
+  REAL ( KIND = 8 ) C
+  REAL ( KIND = 8 ) D
+  REAL ( KIND = 8 ) E
+  REAL ( KIND = 8 ) EPS
+  REAL ( KIND = 8 ) FU
+  REAL ( KIND = 8 ) FV
+  REAL ( KIND = 8 ) FW
+  REAL ( KIND = 8 ) FX
+  REAL ( KIND = 8 ) LOCAL_MIN_T
+  REAL ( KIND = 8 ) M
+  REAL ( KIND = 8 ) P
+  REAL ( KIND = 8 ) Q
+  REAL ( KIND = 8 ) R
+  REAL ( KIND = 8 ) SA
+  REAL ( KIND = 8 ) SB
+  REAL ( KIND = 8 ) T
+  REAL ( KIND = 8 ) T2
+  REAL ( KIND = 8 ) TOL
+  REAL ( KIND = 8 ) U
+  REAL ( KIND = 8 ) V
+  REAL ( KIND = 8 ) W
+  REAL ( KIND = 8 ) X
+!
+!  C IS THE SQUARE OF THE INVERSE OF THE GOLDEN RATIO.
+!
+  C = 0.5D+00 * ( 3.0D+00 - SQRT ( 5.0D+00 ) )
+
+  SA = A
+  SB = B
+  X = SA + C * ( B - A )
+  W = X
+  V = W
+  E = 0.0D+00
+  FX =  - LOGLIKFUN(U1, U2, PARA2, X, NNUM)
+  FW = FX
+  FV = FW
+
+  DO
+
+    M = 0.5D+00 * ( SA + SB ) 
+    TOL = EPS * ABS ( X ) + T
+    T2 = 2.0D+00 * TOL
+!
+!  CHECK THE STOPPING CRITERION.
+!
+    IF ( ABS ( X - M ) <= T2 - 0.5D+00 * ( SB - SA ) ) THEN
+      EXIT
+    END IF
+!
+!  FIT A PARABOLA.
+!
+    R = 0.0D+00
+    Q = R
+    P = Q
+
+    IF ( TOL < ABS ( E ) ) THEN
+
+      R = ( X - W ) * ( FX - FV )
+      Q = ( X - V ) * ( FX - FW )
+      P = ( X - V ) * Q - ( X - W ) * R
+      Q = 2.0D+00 * ( Q - R )
+
+      IF ( 0.0D+00 < Q ) THEN
+        P = - P
+      END IF
+
+      Q = ABS ( Q )
+
+      R = E
+      E = D
+
+    END IF
+
+    IF ( ABS ( P ) < ABS ( 0.5D+00 * Q * R ) .AND. &
+         Q * ( SA - X ) < P .AND. &
+         P < Q * ( SB - X ) ) THEN
+!
+!  TAKE THE PARABOLIC INTERPOLATION STEP.
+!
+      D = P / Q
+      U = X + D
+!
+!  F MUST NOT BE EVALUATED TOO CLOSE TO A OR B.
+!
+      IF ( ( U - SA ) < T2 .OR. ( SB - U ) < T2 ) THEN
+
+        IF ( X < M ) THEN
+          D = TOL
+        ELSE
+          D = - TOL
+        END IF
+
+      END IF
+!
+!  A GOLDEN-SECTION STEP.
+!
+    ELSE
+
+      IF ( X < M ) THEN
+        E = SB - X
+      ELSE
+        E = A - X
+      END IF
+
+      D = C * E
+
+    END IF
+!
+!  F MUST NOT BE EVALUATED TOO CLOSE TO X.
+!
+    IF ( TOL <= ABS ( D ) ) THEN
+      U = X + D
+    ELSE IF ( 0.0D+00 < D ) THEN
+      U = X + TOL
+    ELSE
+      U = X - TOL
+    END IF
+
+    ! FU = F ( U )
+    FU = - LOGLIKFUN( U1, U2, PARA2, U, NNUM) ! ZFYUAN AMEND, FRI DEC
+                                              ! 28 14:08 2012
+!
+!  UPDATE A, B, V, W, AND X.
+!
+    IF ( FU <= FX ) THEN
+
+      IF ( U < X ) THEN
+        SB = X
+      ELSE
+        SA = X
+      END IF
+
+      V = W
+      FV = FW
+      W = X
+      FW = FX
+      X = U
+      FX = FU
+
+    ELSE
+
+      IF ( U < X ) THEN
+        SA = U
+      ELSE
+        SB = U
+      END IF
+
+      IF ( FU <= FW .OR. W == X ) THEN
+        V = W
+        FV = FW
+        W = U
+        FW = FU
+      ELSE IF ( FU <= FV .OR. V == X .OR. V== W ) THEN
+        V = U
+        FV = FU
+      END IF
+
+    END IF
+
+  END DO
+
+  LOCAL_MIN_T = FX
+
+  RETURN
+
+END FUNCTION LOCAL_MIN_T
+
+
+
+
