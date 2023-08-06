@@ -1,0 +1,804 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+#
+# pynag - Python Nagios plug-in and configuration environment
+# Copyright (C) 2010 Pall Sigurdsson
+# 
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+
+import sys
+import traceback
+from optparse import OptionParser,OptionGroup
+import pprint
+import pynag.Model
+import pynag.Parsers
+import pynag.Utils
+from pynag.Model import cfg_file
+from pynag import __version__
+
+debug = False
+usage = """usage: %prog <sub-command> [options] [arguments]
+
+Available subcommands:
+  list          List hosts, services, etc.
+  update        Update hosts, services, etc.
+  add           Create a new host, service, etc.
+  copy          Copy a current host, service, etc.
+  delete        Delete a host, service, etc.
+  execute       Execute a check command for host or service
+  config        View or edit values in your nagios.cfg
+  acknowledge   Acknowledge host/service problems
+  downtime      Schedule downtime for objects
+  livestatus    Make queries to MK Livestatus
+  version       Output version information and exit
+
+See "man pynag" for examples and clarification of "where" syntax.
+
+For help on specific sub-command type:
+ %prog <sub-command> --help (or --examples)
+"""
+
+parser = OptionParser(usage=usage)
+display_options = OptionGroup(parser, 'Display Options')
+
+parser.add_option('--cfg_file', dest="cfg_file", metavar='filename',
+    default=None, help="Path to your nagios.cfg file")
+
+display_options.add_option('--examples', dest="examples",
+    default=False, action="store_true", help="Show example usage")
+display_options.add_option('--debug', dest="debug",
+    default=False, action="store_true", help="Print debug information to screen")
+display_options.add_option("--verbose", dest="verbose", action="store_true",
+    default=False,help="Be extra verbose in output")
+display_options.add_option("--quiet", dest="quiet", action="store_true",
+    default=False,help="Be less verbose in output")
+display_options.add_option("--width", dest="width",
+    default=20, help="Column width in output (default 20)")
+display_options.add_option("--seperator", dest="seperator", metavar='sep',
+    default=None,help="Seperator between columns in output. If none is specified, then fixed with columns are used instead of seperators.")
+
+parser.add_option_group(display_options)
+
+def parse_arguments():
+    """ Parse command line arguments and run command specified commands """
+    if len(sys.argv) < 2:
+        parser.print_usage()
+    elif sys.argv[1] == 'list':
+        list_objects()
+    elif sys.argv[1] == 'update':
+        update_objects()
+    elif sys.argv[1] == 'add':
+        add_object()
+    elif sys.argv[1] == 'copy':
+        copy_object()
+    elif sys.argv[1] == 'execute':
+        execute_check_command()
+    elif sys.argv[1] == 'delete':
+        delete_object()
+    elif sys.argv[1] == 'acknowledge':
+        acknowledge()
+    elif sys.argv[1] == 'downtime':
+        downtime()
+    elif sys.argv[1] == 'livestatus':
+        livestatus()
+    elif sys.argv[1] in ('config','config-set', 'config-append'):
+        # TODO: Deprecate config-set and config-append in 0.5.x series
+        main_config()
+    elif sys.argv[1] == "help":
+        parser.print_help()
+    elif sys.argv[1] == "--help":
+        parser.print_help()
+    elif sys.argv[1] in ('--examples','examples'):
+        print_examples()
+    elif sys.argv[1] in ('version','--version'):
+        print __version__
+    else:
+        parser.error("Unknown sub-command '%s'" % sys.argv[1])
+
+def execute_check_command():
+    """ Execute a host or service check_command """
+    parser.usage = '''%prog execute <host_name> [service_description]'''
+    (opts,args) = parser.parse_args(sys.argv[2:])
+    pynag.Model.cfg_file = opts.cfg_file
+    try:
+        if len(args) == 0:
+            parser.error("You need to provide at least one argument to execute")
+        host_name = args[0]
+        host = pynag.Model.Host.objects.get_by_shortname(host_name)
+        if len(args) == 1:
+            obj = host
+        else:
+            host_name = args[0]
+            service_description = " ".join(args[1:])
+            for i in host.get_effective_services():
+                if i.service_description == service_description:
+                    obj = i
+                    break
+            else:
+                raise pynag.Utils.PynagError("Host %s does not seem to have any service named '%s'" % (host_name,service_description))
+
+        if opts.quiet == False:
+            print "# %s" %(obj.get_effective_command_line(host_name=host_name))
+        exit_code,stdout,stderr = obj.run_check_command(host_name=host_name)
+        print stdout,
+        if stderr != '':
+            print ""
+            print "----- errors -------"
+            print stderr,
+            print "--------------------"
+        print ""
+        if opts.quiet == False:
+            print "# %s check exited with exit code %s" %(obj.object_type, exit_code)
+    except KeyError, e:
+        parser.error("Could not find host '%s'" % e)
+
+def search_objects(search_statements):
+    """ takes a list of search statements, returns list of ObjectDefinition that matches the filter.
+
+    Arguments:
+      search_statements  -- e.g. ['host_name=host1','and','service_description="Ping"']
+    Returns:
+      [ObjectDefinition] -- e.g. [Object1,Object2]
+    """
+    conditions = {}
+    objects = []
+    for statement in search_statements:
+        tmp = statement.split('=',1)
+        if statement.lower() == 'and': continue
+        if statement.lower() == 'or':
+            objects += pynag.Model.ObjectDefinition.objects.filter(**conditions)
+            conditions = {}
+            continue
+        if len(tmp) != 2:
+            raise pynag.Utils.PynagError('Invalid statement: "%s"' %statement)
+        key,value = tmp
+        conditions[key] = value
+    objects += pynag.Model.ObjectDefinition.objects.filter(**conditions)
+    return sorted( set(objects) )
+
+def search_object_list(object_list,search_statements):
+    """ Same as search_objects() but searches object_list instead of pynag.Model.ObjectDefinition.objects.all.
+    """
+    conditions = {}
+    for statement in search_statements:
+        tmp = statement.split('=',1)
+        if statement.lower() == 'and': continue
+        if len(tmp) != 2:
+            raise pynag.Utils.PynagError('Invalid statement: "%s"' %statement)
+        key,value = tmp
+        conditions[key] = value
+    return pynag.Utils.grep(object_list,**conditions)
+
+def main_config():
+    """ Get or change a value in main configuration file """
+    parser.usage = '''%prog config <--set|--append|--remove|--get> <attribute[=new_value]> [OPTIONS]'''
+    parser.add_option("--filename", dest="filename", 
+                      default=None, help="Path to Nagios configuration file (deprecated, use --cfg_file)")
+    parser.add_option("--append", dest="append",
+        default=None, help="Append key=value pair to cfg file (example: cfg_file=/etc/nagios/myconfig.cfg)")
+    parser.add_option("--old_value", dest="old_value",
+        default=None, help="if specified, change only attributes that have this value set (by default change first occurance of key)")
+    parser.add_option("--set", dest="set",
+        default=None, help="Set key=value in cfg file (example: process_performance_data=1)")
+    parser.add_option("--remove", dest="remove",
+        default=None, help="Remove attribute in cfg file (example: --remove cfg_file). Use with --old_value in case of multiple attributes with same name")
+    parser.add_option("--get", dest="get",
+        default=None, help="Print one specific value from your file")
+    (opts,args) = parser.parse_args(sys.argv[1:])
+    pynag.Model.cfg_file = opts.cfg_file
+
+    if opts.examples == True:
+        return print_examples()
+
+    # For backwards compatibility, let --filename act as --cfg_file if --cfg_file is not set
+    # If neither option is specified, cfg_file will be set to None which means auto-detect
+    # TODO: Deprecate --filename option in 0.5.x series
+    if not pynag.Model.cfg_file:
+        pynag.Model.cfg_file = opts.filename
+
+    if not opts.append and not opts.remove and not opts.set and not opts.get:
+        parser.error("Please specify at least one of --set --remove --get --append")
+
+    c = pynag.Parsers.config(cfg_file=pynag.Model.cfg_file)
+    c.parse()
+
+    # For backwards compatibility, lets accept config-set and config-append instead
+    command = args.pop(0)
+    if command == 'config-append':
+        append = True
+    elif command == 'config-set':
+        append = False
+    if command in ('config-append','config-set'):
+        attributes = {}
+        while len(args) > 0:
+            arg = args.pop(0)
+            tmp = arg.split('=',1)
+            if len(tmp) != 2:
+                raise pynag.Utils.PynagError("attributes should be in the form of attribute=new_value for copy (got %s)" % arg )
+            attr,value = tmp
+            attributes[ attr ] = value
+        for k,v in attributes.items():
+            result = c._edit_static_file(attribute=k, new_value=v, old_value=opts.old_value, append=append)
+            if result:
+                if opts.quiet == False:
+                    print "%s: set %s=%s" % (c.cfg_file, k, result)
+            else:
+                if opts.quiet == False:
+                    print "%s: No changed were needed" % c.cfg_file
+        return
+
+
+    # Handle a --set operation
+    if opts.set is not None:
+        tmp = opts.set.split('=',1)
+        if len(tmp) != 2:
+            raise pynag.Utils.PynagError("attributes should be in the form of attribute=new_value (got %s)" % tmp)
+        k,v = tmp
+        result = c._edit_static_file(filename=c.cfg_file, attribute=k, new_value=v, old_value=opts.old_value, append=False)
+        if result:
+            if opts.quiet == False:
+                print "%s: set %s=%s" % (c.cfg_file, k, v)
+        else:
+            if opts.quiet == False:
+                print "%s: No changed were needed" % c.cfg_file
+
+    # Handle a --append operation
+    if opts.append is not None:
+        tmp = opts.append.split('=',1)
+        if len(tmp) != 2:
+            raise pynag.Utils.PynagError("attributes should be in the form of attribute=new_value (got %s)" % tmp)
+        k,v = tmp
+        result = c._edit_static_file(filename=c.cfg_file, attribute=k, new_value=v, old_value=opts.old_value, append=True)
+        if result:
+            if opts.quiet == False:
+                print "%s: set %s=%s" % (c.cfg_file, k, v)
+        else:
+            if opts.quiet == False:
+                print "%s: No changed were needed" % c.cfg_file
+    # Handle a remove operation
+    if opts.remove is not None:
+        result = c._edit_static_file(filename=c.cfg_file, attribute=opts.remove, new_value=None, old_value=opts.old_value, )
+        if result:
+            if opts.quiet == False:
+                print "%s: %s was removed" % (c.cfg_file, opts.remove)
+        else:
+            if opts.quiet == False:
+                print "%s: No changed were needed" % c.cfg_file
+    # Handle --get operation
+    if opts.get is not None:
+        found_some_attributes = False
+        for k,v in c.maincfg_values:
+            k = k.strip()
+            v = v.strip()
+            if k == opts.get:
+                found_some_attributes=True
+                print v
+        if not found_some_attributes and opts.quiet == False:
+            print "no '%s=*' found in '%s'" % (opts.get, c.cfg_file)
+
+def list_objects():
+    """ List nagios objects given a specified search filter """
+    parser.usage = ''' %prog list [attribute1] [attribute2] [WHERE <...>] '''
+    parser.add_option("--print", dest="print_definition", action='store_true',
+                      default=False, help="Print actual definition instead of attributes")
+    (opts,args) = parser.parse_args(sys.argv[2:])
+    pynag.Model.cfg_file = opts.cfg_file
+    if opts.examples == True:
+        return print_examples()
+
+
+    attributes,where_statement=split_where_and_set(args)
+    objects = search_objects(search_statements=where_statement)
+    if objects is None:
+        objects = pynag.Model.ObjectDefinition.objects.all
+    if opts.print_definition:
+        for i in objects:
+            print i
+    else:
+        pretty_print(objects=objects,attributes=attributes)
+
+def delete_object():
+    """ Delete one specific nagios object """
+    parser.usage = '''%prog delete <WHERE ...>'''
+    parser.add_option("--force", dest="force", action="store_true",
+                      default=False,help="Don't prompt for confirmation")
+    parser.add_option("--recursive", dest="recursive", action="store_true",
+                      default=False,help="Recursively apply to related child objects")
+    (opts,args) = parser.parse_args(sys.argv[2:])
+    pynag.Model.cfg_file = opts.cfg_file
+
+    attributes,where_statement=split_where_and_set(args)
+    objects = search_objects(search_statements=where_statement)
+
+    if len(where_statement) == 0:
+        parser.error("Refusing to update every object. Please trim down the selection with a WHERE statement")
+
+    if objects is None:
+        parser.error('Refusing to delete every object. Please trim down the selection with a WHERE statement')
+    if len(objects) > 0 and not opts.force:
+        pretty_print(objects)
+        answer = raw_input('Delete these %s objects ? (y/N) ' % (len(objects)))
+        if answer.lower() not in ('y', 'yes'):
+            return 
+    for i in objects:
+        if opts.verbose:
+            print i
+        try:
+            i.delete(recursive=opts.recursive)
+            if opts.quiet == False:
+                print i.get_shortname(), "deleted."
+        except ValueError:
+            print i.get_shortname(), "not found."
+    if opts.quiet == False:
+        print len(objects), "objects deleted"
+
+def add_object():
+    parser.usage = ''' %prog add <object_type> <attr1=value1> [attr2=value2]'''
+
+    parser.add_option("--filename", dest="filename",
+                      help="Write to this specific file")
+    (opts,args) = parser.parse_args(sys.argv[2:])
+    pynag.Model.cfg_file = opts.cfg_file
+    if len(args) == 0:
+        parser.error("You need to specify object_type and attributes for add")
+    attributes = {}
+    object_type = args.pop(0)
+    while len(args) > 0:
+        arg = args.pop(0)
+        tmp = arg.split('=',1)
+        if len(tmp) != 2: 
+            raise pynag.Utils.PynagError("attributes should be in the form of attribute=new_value for update (got %s)" % arg )
+        attr,value = tmp
+        attributes[ attr ] = value
+    
+    if attributes == []:
+        parser.error('Refusing to write an empty %s definition. Please specify some attributes' % object_type)
+    obj = pynag.Model.string_to_class[object_type](filename=opts.filename)
+    for k,v in attributes.items():
+        obj[k] = v
+    obj.save()
+    print "Object saved to", obj.get_filename()
+    if opts.verbose:
+        print "# This is what actual statement looks like"
+        print obj
+
+def acknowledge():
+    parser.usage = ''' %prog acknowledge < HOST [SERVICE] | WHERE ... > '''
+    parser.add_option("--comment", dest="comment",
+        default="Acknowledged with pynag",help="Comment to put on the acknowledgement")
+    parser.add_option("--author", dest="author",
+        default="pynag",help="Author to put on the acknowledgement")
+    parser.add_option("--timestamp", dest="ts",
+        default="0",help="Timestamp of the acknowledgement (default: now)")
+    (opts,args) = parser.parse_args(sys.argv[2:])
+    pynag.Model.cfg_file = opts.cfg_file
+    objects =[]
+    if opts.examples == True:
+        return print_examples()
+    if len(args) == 0:
+        parser.error('No hosts or services specified.')
+    elif 'where' in str(args).lower():
+        attributes,where_statement=split_where_and_set(args)
+        objects = search_objects(search_statements=where_statement)
+    elif len(args) == 1:
+        objects = pynag.Model.ObjectDefinition.objects.filter(host_name=args[0])
+    elif len(args) == 2:
+        objects = pynag.Model.ObjectDefinition.objects.filter(host_name=args[0],service_description=args[1])
+    else:
+        parser.error('Invalid number of attributes specified')
+
+    for i in objects:
+        if i.object_type not in ('host','service') or i.register == '0':
+            objects.remove(i)
+
+    # Here we actually ack the objects
+    if opts.quiet == False:
+        pretty_print(objects)
+    answer = raw_input('Acknowledge these %s objects ? (y/N) ' % (len(objects)))
+    if answer.lower() not in ('y', 'yes'):
+        return
+
+    for i in objects:
+        if opts.quiet == False:
+            print "Acknowledge %s: %s" % (i.object_type,i.get_shortname())
+        i.acknowledge(comment=opts.comment,author=opts.author,timestamp=opts.ts)
+
+def downtime():
+    parser.usage = ''' %prog downtime < --list | --remove | HOST [SERVICE] | WHERE ... > '''
+    parser.add_option("--comment", dest="comment",
+        default="Downtime Scheduled from pynag",help="Comment to put on the downtime")
+    parser.add_option("--author", dest="author",
+        default="pynag",help="Author to put on the downtime")
+    parser.add_option("--start_time", dest="st",
+        default=None,help="When downtime should start (default: now)")
+    parser.add_option("--end_time", dest="et",
+        default=None,help="When downtime should end (default: now+2 hours)")
+    parser.add_option("--duration", dest="dur",
+        default=7200,help="Alternative to end_time, how long should downtime last (in seconds)")
+    parser.add_option("--print", dest="print_definition", action='store_true',
+        default=False, help="When using --list, print full hash map instead of attribute table")
+    parser.add_option("--list", dest="list",
+        default=False, action="store_true",help="list downtimes that match search filters")
+    parser.add_option("--remove", dest="remove",
+        default=False, action="store_true",help="Remove downtimes that match search filters")
+    parser.add_option("--recursive", dest="recursive",
+        default=False, action="store_true",help="schedule downtime for hosts and all its services")
+    (opts,args) = parser.parse_args(sys.argv[2:])
+    pynag.Model.cfg_file = opts.cfg_file
+    objects =[]
+    if opts.examples == True:
+        return print_examples()
+    elif opts.list == True or opts.remove == True:
+        # Where are not scheduling anything just listing
+        attributes,where_statement=split_where_and_set(args)
+        if attributes == []:
+            attributes = ['id','host_name','service_description','comment']
+        downtimes = _get_all_downtimes()
+        downtimes = search_object_list(downtimes, where_statement)
+        if opts.print_definition == True:
+            pp = pprint.PrettyPrinter(indent=4)
+            pp.pprint(downtimes)
+        else:
+            pretty_print(downtimes, attributes=attributes)
+        if opts.remove == True:
+            answer = raw_input('Remove these %s downtimes? (y/N) ' % (len(downtimes)))
+            if answer.lower() not in ('y', 'yes'):
+                return
+
+            for i in downtimes:
+                if opts.quiet == False:
+                    print "Removing downtime %s: " % (i.get('id'))
+                if i.get('service_description', None) in (None, ''):
+                    pynag.Control.Command.del_host_downtime(i.get('id'))
+                else:
+                    pynag.Control.Command.del_svc_downtime(i.get('id'))
+        return
+    elif len(args) == 0:
+        parser.error('No hosts or services specified.')
+    elif 'where' in str(args).lower():
+        attributes,where_statement=split_where_and_set(args)
+        objects = search_objects(search_statements=where_statement)
+    elif len(args) == 1:
+        objects = pynag.Model.ObjectDefinition.objects.filter(host_name=args[0])
+    elif len(args) == 2:
+        objects = pynag.Model.ObjectDefinition.objects.filter(host_name=args[0],service_description=args[1])
+    else:
+        parser.error('Invalid number of attributes specified')
+
+    # If we reach all the way down here, we are scheduling downtimes
+
+    # Filter everything from objects that does not have a downtime() method or is not registered
+    filter_function = lambda x: x.register != '0' and 'downtime' in dir(x)
+    objects = filter(filter_function, objects)
+
+    # Here we actually talk to the the objects
+    if opts.quiet == False:
+        pretty_print(objects)
+    answer = raw_input('Schedule downtime for these %s objects ? (y/N) ' % (len(objects)))
+    if answer.lower() not in ('y', 'yes'):
+        return
+
+    for i in objects:
+        if opts.quiet == False:
+            print "Downtime %s: %s" % (i.object_type,i.get_shortname())
+        i.downtime(comment=opts.comment,author=opts.author,start_time=opts.st, end_time=opts.et, duration=opts.dur, recursive=opts.recursive)
+
+def _get_all_downtimes():
+    """ Returns a list of dict, describing all current downtimes """
+    # Try first via livestatus, if that does not work, parse status.dat
+    try:
+        l = pynag.Parsers.mk_livestatus(nagios_cfg_file=pynag.Model.cfg_file)
+        return l.query('GET downtimes')
+    except Exception:
+        s = pynag.Parsers.status(cfg_file=pynag.Model.cfg_file)
+        s.parse()
+        result = []
+        result += s.data.get('servicedowntime', [])
+        result += s.data.get('hostdowntime', [])
+        for i in result:
+            i['id'] = i.get('comment_id', None)
+        return result
+def copy_object():
+    parser.usage = ''' %prog copy <SET attr1=value1 [attr2=val2]> <WHERE ...> [--filename /path/to/file] '''
+    parser.add_option("--filename", dest="filename",
+        help="Write to this specific file")
+    parser.add_option("--recursive", dest="recursive", action="store_true",
+        default=False,help="Recursively apply to related child objects")
+    (opts,args) = parser.parse_args(sys.argv[2:])
+    pynag.Model.cfg_file = opts.cfg_file
+    set = {} # dict of which attributes to change
+    attributes,where_statement=split_where_and_set(args)
+    if len(where_statement) == 0:
+        parser.error("Refusing to copy every object. Please trim down the selection with a WHERE statement")
+    if len(attributes) == 0 and opts.filename is None:
+        parser.error("No changes specified. Please specify what to update with a SET statement")
+    objects = search_objects(search_statements=where_statement)
+
+    # If user specified an attribute not in the form of key=value, lets prompt for the value
+    for i in attributes:
+        tmp = i.split('=', 1)
+        if len(tmp) == 2:
+            set[tmp[0]] = tmp[1]
+        else:
+            set[tmp[0]] = raw_input('Enter a value for %s: ' % tmp[0])
+
+    # Here we actually copy the object
+    pretty_print(objects)
+    answer = raw_input('Update these %s objects ? (y/N) ' % (len(objects)))
+    if answer.lower() not in ('y', 'yes'):
+        return
+    number_of_copies = 0
+    for obj in objects:
+        copied_objects = obj.copy(filename=opts.filename,recursive=opts.recursive,**set)
+        # obj.copy() in most cases should return a list. If not, lets convert it
+        if not isinstance(copied_objects, list):
+            copied_objects = [copied_objects]
+        number_of_copies += len(copied_objects)
+        for new_obj in copied_objects:
+            if opts.quiet == False:
+                print "Object saved to", new_obj.get_filename()
+            if opts.verbose:
+                print "# This is what actual statement looks like"
+                print new_obj
+    if opts.quiet == False:
+        print "%s objects copied." % (number_of_copies)
+def livestatus():
+    """ Make a custom query to MK Livestatus """
+    parser.usage = '''%prog livestatus '<query>' [query2] [query3] [...] '''
+    parser.add_option("--get", dest="get", metavar="table",
+        default=None, help="GET a specific livestatus table (i.e. services, hosts, log)")
+    parser.add_option("--filter", dest="filters", action="append",
+        default=[], help="Add a Filter: to your query")
+    parser.add_option("--columns", dest="columns", action="append",
+        default=[], help="Space seperated list of columns to display")
+    parser.add_option("--limit", dest="limit",
+        default=None, help="Limit results to LIMIT rows")
+    parser.add_option("--list-columns", dest="list_columns", metavar="table",
+        default=None, help="List available columns in table you specify (i.e. services, hosts)")
+    parser.add_option("--socket", dest="socket",
+        default=None, help="Path to livestatus (by default detect it from nagios.cfg)")
+
+    (opts,args) = parser.parse_args(sys.argv[2:])
+    pynag.Model.cfg_file = opts.cfg_file
+    if opts.examples == True:
+        return print_examples()
+
+    # We will be working with args, here as the main source of queries.
+    # Any options added should be appended to args
+    if opts.get is not None:
+        args.append( "GET %s" % opts.get )
+    if opts.limit is not None:
+        args.append( 'Limit: %s' % opts.limit )
+    for i in opts.filters:
+        args.append( 'Filter: %s' % i )
+    all_columns = []
+    for i in opts.columns:
+        all_columns += i.split()
+    if all_columns != []:
+        args.append('Columns: %s' % ' '.join(all_columns))
+    if opts.list_columns is not None:
+        all_columns = ["name","type","description"]
+        args = ["GET columns","Columns: name type description","Filter: table = %s" % opts.list_columns]
+
+    if len(args) == 0:
+        parser.error('No arguments provided. Take a look at --examples or --help')
+
+    # Here we run the actual query
+    if opts.verbose == True:
+        print "--- this query will be sent ---"
+        for i in args:
+            print i
+        print "--- end of query --------------"
+    livestatus = pynag.Parsers.mk_livestatus(nagios_cfg_file=opts.cfg_file, livestatus_socket_path=opts.socket)
+    result = livestatus.query(*args)
+
+    # We are done with the query, lets output the results
+    if all_columns == []:
+        all_columns = ["name"]
+    pretty_print(result, attributes=all_columns)
+
+def update_objects():
+    parser.usage = ''' %prog update [SET attr1=value1 [attr2=value2]] [WHERE ...]'''
+    parser.add_option("--force", dest="force", action="store_true",
+                      default=False,help="Don't prompt for confirmation")
+    (opts,args) = parser.parse_args(sys.argv[2:])
+    pynag.Model.cfg_file = opts.cfg_file
+    set = {}
+    attributes,where_statement=split_where_and_set(args)
+    if len(where_statement) == 0:
+        parser.error("Refusing to update every object. Please trim down the selection with a WHERE statement")
+    if len(attributes) == 0:
+        parser.error("No changes specified. Please specify what to update with a SET statement")
+    objects = search_objects(search_statements=where_statement)
+
+    # If user specified an attribute not in the form of key=value, lets prompt for the value
+    for i in attributes:
+        tmp = i.split('=', 1)
+        if len(tmp) == 2:
+            set[tmp[0]] = tmp[1]
+        else:
+            set[tmp[0]] = raw_input('Enter a value for %s: ' % tmp[0])
+
+    if len(objects) > 0 and not opts.force:
+        pretty_print(objects)
+        answer = raw_input('Update these %s objects ? (y/N) ' % (len(objects)))
+        if answer.lower() not in ('y', 'yes'):
+            return
+    update_many(objects=objects, **set)
+
+    if opts.verbose:
+        for i in objects: print i
+    if opts.quiet == False:
+        print "Updated %s objects" % (len(objects))
+
+def pretty_print(objects, attributes=None):
+    """ Takes in a list of objects and prints them in a pretty table format """
+
+    # Set default attributes if none are specified
+    if not attributes:
+        attributes = ['object_type','shortname', 'filename']
+
+    # Set minimum width of columns. High values here effective turn output into fixed with
+    min_width = "%%-%ss" % parser.values.width # by default should turn this string into "%-20s"
+
+    # If no column seperator was specified, use emptystring
+    if parser.values.seperator is None:
+        parser.values.seperator = ' '
+
+    # Print header
+    if parser.values.quiet == False:
+        # Apply fixed with to columns
+        transformed_attributes = map(lambda x: min_width % x, attributes)
+        row = parser.values.seperator.join(transformed_attributes)
+        print row
+        print "-"*80
+    
+    # Print one row for each object
+    for i in objects:
+        # For every attribute we want to print, get the value for this row
+        columns = map(lambda x: i.get(x, "null"), attributes)
+
+        # Pad every column with spaces if width was specified
+        transformed_columns = map(lambda x: min_width % x, columns)
+
+        # Print the row
+        print parser.values.seperator.join(transformed_columns)
+
+    # Print Footer
+    if parser.values.quiet == False:
+        message = "%s objects matches search condition" % ( len(objects) )
+        pre = "-"*10
+        post = "-"*(80-10-len(message))
+        print pre + message + post
+    
+def update_many(objects, **kwargs):
+    """ Helper function to update many objects at once
+
+    Arguments:
+       objects -- List of pynag.Model.Objectdefinition
+       kwargs -- Arbitary list of arguments
+    Examples:
+      update_many(Service.objects.all, host_name="new_host_name", register="0")
+    """
+    for i in objects:
+        for attr,value in kwargs.items():
+            i[attr] = value
+            i.save()
+            print "%s (%s): changed %s to %s" % (i.get_filename(), i.get_shortname(),attr, value)
+
+
+def split_where_and_set(argument_list=[]):
+    """ Takes a list of commandline arguments, and splits a "where" condition from other arguments.
+
+    Returns:
+      ([attributes],[where_statement])
+      ex. attributes:      ['host_name,'service_description']
+      ex. where_statement: ['host_name=localhost','and','service_description=Ping']
+    """
+    attributes = []
+    where_statement = []
+    currently_parsing = attributes
+    for i in argument_list:
+        if i.lower() == 'where':
+            currently_parsing=where_statement
+        elif i.lower() == 'set' or i.lower() == 'attributes':
+            currently_parsing=attributes
+        else:
+            currently_parsing.append(i)
+    return attributes,where_statement
+def parse_configfile():
+    """ Parse configuration file """
+
+examples = {}
+
+examples['list'] = '''
+  # %prog list host_name address WHERE object_type=host"
+  # %prog list host_name service_description WHERE host_name=examplehost and object_type=service"
+'''
+examples['update'] = '''
+  # %prog update SET host_name=newhostname WHERE host_name=oldhostname"
+  # %prog update SET address=127.0.0.1 WHERE host_name='examplehost.example.com' and object_type=host"
+'''
+examples['copy'] = '''
+  # %prog copy SET host_name=newhostname WHERE  host_name=oldhostname"
+  # %prog copy SET address=127.0.0.1 WHERE host_name='examplehost.example.com' and object_type=host"
+'''
+examples['add'] = '''
+  # %prog add host host_name=examplehost use=generic-host address=127.0.0.1"
+  # %prog add service service_description="Test Service" use="check_nrpe" host_name="localhost"
+'''
+examples['delete'] = '''
+  # %prog delete where object_type=service and host_name='mydeprecated_host'
+  # %prog delete where filename__startswith='/etc/nagios/myoldhosts'
+'''
+examples['acknowledge'] = '''
+  # %prog acknowledge localhost "Disk Usage" --comment "Freeing up some space" --author "admin" '
+  # %prog acknowledge where service_description__contains=vmware --comment "Bulk ack on all vmware checks" '
+'''
+examples['downtime'] = '''
+  # %prog downtime localhost --comment "Downtime for localhost and all its services" --recursive'
+  # %prog downtime where service_description__contains=vmware --comment "Downtime on all vmware checks" '
+'''
+examples['config'] = '''
+  # %prog config --set process_perfdata=1
+  # %prog config --append cfg_dir=/etc/nagios/conf.d
+  # %prog config --remove cfg_dir --old_value=/etc/nagios/conf.d
+  # %prog config --get object_cache_file
+'''
+examples['execute'] = '''
+# %prog execute localhost
+# %prog execute localhost "Disk Space"
+'''
+examples['livestatus'] = '''
+# %prog livestatus --get hosts --columns "state address name"
+# %prog livestatus --get services --columns "state host_name description" --filter "host_name = localhost" --limit 10
+# %prog livestatus --list-columns hosts
+'''
+def print_examples():
+    """ Print example usage and exit.
+
+    If subcommand has been defined on the command line. Only print examples
+    """
+    subcommand = sys.argv[1]
+
+    # Print all examples if no subcommand is specified
+    if subcommand == '--examples':
+        for k,v in examples.items():
+            print "%s Examples:" % k
+            print v.replace('%prog', sys.argv[0] )
+            print ""
+        sys.exit()
+    if subcommand not in examples.keys():
+        print "No examples found for subcommand '%s'" % subcommand
+        sys.exit(1)
+    print "%s Examples:" % sys.argv[1]
+    print examples[sys.argv[1]].replace('%prog', sys.argv[0] )
+    sys.exit()
+
+if __name__ == '__main__':
+    # since optparse runs inside various places, a quick hack to enable --debug globally
+    # TODO: Put all optparsing inside to a single function.
+    if "--debug" in sys.argv:
+        debug = True
+    try:
+        parse_arguments()
+    except Exception, e:
+        print "Error occured, use --debug to see full traceback:"
+        print ""
+        print "%s: %s" % (e.__class__.__name__, e)
+        if debug:
+            traceback.print_exc(file=sys.stdout)
+        sys.exit(1)
