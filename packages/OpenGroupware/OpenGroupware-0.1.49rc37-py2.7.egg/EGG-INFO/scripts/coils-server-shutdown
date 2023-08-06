@@ -1,0 +1,98 @@
+#!/usr/bin/python
+# Copyright (c) 2010, 2012, 2013
+#  Adam Tauno Williams <awilliam@whitemice.org>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+#
+
+# TODO: Implement
+
+from coils.core  import *
+import getopt, sys, os, time
+from pprint import pprint
+
+def usage():
+    print """
+    --service=     Name of the component/service to shutdown
+    --timeout=     Timeout for waiting for response on bus
+    --verbose      Enable verbose output
+    """
+    return
+
+def main(argv):
+
+    def callback(uuid, source, target, data):
+        return True
+
+    timeout = 100
+    service_name = 'coils.master'
+    verbose = False
+    try:
+        opts, args = getopt.getopt(argv,
+                                   "h:asv:",
+                                   ["help", "service=", "verbose"])
+    except getopt.GetoptError, e:
+        print e
+        usage()
+        sys.exit(2)
+    for opt, arg in opts:
+        if opt in ("-h", "--help"):
+            usage()
+            sys.exit(0)
+        elif (opt in ('-s', '--service')):
+            service_name = arg
+        elif (opt in ('-t', '--timeout')):
+            timeout = int(arg)
+        elif (opt in ('-v', '--verbose')):
+            verbose = True
+
+
+    # Initialize COILs
+    initialize_COILS({'log_file': '{0}/coils.log'.format(os.getenv('HOME'))})
+    broker = Broker()
+    if verbose: print( 'Message broker created' )
+    broker.subscribe( 'tool.service.shutdown.{0}'.format( os.getpid( ) ), None )
+    if verbose: print( 'Message broker subscribed' )
+    ctx = AnonymousContext( broker=broker )
+    if verbose: print( 'Context initialized' )
+    print 'Requesting service "{0}" shutdown.'.format(service_name)
+    start = time.time()
+    ctx.send(None, '{0}/__shutdown'.format(service_name), { }, callback=callback)
+    if(ctx.wait(timeout=timeout)):
+        print 'Exiting with responses pending.'
+        ctx.close()
+        if verbose: print( 'Context closed' )
+        broker.close()
+        if verbose:
+            print( 'Message broker closed' )
+            print( 'Exiting with error status 1' )
+        sys.exit(1)
+    else:
+        end = time.time()
+        print 'No responses pending in {0} seconds'.format(end - start)
+        ctx.close()
+        if verbose: print( 'Context closed' )
+        broker.close()
+        if verbose:
+            print( 'Message broker closed' )
+            print( 'Exiting with error status 0' )
+        sys.exit(0)
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
