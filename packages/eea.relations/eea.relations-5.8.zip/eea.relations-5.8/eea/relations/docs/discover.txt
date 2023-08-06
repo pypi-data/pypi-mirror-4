@@ -1,0 +1,97 @@
+Auto discovered relations
+=========================
+Handle relation computed in automatic based on parent/child structure or other
+rules outside relation_catalog.
+
+How it works
+------------
+All you have to do is to write and adapter for your context that provides
+interface eea.relations.interfaces.IAutoRelations.
+
+Let's do some setup first
+
+  >>> self.loginAsPortalOwner()
+  >>> name = folder.invokeFactory('Folder', 'sandbox')
+  >>> sandbox = folder._getOb(name)
+  >>> _ = sandbox.invokeFactory('Document', 'my-document')
+  >>> _ = sandbox.invokeFactory('Folder', 'my-folder')
+
+By default there is an abstract adapter that returns an empty list. Let's see it:
+
+  >>> from zope.component import queryAdapter
+  >>> from eea.relations.interfaces import IAutoRelations
+  >>> relations = queryAdapter(sandbox, IAutoRelations)
+  >>> relations()
+  []
+
+Let's define a custom adapter
+
+    >>> from zope.interface import implements
+    >>> class MyCustomRelations(object):
+    ...
+    ...     implements(IAutoRelations)
+    ...
+    ...     def __init__(self, context):
+    ...         self.context = context
+    ...
+    ...     def __call__(self, **kwargs):
+    ...         brains = self.context.getFolderContents()
+    ...         tabs = {}
+    ...         tabs['Children'] = brains
+    ...         # Filter brains here
+    ...         return tabs.items()
+
+Skip this as it is only used by doctests
+
+    >>> from eea.relations.tests import base
+    >>> base.MyCustomRelations = MyCustomRelations
+
+Register adapter within configure.zcml
+
+    >>> configure_zcml = """
+    ... <configure xmlns="http://namespaces.zope.org/zope">
+    ...   <adapter
+    ...       for="Products.ATContentTypes.interface.folder.IATFolder"
+    ...       provides="eea.relations.interfaces.IAutoRelations"
+    ...       factory="eea.relations.tests.base.MyCustomRelations"
+    ...       />
+    ... </configure>
+    ... """
+
+    >>> from Zope2.App import zcml
+    >>> zcml.load_string(configure_zcml)
+
+Now let's check our relations
+
+    >>> relations = queryAdapter(sandbox, IAutoRelations)
+    >>> tabs = relations()
+    >>> for tab in tabs:
+    ...     label = tab[0]
+    ...     items = tab[1]
+
+    >>> label
+    'Children'
+
+    >>> [item.getId for item in items]
+    ['my-document', 'my-folder']
+
+
+How is this used in real world
+------------------------------
+
+There is a browser view called '''auto-relations.html'''. It will search for
+IAutoRelations adapter and will display items using a custom template. You can
+reuse this using tal:replace expression:
+
+  <tal:relations replace="structure here/@@auto-relations.html" />
+
+    >>> from zope.component import queryMultiAdapter
+    >>> request = sandbox.REQUEST
+    >>> view = queryMultiAdapter((sandbox, request), name=u'auto-relations.html')
+    >>> for tab, brains in view.tabs:
+    ...     print tab
+    ...     for brain in brains:
+    ...         print '  ' + brain.getId()
+    Children
+      my-document
+      my-folder
