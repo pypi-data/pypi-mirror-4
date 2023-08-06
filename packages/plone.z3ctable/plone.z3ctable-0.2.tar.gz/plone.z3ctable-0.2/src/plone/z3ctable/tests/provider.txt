@@ -1,0 +1,388 @@
+Plone Batch Provider
+====================
+
+First, we need to setup plone.z3ctable 
+
+    >>> from z3c.table import interfaces
+    >>> from zope.configuration.xmlconfig import XMLConfig
+    >>> import plone.z3ctable
+    >>> XMLConfig('configure.zcml', plone.z3ctable)()
+
+To test the batch provider, we need a table to batch.
+Because a table is a view, we need a context and a request.
+
+    >>> request = self.app.REQUEST
+    >>> request['QUERY_STRING'] = "filter=title"
+    >>> request['URL'] = "http://localhost/batching"
+    >>> request['URL']
+    'http://localhost/batching'
+
+Lets use a sequence context.
+
+    >>> class Sequence(object):
+    ...     def __init__(self, size):
+    ...         self.content = list(range(size))
+    ...     def __getitem__(self, index):
+    ...         return self.content[index]
+    >>> sequence = Sequence(59)
+    >>> root['sequence'] = sequence
+    >>> sequence.__parent__ = root
+    >>> sequence.__name__ = 'sequence'
+    >>> from zope.location.interfaces import ILocation
+    >>> import zope.interface
+    >>> zope.interface.directlyProvides(sequence, ILocation)
+
+Now, we can instantiate the table
+
+    >>> from z3c.table import table
+    >>> class TestTable(table.SequenceTable):
+    ...     pass
+    >>> table = TestTable(sequence, request)
+    >>> table.batchProviderName = 'plonebatch'
+    >>> table.batchSize=5 
+    >>> table.render()
+    u''
+
+If we want to see something, the table should have a column.
+It is registered as an adapter.
+
+    >>> from z3c.table import column
+    >>> class IndexColumn(column.Column):
+    ...     header = u'index'
+    ...     def renderCell(self, item):
+    ...         return str(item)
+    ...     def getSortKey(self, item):
+    ...         return item
+    >>> import zope.component
+    >>> zope.component.provideAdapter(IndexColumn,
+    ... (None, None, interfaces.ITable), provides=interfaces.IColumn,
+    ...  name='indexColumn')
+    >>> class Location(object):
+    ...     def __init__(self, context):
+    ...         self.context = context
+
+Render first items.
+
+    >>> table.startBatchingAt=5 
+    >>> table.batchStart = 0
+    >>> table.update()
+    >>> print table.render()
+    <table>
+      <thead>
+        <tr>
+          <th>index</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>0</td>
+        </tr>
+        <tr>
+          <td>1</td>
+        </tr>
+        <tr>
+          <td>2</td>
+        </tr>
+        <tr>
+          <td>3</td>
+        </tr>
+        <tr>
+          <td>4</td>
+        </tr>
+      </tbody>
+    </table>
+
+    >>> table.__parent__ = sequence
+    >>> table.__name__ = u'batchingTable.html'
+    >>> print table.renderBatch()
+    <div class="listingBar">
+    <span class="next">
+    <a href="http://localhost/batching?filter=title&table-batchSize:int=5&table-batchStart:int=5">Next 5 items &raquo;</a>
+    </span>
+    [1]
+    <a href="http://localhost/batching?filter=title&table-batchSize:int=5&table-batchStart:int=5">2</a>
+    <a href="http://localhost/batching?filter=title&table-batchSize:int=5&table-batchStart:int=10">3</a>
+    <a href="http://localhost/batching?filter=title&table-batchSize:int=5&table-batchStart:int=15">4</a>
+    <span>
+    ...
+    <a href="http://localhost/batching?filter=title&table-batchSize:int=5&table-batchStart:int=55">12</a>
+    </span>
+    </div>
+
+    >>> table.batchStart = 5
+    >>> table.update()
+    >>> print table.renderBatch()
+    <div class="listingBar">
+    <span class="previous">
+    <a href="http://...table-batchStart:int=0">&laquo; Previous 5 items</a>
+    </span>
+    <span class="next">
+    <a href="http://...table-batchStart:int=10">Next 5 items &raquo;</a>
+    </span>
+    <a href="http://...table-batchStart:int=0">1</a>
+    [2]
+    <a href="http://...table-batchStart:int=10">3</a>
+    <a href="http://...table-batchStart:int=15">4</a>
+    <a href="http://...table-batchStart:int=20">5</a>
+    <span>
+    ...
+    <a href="http://...table-batchStart:int=55">12</a>
+    </span>
+    </div>    
+    
+    >>> table.batchStart = 10
+    >>> table.update()
+    >>> print table.renderBatch()
+    <div class="listingBar">
+    <span class="previous">
+    <a href="http://...table-batchStart:int=5">&laquo; Previous 5 items</a>
+    </span>
+    <span class="next">
+    <a href="http://...table-batchStart:int=15">Next 5 items &raquo;</a>
+    </span>
+    <a href="http://...table-batchStart:int=0">1</a>
+    <a href="http://...table-batchStart:int=5">2</a>
+    [3]
+    <a href="http://...table-batchStart:int=15">4</a>
+    <a href="http://...table-batchStart:int=20">5</a>
+    <a href="http://...table-batchStart:int=25">6</a>
+    <span>
+    ...
+    <a href="http://...table-batchStart:int=55">12</a>
+    </span>
+    </div>
+    
+    >>> table.batchStart = 15
+    >>> table.update()
+    >>> print table.renderBatch()
+    <div class="listingBar">
+    <span class="previous">
+    <a href="http://...table-batchStart:int=10">&laquo; Previous 5 items</a>
+    </span>
+    <span class="next">
+    <a href="http://...table-batchStart:int=20">Next 5 items &raquo;</a>
+    </span>
+    <a href="http://...table-batchStart:int=0">1</a>
+    <a href="http://...table-batchStart:int=5">2</a>
+    <a href="http://...table-batchStart:int=10">3</a>
+    [4]
+    <a href="http://...table-batchStart:int=20">5</a>
+    <a href="http://...table-batchStart:int=25">6</a>
+    <a href="http://...table-batchStart:int=30">7</a>
+    <span>
+    ...
+    <a href="http://...table-batchStart:int=55">12</a>
+    </span>
+    </div>
+    
+    >>> table.batchStart = 20
+    >>> table.update()
+    >>> print table.renderBatch()
+    <div class="listingBar">
+    <span class="previous">
+    <a href="http://...table-batchStart:int=15">&laquo; Previous 5 items</a>
+    </span>
+    <span class="next">
+    <a href="http://...table-batchStart:int=25">Next 5 items &raquo;</a>
+    </span>
+    <span>
+    <a href="http://...table-batchStart:int=0">1</a>
+    </span>
+    <a href="http://...table-batchStart:int=5">2</a>
+    <a href="http://...table-batchStart:int=10">3</a>
+    <a href="http://...table-batchStart:int=15">4</a>
+    [5]
+    <a href="http://...table-batchStart:int=25">6</a>
+    <a href="http://...table-batchStart:int=30">7</a>
+    <a href="http://...table-batchStart:int=35">8</a>
+    <span>
+    ...
+    <a href="http://...table-batchStart:int=55">12</a>
+    </span>
+    </div>
+    
+    >>> table.batchStart = 25
+    >>> table.update()
+    >>> print table.renderBatch()
+    <div class="listingBar">
+    <span class="previous">
+    <a href="http://...table-batchStart:int=20">&laquo; Previous 5 items</a>
+    </span>
+    <span class="next">
+    <a href="http://...table-batchStart:int=30">Next 5 items &raquo;</a>
+    </span>
+    <span>
+    <a href="http://...table-batchStart:int=0">1</a>
+    ...
+    </span>
+    <a href="http://...table-batchStart:int=10">3</a>
+    <a href="http://...table-batchStart:int=15">4</a>
+    <a href="http://...table-batchStart:int=20">5</a>
+    [6]
+    <a href="http://...table-batchStart:int=30">7</a>
+    <a href="http://...table-batchStart:int=35">8</a>
+    <a href="http://...table-batchStart:int=40">9</a>
+    <span>
+    ...
+    <a href="http://...table-batchStart:int=55">12</a>
+    </span>
+    </div>
+    
+    >>> table.batchStart = 30
+    >>> table.update()
+    >>> print table.renderBatch()
+    <div class="listingBar">
+    <span class="previous">
+    <a href="http://...table-batchStart:int=25">&laquo; Previous 5 items</a>
+    </span>
+    <span class="next">
+    <a href="http://...table-batchStart:int=35">Next 5 items &raquo;</a>
+    </span>
+    <span>
+    <a href="http://...table-batchStart:int=0">1</a>
+    ...
+    </span>
+    <a href="http://...table-batchStart:int=15">4</a>
+    <a href="http://...table-batchStart:int=20">5</a>
+    <a href="http://...table-batchStart:int=25">6</a>
+    [7]
+    <a href="http://...table-batchStart:int=35">8</a>
+    <a href="http://...table-batchStart:int=40">9</a>
+    <a href="http://...table-batchStart:int=45">10</a>
+    <span>
+    ...
+    <a href="http://...table-batchStart:int=55">12</a>
+    </span>
+    </div>
+ 
+    >>> table.batchStart = 35
+    >>> table.update()
+    >>> print table.renderBatch()
+    <div class="listingBar">
+    <span class="previous">
+    <a href="http://...table-batchStart:int=30">&laquo; Previous 5 items</a>
+    </span>
+    <span class="next">
+    <a href="http://...table-batchStart:int=40">Next 5 items &raquo;</a>
+    </span>
+    <span>
+    <a href="http://...table-batchStart:int=0">1</a>
+    ...
+    </span>
+    <a href="http://...table-batchStart:int=20">5</a>
+    <a href="http://...table-batchStart:int=25">6</a>
+    <a href="http://...table-batchStart:int=30">7</a>
+    [8]
+    <a href="http://...table-batchStart:int=40">9</a>
+    <a href="http://...table-batchStart:int=45">10</a>
+    <a href="http://...table-batchStart:int=50">11</a>
+    <span>
+    <a href="http://...table-batchStart:int=55">12</a>
+    </span>
+    </div>
+    
+    >>> table.batchStart = 40
+    >>> table.update()
+    >>> print table.renderBatch()
+    <div class="listingBar">
+    <span class="previous">
+    <a href="http://...table-batchStart:int=35">&laquo; Previous 5 items</a>
+    </span>
+    <span class="next">
+    <a href="http://...table-batchStart:int=45">Next 5 items &raquo;</a>
+    </span>
+    <span>
+    <a href="http://...table-batchStart:int=0">1</a>
+    ...
+    </span>
+    <a href="http://...table-batchStart:int=25">6</a>
+    <a href="http://...table-batchStart:int=30">7</a>
+    <a href="http://...table-batchStart:int=35">8</a>
+    [9]
+    <a href="http://...table-batchStart:int=45">10</a>
+    <a href="http://...table-batchStart:int=50">11</a>
+    <a href="http://...table-batchStart:int=55">12</a>
+    </div>
+    
+    >>> table.batchStart = 45
+    >>> table.update()
+    >>> print table.renderBatch()
+    <div class="listingBar">
+    <span class="previous">
+    <a href="http://...table-batchStart:int=40">&laquo; Previous 5 items</a>
+    </span>
+    <span class="next">
+    <a href="http://...table-batchStart:int=50">Next 5 items &raquo;</a>
+    </span>
+    <span>
+    <a href="http://...table-batchStart:int=0">1</a>
+    ...
+    </span>
+    <a href="http://...table-batchStart:int=30">7</a>
+    <a href="http://...table-batchStart:int=35">8</a>
+    <a href="http://...table-batchStart:int=40">9</a>
+    [10]
+    <a href="http://...table-batchStart:int=50">11</a>
+    <a href="http://...table-batchStart:int=55">12</a>
+    </div>
+    
+    >>> table.batchStart = 50
+    >>> table.update()
+    >>> print table.renderBatch()
+    <div class="listingBar">
+    <span class="previous">
+    <a href="http://...table-batchStart:int=45">&laquo; Previous 5 items</a>
+    </span>
+    <span class="next">
+    <a href="http://...table-batchStart:int=55">Next 4 items &raquo;</a>
+    </span>
+    <span>
+    <a href="http://...table-batchStart:int=0">1</a>
+    ...
+    </span>
+    <a href="http://...table-batchStart:int=35">8</a>
+    <a href="http://...table-batchStart:int=40">9</a>
+    <a href="http://...table-batchStart:int=45">10</a>
+    [11]
+    <a href="http://...table-batchStart:int=55">12</a>
+    </div>
+    
+    >>> table.batchStart = 55
+    >>> table.update()
+    >>> print table.renderBatch()
+    <div class="listingBar">
+    <span class="previous">
+    <a href="http://...table-batchStart:int=50">&laquo; Previous 5 items</a>
+    </span>
+    <span>
+    <a href="http://...table-batchStart:int=0">1</a>
+    ...
+    </span>
+    <a href="http://...table-batchStart:int=40">9</a>
+    <a href="http://...table-batchStart:int=45">10</a>
+    <a href="http://...table-batchStart:int=50">11</a>
+    [12]
+    </div>    
+    >>> print table.render()
+    <table>
+      <thead>
+        <tr>
+          <th>index</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>55</td>
+        </tr>
+        <tr>
+          <td>56</td>
+        </tr>
+        <tr>
+          <td>57</td>
+        </tr>
+        <tr>
+          <td>58</td>
+        </tr>
+      </tbody>
+    </table>
+    
