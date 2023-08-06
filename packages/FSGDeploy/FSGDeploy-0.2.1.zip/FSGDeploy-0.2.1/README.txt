@@ -1,0 +1,23 @@
+===========
+FSGDeploy
+===========
+
+Deployment made simple.  Use FSGDeploy to deploy from Linux or Mac or Windows to Linux or Windows.  FSGDeploy supports MSSQL, IIS, PHP, Google Closure CSS and JS optimization, CSS/JS auto-versioning and a host of other common deployment activities.  In your selected deployment directory, use the following structure::
+
+    sites\site_name\env_name.ini
+    utilities\compiler.jar
+    utilities\stylesheets.jar
+
+Optional (for scripts or scheduled tasks)::
+
+    sites\site_name\db\script.sql
+    sites\site_name\scheduled_tasks\task.ini
+
+For example execution, run "**deploy**" in terminal/cmd from within your deployment directory.
+
+Utilities
+-------------
+
+* `compiler.jar <http://closure-compiler.googlecode.com/files/compiler-latest.zip>`_
+
+* `Closure-stylesheets.jar <https://code.google.com/p/closure-stylesheets/downloads/detail?name=closure-stylesheets-20111230.jar&can=2&q=>`_ - rename to stylesheets.jar
