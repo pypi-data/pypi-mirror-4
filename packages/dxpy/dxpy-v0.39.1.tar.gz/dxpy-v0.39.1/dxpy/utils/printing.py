@@ -1,0 +1,92 @@
+# Copyright (C) 2013 DNAnexus, Inc.
+#
+# This file is part of dx-toolkit (DNAnexus platform client libraries).
+#
+#   Licensed under the Apache License, Version 2.0 (the "License"); you may not
+#   use this file except in compliance with the License. You may obtain a copy
+#   of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+#   Unless required by applicable law or agreed to in writing, software
+#   distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#   WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#   License for the specific language governing permissions and limitations
+#   under the License.
+
+'''
+This submodule gives basic utilities for printing to the terminal.
+'''
+
+import textwrap, subprocess, sys
+
+if sys.stdout.isatty():
+    try:
+        p = subprocess.Popen(['stty', 'size'],
+                             stdin=sys.stdout,
+                             stdout=subprocess.PIPE)
+        tty_rows, tty_cols = map(int, p.stdout.read().split())
+        std_width = min(tty_cols - 2, 100)
+    except:
+        tty_rows, tty_cols = 24, 80
+        std_width = 78
+    color_state = True
+else:
+    tty_rows, tty_cols = 24, 80
+    std_width = 78
+    color_state = False
+
+delimiter = None
+
+def CYAN():
+    return '\033[36m' if color_state else ''
+
+def BLUE():
+    return '\033[34m' if color_state else ''
+
+def YELLOW():
+    return '\033[33m' if color_state else ''
+
+def GREEN():
+    return '\033[32m' if color_state else ''
+
+def RED():
+    return '\033[31m' if color_state else ''
+
+def WHITE():
+    return '\033[37m' if color_state else ''
+
+def UNDERLINE():
+    return '\033[4m' if color_state else ''
+
+def BOLD():
+    return '\033[1m' if color_state else ''
+
+def ENDC():
+    return '\033[0m' if color_state else ''
+
+def DNANEXUS_LOGO():
+    return BOLD() + WHITE() + 'DNAne' + CYAN() + 'x' + WHITE() + 'us' + ENDC()
+
+def set_colors(state=True):
+    global color_state
+    color_state = state
+
+def set_delimiter(delim=None):
+    global delimiter
+    delimiter = delim
+
+def get_delimiter(delim=None):
+    global delimiter
+    return delimiter
+
+def DELIMITER(alt_delim):
+    global delimiter
+    return alt_delim if delimiter is None else delimiter
+
+def fill(string, width_adjustment=0, **kwargs):
+    if "width" not in kwargs:
+        kwargs['width'] = max(std_width + width_adjustment, 20)
+    if "break_on_hyphens" not in kwargs:
+        kwargs["break_on_hyphens"] = False
+    return textwrap.fill(string, **kwargs)
