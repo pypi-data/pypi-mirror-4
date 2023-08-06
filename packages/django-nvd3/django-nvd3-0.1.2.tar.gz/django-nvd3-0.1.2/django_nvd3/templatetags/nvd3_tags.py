@@ -1,0 +1,93 @@
+from django.template.defaultfilters import register
+from django.utils.safestring import mark_safe
+from nvd3.NVD3Chart import NVD3Chart
+from nvd3 import lineWithFocusChart, lineChart, \
+    multiBarChart, pieChart, stackedAreaChart, \
+    multiBarHorizontalChart, linePlusBarChart, \
+    cumulativeLineChart, discreteBarChart, scatterChart
+
+
+@register.simple_tag(name='load_chart')
+def load_chart(chart_type, series, container, y_is_date=False):
+    """Loads the Chart objects in the container.
+
+    **usage**:
+
+        {% load_chart "lineWithFocusChart" data_set "div_lineWithFocusChart" %}
+
+    **Arguments**:
+
+        * ``chart_type`` - Give chart type name eg. lineWithFocusChart/pieChart
+        * ``series`` - Data set which are going to be plotted in chart.
+        * ``container`` - Chart holder in html page.
+        * ``y_is_date`` - if x-axis is in date format
+    """
+    chart = eval(chart_type)(name=container, date=y_is_date)
+    xdata = series['x']
+    y_axis_list = [d for d in series.keys() if 'y' in d]
+
+    for key in y_axis_list:
+        ydata = series[key]
+        axis_no = key.split('y')[1]
+
+        name = series['name' + axis_no] if series.get('name' + axis_no) else None
+        extra = series['extra' + axis_no] if series.get('extra' + axis_no) else {}
+
+        if chart_type == 'linePlusBarChart':
+            if key == 'y1':
+                kwargs = series['kwargs1']
+                chart.add_serie(name=name, y=ydata, x=xdata, extra=extra, **kwargs)
+            else:
+                chart.add_serie(name=name, y=ydata, x=xdata, extra=extra)
+        elif chart_type == 'scatterChart':
+            # get digit
+            kwargs = series['kwargs' + axis_no]
+            chart.add_serie(name=name, y=ydata, x=xdata, extra=extra, **kwargs)
+        elif chart_type == 'pieChart':
+            chart.add_serie(y=ydata, x=xdata, extra=extra)
+        else:
+            chart.add_serie(name=name, y=ydata, x=xdata, extra=extra)
+
+    chart.buildhtml()
+
+    html_string = chart.jschart + '\n'
+    return mark_safe(html_string)
+
+
+@register.simple_tag(name='include_nvd3jscss')
+def include_nvd3jscss():
+    """
+    Include the javascript and css for nvd3
+    This include :
+        * d3.v2.js
+        * nv.d3.js
+        * nv.d3.css
+    """
+    chart = NVD3Chart()
+    chart.buildhtmlheader()
+    return mark_safe(chart.htmlheader + '\n')
+
+
+@register.simple_tag(name='include_container')
+def include_container(include_container, height=400, width=600):
+    """
+    Include the html for the chart container and css for nvd3
+    This will include something similar as :
+        <div id="containername"><svg style="height:400px;width:600px;"></svg></div>
+
+    **usage**:
+
+        {% include_container "lineWithFocusChart" 400 400 %}
+
+    **Arguments**:
+
+        * ``include_container`` - container_name
+        * ``height`` - Chart height
+        * ``width`` - Chart width
+    """
+    chart = NVD3Chart(include_container)
+    chart.height = height
+    chart.width = width
+    chart.buildcontainer()
+
+    return mark_safe(chart.container + '\n')
