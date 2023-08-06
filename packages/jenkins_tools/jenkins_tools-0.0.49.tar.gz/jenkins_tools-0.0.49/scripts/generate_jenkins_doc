@@ -1,0 +1,109 @@
+#!/usr/bin/env python
+
+import jenkins
+import optparse
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import yaml
+
+import jenkins_tools
+from rosdistro import get_index, get_index_url, get_doc_file
+from rospkg import environment
+
+ubuntu_distro = {'electric': ['lucid'],
+                 'fuerte': ['precise'],
+                 'groovy': ['precise'],
+                 'hydro': ['precise']}
+arch = ['amd64']
+
+
+def build_job(jenkins_instance, job_name):
+    #return jenkins_instance.build_job(job_name)
+    # replicate internal implementation of Jenkins.build_job()
+    import urllib2
+    if not jenkins_instance.job_exists(job_name):
+        raise jenkins.JenkinsException('no such job[%s]' % (job_name))
+    # pass parameters to create a POST request instead of GET
+    return jenkins_instance.jenkins_open(urllib2.Request(jenkins_instance.build_job_url(job_name), 'foo=bar'))
+
+
+def get_doc_repository_names(distro):
+    index = get_index(get_index_url())
+    doc_file = get_doc_file(index, distro)
+    return doc_file.repositories.keys()
+
+
+def get_distro_rosinstalls(distro):
+    temp_dir = tempfile.mkdtemp()
+    helper = subprocess.Popen(["git", "clone", "git://github.com/ros/rosdistro.git", temp_dir])
+    helper.communicate()
+    if helper.returncode != 0:
+        print "Failed to checkout doc repo!"
+        return []
+
+    print "Building list of repos for distro %s" % distro
+
+    rosinstall_files = []
+    for ls_file in os.listdir(os.path.join(temp_dir, "doc/%s" % distro)):
+        if ls_file.endswith(".rosinstall"):
+            rosinstall_files.append(os.path.splitext(os.path.basename(ls_file))[0])
+    shutil.rmtree(temp_dir)
+
+    return rosinstall_files
+
+
+# Schedule all doc jobs on Jenkins
+def main():
+    parser = optparse.OptionParser()
+    parser.add_option("--delete", action="store_true", default=False)
+    parser.add_option("--run", action="store_true", default=False)
+    (options, args) = parser.parse_args()
+    if len(args) != 1:
+        print "Usage: %s ros_distro" % (sys.argv[0])
+        print "Ex: %s fuerte" % (sys.argv[0])
+        sys.exit(0)
+    ros_distro = args[0]
+
+    if ros_distro != 'fuerte':
+        repo_names = get_doc_repository_names(ros_distro)
+    else:
+        repo_names = get_distro_rosinstalls(ros_distro)
+
+    # create jenkins instance
+    with open(os.path.join(environment.get_ros_home(), 'buildfarm', 'server.yaml')) as f:
+        info = yaml.load(f)
+    jenkins_instance = jenkins.Jenkins(jenkins_tools.JENKINS_SERVER, info['username'], info['password'])
+    print "Created Jenkins instance"
+
+    doc_jobs = []
+    for repo_name in sorted(repo_names):
+        for u in ubuntu_distro[ros_distro]:
+            for a in arch:
+                # replace forward slashes in repo names since they are not allowed in job names
+                job_name = 'doc-' + ros_distro + '-' + repo_name.replace('/', '__')
+                jenkins_tools.run_jenkins_periodic(jenkins_instance, u, a, job_name, "ros-buildfarm-doc@googlegroups.com", "nightly", "doc", [ros_distro, repo_name], info['username'], priority=30)
+                if options.run:
+                    print "Running %s" % job_name
+                    build_job(jenkins_instance, job_name)
+                print "\n"
+                doc_jobs.append(job_name)
+
+    # delete old jobs
+    if options.delete:
+        print "Checking for jobs to delete..."
+        remove = []
+        current_jobs = [j['name'] for j in jenkins_instance.get_jobs()]
+        for c in current_jobs:
+            if 'doc-%s' % ros_distro in c and not c in doc_jobs:
+                remove.append(c)
+        print "done"
+
+        for r in remove:
+            jenkins_instance.delete_job(r)
+            print "Deleted old job %s" % r
+
+if __name__ == "__main__":
+    main()
