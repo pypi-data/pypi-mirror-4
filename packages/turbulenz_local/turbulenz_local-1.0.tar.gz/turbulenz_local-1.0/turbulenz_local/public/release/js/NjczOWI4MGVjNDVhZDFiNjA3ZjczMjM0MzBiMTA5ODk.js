@@ -1,0 +1,2 @@
+// Copyright (c) 2010-2012 Turbulenz Limited
+/*global $*/$(function(){$("select.selectbox").each(function(){var e=[],t=$(this).children("option"),n=t.length;for(var r=0;r<n;r+=1)e[e.length]="<li><span>"+$(t[r]).text()+"</span></li>";$(this).hide().after('<div class="selectbox" tabindex="0"><div><ul>'+e.join("")+"</ul><b><b>&nbsp;</b></b></div></div>"),$(this).siblings(".selectbox").focus(function(){$(this).find("div:first").toggleClass("drop",!0)}).blur(function(){$(this).find("div:first").toggleClass("drop",!1)})})});
