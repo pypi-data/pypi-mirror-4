@@ -1,0 +1,134 @@
+{% extends "user_groups/base.html" %}
+{% load base_tags %}
+{% load base_filters %}
+{% load user_group_tags %}
+{% load perm_tags %}
+{% load pagination_tags %}
+{% load i18n %}
+
+{% block title %}{{ group.name }} - Group{% endblock %}
+
+{% block extra_head %}
+{{ block.super }}
+<link rel="stylesheet" href="{{ STATIC_URL }}css/iconrow.css">
+<link rel="stylesheet" href="{{ STATIC_URL }}css/usergroups.css">
+{% endblock %}
+
+{% block body %}
+{% has_perm user user_groups.change_group group as can_edit %}
+{% has_perm user user_groups.delete_group group as can_delete %}
+
+<div class="t">
+    <div class="group-view">
+    	{% user_group_nav request.user group %}
+    
+    	<div class="quick-options">
+    		{% user_group_options request.user group %}
+    	</div>
+    	
+    	<h1>{{ group.name }}</h1>
+    	{% if can_edit %}
+        <div class="group-section">
+            <p>{% blocktrans %}This group currently has {{ count_members }} members.{% endblocktrans %}</p>
+            <p>{% blocktrans with group.groupsubscription_set.all.count as count %}This group currently has {{ count }} subscribers.{% endblocktrans %}</p>
+            <h3>Export</h3>
+            <p><a href="{% url group.member_export group.slug %}">{% trans "Export all members" %}</a></p>
+            <p><a href="{% url group.subscriber_export group.slug %}">{% trans "Export all subscribers" %}</a></p>
+            <p><a href="{% url group.all_export group.slug %}">{% trans "Export all members and subscribers" %}</a></p>
+        </div>
+        {% endif %}
+
+        <h2>{% trans "Group Information" %}</h2>
+        <div class="group-section">
+            {% if group.type %}<p>{% trans "Type" %}: {{ group.type|capfirst }}</p>{% endif %}
+            <!-- <p>This group is displayed as an option in the Users Module</p> -->
+            {% if group.allow_self_add %}
+            <p>{% trans "Users can add themselves to this group" %}</p>
+            {%  endif %}
+            {% if group.allow_self_remove %}
+            <p>{% trans "Users can remove themselves from this group" %}</p>
+            {% endif %}
+            {% if can_edit %}
+            <p><a href="{% url group.edit_perms group.pk %}">{% trans "Edit Security Permissions for Group Members" %}</a></p>
+            {% endif %}
+        </div>
+
+        {% if can_edit %}
+        <h2>{% trans "Group Contact" %}</h2>
+        <div class="group-section">
+            {% if group.email_recipient %}
+                <p>{% trans "Emails regarding activity in this group will be sent to:" %} </p>
+                <p>{{ group.email_recipient }}</p>
+            {% else %}
+                <p>{% trans "There is no email recipient set for this group."  %}  <a href="{% url group.edit group.slug %}">{% trans "Edit group." %}</a></p>
+            {% endif %}
+        </div>
+
+        <h2>{% trans "Group Members" %}</h2>
+        {% if not groupmemberships %}
+        <p>{% trans "This group has no members" %}</p>
+        {% else %}
+        {% autopaginate groupmemberships 100 %}
+        {% paginate %}
+        <div class="group-member-list">
+        <p>Group members in sets of 100</p>
+        {% for gm in groupmemberships %}
+            <div class="group-member {% cycle 'gray' '' %}">
+             <a href="{{ gm.member.get_absolute_url }}">{{ gm.member.get_full_name }} ({{ gm.member.username }}) - {{ gm.role }}</a>
+             {% if can_delete %}
+                &nbsp;<span class="delete"><a href="{% url group.deleteuser group.slug gm.member.id %}">{% trans "Remove" %}</a></span>
+             <!-- delete-member form -->
+                <form name="member-delete" method="POST" action="{% url group.deleteuser group.slug gm.member.id %}">{% csrf_token %}
+                    <input type="hidden" name="action" value="delete">
+                </form>
+            {% endif %}
+            </div>
+        {% endfor %}
+        </div>
+        {% paginate %}
+        {% endif %}
+        
+        <h2>{% trans "Group Subscribers" %}</h2>
+        {% with group.groupsubscription_set.all as groupsubscribers %}
+        {% if not groupsubscribers %}
+        <p>{% trans "This group has no subscribers" %}</p>
+        {% else %}
+        {% autopaginate groupsubscribers 50 %}
+        {% paginate %}
+        <div class="group-member-list">
+        <p>Subscribers in sets of 50</p>
+        {% for gs in groupsubscribers %}
+            <div class="group-member {% cycle 'gray' '' %}">
+                {% if gs.subscriber %}
+                    <a href="{{ gs.subscriber.get_absolute_url }}">{{ gs.name }} ({{ gs.email }})</a>
+                {% else %}
+                    <a href="{% url subscriber_detail gs.pk %}">{{ gs.name }} ({{ gs.email }})</a>
+                {% endif %}
+                {% if can_delete %}
+                    &nbsp;<span class="delete-subscriber">- <a href="{% url subscriber_delete  gs.id %}">{% trans "Remove" %}</a></span>
+                {% endif %}
+            </div>
+        {% endfor %}
+        </div>
+        {% paginate %}
+        {% endif %}
+        {% endwith %}
+
+        {% endif %}
+        
+        {% include "user_groups/meta.html" %}
+    </div>
+</div>
+
+<script type="text/javascript" src="{{ STATIC_URL }}js/jquery-1.4.2.min.js"></script>
+    <script type="text/javascript">
+		$(document).ready(function(){
+			// delete confirmation for members
+			$('.delete').click(function(){
+				var delete_member = confirm('Remove this member from the group?');	// confirm
+				if(delete_member) $(this).parent().find('form[name="member-delete"]').submit() // delete: if OK
+				return false;	// cancel
+			});
+		});
+    </script>
+{% endblock %}
