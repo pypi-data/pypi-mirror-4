@@ -1,0 +1,234 @@
+--- ExternalStorage.py.old	2009-10-31 11:50:30.000000000 +0100
++++ ExternalStorage.py	2013-01-31 10:45:58.000000000 +0100
+@@ -9,7 +9,7 @@
+ from Globals import INSTANCE_HOME
+ from StringIO import StringIO
+ 
+-from Acquisition import aq_base
++from Acquisition import aq_base, aq_parent
+ from AccessControl import ClassSecurityInfo
+ 
+ from OFS.Image import File
+@@ -49,11 +49,25 @@
+         """Initializes default values.
+         """
+         self.prefix = prefix
++        self._p_key = prefix
++        if not self._p_key:
++            self._p_key = 0
+         self.archive = archive
+         self.rename = rename
+         self.renaming = False
+         self.suffix = suffix
+         self.path_method = path_method
++    
++    def __eq__(self, other):
++        """This is needed so archetypes calls initializeInstance for 
++        each storage
++
++        Two storages are considered the same when they share the
++        same prefix and path_method.
++        """
++        return self.__class__ == other.__class__ and \
++               self.prefix == other.prefix and \
++               self.path_method == other.path_method
+ 
+     #
+     # Storage API
+@@ -99,8 +113,18 @@
+         """
+         - Remove filesystem structure.
+         """
+-        # XXX Add code to remove filesystem structure
+-        pass
++        if not self.isInitialized(instance):
++            return
++        pu = getToolByName(instance, 'portal_url')
++        relative = pu.getRelativeContentPath(instance)
++        path = '/'.join(relative)
++        root = self.getRootPath()
++        while path:
++            abs_path = os.path.join(root, path)
++            # remove dir if empty
++            if os.path.exists(abs_path) and len(os.listdir(abs_path)) == 0:
++                os.rmdir(abs_path)
++            path = os.path.dirname(path)
+ 
+     def initializeField(self, instance, field):
+         """
+@@ -124,6 +148,7 @@
+             shutil.rmtree(path[:-6])
+         elif os.path.exists(path):
+             os.remove(path)
++        self.cleanupInstance(instance, instance, aq_parent(instance))
+ 
+     security.declarePrivate('get')
+     def get(self, name, instance, **kwargs):
+@@ -133,7 +158,7 @@
+         """
+         if not self.isInitialized(instance):
+             return
+-        filepath = self.getFilepath(instance, name)
++        filepath = os.path.join(self.getRootPath(), self.getFilepath(instance, name))
+         filename = self.getFilename(instance, name)
+         mimetype = self.getContentType(instance, name)
+         content_class = self.getContentClass(instance, name)
+@@ -198,21 +223,21 @@
+         """Checks if ES storage has temp data.
+         """
+         UID = instance.UID()
+-        return shasattr(self, '_v_temp') and self._v_temp.has_key(UID)
++        return shasattr(self, '_v_temp') and self._v_temp.has_key(UID) and self._v_temp[UID].has_key(self._p_key)
+ 
+     security.declarePrivate('cleanTempData')
+     def cleanTempData(self, instance):
+         """Removes temp data from ES storage.
+         """
+         UID = instance.UID()
+-        if shasattr(self, '_v_temp') and self._v_temp.has_key(UID):
+-            del self._v_temp[UID]
++        if shasattr(self, '_v_temp') and self._v_temp.has_key(UID) and self._v_temp[UID].has_key(self._p_key):
++            del self._v_temp[UID][self._p_key]
+ 
+     security.declarePrivate('getTempData')
+     def getTempData(self, instance):
+         """Returns the temp data from ES storage.
+         """
+-        return self._v_temp.get(instance.UID())
++        return getattr(self, '_v_temp', {}).get(instance.UID(), {}).get(self._p_key)
+ 
+     security.declarePrivate('setTempData')
+     def setTempData(self, instance, item=None):
+@@ -223,7 +248,9 @@
+         UID = instance.UID()
+         if not self._v_temp.has_key(UID):
+             self._v_temp[UID] = {}
+-        temp = self._v_temp[UID]
++        if not self._v_temp[UID].has_key(self._p_key):
++            self._v_temp[UID][self._p_key] = {}
++        temp = self._v_temp[UID][self._p_key]
+         fields = self.getStorageFields(instance)
+         for field in fields:
+             name = field.getName()
+@@ -236,20 +263,22 @@
+     def isInitialized(self, instance):
+         """Checks if the ES storage area is already initialized.
+         """
+-        return shasattr(instance, '_es')
++        return shasattr(instance, '_es') and instance._es.has_key(self._p_key)
+ 
+     security.declarePrivate('initializeStorage')
+     def initializeStorage(self, instance):
+         """Initializes the ES storage area.
+         """
+-        instance._es = PersistentMapping()
++        if not shasattr(instance, '_es'):
++            instance._es = PersistentMapping()
++        instance._es[self._p_key] = PersistentMapping()
+         self.setInstancePath(instance)
+ 
+     security.declarePrivate('hasStorageItem')
+     def hasStorageItem(self, instance, name):
+         """Checks if ES storage area has an item.
+         """
+-        return instance._es.has_key(name)
++        return instance._es[self._p_key].has_key(name)
+ 
+     security.declarePrivate('setStorageItem')
+     def setStorageItem(self, instance, name, value):
+@@ -265,10 +294,15 @@
+             new_data = str(data)
+         if new_data is None:
+             new_data = ''
++            
++        # do nothing if file data is empty (when in portal_factory)
++        if new_data == '':
++            instance._es[self._p_key].update({name: value})
++            return
+ 
+         data = StringIO(new_data)
+ 
+-        filepath = value.get('filepath')
++        filepath = os.path.join(self.getRootPath(), value.get('filepath'))
+         try:
+             self.checkDirs(filepath)
+             out = open(filepath, 'wb')
+@@ -283,14 +317,13 @@
+         except IOError, e:
+             log('copy of external file failed', text=str(e), log_level=ERROR)
+             raise
+-
+-        instance._es.update({name: value})
++        instance._es[self._p_key].update({name: value})
+ 
+     security.declarePrivate('getStorageItem')
+     def getStorageItem(self, instance, name):
+         """Returns an item from the ES storage area.
+         """
+-        return instance._es.get(name)
++        return instance._es[self._p_key].get(name)
+ 
+     # Shortcuts to access ES storage area for a given fieldname
+ 
+@@ -300,7 +333,7 @@
+         """
+         item = self.getStorageItem(instance, name)
+         filepath = item.get('filepath')
+-        return filepath
++        return os.path.join(self.getRootPath(), filepath)
+ 
+     security.declarePrivate('getFilename')
+     def getFilename(self, instance, name):
+@@ -324,14 +357,14 @@
+     def getInstancePath(self, instance):
+         """Returns the instance path from storage.
+         """
+-        return instance._es.get('_es_path')
++        return instance._es.get(self._p_key, {}).get('_es_path')
+ 
+     security.declarePrivate('setInstancePath')
+     def setInstancePath(self, instance):
+         """Saves the instance path into storage.
+         """
+         path = '/'.join(instance.getPhysicalPath())
+-        instance._es.update({'_es_path': path})
++        instance._es[self._p_key].update({'_es_path': path})
+ 
+     security.declarePrivate('getRootPath')
+     def getRootPath(self):
+@@ -374,10 +407,8 @@
+                 if ftype == 'image' and field.getAvailableSizes(instance):
+                     path = os.path.join(path, item)
+             path = path + self.suffix
+-        root = self.getRootPath()
+         if path.startswith('/'):
+             path = path[1:]
+-        path = os.path.join(root, path)
+         return path
+ 
+     # Utilities
+@@ -419,14 +450,8 @@
+     security.declarePrivate('isCompatibleWithStorage')
+     def isCompatibleWithStorage(self, storage):
+         """Checks if a given schema is compatible with current one.
+-
+-        Two storages are considered compatible when they share the
+-        same prefix and path_method.
+         """
+-        return shasattr(storage, 'prefix') and \
+-               shasattr(storage, 'path_method') and \
+-               self.prefix == storage.prefix and \
+-               self.path_method == storage.path_method
++        return self == storage
+ 
+     security.declarePrivate('checkDirs')
+     def checkDirs(self, path):
+@@ -451,7 +476,7 @@
+             item.setdefault('filepath', filepath)
+             item.setdefault('mimetype', mimetype)
+             item.setdefault('filename', filename)
+-            instance._es.update({name: item})
++            instance._es[self._p_key].update({name: item})
+             for attr in ['_es_initialized', '_es_filename',
+                          '_es_filepath', '_es_mimetype']:
+                 delattr(obj, attr)
