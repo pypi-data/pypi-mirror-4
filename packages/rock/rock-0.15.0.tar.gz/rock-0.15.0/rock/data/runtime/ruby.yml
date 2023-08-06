@@ -1,0 +1,104 @@
+env:
+  PATH: "${ROCK_PATH}/bin:${ROCK_PATH}/vendor/bundle/ruby/${RUBY_ABI}/bin:${PATH}"
+  RUBYLIB: "${ROCK_PATH}/lib:${RUBYLIB}"
+  ROCK_BUNDLE_INSTALL: "install --path=./vendor/bundle"
+  ROCK_BUNDLE_INSTALL_DEPLOYMENT: "install --verbose --no-color --deployment"
+
+init: |
+  if [[ "${ROCK_ARGS_HELP}" == "true" ]]; then
+    echo 'Usage: rock --runtime=RUNTIME init [--force] [directory]'
+    echo
+    echo '  --help             show help message'
+    echo '  --force            run init and overwrite existing files'
+    exit
+  fi
+
+  export ROCK_PATH="${ROCK_ARG1:-${ROCK_PATH}}"
+
+  if [[ ! -d "${ROCK_PATH}" ]]; then
+    if [[ -e "${ROCK_PATH}" ]]; then
+      die "${ROCK_PATH} exists and is not a directory"
+    fi
+
+    mkdir -p "${ROCK_PATH}"
+  fi
+
+  cd "${ROCK_PATH}"
+
+  if [[ -n "$( ls -A )" && "${ROCK_ARGS_FORCE}" != "true" ]]; then
+    die "${ROCK_PATH} is not empty (--force to run anyway)"
+  fi
+
+  cat << EOF > ./.rock.yml
+  runtime: ${ROCK_RUNTIME}
+  EOF
+
+  cat << EOF > ./Gemfile
+  source 'https://rubygems.org'
+
+  gem 'sinatra'
+  EOF
+
+  cat << EOF > ./Rakefile
+  require 'rake/testtask'
+
+  task :default => :test
+
+  Rake::TestTask.new do |t|
+    t.libs << 'test'
+    t.test_files = FileList['test/*_test.rb']
+  end
+  EOF
+
+  mkdir -p ./test
+
+build: |
+
+  if [[ "${ROCK_ARGS_HELP}" == "true" ]]; then
+    echo 'Usage: rock build [--deployment]'
+    echo
+    echo '  --help             show help message'
+    echo '  --deployment       run build in deployment mode'
+    exit
+  fi
+
+  if [[ "${ROCK_ARGS_DEPLOYMENT}" != "true" ]]; then
+    if [[ -f ./Gemfile || -f ./Gemfile.lock ]]; then
+      bundle ${ROCK_BUNDLE_INSTALL}
+    else
+      warn 'no "Gemfile" or "Gemfile.lock" file found'
+    fi
+  else
+    if [[ ! -f ./Gemfile.lock ]]; then
+      die 'no "Gemfile.lock" file found'
+    fi
+    bundle ${ROCK_BUNDLE_INSTALL_DEPLOYMENT}
+  fi
+
+test: |
+
+  if [[ "${ROCK_ARGS_HELP}" == "true" ]]; then
+    echo 'Usage: rock test'
+    echo
+    echo '  --help             show help message'
+    exit
+  fi
+
+  rake
+
+clean: |
+
+  if [[ "${ROCK_ARGS_HELP}" == "true" ]]; then
+    echo 'Usage: rock clean'
+    echo
+    echo '  --help             show help message'
+    exit
+  fi
+
+  if [[ -d ./vendor/bundle ]]; then
+    rm -fr ./vendor/bundle
+  fi
+
+  if [[ -d ./.bundle ]]; then
+    rm -fr ./.bundle
+  fi
