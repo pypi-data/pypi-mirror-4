@@ -1,0 +1,257 @@
+#!/env/python
+
+# Copyright (c) James Yates Farrimond. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# Modification, are permitted provided that the following conditions are met:
+#
+# Redistributions of source code must retain the above copyright notice, this
+# list of conditions and the following disclaimer.
+#
+# Redistributions in binary form must reproduce the above copyright notice,
+# this list of conditions and the following disclaimer in the documentation
+# and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY JAMES YATES FARRIMOND ''AS IS'' AND ANY EXPRESS
+# OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+# OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
+# EVENT SHALL JAMES YATES FARRIMOND OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+# INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+# ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+# SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+# The views and conclusions contained in the software and documentation are
+# those of the authors and should not be interpreted as representing official
+# policies, either expressed or implied, of James Yates Farrimond.
+
+'''
+Frycooker is the program that takes all your carefully coded recipes and
+cookbooks and applies them to computers.
+
+Pre-requisites
+==============
+
+Frycooker depends on a few things to work properly.
+
+settings.json file
+------------------
+
+Contains the settings for the program, in JSON format.
+
+environment.json file
+---------------------
+
+Contains the environment for the program, in JSON format.
+
+packages directory
+------------------
+
+Contains all the package files for the recipes.
+
+recipes package
+---------------
+
+This should be accessible via the PYTHONPATH so it can be imported.  There
+should be a recipe list in the __init__.py file for the packge.
+
+cookbooks package
+-----------------
+
+This should be accessible via the PYTHONPATH so it can be imported.  There
+should be a recipe list in the __init__.py file for the packge.
+
+Globules
+========
+
+All the files necessary for frycooker to run are usually arranged in a
+directory structure that I call a I{globule}.  Here's an example of that::
+
+  awesome_recipes           # root directory
+    packages                # directory for the package files
+      hosts                 # root for hosts package files
+        etc                 # corresponds to /etc on the target server
+          hosts.tmplt       # template that becomes /etc/hosts on the target
+                            # server
+      nginx                 # root for nginx package files
+        etc                 # corresponds to /etc directory on the target server
+          default           # corresponds to /etc/default directory on the
+                            # target server
+            nginx           # corresponds to /etc/default/nginx file on the
+                            # target server
+          nginx             # corresponds to /etc/nginx directory on target
+                            # server
+            nginx.conf      # corresponds to /etc/nginx/nginx.conf file on
+                            # target server
+            conf.d          # corresponds to /etc/nginx/conf.d directory on
+                            # target server
+            sites-available # corresponds to /etc/nginx/sites-available
+                            # directory on target server
+              default       # corresponds to /etc/nginx/sites-available/default
+                            # directory on target server
+            sites-enabled   # corresponds to /etc/nginx/sites-enable directory
+                            # on target server
+        srv                 # corresponds to /srv directory on the target server
+          www               # corresponds to /srv/www directory on the target
+                            # server
+            50x.html        # corresponds to /srv/www/50x.html file on target
+                            # server
+            index.html      # corresponds to /srv/www/index.html file on target
+                            # server
+    setup                   # directory for non-package files
+      runner.sh             # wrapper for frycooker that sets PYTHONPATH
+      settings.json         # settings file
+      environment.json      # environment file
+      cookbooks             # directory to hold the cookbooks package
+        __init__.py         # define the cookbook list here and import all
+                            # cookbook classes
+        base.py             # cookbook referencing all the recipes for a base
+                            # server setup
+        web.py              # cookbook for make a base server into a web server
+      recipes               # directory to hold the recipes package
+        __init__.py         # define the recipe list here and import all recipe
+                            # classes
+        root.py             # recipe for setting the root user's
+                            # authorized_keys file
+        hosts.py            # recipe for setting up the /etc/hosts file
+        nginx.py            # recipe for setting up nginx
+        example_com.py      # recipe for setting up example.com on a web server
+
+============
+
+Copyright (c) James Yates Farrimond. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+Modification, are permitted provided that the following conditions are met:
+
+Redistributions of source code must retain the above copyright notice, this
+list of conditions and the following disclaimer.
+
+Redistributions in binary form must reproduce the above copyright notice, this
+list of conditions and the following disclaimer in the documentation and/or
+other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY JAMES YATES FARRIMOND ''AS IS'' AND ANY EXPRESS OR
+IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
+EVENT SHALL JAMES YATES FARRIMOND OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+The views and conclusions contained in the software and documentation are those
+of the authors and should not be interpreted as representing official policies,
+either expressed or implied, of James Yates Farrimond.
+'''
+import argparse
+import json
+import os
+import sys
+
+import cuisine
+from fabric.api import env
+from fabric.network import disconnect_all
+
+import cookbooks
+import recipes
+
+def get_args():
+    recipe_names = recipes.recipes.keys()
+    recipe_names.sort()
+    cookbook_names = cookbooks.cookbooks.keys()
+    cookbook_names.sort()
+
+    parser = argparse.ArgumentParser(description='Setup machines.')
+    parser.add_argument('-r', '--recipe', dest='recipes', action='append',
+                        choices=recipe_names,
+                        help='recipe to process (can specify multiple times)')
+    parser.add_argument('-c', '--cookbook', dest='cookbooks', action='append',
+                        choices=cookbook_names,
+                        help='cookbook to process (can specify multiple times)')
+    parser.add_argument('-d', '--dryrun', action='store_true', default=False,
+                        help='do not apply actions, just verify environment '
+                        'and see which hosts to apply to')
+    parser.add_argument('-m', '--messages', action='store_true', default=False,
+                        help='do not apply actions, just print messages')
+    parser.add_argument('-p', '--package-update', action='store_true',
+                        default=False, dest='package_update',
+                        help='update the package manager before '
+                        'applying recipes/cookbooks')
+    parser.add_argument('-u', '--user', default='root',
+                        help='user to ssh to host as')
+    parser.add_argument('-s', '--settings', default='settings.json',
+                        help='settings file')
+    parser.add_argument('-e', '--environment', default='environment.json',
+                        help='environment file')
+    parser.add_argument('target', nargs='+',
+                        help='computer or group to apply setup to')
+
+    args = parser.parse_args()
+    return args
+
+def massage_enviro_paths(env):
+    for k, v in env.iteritems():
+        if isinstance(v, dict):
+            massage_enviro_paths(v)
+        elif (isinstance(k, basestring) and
+              isinstance(v, basestring) and
+              (k.find('path') > -1 or k.find('dir') > -1)):
+            env[k] = v.replace('~', os.environ['HOME'])
+
+def main():
+    args = get_args()
+
+    settings = json.load(open(args.settings))
+    massage_enviro_paths(settings)
+    enviro = json.load(open(args.environment))
+    massage_enviro_paths(enviro)
+
+    parsed_hosts = []
+    for target in args.target:
+        if target in enviro['computers']:
+            parsed_hosts.append(target)
+        elif target in enviro['groups']:
+            parsed_hosts.extend(enviro['groups'][target]['computers'])
+        else:
+            print "Invalid target '%s' encountered" % target
+            sys.exit(2)
+
+    if args.dryrun:
+        print ("actions would be applied to the following hosts: %s" %
+               ', '.join(parsed_hosts))
+        sys.exit(0)
+
+    for host in parsed_hosts:
+        env.host_string = host
+        if args.user:
+            env.user = args.user
+
+        if args.package_update:
+            cuisine.package_update()
+
+        try:
+            if args.recipes:
+                for r in args.recipes:
+                    recipe = recipes.recipes[r](settings, enviro)
+                    if args.messages:
+                        recipe.run_messages(host)
+                    else:
+                        recipe.run_apply(host)
+
+            if args.cookbooks:
+                for c in args.cookbooks:
+                    cookbook = cookbooks.cookbooks[c](settings, enviro)
+                    if args.messages:
+                        cookbook.run_messages(host)
+                    else:
+                        cookbook.run_apply(host)
+        finally:
+            disconnect_all()
+
+if __name__=="__main__":
+    main()
