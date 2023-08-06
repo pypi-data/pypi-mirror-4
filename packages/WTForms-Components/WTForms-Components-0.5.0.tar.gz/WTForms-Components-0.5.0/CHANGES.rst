@@ -1,0 +1,73 @@
+Changelog
+---------
+
+Here you can see the full list of changes between each WTForms-Components
+release.
+
+
+0.5.0 (2013-04-04)
+^^^^^^^^^^^^^^^^^^
+
+- Added Email validator
+- Fixed empty string handling with NumberRange fields
+
+
+0.4.6 (2013-03-29)
+^^^^^^^^^^^^^^^^^^
+
+- Fixed Unique validator when using Form constructor obj parameter
+- Updated docs
+
+
+0.4.5 (2013-03-27)
+^^^^^^^^^^^^^^^^^^
+
+- Fixed PhoneNumberField field rendering when validation fails
+
+
+0.4.4 (2013-03-26)
+^^^^^^^^^^^^^^^^^^
+
+- Fixed NumberRangeField field rendering when validation fails
+
+
+0.4.3 (2013-03-26)
+^^^^^^^^^^^^^^^^^^
+
+- Fixed NumberRangeField widget rendering
+
+
+0.4.2 (2013-03-26)
+^^^^^^^^^^^^^^^^^^
+
+- Removed NumberRangeInput
+
+
+0.4.1 (2013-03-26)
+^^^^^^^^^^^^^^^^^^
+
+- Changed empty phone number to be passed as None
+
+
+0.4.0 (2013-03-26)
+^^^^^^^^^^^^^^^^^^
+
+- Added NumberRangeField
+
+
+0.3.0 (2013-03-26)
+^^^^^^^^^^^^^^^^^^
+
+- Changed to use SQLAlchemy-Utils PhoneNumber class
+
+
+0.2.0 (2013-03-20)
+^^^^^^^^^^^^^^^^^^
+
+- Added PhoneNumberField
+
+
+0.1.0 (2013-03-15)
+^^^^^^^^^^^^^^^^^^
+
+- Initial public release
