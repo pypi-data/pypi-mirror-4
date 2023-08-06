@@ -1,0 +1,259 @@
+#!/usr/bin/env python
+
+programDescription = """\
+TestFarm is a client-server system to
+monitor the execution of a set of tasks
+in distributed clients.
+
+Clients periodically check for updates in
+a set of source repositories (svn, git...).
+As the clients detect any update,
+an execution starts and updates are sent to
+the server.
+Eventually, the server generates a set
+of web pages with the results of the clients
+grouped by projects.
+
+This command allows to setup the log file structure
+to define clients and projects, to manipulate
+related metadata and to simulate client executions.
+"""
+
+from testfarm.logger import Logger, ArgPrepender
+from testfarm.webgenerator import WebGenerator
+import argparse
+import sys
+import datetime
+
+def f_generate(args) :
+	print (
+		"Generating websites for logs at '{logpath}' into '{outputdir}'."
+		.format(**vars(args)))
+	s = Logger(args.logpath)
+	w = WebGenerator(args.outputdir)
+	w.generate(s)
+	sys.exit(0)
+
+def f_createlog(args) :
+	s = Logger(args.logpath)
+	s.createServer()
+	sys.exit(0)
+
+def f_addproject(args) :
+	print (
+		"Creating project '{project}' at log path '{logpath}'."
+		.format(**vars(args)))
+	s = Logger(args.logpath)
+	s.createProject(args.project)
+	sys.exit(0)
+
+def f_addclient(args) :
+	print (
+		"Creating client '{client}' within project '{project}' at log path '{logpath}'."
+		.format(**vars(args)))
+	s = Logger(args.logpath)
+	s.createClient(args.project, args.client)
+	sys.exit(0)
+
+def f_meta(args) :
+	s = Logger(args.logpath)
+	if args.client is None :
+		print "Setting metadata for project '{project}':".format(**vars(args))
+		s.setProjectMetadata(args.project, **dict(args.set))
+	else :
+		print "Setting metadata for client '{client}' at project '{project}':".format(**vars(args))
+		s.setClientMetadata(args.project, args.client, **dict(args.set))
+	for key, value in args.set :
+		print "\t{0}: {1}".format(key,value)
+	if args.set : sys.exit(0)
+	# get
+	if args.client is None : 
+		print "Metadata for project '{project}':".format(**vars(args))
+		d = s.projectMetadata(args.project)
+	else:
+		print "Metadata for client '{client}' at project '{project}':".format(**vars(args))
+		d = s.clientMetadata(args.project, args.client)
+	for key, value in d.iteritems() :
+		print "\t{0}: {1}".format(key,value)
+	if not d :
+		print "\tNo values stored"
+	sys.exit(0)
+
+def f_fakerun(args) :
+	if args.execution is None :
+		args.execution = "{0:%Y%m%d-%H%M%S}".format(datetime.datetime.now())
+	print(
+		"Generating task '{execution}'"
+		" for client '{client}'"
+		" at project '{project}'"
+		.format(**vars(args)))
+	s = Logger(args.logpath)
+	s = ArgPrepender(s, args.project, args.client, args.execution)
+
+	timestamp = "{0:%Y-%m-%d %H:%M:%S}".format(
+		datetime.datetime.strptime(args.execution, "%Y%m%d-%H%M%S"))
+	s.executionStarts(
+		timestamp=timestamp,
+		changelog=[])
+	infos = dict([
+		((int(task), int(command)), info)
+		for task, command, info in args.info
+		])
+	for task in xrange(1, args.ntasks+1) :
+		s.taskStarts(task,args.tasktemplate.format(**vars()))
+		for command in xrange(1,args.ncommands+1) :
+			s.commandStarts(task, command, args.commandtemplate.format(**vars()))
+			output = "Output of the command {command}"
+			stats = dict([
+				(key, float(value))
+				for stattask, statcommand, key, value in args.stats
+				if int(stattask) == task and int(statcommand) == command
+				])
+			if [task, command] in args.interrupt :
+				return
+			ok = [task, command] not in args.fail
+			s.commandEnds(task, command,
+				output=output.format(**vars()),
+				ok=ok,
+				info=infos.get((task,command), None),
+				stats=stats)
+			if ok is False : break # Failed, fatal for the task, not the execution
+		if ok is None : break # interrupted, fatal for the execution
+		s.taskEnds(task,ok)
+	s.executionEnds(ok)
+	print "Done"
+	sys.exit(0)
+
+parser = argparse.ArgumentParser(
+	description = "Command line control of a TestFarm server.",
+	epilog = programDescription,
+	)
+parser.add_argument('--version', action='version', version='%(prog)s 2.0')
+parser.add_argument('--verbose', '-v', action='count', default=0, help="adds a verbosity level (acommulative)")
+subparsers = parser.add_subparsers(
+	title='Subcommands',
+	description='For additional help type: %(prog)s SUBCOMMAND --help',
+	)
+logpathhelp = "The root of the path where log data is stored"
+projecthelp = "A project holding client reports"
+clienthelp = "A client, a serie of execution reports from the same source and subject"
+
+
+sub = subparsers.add_parser(
+	'init',
+	help="Creates a testfarm log filesystem")
+sub.set_defaults(func = f_createlog)
+sub.add_argument('logpath', help=logpathhelp)
+
+
+sub = subparsers.add_parser(
+	'addproject',
+	help="Adds a project to manage to the testfarm log")
+sub.set_defaults(func = f_addproject)
+sub.add_argument('logpath', help=logpathhelp)
+sub.add_argument('project', help=projecthelp)
+
+
+sub = subparsers.add_parser(
+	'addclient',
+	help="Adds a client to a given project")
+sub.set_defaults(func = f_addclient)
+sub.add_argument('logpath', help=logpathhelp)
+sub.add_argument('project', help=projecthelp)
+sub.add_argument('client', help=clienthelp)
+
+
+sub = subparsers.add_parser(
+	'generate',
+	help="Generates the website for a log")
+sub.set_defaults(func = f_generate)
+sub.add_argument('logpath', help=logpathhelp)
+sub.add_argument('outputdir')
+
+
+sub = subparsers.add_parser(
+	'meta',
+	help="Shows/sets metadata for project or client")
+sub.set_defaults(func = f_meta)
+sub.add_argument('logpath', help=logpathhelp)
+sub.add_argument('project', help=projecthelp)
+sub.add_argument('client',
+	help = "If not specified, the command refers to project's metadata",
+	nargs="?")
+sub.add_argument('--set',
+	nargs = 2,
+	metavar = ("KEY","VALUE"),
+	action = 'append',
+	default = [],
+	help = "specifies a key/value pair to be added to the metadata. By not providing any --set option the current metadata is shown",
+	)
+
+
+sub = subparsers.add_parser(
+	'fakerun',
+	help="Emulates a fake client execution",
+	)
+sub.set_defaults(func = f_fakerun)
+sub.add_argument('logpath', help=logpathhelp)
+sub.add_argument('project', help=projecthelp)
+sub.add_argument('client')
+sub.add_argument('execution', nargs='?')
+sub.add_argument('tasktemplate', nargs='?',
+	default="Task number {task}",
+	help = "Template for the task description",
+	)
+sub.add_argument('commandtemplate', nargs='?',
+	default="command {task} {command}",
+	help = "Template for the command description",
+	)
+sub.add_argument('--ntasks', type=int,
+	default=4,
+	help = "Number of tasks for the execution (default: %(default)s)",
+	)
+sub.add_argument('--ncommands', type=int,
+	default=4,
+	help = "Number of commands for each task (default: %(default)s)",
+	)
+sub.add_argument('--fail',
+	nargs = 2,
+	metavar = ("TASK","COMMAND"),
+	type = int,
+	action='append',
+	default=[],
+	help = "Makes the nth task to fail at the mth command. Can be specified many times.",
+	)
+sub.add_argument('--interrupt',
+	nargs = 2,
+	metavar = ("TASK","COMMAND"),
+	type = int,
+	action='append',
+	default = [],
+	help = "Makes the execution to be interrupting at the mth command of the nth task",
+	)
+sub.add_argument('--stats',
+	nargs = 4,
+	metavar = ("TASK","COMMAND","KEY","VALUE"),
+	action='append',
+	default = [],
+	help = "Adds an stat for a given command. Can be specified many times.",
+	)
+sub.add_argument('--info',
+	nargs = 3,
+	metavar = ("TASK","COMMAND","INFO"),
+	default = [],
+	action='append',
+	help = "Adds info for a given command. Can be specified many times.",
+	)
+
+
+
+args = parser.parse_args(sys.argv[1:])
+args.func(args)
+
+
+
+
+
+
+
+
