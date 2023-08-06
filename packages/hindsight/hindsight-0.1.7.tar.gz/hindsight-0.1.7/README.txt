@@ -1,0 +1,68 @@
+================================
+Hindsight Software Python Client
+================================
+
+This client provides access to Behave for Jira in a Python environment. It uses a HTTP GET call to
+download a compressed stream containing the feature files for the specified project, and then unzips
+the features into the specified directory.
+
+Installation
+============
+
+If using pip, simply::
+
+    pip install hindsight
+
+If installing manually, grab the tarball below and extract to a temporary directory. Make sure the
+`requests <http://pypi.python.org/pypi/requests>`_ package is installed and available, and then run::
+
+    python setup.py install
+
+from inside the temporary directory
+
+Usage
+=====
+
+Within a script::
+
+    #!/usr/bin/env python
+
+    from hindsight.behave import JiraConnector
+
+    b4j = JiraConnector()
+    b4j.fetch(
+        host='http://localhost:2990/jira',
+        username='behaver',
+        password='atdd4me',
+        key='PROJ',
+        dir='features',
+        manual=True,
+        verify=False
+    )
+
+This take mandatory arguments host and key, and the rest are optional.
+
+Or the same request from the command line (if you installed via pip)::
+
+    behave-cli -u behaver -p atdd4me -d features -m http://localhost:2990/jira PROJ
+
+Taking the form::
+
+    behave-cli [-u USERNAME] [-p PASSWORD] [-d DIR] [-m] [--verify] HOST KEY
+
+Field descriptions::
+
+    host:      the host URL to the Jira installation running Behave for Jira
+    username:  username of user with Behave rights on desired project
+    password:  password for this user
+    key:       project key to download features for
+    dir:       directory relative to the script to download features to
+               (can also use absolute path)
+    manual:    flag to include scenarios tagged with manual in the download
+    verify:    flag to indicate whether to verify the SSL certificate if connecting over SSL
+               (only applicable to CA certificates - self signed certificates cannot be verified)
+
+More info
+=========
+
+Please see the guide at http://hindsighttesting.com/docs
