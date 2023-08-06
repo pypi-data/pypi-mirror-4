@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+
+import sys, argparse
+import os
+import codecs
+import math
+from edsac import EDSAC
+from edsac.EDSACLexer import EDSACLexer
+from ply.lex import LexError
+
+def read(edsac, edsaclexer):
+    valid = True
+    try:
+        opcode  = None
+        address = None
+        postfix = None
+        
+        runtimeError = False
+        for token in iter(edsaclexer.lexer.token, None):
+            if not runtimeError:
+                if repr(token.type) == "'OPCODE'":
+                    if opcode == None:
+                        opcode = token.value
+                    else:
+                        postfix = token.value
+                        edsac.load(opcode, address, postfix)
+                        opcode  = None
+                        address = None
+                        postfix = None
+                elif repr(token.type) == "'ADDRESS'":
+                    if opcode == None:
+                        runtimeError = True
+                    else:
+                        address = int(token.value)
+                else:
+                    runtimeError = False
+            else:
+                break
+        
+        if runtimeError: print("Syntax Error!\n")
+        else: print("\n")
+    except LexError:
+        valid = False
+
+
+def run(edsac):
+    # now = 0
+    while (edsac.programCounter < edsac.memory.size):
+        # print("DEBUG programCounter: {0} instruction: {1}".format(edsac.programCounter, edsac.memory.order[edsac.programCounter]))
+        # print("DEBUG {0} Output: {1}".format(len(edsac.output), edsac.output))
+        edsac.execute(edsac.memory.order[edsac.programCounter])
+        # if edsac.programCounter == 49 and now == 3:
+        #     break
+        # if edsac.programCounter == 49:
+        #     now += 1
+        edsac.programCounter += 1
+    showMachine(True, edsac)
+
+
+def showMachine(valid, edsac):
+    if valid:
+        print(edsac)
+        print(edsac.memory)
+        print("Status: SUCCESSFUL :)")
+    else:
+        print("Status: UNSUCCESSFUL :(")
+
+
+def main():
+    bb = "\033[1m"
+    be = "\033[0;0m"
+    
+    parser = argparse.ArgumentParser(prog=bb+'edsac'+be)
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s version 0.1')
+    parser.add_argument('-f', '--file', metavar='FILE', type=str, nargs=1,
+                        default='', help='filename to execute')
+    parser.add_argument('-r', '--representation', metavar='REPRESENTATION', type=str, nargs=1,
+                        default='2', help='representation of memory map/table: 1=values, 2=instructions')
+    args = parser.parse_args()
+    
+    file = args.file if type(args.file) == str else args.file[0]
+    representation = args.representation if type(args.representation) == str else args.representation[0]
+    
+    # print options, args
+    if file != '':
+        edsac = EDSAC(512, memoryRepr=int(representation))
+        edsaclexer = EDSACLexer()
+        edsaclexer.build()
+        f = codecs.open(file, "r", "utf-8")
+        edsaclexer.input(f.read())
+        
+        read(edsac, edsaclexer)
+        run(edsac)
+        
+        output = ""
+        output += "-" * 110
+        output += "\nOutput:\n"
+        output += edsac.output
+        print(output)
+    else:
+        print("Oops, something went wrong...\n")
+        print(parser.print_help())
+        sys.exit(1)
+    
+    sys.exit(0)
+
+
+if __name__ == '__main__':
+	main()
