@@ -1,0 +1,375 @@
+#! /usr/bin/env python
+
+from encodings import hex_codec
+import gdata.photos.service
+import gdata.media
+import gdata.geo
+import os, stat
+import socket
+import getpass
+import smtplib
+import json
+import sys
+import argparse
+import urllib
+import string
+from datetime import datetime
+from backasa.album import Album
+from backasa.photo import Photo
+
+
+# Command argument setup
+parser = argparse.ArgumentParser(description="Tool to make local downstream backups of your Picasa Web Albums", add_help=False)
+options = parser.add_argument_group('Options')
+
+options.add_argument('-e', '--email',
+                    help="Specify the Picasa user's email to backup.",
+                    required=False)
+
+options.add_argument('-p', '--password',
+                    help="Specify the Picasa password for the user you are backing up.",
+                    required=False)
+
+options.add_argument('-l', '--limit',
+                    help="Specify a time limit in hours.",
+                    required=False,
+                    type=float,
+                    default=0.0)
+
+options.add_argument('-t', '--target',
+                    help="Specify the backasa target directory of the backup.  Defaults to the current working directory.",
+                    required=False,
+                    default=os.getcwd())
+
+options.add_argument('-n', '--notify',
+                     help="flag to notify user of completion via email with full log included",
+                     action="store_true",
+                     default=False)
+
+options.add_argument('-h', '--help', action="help")
+
+options.add_argument('action',
+                    help="setup - action to prep directory with stored credentials | backup - run an update for an existing target or create a new one | cleanup - remove all '.old' files and files deleted by picasa.",
+                    choices=('setup', 'backup', 'cleanup'))
+
+args = None
+albums = None
+gdc = gdata.photos.service.PhotosService()
+start_time = datetime.now()
+
+def format_filename(s):
+    valid_chars = "-_.() %s%s" % (string.ascii_letters, string.digits)
+    filename = ''.join(c for c in s if c in valid_chars)
+    filename = filename.replace(' ','_')
+    return filename
+
+def exit_notify():
+    if args["notify"]:
+        notify_via_email()
+    exit()
+
+def get_album_dir(album):
+    return os.path.join(os.getcwd(), format_filename(album.name) + "-" + album.album_id)
+
+def picasa_prep():
+    if os.path.isfile("backasa.config"):
+        config = json.load(open("backasa.config"))
+    else:
+        config = None
+
+    if args["email"]:
+        gdc.email = args["email"]
+    else:
+        if config is None:
+            print("No config file found, must privide an email or run 'setup' action")
+            exit_notify()
+        else:
+            if "email" in config:
+                gdc.email = config["email"]
+            else:
+                print("No email found in config file, must provide an email.  Run 'setup' to generate a config file")
+                exit_notify()
+
+    if args["password"]:
+        gdc.password = args["password"]
+    else:
+        if config is None:
+            print("No config file found, must privide an password or run 'setup' action")
+            exit_notify()
+        else:
+            if "password" in config:
+                gdc.password = config["password"]
+            else:
+                print("No password found in config file, must provide an password.  Run 'setup' to generate a config file")
+                exit_notify()
+
+    gdc.source = "Backasa"
+
+    try:
+        gdc.ProgrammaticLogin()
+    except Exception, e:
+        print("There was a problem with your Credentials - " + str(e))
+        exit_notify()
+
+    try:
+        gdc.GetUserFeed()
+    except:
+        print("Make sure given user has picasa access.")
+        exit_notify()
+
+
+def setup():
+
+    config = {}
+    config["email"] = args["email"] if args["email"] else raw_input("Picasa Email: ")
+    config["password"] = args["password"] if args["password"] else getpass.getpass("Picasa Password: ")
+    f = open('backasa.config', 'w')
+    json.dump(config, f)
+    f.close()
+    os.chmod('backasa.config', stat.S_IRUSR | stat.S_IWUSR)
+    print("Config file created!")
+
+
+def backup():
+    sys.stdout.write("Retrieving Album/Photo Data from Google.....[  0%]")
+
+    picasa_albums = None
+    album_photos = {}
+    try:
+        picasa_albums = gdc.GetUserFeed()
+    except:
+        print("Google failed on the albums")
+        exit_notify()
+
+    for i, picasa_album in enumerate(picasa_albums.entry):
+        try:
+            album_photos[picasa_album.gphoto_id.text] = gdc.GetFeed('/data/feed/api/user/default/albumid/%s?kind=photo&imgmax=d' % picasa_album.gphoto_id.text)
+        except:
+            print("Google failed on the photos for album_id " + picasa_album.gphoto_id.text)
+            exit_notify()
+        percent = int((i / float(len(picasa_albums.entry) - 1)) * 100)
+        percent = 100 if i == (len(picasa_albums.entry) - 1) else percent
+        sys.stdout.write("\b" * 6)
+        sys.stdout.write("[%3d%%]" % percent, (percent == 100))
+
+    print("")
+    sys.stdout.write("Creating / Updating Backasa Database........[  0%]")
+
+    # Create DB if doesn't exist
+    Photo.create_db()
+    Album.create_db()
+
+    albums = Album.findAll()
+    photos = Photo.findAll()
+
+    for i, picasa_album in enumerate(picasa_albums.entry):
+        album = next((album for album in albums if album.album_id == picasa_album.gphoto_id.text), None)
+        if album is None:
+            album = Album.fromPicasa(picasa_album)
+            album.save()
+            album_dir = get_album_dir(album)
+            albums.append(album)
+            if not os.path.isdir(album_dir):
+                os.mkdir(album_dir)
+
+        # handle name update
+        album_dir = get_album_dir(album)
+        if album.name != picasa_album.title.text:
+            album.name = picasa_album.title.text
+            if os.path.isdir(album_dir):
+                os.rename(album_dir, get_album_dir(album))
+
+        album.save()
+        f = open(os.path.join(album_dir, "album.json"), "w")
+        json.dump({"album_id": album.album_id, "album_name": album.name}, f)
+        f.close()
+
+        for picasa_photo in album_photos[picasa_album.gphoto_id.text].entry:
+            photo = next((photo for photo in photos if photo.photo_id == picasa_photo.gphoto_id.text), None)
+            if photo is None:
+                photo = Photo.fromPicasa(picasa_photo)
+                photo.save()
+            else:
+                if int(picasa_photo.version.text) > photo.current_version:
+                    photo.downloaded = False
+                    old_version = photo.current_version
+                    photo.current_version = int(picasa_photo.version.text)
+                    photo.updated_at = datetime.now()
+                    photo.save()
+                    photo_path = os.path.join(get_album_dir(album), photo.file_name)
+                    if os.path.exists(photo_path):
+                        os.rename(photo_path, photo_path + ".v" + str(old_version) + ".old")
+
+        percent = int((i / float(len(picasa_albums.entry) - 1)) * 100)
+        percent = 100 if i == (len(picasa_albums.entry) - 1) else percent
+        sys.stdout.write("\b" * 6)
+        sys.stdout.write("[%3d%%]" % percent, (percent == 100))
+
+    print("")
+
+    def fileProgress(count, blockSize, totalSize):
+        percent = int(count * blockSize * 100 / totalSize)
+        percent = 100 if percent > 100 else percent
+        sys.stdout.write("\b" * 6)
+        sys.stdout.write("[%3d%%]" % percent, (percent == 100))
+
+    # now go about downloading the files
+    for album in albums:
+        album_dir = get_album_dir(album)
+        title_str = "Updating %s into %s" % (album.name, album_dir)
+        print("_" + ("_" * len(title_str)))
+        print("|" + title_str)
+        print("|")
+        photo_downloaded = False
+        for i, photo in enumerate(album.undownloaded_photos):
+            if args['limit']:
+                duration = datetime.now() - start_time
+                if (duration.seconds / float(3600)) >= args['limit']:
+                    print("Backasa Job Canceled due to time limit of %s hours" % str(args['limit']))
+                    exit_notify()
+            sys.stdout.write("|--> %d of %d file(s) [  0%%]" % (i + 1, len(album.undownloaded_photos)))
+            urllib.urlretrieve(photo.url, os.path.join(album_dir, photo.file_name), reporthook=fileProgress)
+            sys.stdout.write("\r")
+            if os.path.isfile(os.path.join(album_dir, photo.file_name)):
+                photo.downloaded = True
+                photo.save()
+                photo_downloaded = True
+
+        if not photo_downloaded:
+            print("|--> No Files to Upload.")
+        print("")
+    print(str(len(albums)) + " Album(s) Updated.")
+
+
+def cleanup():
+    if not os.path.isfile(os.path.join(os.getcwd(), "backasa.sqlite")):
+        print("Error: Target directory exists but does not appear to be a backasa backup.  No database was found")
+        exit_notify()
+
+    sys.stdout.write("Marking files that No longer exist in Picasa...")
+    # Create DB if doesn't exist
+
+    Photo.create_db()
+    Album.create_db()
+
+    photo_ids = []
+    albums = gdc.GetUserFeed()
+    for picasa_album in albums.entry:
+        photos = gdc.GetFeed('/data/feed/api/user/default/albumid/%s?kind=photo&imgmax=d' % picasa_album.gphoto_id.text)
+        photo_ids.extend([picasa_photo.gphoto_id.text for picasa_photo in photos.entry])
+
+    photo_ids = set(photo_ids)
+    local_ids = set(Photo.findAllIds())
+
+    ids_to_delete = local_ids.difference(photo_ids)
+    print("Done!\n")
+    print("Removing all '.old' files from backup...")
+    print("----------------------------------------")
+    for _id in ids_to_delete:
+        photo = Photo.find(_id)
+        photo_path = os.path.join(get_album_dir(photo.album), photo.file_name)
+        os.rename(photo_path, photo_path + ".old")
+        photo.delete()
+
+    delete_count = 0
+    from glob import glob
+    for i in os.listdir(os.getcwd()):
+        if os.path.isdir(i):
+            for f in glob(os.path.join(i, "*.old")):
+                print("Deleting -> %s" % f)
+                os.remove(f)
+                delete_count += 1
+    print("\n %s file(s) removed from backup" % str(delete_count))
+
+
+# Utility methods / classes
+
+def confirm(prompt=None, resp=False):
+    if prompt is None:
+        prompt - "Confirm?"
+
+    if resp:
+        prompt = '%s [%s]|%s: ' % (prompt, 'y', 'n')
+    else:
+        prompt = '%s [%s]|%s: ' % (prompt, 'n', 'y')
+
+    while True:
+        ans = raw_input(prompt)
+        if not ans:
+            return resp
+        if ans not in ['y', 'Y', 'n', 'N']:
+            print 'please enter y or n.'
+            continue
+        if ans == 'y' or ans == 'Y':
+            return True
+        if ans == 'n' or ans == 'N':
+            return False
+
+
+def notify_via_email():
+    server = smtplib.SMTP('smtp.gmail.com:587')
+    server.starttls()
+    server.login(gdc.email, gdc.password)
+    message = """\
+From: %s
+To: %s
+Subject: %s
+
+%s
+""" % ("Bakasa@" + socket.gethostname(), gdc.email, "Backasa Backup Report", sys.stdout.getLog())
+    server.sendmail(gdc.email, gdc.email, message)
+    server.quit()
+
+
+class Logger(object):
+    __log = ""
+
+    def __init__(self, filename="backasa.log"):
+        self.terminal = sys.stdout
+        self.log = open(filename, "a")
+
+    def write(self, message, add_to_log=True):
+        self.terminal.write(message)
+        if add_to_log:
+            self.log.write(message)
+        self.terminal.flush()
+        self.__log += message
+
+    def getLog(self):
+        return self.__log
+
+
+if __name__ == "__main__":
+    args = vars(parser.parse_args())
+
+    if not os.path.isdir(args["target"]):
+        if confirm("Target path is not a directory, attempt to create it? "):
+            try:
+                os.makedirs(args["target"])
+            except:
+                print("Error: Directory could not be created")
+                exit_notify()
+        else:
+            print("Error: Target directory does not exist")
+            exit_notify()
+
+    os.chdir(args["target"])
+
+    sys.stdout = Logger(os.path.join(os.getcwd(), "backasa.log"))
+
+    print("\n==== Running Backasa %s - %s ====\n" % (args["action"].title(), datetime.now().strftime("%m/%d/%Y %I:%M%p")))
+
+    if args["action"] == "cleanup":
+        picasa_prep()
+        cleanup()
+        if args["notify"]:
+            notify_via_email()
+    elif args["action"] == "backup":
+        picasa_prep()
+        backup()
+        if args["notify"]:
+            notify_via_email()
+    elif args["action"] == "setup":
+        setup()
+
+    print("\n==== Completed Backasa %s - %s ====\n" % (args["action"].title(), datetime.now().strftime("%m/%d/%Y %I:%M%p")))
