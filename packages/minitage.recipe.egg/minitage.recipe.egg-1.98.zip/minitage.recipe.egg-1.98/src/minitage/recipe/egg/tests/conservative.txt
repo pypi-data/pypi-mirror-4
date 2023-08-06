@@ -1,0 +1,98 @@
+Offline and newest modes
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+We have ways to make buildout not download the latest versions found
+on indexes and be very conservative on what we already got local.
+
+Let's create a buildout configuration file and a basic egg not published on pypi, and install it::
+
+    >>> globals().update(layer['globs'])
+    >>> makedist()
+    >>> makedist(version='2.0')
+    >>> data = """
+    ... [versions]
+    ... foo=1.0
+    ... [buildout]
+    ... eggs-directory =${buildout:directory}/eggs
+    ... download-cache=${buildout:directory}
+    ... index=%(index)s
+    ... parts =
+    ...     part
+    ... [part]
+    ... recipe=minitage.recipe.egg
+    ... find-links=%(index)s
+    ... eggs=foo
+    ... """%bsettings
+    >>> touch('buildout.cfg', data=data)
+    >>> clean()
+    >>> sh('bin/buildout -vvvvv install part')
+    bin/...
+    Installing part.
+    minitage.recipe: Installing python egg(s)...
+    minitage.recipe: Downloading http://...:.../foo-1.0.tar.gz in .../minitage/eggs/foo-1.0.tar.gz
+    minitage.recipe: Unpacking in ...
+    Processing foo-1.0.tar.gz...
+    minitage.recipe: Installed foo 1.0 (.../eggs/foo-1.0-p....egg)...
+
+Well, now, we are 1.0.
+Removing the version bit, but choosing to be non newest will make
+buildout not to install the new foo-2.0 version.::
+
+    >>> data = """\
+    ... [versions]
+    ... [buildout]
+    ... download-cache=${buildout:directory}
+    ... eggs-directory =${buildout:directory}/eggs
+    ... parts =
+    ...     part
+    ... versions = versions
+    ... index=%(index)s
+    ... [t]
+    ... recipe=minitage.recipe.egg
+    ... find-links=%(index)s
+    ... eggs=foo
+    ... """%bsettings
+    >>> touch('buildout.cfg', data=data)
+    >>> sh('bin/buildout -Nvvvvv install t')
+    b...
+    minitage.recipe: Installing python egg(s).
+    minitage.recipe: Picked: foo = 1.0
+    minitage.recipe: All egg dependencies seem to be installed!...
+
+Idem in offline mode.::
+
+    >>> sh('bin/buildout -ovvvvv install t')
+    b...
+    minitage.recipe: Picked: foo = 1.0
+    minitage.recipe: All egg dependencies seem to be installed!...
+
+But then, going online/newest will trigger the installation of the 2.0 egg.::
+
+    >>> sh('bin/buildout -nvvvvv install t')
+    b...
+    minitage.recipe: Picked: foo = 2.0
+    minitage.recipe: All egg dependencies seem to be installed!...
+
+File urls work in offline mode.::
+
+    >>> data = """
+    ... [buildout]
+    ... download-cache=${buildout:directory}
+    ... eggs-directory =${buildout:directory}/eggs
+    ... index=%(index)s
+    ... parts =
+    ...     part
+    ... [part]
+    ... recipe=minitage.recipe.egg
+    ... urls=file://${buildout:directory}/foo-2.0.tar.gz
+    ... """ % bsettings
+    >>> clean()
+    >>> touch('buildout.cfg', data=data)
+    >>> sh('bin/buildout -vvvvv install part')
+    b...
+    >>> [egg for egg in os.listdir('eggs') if 'foo' in egg]
+    ['foo-2.0-py...egg']
+    >>> sh('bin/buildout -o install part')
+    b...
+    >>> [egg for egg in os.listdir('eggs') if 'foo' in egg]
+    ['foo-2.0-py...egg']
+

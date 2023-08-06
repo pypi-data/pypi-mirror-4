@@ -1,0 +1,96 @@
+Installing eggs with a patch
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+We need to specify a find-links entry to make the recipe find our 'foo' egg as it is not on pypi
+As we want to show the update capability of the recipe, we will first install the oldest foo version.
+
+Let's create a buildout installation::
+
+
+
+    >>> globals().update(layer['globs'])
+    >>> makedist()
+    >>> makedist(version='2.0')
+    >>> touch('patch', data="""
+    ... --- foo.old/toto.py     2013-03-30 20:42:04.575613999 +0100
+    ... +++ foo/toto.py 2013-03-30 20:42:10.603721734 +0100
+    ... @@ -1,3 +1,7 @@
+    ...
+    ...  def f():
+    ...      print "foo"
+    ... +
+    ... +
+    ... +
+    ... +
+    ...
+    ... """)
+
+Patching is easy, just put your patches in YouEgg-patches.
+
+    >>> data = """
+    ... [versions]
+    ... foo=1.0
+    ... [buildout]
+    ... download-cache=${buildout:directory}
+    ... eggs-directory =${buildout:directory}/eggs
+    ... parts = part
+    ... index=%(index)s
+    ... [part]
+    ... recipe=minitage.recipe.egg
+    ... find-links=%(index)s
+    ... foo-patches = ${buildout:directory}/patch
+    ... eggs=foo
+    ... """%bsettings
+    >>> touch('buildout.cfg', data=data)
+    >>> sh('bin/buildout install part')
+    b...
+    can't find file to patch at input line 4
+    Perhaps you used the wrong -p or --strip option?
+    The text leading up to this was:
+    --------------------------
+    |
+    |--- foo.old/toto.py     2013-03-30 20:42:04.575613999 +0100
+    |+++ foo/toto.py 2013-03-30 20:42:10.603721734 +0100
+    --------------------------
+    No file to patch.  Skipping patch.
+    ...
+    minitage.recipe: Message was:
+        ('Failed', 'patch -t -Np0 < ...patch')...
+
+Oups, the patch level ! .
+
+    >>> data = """\
+    ... [versions]
+    ... foo=1.0
+    ... [buildout]
+    ... download-cache=${buildout:directory}
+    ... eggs-directory =${buildout:directory}/eggs
+    ... parts = part
+    ... index=%(index)s
+    ... [part]
+    ... recipe=minitage.recipe.egg
+    ... find-links=%(index)s
+    ... eggs=foo
+    ... foo-patches = ${buildout:directory}/patch
+    ... foo-patch-options = -Np1
+    ... """%bsettings
+    >>> touch('buildout.cfg', data=data)
+    >>> sh('bin/buildout -vvvvv install part')
+    b...
+    minitage.recipe: Running patch -t -Np1 < .../patch
+    patching file toto.py...
+    minitage.recipe: Installed foo 1.0-ZMinitagePatched-Patch...
+
+Now that we have it, try to resintall.
+
+    >>> sh('bin/buildout -vvvvv install part')
+    bin/buildout...
+    minitage.recipe: We have the distribution that satisfies 'foo==1.0-ZMinitagePatched-Patch'.
+    minitage.recipe: Pinning custom egg version in buildout, trying to write the configuration
+    minitage.recipe: Version already pinned, nothing has been wroten...
+
+In all cases our buildout is patched.
+
+    >>> cat('buildout.cfg')
+    [versions]
+    foo...=...1.0-ZMinitagePatched-Patch...
+
