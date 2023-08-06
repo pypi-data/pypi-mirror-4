@@ -1,0 +1,960 @@
+Metadata-Version: 1.1
+Name: z3c.traverser
+Version: 1.0.0a2
+Summary: Pluggable Traversers And URL handling utilities
+Home-page: http://pypi.python.org/pypi/z3c.traverser
+Author: Zope Corporation and Contributors
+Author-email: zope-dev@zope.org
+License: ZPL 2.1
+Description: This package provides the pluggable traverser mechanism allowing developers
+        to add new traversers to an object without altering the original traversal
+        implementation.
+        
+        In addition to the pluggable traversers, this package contains two more
+        subpackages:
+        
+         * viewlet - provides a way to traverse to viewlets using namespaces
+         
+         * stackinfo - provides a way to consume parts of url and store them
+           as attributes of the "consumer" object. Useful for urls like:
+           /blog/2009/02/02/hello-world
+        
+        
+        .. contents::
+        
+        =======
+        CHANGES
+        =======
+        
+        1.0.0a2 (2013-03-03)
+        --------------------
+        
+        - Added Trove classifiers to specify supported Python versions.
+        
+        
+        1.0.0a1 (2013-03-03)
+        --------------------
+        
+        - Added support for Python 3.3.
+        
+        - Replaced deprecated ``zope.interface.implements`` usage with equivalent
+          ``zope.interface.implementer`` decorator.
+        
+        - Dropped support for Python 2.4 and 2.5.
+        
+        - Switched from ``zope.testbrowser`` to ``WebTest`` for browser testing, since
+          testbrowser is not yet ported.
+        
+        - Modernized API to use latest packages and component paths.
+        
+        - Reduced test dependencies to the smallest set possible.
+        
+        
+        0.3.0 (2010-11-01)
+        ------------------
+        
+        - Updated test set up to run with ZTK 1.0.
+        
+        - Using Python's ``doctest`` module instead of depreacted
+          ``zope.testing.doctest[unit]``.
+        
+        
+        0.2.5 (2009-03-13)
+        ------------------
+        
+        - Adapt to the move of IDefaultViewName from zope.component to zope.publisher.
+        
+        0.2.4 (2009-02-02)
+        ------------------
+        
+        - Make ``PluggableBrowserTraverser`` implement ``IBrowserPublisher``
+          interface.
+        - Fix tests and deprecation warnings.
+        - Improve test coverage.
+        - Get rid of zope.app.zapi dependency by replacing its uses with direct
+          calls.
+        - Change package's mailing list address to zope-dev at zope.org,
+          because zope3-dev at zope.org is now retired.
+        - Change "cheeseshop" to "pypi" in the package's url.
+        
+        0.2.3 (2008-07-14)
+        ------------------
+        
+        - Bugfix: In z3c.traverser.stackinfo the traversal stack got messed up
+          when using the VirtualHost namespace with more than one thread.
+        
+        0.2.2 (2008-03-06)
+        ------------------
+        
+        - Restructuring: Separated pluggable traverser functionality into two classes
+          for better code reuse.
+        
+        
+        0.2.1 (2007-11-92)
+        ------------------
+        
+        - Bugfix: if viewlet and managers get nested a viewlet was not found if
+          the depth reaches 3 because the context was set to the page and not
+          to the context object.
+        
+        - Bugfix: replaced call to ``_getContextName`` because it has been removed
+          from ``absoluteURL``.
+        
+        
+        0.2.0 (2007-10-31)
+        ------------------
+        
+        - Update package meta-data.
+        
+        - Resolve ``ZopeSecurityPolicy`` deprecation warning.
+        
+        
+        0.2.0b2 (2007-10-26)
+        --------------------
+        
+        - Use only ``absolute_url`` adapters in unconsumed URL caclulations, to
+          make it work for traversable viewlets or other special cases too.
+        
+        
+        0.2.0b1 (2007-09-21)
+        --------------------
+        
+        - added a generic stack consumer handler which can be registered for
+          BeforeTraverse events.
+        
+        
+        0.1.3 (2007-06-03)
+        ------------------
+        
+        - Added principal namespace, see ``namespace.txt``
+        
+        - Fire ``BeforeUpdateEvent`` in viewlet view
+        
+        
+        0.1.1 (2007-03-22)
+        ------------------
+        
+        - First egg release
+        
+        
+        
+        
+        ====================
+        Pluggable Traversers
+        ====================
+        
+        Traversers are Zope's mechanism to convert URI paths to an object of the
+        application. They provide an extremly flexible mechanism to make decisions
+        based on the policies of the application. Unfortunately the default traverser
+        implementation is not flexible enough to deal with arbitrary extensions (via
+        adapters) of objects that also wish to participate in the traversal decision
+        process.
+        
+        The pluggable traverser allows developers, especially third-party developers,
+        to add new traversers to an object without altering the original traversal
+        implementation.
+        
+            >>> from z3c.traverser.traverser import PluggableTraverser
+        
+        Let's say that we have an object
+        
+            >>> from zope.interface import Interface, implementer
+            >>> class IContent(Interface):
+            ...     pass
+        
+            >>> @implementer(IContent)
+            ... class Content(object):
+            ...     var = True
+        
+            >>> content = Content()
+        
+        that we wish to traverse to. Since traversers are presentation-type specific,
+        they are implemented as views and must thus be initiated using a request:
+        
+            >>> from zope.publisher.base import TestRequest
+            >>> request = TestRequest('')
+            >>> traverser = PluggableTraverser(content, request)
+        
+        We can now try to lookup the variable:
+        
+            >>> traverser.publishTraverse(request, 'var')
+            Traceback (most recent call last):
+            ...
+            NotFound: Object: <Content object at ...>, name: 'var'
+        
+        But it failed. Why? Because we have not registered a plugin traverser yet that
+        knows how to lookup attributes. This package provides such a traverser
+        already, so we just have to register it:
+        
+            >>> from zope.component import provideSubscriptionAdapter
+            >>> from zope.publisher.interfaces import IPublisherRequest
+            >>> from z3c.traverser.traverser import AttributeTraverserPlugin
+        
+            >>> provideSubscriptionAdapter(AttributeTraverserPlugin,
+            ...                            (IContent, IPublisherRequest))
+        
+        If we now try to lookup the attribute, we the value:
+        
+            >>> traverser.publishTraverse(request, 'var')
+            True
+        
+        However, an incorrect variable name will still return a ``NotFound`` error:
+        
+            >>> traverser.publishTraverse(request, 'bad')
+            Traceback (most recent call last):
+            ...
+            NotFound: Object: <Content object at ...>, name: 'bad'
+        
+        Every traverser should also make sure that the passed in name is not a
+        view. (This allows us to not specify the ``@@`` in front of a view.) So let's
+        register one:
+        
+            >>> class View(object):
+            ...     def __init__(self, context, request):
+            ...         pass
+        
+            >>> from zope.component import provideAdapter
+            >>> from zope.publisher.interfaces import IPublisherRequest
+            >>> provideAdapter(View,
+            ...                adapts=(IContent, IPublisherRequest),
+            ...                provides=Interface,
+            ...                name='view.html')
+        
+        Now we can lookup the view as well:
+        
+            >>> traverser.publishTraverse(request, 'view.html')
+            <View object at ...>
+        
+        
+        Advanced Uses
+        -------------
+        
+        A more interesting case to consider is a traverser for a container. If you
+        really dislike the Zope 3 traversal namespace notation ``++namespace++`` and
+        you can control the names in the container, then the pluggable traverser will
+        also provide a viable solution. Let's say we have a container
+        
+            >>> from zope.container.interfaces import IContainer
+            >>> class IMyContainer(IContainer):
+            ...     pass
+        
+            >>> from zope.container.btree import BTreeContainer
+            >>> @implementer(IMyContainer)
+            ... class MyContainer(BTreeContainer):
+            ...     foo = True
+            ...     bar = False
+        
+            >>> myContainer = MyContainer()
+            >>> myContainer['blah'] = 123
+        
+        and we would like to be able to traverse
+        
+          * all items of the container, as well as
+        
+            >>> from z3c.traverser.traverser import ContainerTraverserPlugin
+            >>> from z3c.traverser.interfaces import ITraverserPlugin
+        
+            >>> provideSubscriptionAdapter(ContainerTraverserPlugin,
+            ...                            (IMyContainer, IPublisherRequest),
+            ...                            ITraverserPlugin)
+        
+          * the ``foo`` attribute. Luckily we also have a predeveloped traverser for
+            this:
+        
+            >>> from z3c.traverser.traverser import \
+            ...     SingleAttributeTraverserPlugin
+            >>> provideSubscriptionAdapter(SingleAttributeTraverserPlugin('foo'),
+            ...                            (IMyContainer, IPublisherRequest))
+        
+        We can now use the pluggable traverser
+        
+            >>> traverser = PluggableTraverser(myContainer, request)
+        
+        to look up items
+        
+            >>> traverser.publishTraverse(request, 'blah')
+            123
+        
+        and the ``foo`` attribute:
+        
+            >>> traverser.publishTraverse(request, 'foo')
+            True
+        
+        However, we cannot lookup the ``bar`` attribute or any other non-existent
+        item:
+        
+            >>> traverser.publishTraverse(request, 'bar')
+            Traceback (most recent call last):
+            ...
+            NotFound: Object: <MyContainer object at ...>, name: 'bar'
+        
+            >>> traverser.publishTraverse(request, 'bad')
+            Traceback (most recent call last):
+            ...
+            NotFound: Object: <MyContainer object at ...>, name: 'bad'
+        
+        You can also add traversers that return an adapted object. For example, let's
+        take the following adapter:
+        
+            >>> class ISomeAdapter(Interface):
+            ...     pass
+        
+            >>> from zope.component import adapts
+            >>> @implementer(ISomeAdapter)
+            ... class SomeAdapter(object):
+            ...     adapts(IMyContainer)
+            ...
+            ...     def __init__(self, context):
+            ...         pass
+        
+            >>> from zope.component import adapts, provideAdapter
+            >>> provideAdapter(SomeAdapter)
+        
+        Now we register this adapter under the traversal name ``some``:
+        
+            >>> from z3c.traverser.traverser import AdapterTraverserPlugin
+            >>> provideSubscriptionAdapter(
+            ...     AdapterTraverserPlugin('some', ISomeAdapter),
+            ...     (IMyContainer, IPublisherRequest))
+        
+        So here is the result:
+        
+            >>> traverser.publishTraverse(request, 'some')
+            <SomeAdapter object at ...>
+        
+        If the object is not adaptable, we'll get NotFound. Let's register a
+        plugin that tries to query a named adapter for ISomeAdapter. The third
+        argument for AdapterTraverserPlugin is used to specify the adapter name.
+        
+            >>> provideSubscriptionAdapter(
+            ...     AdapterTraverserPlugin('badadapter', ISomeAdapter, 'other'),
+            ...     (IMyContainer, IPublisherRequest))
+        
+            >>> traverser.publishTraverse(request, 'badadapter')
+            Traceback (most recent call last):
+            ...
+            NotFound: Object: <MyContainer object at ...>, name: 'badadapter'
+        
+        Traverser Plugins
+        -----------------
+        
+        The `traverser` package comes with several default traverser plugins; three of
+        them were already introduced above: `SingleAttributeTraverserPlugin`,
+        `AdapterTraverserPlugin`, and `ContainerTraverserPlugin`. Another plugin is
+        the the `NullTraverserPlugin`, which always just returns the object itself:
+        
+            >>> from z3c.traverser.traverser import NullTraverserPlugin
+            >>> SomethingPlugin = NullTraverserPlugin('something')
+        
+            >>> plugin = SomethingPlugin(content, request)
+            >>> plugin.publishTraverse(request, 'something')
+            <Content object at ...>
+        
+            >>> plugin.publishTraverse(request, 'something else')
+            Traceback (most recent call last):
+            ...
+            NotFound: Object: <Content object at ...>, name: 'something else'
+        
+        All of the above traversers with exception of the `ContainerTraverserPlugin`
+        are implementation of the abstract `NameTraverserPlugin` class. Name traversers
+        are traversers that can resolve one particular name. By using the abstract
+        `NameTraverserPlugin` class, all of the traverser boilerplate can be
+        avoided. Here is a simple example that always returns a specific value for a
+        traversed name:
+        
+            >>> from z3c.traverser.traverser import NameTraverserPlugin
+            >>> class TrueTraverserPlugin(NameTraverserPlugin):
+            ...     traversalName = 'true'
+            ...     def _traverse(self, request, name):
+            ...         return True
+        
+        As you can see realized name traversers must implement the ``_traverse()``
+        method, which is only responsible for returning the result. Of course it can
+        also raise the `NotFound` error if something goes wrong during the
+        computation. LEt's check it out:
+        
+            >>> plugin = TrueTraverserPlugin(content, request)
+            >>> plugin.publishTraverse(request, 'true')
+            True
+        
+            >>> plugin.publishTraverse(request, 'false')
+            Traceback (most recent call last):
+            ...
+            NotFound: Object: <Content object at ...>, name: 'false'
+        
+        A final traverser that is offered by the package is the
+        `AttributeTraverserPlugin``, which simply allows one to traverse all
+        accessible attributes of an object:
+        
+            >>> from z3c.traverser.traverser import AttributeTraverserPlugin
+        
+            >>> plugin = AttributeTraverserPlugin(myContainer, request)
+            >>> plugin.publishTraverse(request, 'foo')
+            True
+            >>> plugin.publishTraverse(request, 'bar')
+            False
+            >>> plugin.publishTraverse(request, 'blah')
+            Traceback (most recent call last):
+            ...
+            NotFound: Object: <MyContainer object at ...>, name: 'blah'
+            >>> plugin.publishTraverse(request, 'some')
+            Traceback (most recent call last):
+            ...
+            NotFound: Object: <MyContainer object at ...>, name: 'some'
+        
+        
+        Browser traverser
+        -----------------
+        
+        There's also a special subclass of the PluggableTraverser that
+        implements the ``IBrowserPublisher`` interface, thus providing the
+        ``browserDefault`` method that returns a default object and a view
+        name to traverse and use if there's no more steps to traverse.
+        
+        Let's provide a view name registered as an IDefaultView adapter. This
+        is usually done by zope.publisher's browser:defaultView directive.
+        
+            >>> from zope.publisher.interfaces import IDefaultViewName
+            >>> provideAdapter('view.html', (IContent, Interface), IDefaultViewName)
+        
+            >>> from z3c.traverser.browser import PluggableBrowserTraverser
+            >>> traverser = PluggableBrowserTraverser(content, request)
+            >>> traverser.browserDefault(request)
+            (<Content object at 0x...>, ('@@view.html',))
+        
+        
+        =====================
+        Additional Namespaces
+        =====================
+        
+        Principal
+        ---------
+        
+        The ``principal`` namespace allows to differentiate between usernames
+        in the url. This is usefull for caching on a per principal basis. The
+        namespace itself doesn't change anything. It just checks if the
+        principal is the one that is logged in.
+        
+            >>> from z3c.traverser import namespace
+            >>> from zope.publisher.browser import TestRequest
+            >>> class Request(TestRequest):
+            ...     principal = None
+            ...
+            ...     def shiftNameToApplication(self):
+            ...         pass
+        
+            >>> class Principal(object):
+            ...     def __init__(self, id):
+            ...         self.id = id
+        
+            >>> pid = 'something'
+            >>> r = Request()
+            >>> r.principal = Principal('anonymous')
+        
+        If we have the wrong principal we get an Unauthorized exception.
+        
+            >>> ns = namespace.principal(object(), r)
+            >>> ns.traverse('another', None) # doctest: +IGNORE_EXCEPTION_DETAIL
+            Traceback (most recent call last):
+            ...
+            Unauthorized: ++principal++another
+        
+        Otherwise not
+        
+            >>> ns.traverse('anonymous', None)
+            <object object at ...>
+        
+        
+        ===================
+        Traversing Viewlets
+        ===================
+        
+        This package allows to traverse viewlets and viewletmanagers. It also
+        provides absolute url views for those objects which are described in
+        this file, for traversers see BROWSER.txt.
+        
+          >>> from z3c.traverser.viewlet import browser
+        
+        Let us define some test classes.
+        
+          >>> import zope.component
+          >>> from zope.viewlet import manager
+          >>> from zope.viewlet import interfaces
+          >>> from zope.publisher.interfaces.browser import IDefaultBrowserLayer
+          >>> import zope.interface
+          >>> class ILeftColumn(interfaces.IViewletManager):
+          ...     """Viewlet manager located in the left column."""
+          >>> LeftColumn = manager.ViewletManager('left', ILeftColumn)
+          >>> zope.component.provideAdapter(
+          ...     LeftColumn,
+          ...     (zope.interface.Interface,
+          ...     IDefaultBrowserLayer, zope.interface.Interface),
+          ...     interfaces.IViewletManager, name='left')
+        
+        You can then create a viewlet manager using this interface now:
+        
+        
+          >>> from zope.viewlet import viewlet
+          >>> from zope.container.contained import Contained
+        
+          >>> class Content(Contained):
+          ...     pass
+          >>> root['content'] = Content()
+          >>> content = root['content']
+          >>> from zope.publisher.browser import TestRequest
+          >>> request = TestRequest()
+          >>> from zope.publisher.interfaces.browser import IBrowserView
+          >>> from zope.publisher.browser import BrowserView
+          >>> class View(BrowserView):
+          ...     pass
+        
+        We have to set the name, this is normally done in zcml.
+        
+          >>> view = View(content, request)
+          >>> view.__name__ = 'test.html'
+          >>> leftColumn = LeftColumn(content, request, view)
+        
+        Let us create a simple viewlet. Note that we need a __name__ attribute
+        in order to make the viewlet traversable. Normally you don't have to
+        take care of this, because the zcml directive sets the name upon
+        registration.
+        
+          >>> class MyViewlet(viewlet.ViewletBase):
+          ...     __name__ = 'myViewlet'
+          ...     def render(self):
+          ...         return u'<div>My Viewlet</div>'
+          >>> from zope.security.checker import NamesChecker, defineChecker
+          >>> viewletChecker = NamesChecker(('update', 'render'))
+          >>> defineChecker(MyViewlet, viewletChecker)
+        
+          >>> zope.component.provideAdapter(
+          ...     MyViewlet,
+          ...     (zope.interface.Interface, IDefaultBrowserLayer,
+          ...     IBrowserView, ILeftColumn),
+          ...     interfaces.IViewlet, name='myViewlet')
+        
+        We should now be able to get the absolute url of the viewlet and the
+        manager. We have to register the adapter for the test.
+        
+          >>> from zope.traversing.browser.interfaces import IAbsoluteURL
+          >>> from zope.traversing.browser import absoluteurl
+        
+          >>> zope.component.provideAdapter(
+          ...     browser.ViewletAbsoluteURL,
+          ...     (interfaces.IViewlet, IDefaultBrowserLayer),
+          ...     IAbsoluteURL)
+          >>> zope.component.provideAdapter(
+          ...     browser.ViewletManagerAbsoluteURL,
+          ...     (interfaces.IViewletManager, IDefaultBrowserLayer),
+          ...     IAbsoluteURL, name="absolute_url")
+          >>> zope.component.provideAdapter(
+          ...     browser.ViewletManagerAbsoluteURL,
+          ...     (interfaces.IViewletManager, IDefaultBrowserLayer),
+          ...     IAbsoluteURL)
+          >>> myViewlet = MyViewlet(content, request, view, leftColumn)
+          >>> absoluteurl.absoluteURL(leftColumn, request)
+          'http://127.0.0.1/content/test.html/++manager++left'
+          >>> absoluteurl.absoluteURL(myViewlet, request)
+          '.../content/test.html/++manager++left/++viewlet++myViewlet'
+        
+        
+        
+        ====================
+         Viewlet Traversing
+        ====================
+        
+        Traversing to viewlets is done via namespaces.
+        
+          >>> from webtest.app import TestApp
+          >>> browser = TestApp(wsgi_app)
+          >>> res = browser.get('http://localhost/@@test.html')
+        
+        We have a test page registered that contains our viewlet. The viewlet
+        itself just renders a link to its location (this is just for testing).
+        
+          >>> print(res.html)
+          <html>
+            <body>
+               <div><div><a
+               href="http://localhost/test.html/++manager++IMyManager/++viewlet++MyViewlet">My
+               Viewlet</a></div></div>
+            </body>
+          </html>
+        
+        Let's follow the link to traverse the viewlet directly.
+        
+          >>> res = res.click('My Viewlet')
+          >>> res.request.url
+          'http://localhost/test.html/++manager++IMyManager/++viewlet++MyViewlet'
+          >>> print(res.body.decode())
+          <div><a href="http://localhost/test.html/++manager++IMyManager/++viewlet++MyViewlet">My Viewlet</a></div>
+        
+        What happens if a viewlet managers is nested into another viewlet? To test
+        this we will create another manager and another viewlet::
+        
+          >>> res = browser.get('http://localhost/@@nested.html')
+          >>> print(res.html)
+          <html>
+            <body>
+              <div><div><a href="http://localhost/nested.html/++manager++IOuterManager/++viewlet++OuterViewlet/++manager++IInnerManager/++viewlet++InnerViewlet/++manager++IMostInnerManager/++viewlet++MostInnerViewlet">Most inner viewlet</a></div></div>
+            </body>
+          </html>
+        
+        Let's follow the link to traverse the viewlet directly.
+        
+          >>> res = res.click('Most inner viewlet')
+          >>> res.request.url
+          'http://localhost/nested.html/++manager++IOuterManager/++viewlet++OuterViewlet/++manager++IInnerManager/++viewlet++InnerViewlet/++manager++IMostInnerManager/++viewlet++MostInnerViewlet'
+        
+          >>> print(res.body.decode())
+          <div><a href="http://localhost/nested.html/++manager++IOuterManager/++viewlet++OuterViewlet/++manager++IInnerManager/++viewlet++InnerViewlet/++manager++IMostInnerManager/++viewlet++MostInnerViewlet">Most inner viewlet</a></div>
+        
+        
+        Caveats
+        -------
+        
+        Update of the manager is not called, because this may be too expensive
+        and normally the managers update just collects viewlets.
+        
+        
+        ===============================================
+        Extracting Information from the Traversal Stack
+        ===============================================
+        
+        This package allows to define virtual traversal paths for collecting
+        arbitrary information from the traversal stack instead of, for
+        example, query strings.
+        
+        In contrast to the common way of defining custom Traversers, this
+        implementation does not require to go through the whole traversal
+        process step by step. The traversal information needed is taken from
+        the traversalstack directly and the used parts of the stack are
+        consumed. This way one don't have to define proxy classes just for
+        traversal.
+        
+        This implementation does not work in tales because it requires the
+        traversalstack of the request.
+        
+        For each name in the traversal stack a named multiadapter is looked up
+        for ITraversalStackConsumer, if found the item gets removed from the
+        stack and the adapter is added to the request annotation.
+        
+          >>> from z3c.traverser.stackinfo import traversing
+          >>> from z3c.traverser.stackinfo import interfaces
+        
+        If there are no adapters defined, the traversalstack is kept as is. To
+        show this behaviour we define some sample classes.
+        
+          >>> from zope import interface
+          >>> class IContent(interface.Interface):
+          ...     pass
+        
+          >>> from zope.site.folder import Folder
+          >>> @interface.implementer(IContent)
+          ... class Content(Folder):
+          ...     pass
+        
+        There is a convinience function which returns an iterator which
+        iterates over tuples of adapterName, adapter. Additionally the
+        traversal stack of the request is consumed if needed.
+        
+          >>> from zope.publisher.browser import TestRequest
+          >>> from zope.publisher.interfaces.browser import IBrowserRequest
+          >>> request = TestRequest()
+        
+        We set the traversal stack manually for testing here.
+        
+          >>> request.setTraversalStack([u'index.html', u'path', u'some'])
+          >>> content = Content()
+        
+        So if no ITraversalStackConsumer adapters are found the stack is left
+        untouched.
+        
+          >>> list(traversing.getStackConsumers(content, request))
+          []
+          >>> request.getTraversalStack()
+          [u'index.html', u'path', u'some']
+        
+        There is a base class for consumer implementations which implements
+        the ITraversalStackConsumer interface.
+        
+          >>> from z3c.traverser.stackinfo import consumer
+          >>> from zope.interface.verify import verifyObject
+          >>> o = consumer.BaseConsumer(None, None)
+          >>> verifyObject(interfaces.ITraversalStackConsumer,o)
+          True
+        
+        Let us define a custom consumer.
+        
+          >>> from zope import component
+          >>> class DummyConsumer(consumer.BaseConsumer):
+          ...     component.adapts(IContent, IBrowserRequest)
+          >>> component.provideAdapter(DummyConsumer, name='some')
+        
+        Now we will find the newly registered consumer and the 'some' part of
+        the stack is consumed.
+        
+          >>> consumers = list(traversing.getStackConsumers(content, request))
+          >>> consumers
+          [(u'some', <DummyConsumer named u'some'>)]
+          >>> request.getTraversalStack()
+          [u'index.html', u'path']
+        
+        Each consumer at least has to consume one element, which is always
+        the name under which the adapter was registered under.
+        
+          >>> name, cons = consumers[0]
+          >>> cons.__name__
+          u'some'
+        
+        Let us provide another adapter, to demonstrate that the adpaters
+        always have the reverse order of the traversal stack. This is actually
+        the order in the url.
+        
+          >>> component.provideAdapter(DummyConsumer, name='other')
+          >>> stack = [u'index.html', u'path', u'some', u'other']
+          >>> request.setTraversalStack(stack)
+          >>> consumers = list(traversing.getStackConsumers(content, request))
+          >>> consumers
+          [(u'other', <DummyConsumer named u'other'>),
+           (u'some', <DummyConsumer named u'some'>)]
+        
+          >>> [c.__name__ for name, c in consumers]
+          [u'other', u'some']
+        
+        The arguments attribute of the consumer class defines how many
+        arguments are consumed/needed from the stack. Let us create a KeyValue
+        consumer, that should extract key value pairs from the stack.
+        
+          >>> class KeyValueConsumer(DummyConsumer):
+          ...     arguments=('key', 'value')
+          >>> component.provideAdapter(KeyValueConsumer, name='kv')
+          >>> stack = [u'index.html', u'value', u'key', u'kv']
+          >>> request.setTraversalStack(stack)
+          >>> consumers = list(traversing.getStackConsumers(content, request))
+          >>> consumers
+          [(u'kv', <KeyValueConsumer named u'kv'>)]
+          >>> request.getTraversalStack()
+          [u'index.html']
+          >>> name, cons = consumers[0]
+          >>> cons.key
+          u'key'
+          >>> cons.value
+          u'value'
+        
+        We can of course use multiple consumers of the same type.
+        
+          >>> stack = [u'index.html', u'v2', u'k2', u'kv', u'v1', u'k1', u'kv']
+          >>> request.setTraversalStack(stack)
+          >>> consumers = list(traversing.getStackConsumers(content, request))
+          >>> [(c.__name__, c.key, c.value) for name, c in consumers]
+          [(u'kv', u'k1', u'v1'), (u'kv', u'k2', u'v2')]
+        
+        If we have too less arguments a NotFound exception.
+        
+          >>> stack = [u'k2', u'kv', u'v1', u'k1', u'kv']
+          >>> request.setTraversalStack(stack)
+          >>> consumers = list(traversing.getStackConsumers(content, request))
+          Traceback (most recent call last):
+            ...
+          NotFound: Object: <Content object at ...>, name: u'kv'
+        
+        
+        In order to actually use the stack consumers to retrieve information,
+        there is another convinience function which stores the consumers in
+        the requests annotations. This should noramlly be called on
+        BeforeTraverseEvents.
+        
+          >>> stack = [u'index.html', u'v2', u'k2', u'kv', u'v1', u'k1', u'kv']
+          >>> request.setTraversalStack(stack)
+          >>> traversing.applyStackConsumers(content, request)
+          >>> request.annotations[traversing.CONSUMERS_ANNOTATION_KEY]
+          [<KeyValueConsumer named u'kv'>,
+           <KeyValueConsumer named u'kv'>]
+        
+        Instead of messing with the annotations one just can adapt the request
+        to ITraversalStackInfo.
+        
+          >>> component.provideAdapter(consumer.requestTraversalStackInfo)
+          >>> ti = interfaces.ITraversalStackInfo(request)
+          >>> ti
+          (<KeyValueConsumer named u'kv'>, <KeyValueConsumer named u'kv'>)
+        
+          >>> len(ti)
+          2
+        
+        The adapter always returs an empty TraversalStackInfoObject if there
+        is no traversalstack information.
+        
+          >>> request = TestRequest()
+          >>> ti = interfaces.ITraversalStackInfo(request)
+          >>> len(ti)
+          0
+        
+        
+        Virtual Host
+        ------------
+        
+        If virtual hosts are used the traversal stack contains aditional information
+        for the virtual host which will interfere which the stack consumer.
+        
+          >>> stack = [u'index.html', u'value', u'key',
+          ...          u'kv', u'++', u'inside vh', '++vh++something']
+          >>> request.setTraversalStack(stack)
+          >>> consumers = list(traversing.getStackConsumers(content, request))
+          >>> consumers
+          [(u'kv', <KeyValueConsumer named u'kv'>)]
+          >>> request.getTraversalStack()
+          [u'index.html', u'++', u'inside vh', '++vh++something']
+        
+        
+        URL Handling
+        ------------
+        
+        Let us try these things with a real url, in our test the root is the site.
+        
+          >>> from zope.traversing.browser.absoluteurl import absoluteURL
+          >>> absoluteURL(root, request)
+          'http://127.0.0.1'
+        
+        There is an unconsumedURL function which returns the url of an object
+        with the traversal information, which is normally omitted.
+        
+          >>> request = TestRequest()
+          >>> root['content'] = content
+          >>> absoluteURL(root['content'], request)
+          'http://127.0.0.1/content'
+          >>> stack = [u'index.html', u'v2 space', u'k2', u'kv', u'v1', u'k1', u'kv']
+          >>> request.setTraversalStack(stack)
+          >>> traversing.applyStackConsumers(root['content'], request)
+          >>> traversing.unconsumedURL(root['content'], request)
+          'http://127.0.0.1/content/kv/k1/v1/kv/k2/v2%20space'
+        
+        Let us have more than one content object
+        
+          >>> under = content[u'under'] = Content()
+          >>> request = TestRequest()
+          >>> traversing.unconsumedURL(under, request)
+          'http://127.0.0.1/content/under'
+        
+        We add some consumers to the above object
+        
+          >>> request = TestRequest()
+          >>> stack = [u'index.html', u'value1', u'key1', u'kv']
+          >>> request.setTraversalStack(stack)
+          >>> traversing.applyStackConsumers(root['content'], request)
+          >>> traversing.unconsumedURL(root['content'], request)
+          'http://127.0.0.1/content/kv/key1/value1'
+          >>> traversing.unconsumedURL(under, request)
+          'http://127.0.0.1/content/kv/key1/value1/under'
+        
+        And now to the object below too.
+        
+          >>> request = TestRequest()
+          >>> stack = [u'index.html', u'value1', u'key1', u'kv']
+          >>> request.setTraversalStack(stack)
+          >>> traversing.applyStackConsumers(root['content'], request)
+          >>> stack = [u'index.html', u'value2', u'key2', u'kv']
+          >>> request.setTraversalStack(stack)
+          >>> traversing.applyStackConsumers(under, request)
+          >>> traversing.unconsumedURL(root['content'], request)
+          'http://127.0.0.1/content/kv/key1/value1'
+          >>> traversing.unconsumedURL(under, request)
+          'http://127.0.0.1/content/kv/key1/value1/under/kv/key2/value2'
+        
+        Or only the object below.
+        
+          >>> request = TestRequest()
+          >>> traversing.applyStackConsumers(root['content'], request)
+          >>> stack = [u'index.html', u'value2', u'key2', u'kv']
+          >>> request.setTraversalStack(stack)
+          >>> traversing.applyStackConsumers(under, request)
+          >>> traversing.unconsumedURL(root['content'], request)
+          'http://127.0.0.1/content'
+          >>> traversing.unconsumedURL(under, request)
+          'http://127.0.0.1/content/under/kv/key2/value2'
+        
+        The unconsumedURL function is also available as a view, named
+        ``unconsumed_url``, similar to ``absolute_url`` one.
+        
+          >>> from zope.component import getMultiAdapter
+          >>> url = getMultiAdapter((under, request), name='unconsumed_url')
+        
+          >>> str(url)
+          'http://127.0.0.1/content/under/kv/key2/value2'
+        
+          >>> url()
+          'http://127.0.0.1/content/under/kv/key2/value2'
+        
+        
+        ===============================================
+        Extracting Information from the Traversal Stack
+        ===============================================
+        
+        This is a simple example to demonstrate the usage of this
+        package. Please take a look into the testing directory to see how
+        things should be set up.
+        
+          >>> from webtest.app import TestApp
+          >>> browser = TestApp(wsgi_app,
+          ...     extra_environ={'wsgi.handleErrors': False,
+          ...                    'paste.throw_errors': True,
+          ...                    'x-wsgiorg.throw_errors': True})
+          >>> res = browser.get('http://localhost/@@stackinfo.html')
+        
+        So basically we have no stack info.
+        
+          >>> print(res.body.decode())
+          Stack Info from object at http://localhost/stackinfo.html:
+        
+        Let us try to set foo to bar.
+        
+          >>> res = browser.get('http://localhost/kv/foo/bar/@@stackinfo.html')
+          >>> print(res.body.decode())
+          Stack Info from object at http://localhost/stackinfo.html:
+          consumer kv:
+          key = u'foo'
+          value = u'bar'
+        
+        Two consumers.
+        
+          >>> res = browser.get(
+          ...     'http://localhost/kv/foo/bar/kv/time/late/@@stackinfo.html')
+          >>> print(res.body.decode())
+          Stack Info from object at http://localhost/stackinfo.html:
+          consumer kv:
+          key = u'foo'
+          value = u'bar'
+          consumer kv:
+          key = u'time'
+          value = u'late'
+        
+        Invalid url:
+        
+          >>> browser.get('http://localhost/kv/foo/bar/kv/@@stackinfo.html') \
+          ...     # doctes: +IGNORE_EXCEPTION_DETAIL
+          Traceback (most recent call last):
+          ...
+          NotFound: Object: <...Folder object at ...>, name: u'kv'
+        
+        
+        
+        
+        
+Keywords: zope3 traverser pluggable plugin viewlet
+Platform: UNKNOWN
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Environment :: Web Environment
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: Zope Public License
+Classifier: Programming Language :: Python
+Classifier: Programming Language :: Python :: 2
+Classifier: Programming Language :: Python :: 2.6
+Classifier: Programming Language :: Python :: 2.7
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.3
+Classifier: Programming Language :: Python :: Implementation :: CPython
+Classifier: Natural Language :: English
+Classifier: Operating System :: OS Independent
+Classifier: Topic :: Internet :: WWW/HTTP
+Classifier: Framework :: Zope3
