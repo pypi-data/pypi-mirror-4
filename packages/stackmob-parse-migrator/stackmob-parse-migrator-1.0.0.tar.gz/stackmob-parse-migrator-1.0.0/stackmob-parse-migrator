@@ -1,0 +1,203 @@
+#!/usr/bin/env python
+import client
+import argparse
+import cmd
+import signal
+import sys
+import json
+import os
+import textwrap
+import json
+import dateutil.parser
+import time
+from util import hasattrs, read_api_key_and_secret_or_die, api_key_name, api_secret_name, path_name
+from subprocess import call
+
+parser = argparse.ArgumentParser(prog = "stackmob-parse-migrator", description='move data from Parse to StackMob')
+parser.add_argument("--%s"%("api_key"), help="the API key for your app", metavar="api-key", required=False, dest=api_key_name)
+parser.add_argument("--%s"%("api_secret"), help="the API secret for your app", metavar="api-secret", required=False, dest=api_secret_name)
+parser.add_argument("--%s"%("path"), help="the path to you unzipped parse export", metavar="path", required=False, dest=path_name)
+parser.add_argument("--verbose", help="output details on requests made to stackmob", dest="verbose", type=bool)
+
+
+def signal_handler(signal, frame):
+	print ""
+	sys.exit(0)
+
+def print_resp(resp):
+	print textwrap.dedent("""
+	response code: %d
+	response headers: %s
+	response body: %s
+	"""%(resp.status_code, resp.headers, resp.text))
+
+
+def iso_date_to_unix(date):
+	return int(dateutil.parser.parse(date).strftime("%s") + "000")
+
+def rename_and_reformat_date(obj, old, new):
+	date = obj.pop(old, None)
+	object[new] = iso_date_to_unix(date)
+
+def get_objects_from_file(path, file):
+	f = open("%s/%s"%(path, file), "r")
+	parse_json = json.loads(f.read())
+	f.close()
+	return parse_json["results"]
+
+def get_schema_name(filename):
+	# cut off .json
+	name = filename[:-5] 
+	# convert to the default user schema
+	if name == "_User":
+		return "user"
+	else:
+		return name
+
+def sort_out_relations(theSchema, schemas, joins):
+	relations = {}
+	typeHints = {}
+
+	schema_joins = filter(lambda x: x.endswith(theSchema), joins)
+	# Organize the ids from join files to be appended to the appropriate
+	# objects. In StackMob relations are fields on the object
+	for join in schema_joins:
+		field = join.split(":")[1]
+		relation_objects = get_objects_from_file(path, join)
+
+		# group the relations by owner. This would be a one
+		# liner if I knew the functional way to do this in python
+		relation_map = {}
+		for relation in relation_objects:
+			owner_id = relation["owningId"]
+			related_id = relation["relatedId"]
+			if owner_id in relation_map:
+				relation_map[owner_id].append(related_id)
+			else:
+				relation_map[owner_id] = [related_id]
+		relations[field] = relation_map
+
+
+		# This bit is unfortunate. The export data give no indication
+		# what schema each relation goes to. This works for Parse
+		# because their ids are unique per-app, but ours are per-schema
+		# the only way to get the schema is to match up a related id with
+		# an id from one of the schemas
+		if len(relation_map) > 0:
+			arbitrary_id = relation_map[relation_map.keys()[0]][0]
+			for schema in schemas:
+				objects = get_objects_from_file(path, schema)
+				for object in objects:
+					if object["objectId"] == arbitrary_id:
+						typeHints[field] = get_schema_name(schema)
+						break
+
+	return relations, typeHints
+
+
+
+if __name__=="__main__":
+	signal.signal(signal.SIGINT, signal_handler)
+	args = parser.parse_args()
+	api_key, api_secret, path = read_api_key_and_secret_or_die(vars(args))
+
+	debug_level = 0
+	if(args.verbose):	
+		print "using verbose mode"
+		debug_level = 1
+	
+	api_client = client.DatastoreClient(api_key, api_secret, debug_level=debug_level)
+
+	exported_files = os.listdir(path)
+
+	# Relations, stored separately from schemas
+	joins = filter(lambda x: x.startswith("_Join"), exported_files)
+
+	# Regular schemas
+	schemas = filter(lambda x: x == "_User.json" or not x.startswith("_"), exported_files)
+
+	for schema in schemas:
+		schema_name = get_schema_name(schema)
+		schema_id = schema_name + "_id"
+
+		relations, typeHints = sort_out_relations(schema, schemas, joins)
+
+		objects = get_objects_from_file(path, schema)
+		for object in objects:
+			# rename the id
+			id = object.pop("objectId", None)
+			object[schema_id] = id
+
+			# reformat and rename the timestamps
+			rename_and_reformat_date(object, "createdAt", "createddate")
+			rename_and_reformat_date(object, "updatedAt", "lastmoddate")
+
+
+			# convert over complex datatypes
+			for field in object.keys():
+				value = object[field]
+				if isinstance(value, dict):
+					subobject = value
+					if "__type" in subobject:
+						type = subobject["__type"]
+						if type == "File":
+							object.pop(field, None)
+							print "Skipping field %s. Files are not yet supported"%(field)
+						elif type == "GeoPoint":
+							object.pop(field, None)
+							lat = subobject["latitude"]
+							lon = subobject["longitude"]
+							# just differe lat/lon names
+							object[field] = {"lat": lat, "lon": lon}
+						elif type == "Date":
+							object.pop(field, None)
+							date_string = subobject["iso"]
+							object[field] = iso_date_to_unix(date_string) 
+						elif type == "Pointer":
+							object.pop(field, None)
+							related_schema = subobject["className"]
+							related_id = subobject["objectId"]
+							if field in typeHints and not typeHints[field] == related_schema:
+								print "Skipping field %s. Pointers to different schemas within one field are not allowed"%(field)
+							else:
+								typeHints[field] = related_schema
+								object[field] = related_id
+						else:
+							object.pop(field, None)
+							print "Skipping field %s with unexpected type %s. Looks like we missed this one"%(field, type)
+					else:
+						# a plain old subobject
+						for subfield in subobject.keys():
+							# trying to go more than one level deep would be inception
+							if isinstance(subobject[subfield], dict):
+								object.pop(field, None)
+								print "Skipping field %s. Subobjects are not supported beyond a depth of 1"%(field)
+								break
+						# StackMob doesn't do subobjects. We do make it easy to turn relations
+						# into an expanded json tree though. So to migrate subobjects, we put
+						# them into a related schema
+						new_schema_name = field
+						while new_schema_name in schemas:
+							# I dearly hope this only gets hit once if at all
+							new_schema_name = new_schema_name + "_object" 
+						typeHints[field] = new_schema_name
+
+
+			# append any relations we found in the join files earlier
+			for relation in relations.keys():
+				if id in relations[relation]:
+					object[relation] = relations[relation][id]
+
+			# this header lets stackmob infer relations
+			typeHintsHeader = "&".join(map(lambda hint: "=".join(hint), typeHints.items()))
+
+			# save the data twice so the timestamp fields get set. This is
+			# a bug that probably only would be noticed in a migration
+			api_client.post(schema_name, object, typeHintsHeader)
+			print api_client.post(schema_name, object, typeHintsHeader)
+
+
+
+
+
+
