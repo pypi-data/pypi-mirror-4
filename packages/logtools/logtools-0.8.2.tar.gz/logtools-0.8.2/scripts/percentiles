@@ -1,0 +1,47 @@
+#!/bin/bash
+#
+# Compute percentiles over last N samples
+# from stdin
+#
+
+cleanup() {
+	rm $TMPFILE
+}
+log() {
+	printf "`date +%c` - $*\n" >&2
+}
+error() {
+    printf "ERROR: $*\n" >&2
+    exit 1
+}
+
+TMPFILE=`mktemp /tmp/tmp_percentiles.XXXXXX`
+
+if [ "$?" -ne 0 ];
+then
+    error "Could not create temporary file, aborting."
+fi
+
+N=10000
+
+trap "cleanup; exit" SIGTERM EXIT
+
+tail -n $N $* | \
+	sort -k1,1n > $TMPFILE
+
+L=`cat $TMPFILE | wc -l`
+typeset -i L
+
+log "Number of samples used: `cat $TMPFILE | wc -l`"
+
+for i in {10,20,30,40,50,60,70,80,90};
+do
+	l=`echo "scale=1; $i / 100 * $L" | bc | awk -F '.' '{ print $1; exit; }'`
+	typeset -i l
+	if [ -z "$l" ];
+	then
+		l=1
+	fi
+	p=`cat $TMPFILE | head -n $l | tail -n1`
+	log "${i}th Percentile (${l}th Sample): $p"
+done
