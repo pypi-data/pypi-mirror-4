@@ -1,0 +1,63 @@
+``zodbpickle`` Changelog
+========================
+
+0.4.1 (2013-04-29)
+------------------
+
+- Fix typo in Python2 version of ``zodbpickle.pickle`` module.
+
+0.4 (2013-04-28)
+----------------
+
+- Support the common pickle module interface for Python 2.6, 2.7, 3.2, and 3.3.
+
+- Split the Python implementations / tests into Python2- and Py3k-specific
+  variants.
+
+- Added a fork of the Python 2.7 ``_pickle.c``, for use under Python2.
+  The fork adds support for the Py3k ``protocol 3`` opcodes.
+
+- Added a custom ``binary`` type for use in Python2 apps.
+  Derived from ``bytes``, the ``binary`` type allows Python2 apps to pickle
+  binary data using opcodes which will cause it to be unpickled as ``bytes``
+  on Py3k.  Under Py3k, the ``binary`` type is just an alias for ``bytes``.
+
+0.3 (2013-03-18)
+----------------
+
+- Added ``noload`` code to Python 3.2 version of ``Unpickler``.  As with
+  the Python 3.3 version, this code remains untested.
+
+- Added ``bytes_as_strings`` option to the Python 3.2 version of
+  ``Pickler``, ``dump``, and ``dumps``.
+
+0.2 (2013-03-05)
+----------------
+
+- Added ``bytes_as_strings`` option to ``Pickler``, ``dump``, and ``dumps``.
+
+- Incomplete support for Python 3.2:
+
+  - Move ``_pickle.c`` -> ``_pickle_33.c``.
+
+  - Clone Python 3.2.3's ``_pickle.c`` -> ``_pickle_32.c`` and apply the
+    same patch.
+
+  - Choose between them at build time based on ``sys.version_info``.
+
+  - Disable some tests of 3.3-only features.
+
+  - Missing: implementation of ``noload()`` in ``_pickle_32.c``.
+
+  - Missing: implementation of ``bytes_as_strings=True`` in ``_pickle_32.c``.
+
+
+0.1.0 (2013-02-27)
+------------------
+
+- Initial release of Python 3.3's pickle with the patches of Python
+  `issue 6784`__ applied.
+
+.. __: http://bugs.python.org/issue6784#msg156166
+
+- Added support for ``errors="bytes"``.
