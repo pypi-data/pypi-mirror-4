@@ -1,0 +1,10 @@
+__version__ = "0.3.12"
+__git_commiter_name__ = "wiggin15"
+__git_commiter_email__ = "wiggin15@yahoo.com"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '9f20dc4af0dcdbbfc7720dd28c175b0d83aa0a91'
+__git_head_subject__ = 'Finished release v0.3.12.'
+__git_head_message__ = ''
+__git_dirty_diff__ = ''
