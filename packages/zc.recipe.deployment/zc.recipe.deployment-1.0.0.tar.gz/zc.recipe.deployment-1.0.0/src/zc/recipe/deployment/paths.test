@@ -1,0 +1,505 @@
+=================
+Path computations
+=================
+
+.. warning::
+
+   This document describes the behavior of the previously untested
+   settings ``etc``, ``log``, and ``run``.  This is done to ensure we
+   don't break existing uses that do not use the newer ``etc-prefix``
+   and ``var-prefix`` settings, but the later are recommended.
+   The ``etc``, ``log``, and ``run`` settings are deprecated.
+
+    >>> import logging
+    >>> import pprint
+    >>> import zc.recipe.deployment
+
+    >>> import zope.testing.loggingsupport
+
+    >>> logging.getLogger("zc.recipe.deployment").propagate = False
+    >>> handler = zope.testing.loggingsupport.InstalledHandler(
+    ...     "zc.recipe.deployment")
+
+    >>> def compute(options, name="myapp"):
+    ...     options = options.copy()
+    ...     handler.clear()
+    ...     zc.recipe.deployment.Install(object(), name, options)
+    ...     pprint.pprint(options, width=1)
+    ...     if handler.records:
+    ...         print handler
+
+Deployment-specific directories are created based on the name of the part:
+
+    >>> compute({})
+    {'cache-directory': '/var/cache/myapp',
+     'crontab-directory': '/etc/cron.d',
+     'etc-directory': '/etc/myapp',
+     'etc-prefix': '/etc',
+     'lib-directory': '/var/lib/myapp',
+     'log-directory': '/var/log/myapp',
+     'logrotate-directory': '/etc/logrotate.d',
+     'name': 'myapp',
+     'prefix': '/',
+     'rc-directory': '/etc/init.d',
+     'run-directory': '/var/run/myapp',
+     'var-prefix': '/var'}
+
+The ``name`` setting overrides the part name if present and non-empty:
+
+    >>> compute({"name": ""})
+    {'cache-directory': '/var/cache/myapp',
+     'crontab-directory': '/etc/cron.d',
+     'etc-directory': '/etc/myapp',
+     'etc-prefix': '/etc',
+     'lib-directory': '/var/lib/myapp',
+     'log-directory': '/var/log/myapp',
+     'logrotate-directory': '/etc/logrotate.d',
+     'name': 'myapp',
+     'prefix': '/',
+     'rc-directory': '/etc/init.d',
+     'run-directory': '/var/run/myapp',
+     'var-prefix': '/var'}
+
+    >>> compute({"name": "yourapp"})
+    {'cache-directory': '/var/cache/yourapp',
+     'crontab-directory': '/etc/cron.d',
+     'etc-directory': '/etc/yourapp',
+     'etc-prefix': '/etc',
+     'lib-directory': '/var/lib/yourapp',
+     'log-directory': '/var/log/yourapp',
+     'logrotate-directory': '/etc/logrotate.d',
+     'name': 'yourapp',
+     'prefix': '/',
+     'rc-directory': '/etc/init.d',
+     'run-directory': '/var/run/yourapp',
+     'var-prefix': '/var'}
+
+Setting ``prefix`` causes computed directories to be located under the
+specified hierarchy:
+
+    >>> compute({"prefix": "/usr/local"})
+    {'cache-directory': '/usr/local/var/cache/myapp',
+     'crontab-directory': '/usr/local/etc/cron.d',
+     'etc-directory': '/usr/local/etc/myapp',
+     'etc-prefix': '/usr/local/etc',
+     'lib-directory': '/usr/local/var/lib/myapp',
+     'log-directory': '/usr/local/var/log/myapp',
+     'logrotate-directory': '/usr/local/etc/logrotate.d',
+     'name': 'myapp',
+     'prefix': '/usr/local',
+     'rc-directory': '/usr/local/etc/init.d',
+     'run-directory': '/usr/local/var/run/myapp',
+     'var-prefix': '/usr/local/var'}
+
+    >>> compute({"prefix": "myspot"})
+    {'cache-directory': 'myspot/var/cache/myapp',
+     'crontab-directory': 'myspot/etc/cron.d',
+     'etc-directory': 'myspot/etc/myapp',
+     'etc-prefix': 'myspot/etc',
+     'lib-directory': 'myspot/var/lib/myapp',
+     'log-directory': 'myspot/var/log/myapp',
+     'logrotate-directory': 'myspot/etc/logrotate.d',
+     'name': 'myapp',
+     'prefix': 'myspot',
+     'rc-directory': 'myspot/etc/init.d',
+     'run-directory': 'myspot/var/run/myapp',
+     'var-prefix': 'myspot/var'}
+
+The ``etc``, ``log`` and ``run`` settings cause the "roots" of the
+corresponding directories to be placed in the specified locations; the
+deployment-specific directory is still used.  Note that these are
+deprecated settings and cause warnings to be issued:
+
+    >>> compute({"etc": "/antsy",
+    ...          "log": "/log/someplace",
+    ...          "prefix": "/usr/local",
+    ...          "run": "/run/someplace"})
+    {'cache-directory': '/usr/local/var/cache/myapp',
+     'crontab-directory': '/antsy/cron.d',
+     'etc': '/antsy',
+     'etc-directory': '/antsy/myapp',
+     'etc-prefix': '/antsy',
+     'lib-directory': '/usr/local/var/lib/myapp',
+     'log': '/log/someplace',
+     'log-directory': '/log/someplace/myapp',
+     'logrotate-directory': '/antsy/logrotate.d',
+     'name': 'myapp',
+     'prefix': '/usr/local',
+     'rc-directory': '/antsy/init.d',
+     'run': '/run/someplace',
+     'run-directory': '/run/someplace/myapp',
+     'var-prefix': '/usr/local/var'}
+    zc.recipe.deployment WARNING
+      using deprecated 'etc' setting
+    zc.recipe.deployment WARNING
+      using deprecated 'log' setting
+    zc.recipe.deployment WARNING
+      using deprecated 'run' setting
+
+If the ``etc``, ``log`` and ``run`` settings are relative, the
+``prefix`` setting also applies:
+
+    >>> compute({"etc": "antsy",
+    ...          "log": "var/someplace",
+    ...          "prefix": "/usr/local",
+    ...          "run": "var/running"})
+    {'cache-directory': '/usr/local/var/cache/myapp',
+     'crontab-directory': '/usr/local/antsy/cron.d',
+     'etc': 'antsy',
+     'etc-directory': '/usr/local/antsy/myapp',
+     'etc-prefix': '/usr/local/antsy',
+     'lib-directory': '/usr/local/var/lib/myapp',
+     'log': 'var/someplace',
+     'log-directory': '/usr/local/var/someplace/myapp',
+     'logrotate-directory': '/usr/local/antsy/logrotate.d',
+     'name': 'myapp',
+     'prefix': '/usr/local',
+     'rc-directory': '/usr/local/antsy/init.d',
+     'run': 'var/running',
+     'run-directory': '/usr/local/var/running/myapp',
+     'var-prefix': '/usr/local/var'}
+    zc.recipe.deployment WARNING
+      using deprecated 'etc' setting
+    zc.recipe.deployment WARNING
+      using deprecated 'log' setting
+    zc.recipe.deployment WARNING
+      using deprecated 'run' setting
+
+The same applies for the ``etc-prefix`` and ``var-prefix`` settings:
+
+    >>> compute({"etc-prefix": "antsy",
+    ...          "prefix": "/usr/local",
+    ...          "var-prefix": "bigdisk"})
+    {'cache-directory': '/usr/local/bigdisk/cache/myapp',
+     'crontab-directory': '/usr/local/antsy/cron.d',
+     'etc-directory': '/usr/local/antsy/myapp',
+     'etc-prefix': '/usr/local/antsy',
+     'lib-directory': '/usr/local/bigdisk/lib/myapp',
+     'log-directory': '/usr/local/bigdisk/log/myapp',
+     'logrotate-directory': '/usr/local/antsy/logrotate.d',
+     'name': 'myapp',
+     'prefix': '/usr/local',
+     'rc-directory': '/usr/local/antsy/init.d',
+     'run-directory': '/usr/local/bigdisk/run/myapp',
+     'var-prefix': '/usr/local/bigdisk'}
+
+Output options ending in '-directory' can be specified directly; these
+values will be retained instead of being clobbered by computed values:
+
+    >>> compute({"cache-directory": "/cache-data",
+    ...          "crontab-directory": "/my-crontabs",
+    ...          "etc": "antsy",
+    ...          "etc-directory": "/apps/config",
+    ...          "lib-directory": "/big-disk/blobs",
+    ...          "log": "var/someplace",
+    ...          "log-directory": "/big-disk/full-of-logs",
+    ...          "logrotate-directory": "/my-logrotations",
+    ...          "prefix": "/usr/local",
+    ...          "rc-directory": "/my-rcs",
+    ...          "run-directory": "/variable/run-away"})
+    {'cache-directory': '/cache-data',
+     'crontab-directory': '/my-crontabs',
+     'etc': 'antsy',
+     'etc-directory': '/apps/config',
+     'etc-prefix': '/usr/local/antsy',
+     'lib-directory': '/big-disk/blobs',
+     'log': 'var/someplace',
+     'log-directory': '/big-disk/full-of-logs',
+     'logrotate-directory': '/my-logrotations',
+     'name': 'myapp',
+     'prefix': '/usr/local',
+     'rc-directory': '/my-rcs',
+     'run-directory': '/variable/run-away',
+     'var-prefix': '/usr/local/var'}
+    zc.recipe.deployment WARNING
+      using deprecated 'etc' setting
+    zc.recipe.deployment WARNING
+      found deprecated 'log' setting (used 'log-directory' instead)
+
+
+Handling of prefix
+------------------
+
+Output paths based on prefix are relative paths if ``prefix`` is
+relative:
+
+    >>> compute({"prefix": "my/prefix"})
+    {'cache-directory': 'my/prefix/var/cache/myapp',
+     'crontab-directory': 'my/prefix/etc/cron.d',
+     'etc-directory': 'my/prefix/etc/myapp',
+     'etc-prefix': 'my/prefix/etc',
+     'lib-directory': 'my/prefix/var/lib/myapp',
+     'log-directory': 'my/prefix/var/log/myapp',
+     'logrotate-directory': 'my/prefix/etc/logrotate.d',
+     'name': 'myapp',
+     'prefix': 'my/prefix',
+     'rc-directory': 'my/prefix/etc/init.d',
+     'run-directory': 'my/prefix/var/run/myapp',
+     'var-prefix': 'my/prefix/var'}
+
+    >>> compute({"crontab-directory": "my-crontabs",
+    ...          "etc": "antsy",
+    ...          "log": "var/someplace",
+    ...          "logrotate-directory": "my-logrotations",
+    ...          "prefix": "my/prefix",
+    ...          "rc-directory": "my-rcs"})
+    {'cache-directory': 'my/prefix/var/cache/myapp',
+     'crontab-directory': 'my/prefix/my-crontabs',
+     'etc': 'antsy',
+     'etc-directory': 'my/prefix/antsy/myapp',
+     'etc-prefix': 'my/prefix/antsy',
+     'lib-directory': 'my/prefix/var/lib/myapp',
+     'log': 'var/someplace',
+     'log-directory': 'my/prefix/var/someplace/myapp',
+     'logrotate-directory': 'my/prefix/my-logrotations',
+     'name': 'myapp',
+     'prefix': 'my/prefix',
+     'rc-directory': 'my/prefix/my-rcs',
+     'run-directory': 'my/prefix/var/run/myapp',
+     'var-prefix': 'my/prefix/var'}
+    zc.recipe.deployment WARNING
+      using deprecated 'etc' setting
+    zc.recipe.deployment WARNING
+      using deprecated 'log' setting
+
+
+Specifying sub-tree prefixes
+----------------------------
+
+Two distinct sub-trees are supported: the 'etc' tree and the 'var'
+tree.  These can be located in the directory hierarchy using the
+``etc-prefix`` and ``var-prefix`` settings.
+
+    >>> compute({"etc-prefix": "/config"})
+    {'cache-directory': '/var/cache/myapp',
+     'crontab-directory': '/config/cron.d',
+     'etc-directory': '/config/myapp',
+     'etc-prefix': '/config',
+     'lib-directory': '/var/lib/myapp',
+     'log-directory': '/var/log/myapp',
+     'logrotate-directory': '/config/logrotate.d',
+     'name': 'myapp',
+     'prefix': '/',
+     'rc-directory': '/config/init.d',
+     'run-directory': '/var/run/myapp',
+     'var-prefix': '/var'}
+
+    >>> compute({"var-prefix": "/giant-disk"})
+    {'cache-directory': '/giant-disk/cache/myapp',
+     'crontab-directory': '/etc/cron.d',
+     'etc-directory': '/etc/myapp',
+     'etc-prefix': '/etc',
+     'lib-directory': '/giant-disk/lib/myapp',
+     'log-directory': '/giant-disk/log/myapp',
+     'logrotate-directory': '/etc/logrotate.d',
+     'name': 'myapp',
+     'prefix': '/',
+     'rc-directory': '/etc/init.d',
+     'run-directory': '/giant-disk/run/myapp',
+     'var-prefix': '/giant-disk'}
+
+These will be combined with the prefix if they are relative:
+
+    >>> compute({"etc-prefix": "config",
+    ...          "prefix": "/alt"})
+    {'cache-directory': '/alt/var/cache/myapp',
+     'crontab-directory': '/alt/config/cron.d',
+     'etc-directory': '/alt/config/myapp',
+     'etc-prefix': '/alt/config',
+     'lib-directory': '/alt/var/lib/myapp',
+     'log-directory': '/alt/var/log/myapp',
+     'logrotate-directory': '/alt/config/logrotate.d',
+     'name': 'myapp',
+     'prefix': '/alt',
+     'rc-directory': '/alt/config/init.d',
+     'run-directory': '/alt/var/run/myapp',
+     'var-prefix': '/alt/var'}
+
+    >>> compute({"var-prefix": "giant-disk",
+    ...          "prefix": "/alt"})
+    {'cache-directory': '/alt/giant-disk/cache/myapp',
+     'crontab-directory': '/alt/etc/cron.d',
+     'etc-directory': '/alt/etc/myapp',
+     'etc-prefix': '/alt/etc',
+     'lib-directory': '/alt/giant-disk/lib/myapp',
+     'log-directory': '/alt/giant-disk/log/myapp',
+     'logrotate-directory': '/alt/etc/logrotate.d',
+     'name': 'myapp',
+     'prefix': '/alt',
+     'rc-directory': '/alt/etc/init.d',
+     'run-directory': '/alt/giant-disk/run/myapp',
+     'var-prefix': '/alt/giant-disk'}
+
+If ``etc-prefix`` and the (legacy) ``etc`` setting are both provided,
+``etc-prefix`` wins:
+
+    >>> compute({"etc": "/old",
+    ...          "etc-prefix": "/config"})
+    {'cache-directory': '/var/cache/myapp',
+     'crontab-directory': '/config/cron.d',
+     'etc': '/old',
+     'etc-directory': '/config/myapp',
+     'etc-prefix': '/config',
+     'lib-directory': '/var/lib/myapp',
+     'log-directory': '/var/log/myapp',
+     'logrotate-directory': '/config/logrotate.d',
+     'name': 'myapp',
+     'prefix': '/',
+     'rc-directory': '/config/init.d',
+     'run-directory': '/var/run/myapp',
+     'var-prefix': '/var'}
+    zc.recipe.deployment WARNING
+      found deprecated 'etc' setting (used 'etc-prefix' instead)
+
+If ``var-prefix`` is used in conjunction with the (legacy) ``log`` and
+``run`` settings, ``var-prefix`` wins:
+
+    >>> compute({"log": "/log/someplace",
+    ...          "run": "/run/someplace",
+    ...          "var-prefix": "/big-disk"})
+    {'cache-directory': '/big-disk/cache/myapp',
+     'crontab-directory': '/etc/cron.d',
+     'etc-directory': '/etc/myapp',
+     'etc-prefix': '/etc',
+     'lib-directory': '/big-disk/lib/myapp',
+     'log': '/log/someplace',
+     'log-directory': '/big-disk/log/myapp',
+     'logrotate-directory': '/etc/logrotate.d',
+     'name': 'myapp',
+     'prefix': '/',
+     'rc-directory': '/etc/init.d',
+     'run': '/run/someplace',
+     'run-directory': '/big-disk/run/myapp',
+     'var-prefix': '/big-disk'}
+    zc.recipe.deployment WARNING
+      found deprecated 'log' setting (used 'var-prefix' instead)
+    zc.recipe.deployment WARNING
+      found deprecated 'run' setting (used 'var-prefix' instead)
+
+
+Overriding settings from the target system
+------------------------------------------
+
+A common requirement is to be able to locate large bodies of data in a
+different part of the filesystem hierarchy, usually to take advantage of
+disks with different behaviorial characteristics (capacity, performance).
+
+In these cases, the right locations for different kinds of files depends
+on the resources available on the deployment target rather than the
+software being deployed.  To support this, the deployment recipe can
+read a system-wide configuration file located at:
+
+    ${:etc-prerfix}/zc.recipe.deployment.cfg
+
+If the file doesn't exist, we get the behavriors described above.  If it
+does, the file can affect the roots of the data locations (the
+directories traditionally located in /var/).  The /etc/ directories
+cannot be affected.
+
+To avoid needing to write into the system directories for this
+demonstration, we're going to control the ``etc-prefix`` setting in all
+cases.
+
+    >>> import os.path
+
+    >>> config_path = os.path.join(
+    ...     sample_buildout, 'zc.recipe.deployment.cfg')
+
+    >>> write(config_path,
+    ... '''\
+    ... [deployment]
+    ... var-prefix = /mnt/fatdisk
+    ... ''')
+
+    >>> compute({"etc-prefix": sample_buildout})
+    {'cache-directory': '/mnt/fatdisk/cache/myapp',
+     'crontab-directory': 'PREFIX/cron.d',
+     'etc-directory': 'PREFIX/myapp',
+     'etc-prefix': 'PREFIX',
+     'lib-directory': '/mnt/fatdisk/lib/myapp',
+     'log-directory': '/mnt/fatdisk/log/myapp',
+     'logrotate-directory': 'PREFIX/logrotate.d',
+     'name': 'myapp',
+     'prefix': '/',
+     'rc-directory': 'PREFIX/init.d',
+     'run-directory': '/mnt/fatdisk/run/myapp',
+     'var-prefix': '/mnt/fatdisk'}
+
+    >>> compute({"etc": sample_buildout})
+    {'cache-directory': '/mnt/fatdisk/cache/myapp',
+     'crontab-directory': 'PREFIX/cron.d',
+     'etc': 'PREFIX',
+     'etc-directory': 'PREFIX/myapp',
+     'etc-prefix': 'PREFIX',
+     'lib-directory': '/mnt/fatdisk/lib/myapp',
+     'log-directory': '/mnt/fatdisk/log/myapp',
+     'logrotate-directory': 'PREFIX/logrotate.d',
+     'name': 'myapp',
+     'prefix': '/',
+     'rc-directory': 'PREFIX/init.d',
+     'run-directory': '/mnt/fatdisk/run/myapp',
+     'var-prefix': '/mnt/fatdisk'}
+    zc.recipe.deployment WARNING
+      using deprecated 'etc' setting
+
+
+Disallowed settings
+~~~~~~~~~~~~~~~~~~~
+
+Attempting to set the location of /etc from the configuration file is an
+error, since the /etc location has already been determined:
+
+    >>> write(config_path,
+    ... '''\
+    ... [deployment]
+    ... etc-prefix = /some/where
+    ... ''')
+
+    >>> compute({"etc": sample_buildout})
+    Traceback (most recent call last):
+    UserError: disallowed option 'etc-prefix' in system configuration
+
+    >>> write(config_path,
+    ... '''\
+    ... [deployment]
+    ... etc = /some/where
+    ... ''')
+
+    >>> compute({"etc": sample_buildout})
+    Traceback (most recent call last):
+    UserError: disallowed option 'etc' in system configuration
+
+The deprecated ``log`` and ``run`` settings cannot be used here:
+
+    >>> write(config_path,
+    ... '''\
+    ... [deployment]
+    ... log = /mnt/scratch
+    ... ''')
+
+    >>> compute({"etc": sample_buildout})
+    Traceback (most recent call last):
+    UserError: disallowed option 'log' in system configuration
+
+    >>> write(config_path,
+    ... '''\
+    ... [deployment]
+    ... run = /mnt/scratch
+    ... ''')
+
+    >>> compute({"etc": sample_buildout})
+    Traceback (most recent call last):
+    UserError: disallowed option 'run' in system configuration
+
+Specific -directory settings cannot be included in the system
+configuration file:
+
+    >>> write(config_path,
+    ... '''\
+    ... [deployment]
+    ... log-directory = /some/fat/disk/for/logging
+    ... ''')
+
+    >>> compute({"etc": sample_buildout})
+    Traceback (most recent call last):
+    UserError: disallowed option 'log-directory' in system configuration
