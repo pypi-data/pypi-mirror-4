@@ -1,0 +1,187 @@
+Metadata-Version: 1.1
+Name: prego
+Version: 0.20130116
+Summary: System test framework over POSIX shells
+Home-page: https://bitbucket.org/arco_group/prego
+Author: David Villa Alises
+Author-email: David.Villa@gmail.com
+License: GPLv3
+Description: 
+        Prego is a system test framework running as Python unittest testcases.
+        
+        Prego is a library consisting on a set of clases and hamcrest matchers usefull
+        to specify shell command interactions through files, environment variables,
+        network ports. It provides support to run shell commands on background, send
+        signal to processes, set assertions on command stdout or stderr, etc.
+        
+        
+        Concepts
+        ========
+        
+        A 'prego task' is a set of assertions.
+        
+        Three assertion checkers are available:
+        
+        - task.assert_that, for single shot checking.
+        - task.wait_that, for polling recurrent checking.
+        - task.command, to run arbitrary shell command.
+        
+        Subjects (and their associated assertions):
+        
+        - File(path)
+        
+          - exists()
+        
+        - File().content
+        
+          - all hamcrest string matchers (ie: contains_string)
+        
+        - Variable
+        
+          - exists()
+          - all hamcrest string matchers (ie: contains_string)
+        
+        - Command
+        
+          - running()
+          - exits_with(value)
+          - killed_by(signal)
+        
+        - Host(hostname)
+        
+          - listen_port(number, proto='tcp')
+          - reachable()
+        
+        
+        Execution model
+        ===============
+        
+        
+        The context
+        ===========
+        
+        The ``context`` is an object whose attributes may be automatically interpolated in command
+        or filenames. Also it may be used to set default parameter values. If ``context.cwd`` is
+        set, all commands in the same test will use that value as CWD (Current Working Directory)
+        unless you define a different value as ``command()`` keyarg.
+        
+        
+        
+        
+        Examples
+        ========
+        
+        Testing a netcat server
+        -----------------------
+        
+        ::
+        
+          import hamcrest
+          from prego import Task, TestCase, context, running
+          from prego.net import Host, localhost, listen_port
+        
+          class NetTests(TestCase):
+              def test_netcat(self):
+                  context.port = 2000
+                  server = Task(desc='ncat server', detach=True)
+                  server.assert_that(Package('nmap'), installed())
+                  server.assert_that(localhost,
+                                     hamcrest.is_not(listen_port(context.port)))
+                  cmd = server.command('ncat -l -p $port')
+                  server.assert_that(cmd.stdout.content,
+                                     hamcrest.contains_string('bye'))
+        
+                  client = Task(desc='ncat client')
+                  client.wait_that(server, running())
+                  client.wait_that(localhost,
+                                   listen_port(context.port))
+                  client.command('ncat -c "echo bye" localhost $port')
+        
+        
+        This test may be executed using nosetest::
+        
+          $ nosetests examples/netcat.py
+          .
+          ----------------------------------------------------------------------
+          Ran 1 test in 1.414s
+        
+          OK
+        
+        
+        But prego provides a wrapper (the ``prego`` command) that provide some interesting options::
+        
+          $ prego +v examples/netcat.py
+          [II] ------  Net.test_netcat BEGIN
+          [II] [ ok ]   B.0 wait that A is running
+          [II] [ ok ]   A.0 assert that nmap package is installed
+          [II] [ ok ]   A.1 assert that localhost not port 2000/tcp to be open
+          [II] [fail]   B.1 wait that localhost port 2000/tcp to be open
+          [II] [ ok ]   B.1 wait that localhost port 2000/tcp to be open
+          [II] [ ok ]   A.2 Command 'ncat -l -p 2000' code (0:0) time 5:1.34
+          [II] [ ok ]   A.3 assert that command A.2 returncode to be 0
+          [II] [ ok ]   A.4 assert that command A.2 execution time to be a value less than <5>s
+          [II] [ ok ]   A.5 assert that File '/tmp/prego-david/389/A.2.out' content a string containing 'bye'
+          [II] [ OK ]   A   Task end - elapsed: 1.33s
+          [II] [ ok ]   B.2 Command 'ncat -c "echo bye" localhost 2000' code (0:0) time 5:1.37
+          [II] [ ok ]   B.3 assert that command B.2 returncode to be 0
+          [II] [ ok ]   B.4 assert that command B.2 execution time to be a value less than <5>s
+          [II] [ OK ]   B   Task end - elapsed: 1.25s
+          [II] [ OK ]  Net.test_netcat END
+          ----------------------------------------------------------------------
+          Ran 1 test in 1.416s
+        
+          OK
+        
+        
+        Testing google reachability
+        ===========================
+        
+        ::
+        
+          import hamcrest
+          from prego import TestCase, Task
+          from prego.net import Host, reachable
+        
+          class GoogleTest(TestCase):
+              def test_is_reachable(self):
+                  link = Task(desc="Is interface link up?")
+                  link.command('ip link | grep wlan0 | grep "state UP"')
+        
+                  router = Task(desc="Is the local router reachable?")
+                  router.command("ping -c2 $(ip route | grep ^default | cut -d' ' -f 3)")
+        
+                  for line in file('/etc/resolv.conf'):
+                      if line.startswith('nameserver'):
+                          server = line.split()[1]
+                          test = Task(desc="Is DNS server {0} reachable?".format(server))
+                          test.command('ping -c 2 {0}'.format(server))
+        
+                  resolve = Task(desc="may google name be resolved?")
+                  resolve.command('host www.google.com')
+        
+                  ping = Task(desc="Is google reachable?")
+                  ping.command('ping -c 1 www.google.com')
+                  ping.assert_that(Host('www.google.com'), reachable())
+                  ping.assert_that(Host('www.googlewrong.com'), hamcrest.is_not(reachable()))
+        
+                  web = Task(desc="get index.html")
+                  cmd = web.command('wget http://www.google.com/webhp?hl=en -O-')
+                  web.assert_that(cmd.stdout.content,
+                                  hamcrest.contains_string('value="I\'m Feeling Lucky"'))
+        
+        .. Local Variables:
+        ..  coding: utf-8
+        ..  mode: flyspell
+        ..  ispell-local-dictionary: "american"
+        .. End:
+        
+Platform: UNKNOWN
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python
+Classifier: Topic :: Software Development
+Classifier: Topic :: Software Development :: Quality Assurance
+Classifier: Topic :: Software Development :: Testing
+Requires: hamcrest
+Requires: commodity
