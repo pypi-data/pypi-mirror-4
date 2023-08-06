@@ -1,0 +1,512 @@
+#! /usr/bin/env python
+# -*- python -*-
+
+"""%prog [opts] dir [outdir]
+
+emin - a static web gallery builder
+
+emin makes static Web pages for presenting lots of imagey things: photos, PDFs,
+graphs with thumbnails as well as links to the image/doc file proper.
+
+It's primarily intended for making Web photo galleries for the sorts of people
+who don't want to install some PHP monstrosity just to put their photos
+online. On the assumption that most people will want to tweak their gallery's
+appearance, the output is fully customisable using the Cheetah templating
+engine.
+
+Supported image formats are JPEG, PNG, GIF, TIFF, PDF and EPS, with the latter
+two being converted to PNG for Web display.  Image resizing, renaming and
+thumbnailing is supported, as is building a zip file to download the whole
+set. Large image sets can be split over several pages.
+
+As for the name, this is a program to make pretty simple galleries, so it's
+named after a pretty crappy artist. And, thankfully, e-m-i-n is not many
+characters to type.
+
+TODO:
+ * Make Cheetah templating optional, or use Genshi/Jinja/Mako?
+ * Clean up image filenames to avoid/minimise duplicate extensions
+ * Try to validate the HTML output
+ * Add all on one page option
+ * Resize option
+ * Rename option
+ * Crop-to-thumb option
+ * Auto-rotate by EXIF orientation
+ * Copy Lightbox stuff into place
+ * Allow complete rollback if any failure (or on demand?)
+
+Author: Andy Buckley, http://www.insectnation.org\
+"""
+
+__author__ = "Andy Buckley <andy@insectnation.org>"
+__version__ = "0.3.4"
+
+
+import logging
+from optparse import OptionParser, OptionGroup
+parser = OptionParser(usage=__doc__, version=__version__)
+parser.add_option("-t", "--title", dest="TITLE", default=None,
+                  help="title of this gallery")
+parser.add_option("--template", dest="TEMPLATE", default=None,
+                  help="specify the template file to be used for the index pages")
+parser.add_option("--zipfile", dest="ZIPFILE", default=None,
+                  help="name of zip archive file. Default is based on the title.")
+parser.add_option("--no-zipfile", action="store_false",
+                  dest="WRITE_ZIPFILE", default=True,
+                  help="disable writing out of a zipped archive of photos from this gallery")
+parser.add_option("-1", "--one-page", dest="ONE_PAGE", action="store_true", default=False,
+                  help="put all thumbnails on one page (default: %default)")
+parser.add_option("-c", "--num-cols", "--cols", dest="NUM_COLS", default=5, type=int,
+                  help="max number of thumbnail columns on one page (default: %default)")
+parser.add_option("-r", "--num-rows", "--rows", dest="NUM_ROWS", default=6, type=int,
+                  help="max number of thumbnail rows on one page (default: %default). Set < 1 for unlimited (i.e. all on one page)")
+parser.add_option("--thumb-height", dest="THUMB_HEIGHT", default=150, type=int,
+                  help="thumbnail height, in pixels (default: %default)")
+parser.add_option("--max-imgsize", dest="MAX_IMGSIZE", default=800, type=int,
+                  help="max large image dimension in pixels (default: %default)")
+parser.add_option("--exclude", dest="EXCLUDE", default=None,
+                  help="a regex pattern specifying image files to be excludes (default: %default)")
+parser.add_option("--no-js", dest="USE_JS", action="store_false", default=True,
+                  help="disable use of funky JavaScript display stuff")
+parser.add_option("--force", dest="FORCE", action="store_true", default=False,
+                  help="force creation of gallery: regen thumbnails etc.")
+parser.add_option("--no-table", dest="USE_TABLE", action="store_false", default=True,
+                  help="don't use an HTML table for thumbnail presentation: just let the thumbs flow into the browser window")
+verbgroup = OptionGroup(parser, "Verbosity control")
+verbgroup.add_option("-v", "--verbose", action="store_const", const=logging.DEBUG, dest="LOGLEVEL",
+                     default=logging.INFO, help="print debug (very verbose) messages")
+verbgroup.add_option("-q", "--quiet", action="store_const", const=logging.WARNING, dest="LOGLEVEL",
+                     default=logging.INFO, help="be very quiet")
+parser.add_option_group(verbgroup)
+opts, args = parser.parse_args()
+logging.basicConfig(level=opts.LOGLEVEL, format="%(message)s")
+
+
+## More imports
+import sys, os, glob, re, math, shutil, fnmatch
+try:
+    from Cheetah.Template import Template
+except Exception, e:
+    logging.error("Couldn't import required Cheetah package")
+    exit(1)
+try:
+    import PIL.Image as PILI
+except Exception, e:
+    logging.error("Couldn't import required Python Imaging Library package")
+    exit(1)
+
+
+## Set processing/output dir
+if len(args) < 1 or len(args) > 2:
+    parser.print_usage()
+    exit(1)
+if len(args) >= 1:
+    opts.SRCDIR = os.path.normpath(args[0])
+    opts.OUTDIR = os.path.normpath(args[0])
+if len(args) == 2:
+    opts.OUTDIR = os.path.normpath(args[1])
+
+
+## Deal with consequences of interacting optional settings
+if opts.ONE_PAGE:
+    opts.NUM_ROWS = -1
+# TODO: These should be options...
+opts.RENAME = False
+opts.CONVERT = False
+
+
+def safeencode(s):
+    """Encode a string for use as a filename."""
+    newstr = s.replace(" ", "-").replace(",", "").replace("/", "").replace(".", "")
+    return newstr
+
+## Better title autodetection
+if not opts.TITLE:
+    opts.TITLE = os.path.basename(os.path.abspath(opts.SRCDIR))
+
+logging.debug("Title: %s" % opts.TITLE)
+logging.debug("Thumb height: %d" % opts.THUMB_HEIGHT)
+
+
+class ImageInfo(object):
+    def __init__(self):
+        self.name = None
+        self.path = None
+        self.thumbname = None
+        self.thumbpath = None
+        self.thumbx = None
+        self.thumby = None
+
+    def setsize(self, sizetuple):
+        self.thumbx = sizetuple[0]
+        self.thumby = sizetuple[1]
+
+    def _getsize(self):
+        return self.thumbx, self.thumby
+
+    thumbsize = property(_getsize, setsize)
+
+
+## Go to the gallery directory and test if it's writeable
+if not os.access(opts.OUTDIR, os.W_OK):
+    try:
+        logging.info("Making output dir in %s" % opts.OUTDIR)
+        os.makedirs(opts.OUTDIR)
+    except Exception, e:
+        logging.error("Problem when making output dir %s... exiting" % opts.OUTDIR)
+        exit(1)
+
+
+## Make thumbnail directory if needed
+opts.THUMBDIR = "thumbs"
+THUMBDIR = os.path.join(opts.OUTDIR, opts.THUMBDIR)
+try:
+    if not os.path.isdir(THUMBDIR):
+        logging.info("Making thumbs dir in %s" % THUMBDIR)
+        os.makedirs(THUMBDIR)
+except Exception, e:
+    logging.error("Problem when making thumbnails dir... exiting")
+    exit(1)
+
+
+## Build the list of pictures to display
+# TODO: types: PNG/GIF, JPEG, PDF
+# TODO: match formats & store thumb filenames
+EXTENSIONS = \
+    ["*.jpg", "*.jpeg"] + \
+    ["*.png", "*.gif"]  + \
+    ["*.tif", "*.tiff"] + \
+    ["*.eps", "*.pdf"]
+imgs = []
+for img in os.listdir(opts.SRCDIR):
+    for e in EXTENSIONS:
+        if not fnmatch.fnmatch(img.lower(), e):
+            continue
+        if opts.EXCLUDE and re.search(opts.EXCLUDE, img):
+            continue
+        imgpath = os.path.join(opts.SRCDIR, img)
+        imgs.append(imgpath)
+        break
+
+## Count the pictures
+logging.debug("Number of pictures = %d" % len(imgs))
+if len(imgs) == 0:
+    logging.debug("No pictures from which to build a gallery...")
+    exit(2)
+logging.debug("Images: " + str(sorted(imgs)))
+
+
+## Rename/move if needed
+outimgs = []
+for n, imgpath in enumerate(imgs):
+    imgname = os.path.basename(imgpath)
+    imgnameparts = os.path.splitext(imgname)
+    targetname = imgname
+    if opts.RENAME:
+        targetname = "%s-%03d%s" % (safename(opts.OUTDIR), n, imgnameparts[1])
+    targetpath = os.path.join(opts.OUTDIR, targetname)
+    outimgs.append(targetpath)
+    if imgpath != targetpath:
+        logging.debug("Copying %s -> %s" % (imgpath, targetpath))
+        import shutil
+        shutil.copy(imgpath, targetpath)
+
+
+## Store some image info
+imgsinfo = {}
+for picpath in outimgs:
+    picname = os.path.basename(picpath)
+    picbase = os.path.splitext(picname)[0]
+
+    ## Convert EPS, PDF, TIFF to Web-viewable formats
+    picversions = {}
+    picpathparts = os.path.splitext(picpath)
+    picnameparts = os.path.splitext(picname)
+    extn = picnameparts[1].lower()
+    convcmd = None
+    if extn in [".tif", ".tiff"]:
+        picversions["TIFF"] = picname
+        newpicname = picname + ".jpg"
+        newpicpath = picpath + ".jpg"
+        picversions["JPG"] = newpicname
+        convcmd = ["convert", picpath, newpicpath]
+        picname = newpicname
+        picpath = newpicpath
+    elif extn in [".eps", ".pdf"]:
+        picversions[extn[1:].upper()] = picname
+        newpicname = picname + ".png"
+        newpicpath = picpath + ".png"
+        picversions["PNG"] = newpicname
+        convcmd = ["convert", "-density", "200", "-resize", "800x700", picpath, newpicpath]
+        picname = newpicname
+        picpath = newpicpath
+    else:
+        picversions[extn[1:].upper()] = picname
+
+    ## Do the conversion
+    if convcmd:
+        try:
+            # TODO: threading / multiprocessing for speed-up?
+            import subprocess
+            subprocess.check_call(convcmd)
+        except:
+            raise
+
+    ## Main pic info
+    info = ImageInfo()
+    info.name = picname
+    info.path = picpath
+    info.versions = picversions
+
+    ## Thumb info
+    ## TODO: Un-hard-code PNG thumb format
+    thumbname = picname + ".png"
+    thumbpath = os.path.join(THUMBDIR, thumbname)
+    info.thumbname = thumbname
+    info.thumbpath = thumbpath
+
+    ## Make thumbnail
+    ## TODO: Be lazy!
+    #if opts.FORCE or not os.access(thumbpath, os.R_OK) or os.stat(thumbpath).st_mtime > os.stat(pic).st_mtime:
+    try:
+        logging.debug("Making new thumbnail %s for %s (max height %d)" % \
+                          (thumbpath, picname, opts.THUMB_HEIGHT))
+        thumbimg = PILI.open(picpath, "r")
+        thumbimg.thumbnail((100000000, opts.THUMB_HEIGHT), resample=PILI.ANTIALIAS)
+        thumbimg.save(thumbpath)
+        info.thumbsize = thumbimg.size
+    except Exception, e:
+        logging.warning("Problem when making thumbnail from %s... exiting" % picpath)
+        exit(1)
+
+    ## Store info
+    imgsinfo[picname] = info
+
+
+#####################
+
+
+## Calculate how many pages will be needed
+if opts.NUM_ROWS >= 1:
+    NUM_PER_PAGE = opts.NUM_ROWS * opts.NUM_COLS
+    NUM_PAGES = int(math.ceil( len(imgs)/float(NUM_PER_PAGE) ))
+else:
+    NUM_PER_PAGE = len(imgs)
+    NUM_PAGES = 1
+
+
+if NUM_PAGES > 1:
+    logging.warn("%d gallery pages will be made. If you just want one page, use the -1 or --one-page option" % NUM_PAGES)
+
+
+## TODO: Move HTML extension-setting to option parser
+## (or take from template name, e.g. page.html.template -> html)
+opts.EXTN = "html"
+
+
+def getPageFilename(pagenum):
+    if pagenum == 1:
+        pagefile = "index.%s" % opts.EXTN
+    else:
+        pagefile = "index%02d.%s" % (pagenum, opts.EXTN)
+    return pagefile
+
+
+def mkPageLinkStr(pagenum):
+    "Write the linked page list"
+    global NUM_PAGES
+    out = ''
+    if NUM_PAGES > 1:
+        out += ""
+        ## Previous
+        prev = pagenum - 1
+        if prev > 0:
+            out += '<a href="%s">prev</a>' % getPageFilename(prev)
+        else:
+            out += 'prev'
+        out += '&nbsp;'
+        ## Numbers
+        for n in range(1, NUM_PAGES+1):
+            if n != pagenum:
+                out += '<a href="%s">%d</a>' % (getPageFilename(n), n)
+            else:
+                out += "%d" % n
+            out += '&nbsp;'
+        ## Next
+        next = pagenum + 1
+        if next <= NUM_PAGES:
+            out += '<a href="%s">next</a>' % getPageFilename(next)
+        else:
+            out += 'next'
+    return out
+
+
+## Make a zip archive
+ZIPFILE = "photo-album.zip"
+if True: #opts.WRITE_ZIPFILE:
+    logging.debug("Making zipped picture archive")
+    if opts.ZIPFILE is not None:
+        ZIPFILE = opts.ZIPFILE
+    elif opts.TITLE is not None or len(opts.TITLE) > 0:
+        ZIPFILE = safeencode(opts.TITLE)
+        #ZIPFILE = safename(opts.OUTDIR)
+    if not "." in ZIPFILE or os.path.splitextn(ZIPFILE)[1] != ".zip":
+        ZIPFILE += ".zip"
+    ## Do the zipping
+    if ZIPFILE:
+        from zipfile import ZipFile
+        zf = ZipFile(os.path.join(opts.OUTDIR, ZIPFILE), "w")
+        for img in imgs:
+            zf.write(img, os.path.basename(img))
+        zf.close()
+    else:
+        logging.warning("No zip file made because zip filename is empty")
+
+
+## Copy Lightbox stuff into ZIP
+#if opts.USE_JS:
+#    from zipfile import ZipFile
+#    zf = ZipFile(os.path.join(opts.OUTDIR, "lightbox.zip"), "r")
+#    for img in imgs:
+#        zf.write(img, os.path.basename(img))
+#    zf.close()
+
+
+## Default template
+tmplstr = \
+'''<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+        "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+  <head>
+    #set title = $PAGETITLE
+    #if $NUM_PAGES > 1
+    #set title = $title + " (page %s)" % $PAGENUM
+    #end if
+    <title>$title</title>
+    <style>
+      img { border:0; padding:10 10 0 0; }
+      body { padding:1em; background:white; font-family:sans-serif; }
+      h1 { font-family:sans-serif; }
+      a.format { text-decoration:none; font-variant:small-caps; color:grey; font-size:small; }
+      a.format:hover { color:deeppink; }
+      a.format:active { color:deeppink; }
+      .pagelinks { text-decoration:none; font-variant:small-caps; color:grey; margin-top:1em; margin-bottom:1em; }
+      .pagelinks a:link { color:#22c; text-decoration:none; }
+      .pagelinks a:hover { color:#55c; text-decoration:none; }
+      .pagelinks a:active { color:#55c; text-decoration:none; }
+    </style>
+    #if $OPTS.USE_JS:
+    <link rel="stylesheet" href="lightbox/css/lightbox.css" type="text/css" media="screen" />
+    <script src="lightbox/js/prototype.js" type="text/javascript"></script>
+    <script src="lightbox/js/scriptaculous.js?load=effects,builder" type="text/javascript"></script>
+    <script src="lightbox/js/lightbox.js" type="text/javascript"></script>
+    #end if
+  </head>
+  <body>
+    <h1>$PAGETITLE</h1>
+    #if $NUM_PAGES > 1
+    <div class="pagelinks">Pages: $LINKSTR</div>
+    #end if
+
+    <table>
+    <tr>
+    #set jsrel = ''
+    #if $OPTS.USE_JS:
+    #set jsrel = 'rel="lightbox[emin]"'
+    #end if
+    #for n, thumb in enumerate($PAGEPICS)
+      #if $n % $NUM_COLS == 0 and $n not in (0, len($PAGEPICS)-1)
+      <tr/><tr>
+      #end if
+      #set info = $PICINFO[$thumb]
+      <td>
+        <a href="$info.relpath" $jsrel><img alt="$thumb" src="$info.relthumbpath" style="border:0;" width="$info.thumbx" height="$info.thumby" /></a><br/>
+        #for fmt, name in $info.versions.iteritems()
+        <a class="format" href="$name">$fmt.lower()</a>
+        #end for
+      </td>
+    #end for
+    </tr>
+    </table>
+
+    #if $NUM_PAGES > 1
+    <div class="pagelinks">Pages: $LINKSTR</div>
+    #end if
+
+    #if $OPTS.WRITE_ZIPFILE and $ZIPFILE:
+    <p>All zipped up: <a href="$ZIPFILE">$ZIPFILE</a></p>
+    #end if
+  </body>
+</html>
+'''
+
+
+## Override default template with a template file
+if opts.TEMPLATE is not None:
+    logging.info("Using index template file %s" % opts.TEMPLATE)
+    tf = open(opts.TEMPLATE, "r")
+    tmplstr = tf.read()
+    tf.close()
+
+
+## Make each index page
+for n in range(NUM_PAGES):
+    PAGENUM = n + 1
+
+    ## Choose and open page file
+    PAGEFILE = getPageFilename(PAGENUM)
+    PAGEPATH = os.path.join(opts.OUTDIR, PAGEFILE)
+
+    ## Write the title
+    PAGETITLE = opts.TITLE
+
+    ## Write the linked page list
+    LINKSTR = mkPageLinkStr(PAGENUM)
+
+    ## Work out the picture offsets for this page
+    pics_start = n * NUM_PER_PAGE
+    pics_end = (n+1) * NUM_PER_PAGE - 1
+    if pics_end >= len(imgs):
+        pics_end = len(imgs) - 1
+
+    PAGEPICS = sorted(imgsinfo.keys())[pics_start: pics_end+1]
+    PAGEPICNUMS = range(len(PAGEPICS))
+    relthumbdir = opts.THUMBDIR
+    #relthumbdir = os.path.relpath(THUMBDIR, OUTDIR)
+    reloutdir = "."
+    for k in imgsinfo.keys():
+        imgsinfo[k].relthumbpath = os.path.normpath(os.path.join(relthumbdir, imgsinfo[k].thumbname))
+        imgsinfo[k].relpath = os.path.normpath(os.path.join(reloutdir, imgsinfo[k].name))
+    PICINFO = imgsinfo
+#     THUMBNAMES = [t.name for t in thumbsinfo.values()[pics_start : pics_end]]
+#     print THUMBNAMES
+#     THUMBPATHS = [os.path.join(relthumbdir, name) for name in THUMBNAMES]
+#     print THUMBPATHS
+#     THUMBDIMS = [t.size for t in thumbsinfo.values()[pics_start : pics_end]]
+
+    logging.info("Writing to index file %s" % PAGEPATH)
+    f = open(PAGEPATH, "w")
+    logging.debug("Images on page: %s" % PAGEPICS)
+    tdict = {}
+    tdict["NUM_PAGES"] = NUM_PAGES
+    tdict["NUM_PER_PAGE"] = NUM_PER_PAGE
+    tdict["NUM_COLS"] = opts.NUM_COLS
+    tdict["PAGEPICS"] = PAGEPICS
+    tdict["PAGENUM"] = PAGENUM
+    tdict["PAGETITLE"] = PAGETITLE
+    tdict["LINKSTR"] = LINKSTR
+    tdict["PAGEPICNUMS"] = PAGEPICNUMS
+    tdict["PICINFO"] = imgsinfo
+#     tdict["THUMBS"] = thumbsinfo
+#     tdict["THUMBNAMES"] = THUMBNAMES
+#     tdict["THUMBPATHS"] = THUMBPATHS
+#     tdict["THUMBDIMS"] = THUMBDIMS
+    tdict["ZIPFILE"] = ZIPFILE
+    tdict["OPTS"] = opts
+    indexstr = Template(tmplstr, searchList=[tdict])
+    #print indexstr
+    f.write(str(indexstr))
+    f.close()
+
+## It's over. Nothing to see here.
+logging.debug("All done!")
