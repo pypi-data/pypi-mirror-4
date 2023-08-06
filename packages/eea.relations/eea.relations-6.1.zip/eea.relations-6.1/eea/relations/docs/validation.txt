@@ -1,0 +1,155 @@
+Relations validation
+====================
+You can use eea.relations validators in your schema fields in order to make a
+relation required.
+
+eea.relations.required validator
+--------------------------------
+This validator will look for all object's possible relations that have 'required'
+property checked. If there are no satisfied relations, it will return a message
+to fix errors.
+
+How to use it:
+
+    SCHEMA = atapi.Schema((
+        MyField('relatedItems',
+            ...
+            validators=('eea.relations.required',),
+            ...
+        ),
+    ))
+
+
+Ok let's add some restrictions
+
+    >>> self.loginAsPortalOwner()
+    >>> from Products.CMFCore.utils import getToolByName
+    >>> rtool = getToolByName(portal, 'portal_relations')
+
+Cleanup default relations
+
+    >>> rtool.manage_delObjects(rtool.objectIds())
+    >>> rtool.objectIds()
+    []
+
+Add possible relations
+
+    >>> from zope.component import queryMultiAdapter
+    >>> from Products.GenericSetup.interfaces import IBody
+    >>> from Products.GenericSetup.testing import DummySetupEnviron
+    >>> importer = queryMultiAdapter((rtool, DummySetupEnviron()), IBody)
+
+    >>> importer.body = '''<?xml version="1.0" encoding="utf-8"?>
+    ... <object name="portal_relations" meta_type="EEARelationsTool">
+    ...  <object name="demo" meta_type="EEARelationsContentType">
+    ...   <property name="title">Demo</property>
+    ...   <property name="ct_type">EEARefBrowserDemo</property>
+    ...  </object>
+    ...  <object name="folder" meta_type="EEARelationsContentType">
+    ...   <property name="title">Folder</property>
+    ...   <property name="ct_type">Folder</property>
+    ...  </object>
+    ...  <object name="document" meta_type="EEARelationsContentType">
+    ...   <property name="title">Document</property>
+    ...   <property name="ct_type">Document</property>
+    ...  </object>
+    ...  <object name="demo-to-folder" meta_type="EEAPossibleRelation">
+    ...   <property name="title">Demo -> Folder</property>
+    ...   <property name="from">demo</property>
+    ...   <property name="to">folder</property>
+    ...   <property name="required">True</property>
+    ...  </object>
+    ...  <object name="demo-to-document" meta_type="EEAPossibleRelation">
+    ...   <property name="title">Demo -> Document</property>
+    ...   <property name="from">demo</property>
+    ...   <property name="to">document</property>
+    ...  </object>
+    ... </object>
+    ... '''
+
+    >>> graph = queryMultiAdapter((rtool, rtool.REQUEST), name=u'graph.dot')
+    >>> print graph()
+    digraph G {
+    "node-demo" [label="Demo"];
+    "node-folder" [label="Folder"];
+    "node-document" [label="Document"];
+    "node-demo" -> "node-folder"  [color=red];
+    "node-demo" -> "node-document";
+    }
+
+
+All set, let's add our content
+
+    >>> sid = folder.invokeFactory('Folder', 'sandbox')
+    >>> sandbox = folder._getOb(sid)
+
+    >>> name = sandbox.invokeFactory('Folder', 'zu-folder')
+    >>> myfolder = sandbox._getOb(name)
+
+    >>> name = sandbox.invokeFactory('Document', 'zu-document')
+    >>> mydocument = sandbox._getOb(name)
+
+    >>> name = sandbox.invokeFactory('EEARefBrowserDemo', 'zu-demo')
+    >>> demo = sandbox._getOb(name)
+
+Ok, let's do some validation
+
+    >>> request = demo.REQUEST
+    >>> request.form = {'relatedItems': mydocument.UID(), 'title': 'Demo'}
+    >>> demo.validate(REQUEST=request, data=1, metadata=0)
+    {'relatedItems': 'Requires relations with: Folder'}
+
+    >>> request.form = {'relatedItems': myfolder.UID(), 'title': 'Demo'}
+    >>> demo.validate(REQUEST=request, data=1, metadata=0)
+    {}
+
+Ok let's add more restrictions
+
+    >>> importer.body = '''<?xml version="1.0" encoding="utf-8"?>
+    ... <object name="portal_relations" meta_type="EEARelationsTool">
+    ...  <object name="event" meta_type="EEARelationsContentType">
+    ...   <property name="title">Event</property>
+    ...   <property name="ct_type">Event</property>
+    ...  </object>
+    ...  <object name="demo-to-event" meta_type="EEAPossibleRelation">
+    ...   <property name="title">Demo -> Event</property>
+    ...   <property name="from">demo</property>
+    ...   <property name="to">event</property>
+    ...   <property name="required">True</property>
+    ...  </object>
+    ... </object>
+    ... '''
+
+    >>> print graph()
+    digraph G {
+    "node-demo" [label="Demo"];
+    "node-folder" [label="Folder"];
+    "node-document" [label="Document"];
+    "node-event" [label="Event"];
+    "node-demo" -> "node-folder"  [color=red];
+    "node-demo" -> "node-document";
+    "node-demo" -> "node-event"  [color=red];
+    }
+
+Now let's revalidate our valid form :)
+
+    >>> request.form = {'relatedItems': mydocument.UID(), 'title': 'Demo'}
+    >>> demo.validate(REQUEST=request, data=1, metadata=0)
+    {'relatedItems': 'Requires relations with: Folder, Event'}
+
+    >>> request.form = {'relatedItems': myfolder.UID(), 'title': 'Demo'}
+    >>> demo.validate(REQUEST=request, data=1, metadata=0)
+    {'relatedItems': 'Requires relations with: Event'}
+
+Add event
+
+    >>> name = sandbox.invokeFactory('Event', 'event')
+    >>> myevent = sandbox._getOb(name)
+
+    >>> request.form = {'relatedItems': [myevent.UID(),], 'title': 'Demo'}
+    >>> demo.validate(REQUEST=request, data=1, metadata=0)
+    {'relatedItems': 'Requires relations with: Folder'}
+
+    >>> request.form = {'relatedItems': [myevent.UID(), myfolder.UID()], 'title': 'Demo'}
+    >>> demo.validate(REQUEST=request, data=1, metadata=0)
+    {}
