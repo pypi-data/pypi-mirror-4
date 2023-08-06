@@ -1,0 +1,10 @@
+__version__ = "0.1.11"
+__git_commiter_name__ = "Arnon Yaari"
+__git_commiter_email__ = "wiggin15@yahoo.com"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = 'f1637b7158d309c14706e82dbb2cdb7906ce24fe'
+__git_head_subject__ = 'amend 978ff7a'
+__git_head_message__ = ''
+__git_dirty_diff__ = ''
