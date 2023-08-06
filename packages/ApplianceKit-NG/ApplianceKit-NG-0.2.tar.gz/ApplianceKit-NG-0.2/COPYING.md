@@ -1,0 +1,25 @@
+Everything other than specific items mentioned below is:
+
+Copyright (c) 2012, 2013 TortoiseLabs LLC
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+This software is provided 'as is' and without any warranty, express or
+implied. In no event shall the authors be liable for any damages arising
+from the use of this software.
+
+The file "appliancekit/axml.py" is under the following:
+
+Copyright (c) 2008 SystemInPlace (parser)
+Copyright (c) 2012, 2013 TortoiseLabs LLC
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+This software is provided 'as is' and without any warranty, express or
+implied. In no event shall the authors be liable for any damages arising
+from the use of this software.
+
