@@ -1,0 +1,120 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+Check whether openoffice-python can talk to OpenOffice. If not, try to
+find the problem.
+"""
+#
+# Copyright (c) 2008 by Hartmut Goebel <h.goebel@goebel-consult.de>
+# Licenced under the GNU General Public License v3 (GPLv3)
+# see file LICENSE-gpl-3.0.txt
+#
+
+import sys
+import platform
+import random
+import pprint
+
+pyver = '.'.join(map(str, sys.version_info[:2]))
+
+def print_pythonpath():
+    print
+    print "Modules are searched in this places (aka sys.path, $PYTHONPATH)"
+    pprint.pprint(sys.path)
+    
+#print_pythonpath()
+
+try:
+    import uno
+except ImportError:
+    print "Can't import the uno-bridge module 'uno'."
+    if platform.system == 'Windows':
+        print "Make sure you have a installed version of OpenOffice.org which"
+        print "is matching your Python version", pyver, "and the file uno.py is on"
+        print "your $PYTHONPATH."
+    else:
+        print "Make sure the package 'openoffice.org-pyuno' is installed,"
+        print "is matching your Python version", pyver, "and the file uno.py is on"
+        print "your $PYTHONPATH."
+        if platform.dist()[0] == 'debian':
+            print "For Debian, Ubuntu and related distributions, the package"
+            print "is called, eg. 'python-uno'."
+
+    print_pythonpath()
+    raise SystemExit(21)
+
+openoffice = None
+
+try:
+    import openoffice
+    import openoffice.interact
+    import openoffice.officehelper as OH
+except ImportError, e:
+    print "Can't import openoffice-python module 'openoffice.interact'."
+    print "Make sure the Python package 'openoffice.interact' is installed"
+    print "for your Python version", pyver
+    print "This was the error message:"
+    print e
+    print_pythonpath()
+    if openoffice:
+        print 'openoffice.__file__ :', openoffice.__file__
+    raise SystemExit(22)
+
+def bootstrap(pipename=None, host=None, port=None):
+    if pipename or host or port:
+        print "Try connecting to already running OOo"
+        connectString = OH._build_connect_string(pipename=pipename,
+                                                 host=host, port=port)
+        print "using connection string", repr(connectString)
+    else:
+        # Generate a random pipe name.
+        pipename = "uno" + str(random.random())[2:]
+        connectString = OH._build_connect_string(pipename=pipename)
+        print "Starting OOo for listening on", connectString
+        print "Will use command",
+        print OH._build_cmd_args(connectString)
+        # start OOo listening on this named pipe
+        pid = OH._start_OOo(connectString)
+        print "Started OOo with process id", pid
+
+    print
+    print "Now trying to connect to OOo."
+    sys.stdout.flush()
+    try:
+        context = OH.connect(connectString)
+        print "Connecting with context", context
+    except OH.BootstrapException:
+        raise
+        print "Can not connect to OOo. Please check whether it is running at"
+        print "all."
+        print "Try starting it using this command:"
+        print 
+        
+    return context
+
+if __name__ == '__main__':
+    import optparse
+    parser = optparse.OptionParser('%prog [options]')
+    group = parser.add_option_group('To connect to already running server use:')
+    group.add_option('--host',  #default='localhost',
+                     help="hostname/ip of server (default: %default)")
+    group.add_option('--port',  default=2002, type=int,
+                     help="port the server is listening on (default: %default)")
+
+    opts, args = parser.parse_args()
+    if not opts.host:
+        opts.port = None
+    context = bootstrap(host=opts.host, port=opts.port)
+
+    if context:
+        print
+        print "Looks good."
+        print
+    else:
+        print "When reporting problems, please give this OS information"
+        print platform.platform()
+        print "and this PYTHONPATH:"
+        for p in sys.path:
+            print '  ', repr(p)
+        print
+        raise SystemExit(20)

@@ -1,0 +1,109 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2008 by Hartmut Goebel <h.goebel@goebel-consult.de>
+# Licenced under the GNU General Public License v3 (GPLv3)
+# see file LICENSE-gpl-3.0.txt
+#
+"""
+Manage a OOo server: start, stop and unlisten.
+
+If you want a full-blown server, help enhancing this script! See
+source for comments.
+
+Some ideas taken from Dag Wieers unoconv
+<http://dag.wieers.com/home-made/unoconv/>
+"""
+
+# Todo:
+#
+# * Implement a full-blown deamon for Unix and a full-blown service
+#   for Windows. Should this restart OOo automatically if it crashed?
+#
+# * Design issue: OOo behaves different depending whether there is
+#   already an instance running: If one it running, the new process
+#   returns. If there is no instance running yet, he new porcess will
+#   _not_ return. But how determine whether the server started
+#   successfully or there has been an error?
+#
+
+from openoffice.officehelper import _build_cmd_args, _build_connect_string, \
+     BootstrapException
+from openoffice.interact import Desktop
+
+import subprocess
+import sys
+
+def start(pipename=None, host=None, port=None):
+    """
+    Start an OOo instance which listens on pipename or host/port.
+    If there is already an running instance, it will be reused (done
+    by OOo automatically).
+    """
+    connectString = _build_connect_string(pipename, host, port)
+    cmdArray = _build_cmd_args(connectString)
+    # Todo: OOo starts a new instance, if noone is running. This is a
+    # drawback, since one can not tell, whether he has started the
+    # instancce or is reusing an already running one.
+    subprocess.Popen(cmdArray).pid
+
+
+def unlisten(pipename=None, host=None, port=None):
+    """
+    Tell the OOo instance listening on pipename or host/port to stop
+    listening on this connection.
+    """
+    connectString = _build_connect_string(pipename, host, port)
+    cmdArray = _build_cmd_args(connectString, unaccept=True)
+    subprocess.Popen(cmdArray).pid
+
+
+def stop(pipename=None, host=None, port=None):
+    '''
+    Stop the OOo instance listening pipename or host/port.
+
+    Note: If there is no instance listening on pipename or host/port,
+    none will be stopped, since it can not be reached.
+    '''
+    # Connect to the instance listening on host/port
+    try:
+        desktop = Desktop(host=host, port=port)._desktop # todo: use slots
+    except BootstrapException:
+        print >> sys.stderr, 'Could not contact OOo instance to stop it. Perhaps is was not running at all.'
+        raise SystemExit(1)
+
+    if desktop.CurrentFrame:
+        ### If there is a GUI now attached to the instance, disable only listener
+        unlisten(pipename, host, port)
+    else:
+        ### If there is no GUI attached to the instance, terminate instance
+        unlisten(pipename, host, port)
+        try:
+            desktop.terminate()
+        except DisposedException:
+            pass
+    
+
+if __name__ == '__main__':
+    import optparse
+    parser = optparse.OptionParser('%prog [options] '
+                                   '[ start | unlisten | stop ]')
+    parser.add_option('--host',  default='localhost',
+                      help="server address to listen on (default: %default, "
+                           "use '0.0.0.0' for listening on all IPv4 addresses)")
+    parser.add_option('--port',  default=2002, type=int,
+                      help="port to listen on (default: %default)")
+    opts, args = parser.parse_args()
+
+    if len(args) != 1:
+        parser.error('requiers exactly one argument')
+
+    cmd = args[0].lower()
+    if cmd == 'start':
+        start(host=opts.host, port=opts.port)
+    elif  cmd == 'unlisten':
+        unlisten(host=opts.host, port=opts.port)
+    elif  cmd == 'stop':
+        stop(host=opts.host, port=opts.port)
+    else:
+        parser.error('unknown action %r' % cmd)
