@@ -1,0 +1,42 @@
+Django SSL Slapper
+===================
+
+Django-SSL-Slapper is a middleware that allows you to set urls to ssl only.  It can also redirects anonymous users off your https service onto your http.  Logged-in users may also be directed to https.
+
+Django-SSL-Slapper can also use cache to count the number of login attempts and slap away excessive entries (default more than 20 per minute).  THe user account is temporary locked for a timer period (default 1 minute).  The default settings should disrupt automated attempts for entry without bothering even the quickest users. 
+
+Installation
+------------
+
+```pip install django-ssl-slapper```
+
+Add     ```'ssl_slapper.middleware.ssl_redirect'``` to middleware in your django settings file for redirection
+
+Add     ```'ssl_slapper.middleware.rate_limit'``` to middleware in your django settings file for rate_limiting.  You will want to enable memcache for this.
+    
+It is recommended that you set ```SESSION_COOKIE_SECURE = True``` to ensure that your site is secured to use https only for authenticated users.
+
+That's it!  The middleware shuld automatically detect your login pages and slap away!
+
+SSL_Redirect Settings
+--------
+
+```SSL_SLAPPER_SSL_ONLY_PAGES = (reverse(django.contrib.auth.views.login), [[any admin pages]])``` Add to this list any pages that you want to always redirect to https.  
+
+```SSL_SLAPPER_SSL_REDIRECT_ANONYMOUS=True```  Set to true to redirect anonymous users to http.
+
+```SSL_SLAPPER_SSL_REDIRECT_AUTHENTICATED=True```  Set to true to redirect authenticated users to https.
+
+```SSL_REDIRECT_COOKIE= 'logged-in'``` Set to the name you want for the cookie to identify logged-in users
+
+```SSL_SLAPPER_SSL_IGNORE_PAGES=None```  Set to a list containing any urls, for examples API url, that should not be redirected.
+
+SSL_Rate_Limit Settings
+--------
+
+```SSL_SLAPPER_RATE_LIMIT_PAGES = SSL_ONLY_PAGES``` Add to this list any pages that you want to ratelimit.  
+```SSL_SLAPPER_RATE_LIMIT_MINUTES=1``` = Minutes to wait before login counter is reset
+```SSL_SLAPPER_RATE_LIMIT_KEY_FIELD='username'```  Field, if present, to track login attemps.  If missing, then will use ip address
+```SSL_SLAPPER_RATE_LIMIT_MAX_REQUESTS=20``` Set to the maximum number of requests within the RATE_LIMIT_MINUTES before the account will be locked.
+```SSL_SLAPPER_RATE_LIMIT_CACHE_PREFIX='rl-'``` Cache prefix for rate limit cache
+
