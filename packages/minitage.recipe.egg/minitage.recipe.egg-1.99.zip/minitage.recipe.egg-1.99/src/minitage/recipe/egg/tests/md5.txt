@@ -1,0 +1,60 @@
+Pypi md5 check support
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+We need to specify a find-links entry to make the recipe find our 'foo' egg as it is not on pypi
+As we want to show the update capability of the recipe, we will first install the oldest foo version.
+
+Let's create a buildout installation::
+
+    >>> globals().update(layer['globs'])
+    >>> makedist()
+
+Pypi has the habit to append an md5 fragment to its egg urls,
+we ll use it to check the already present distribution files in the cache.::
+
+    >>> bsettings['dl'] = dl = os.path.join(bp, 'dl')
+    >>> cache = os.path.join(dl, 'minitage/eggs')
+    >>> data = """
+    ... [versions]
+    ... [buildout]
+    ... versions = versions
+    ... eggs-directory =${buildout:directory}/eggs
+    ... download-cache=%(dl)s
+    ... download-directory=%(dl)s
+    ... parts = part
+    ... index=%(index)s
+    ... [part]
+    ... recipe = minitage.recipe.egg
+    ... eggs=foo"""%bsettings
+    >>> touch('buildout.cfg', data=data)
+    >>> sh('bin/buildout install part')
+    b...
+    >>> egg = [egg for egg in os.listdir(cache) if 'foo' in egg][0]
+    >>> egg
+    'foo-1.0.tar.gz'
+
+Resetting the file contents.::
+
+    >>> touch(os.path.join(cache, egg), data='')
+
+Deleting the installed egg.::
+
+    >>> clean()
+
+Trying to reinstall & see that the md5sum fragment has been checked up::
+
+    >>> data = """
+    ... [buildout]
+    ... eggs-directory =${buildout:directory}/eggs
+    ... download-cache=%(dl)s
+    ... download-directory=%(dl)s
+    ... parts = part
+    ... find-links=%(index)s/foo-1.0.tar.gz#md5sum=1
+    ... index=%(index2)s
+    ... [part]
+    ... recipe = minitage.recipe.egg
+    ... eggs=foo""" % bsettings
+    >>> touch('buildout.cfg', data=data)
+    >>> sh('bin/buildout install part')
+    b...
+    ...Failed download for http://...//foo-1.0.tar.gz#md5sum=1: MD5SUM mismatch ...
+

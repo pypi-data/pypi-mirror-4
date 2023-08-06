@@ -1,0 +1,144 @@
+Installing eggs from index or find links, the classical way to install python packages
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+We need to specify a find-links entry to make the recipe find our 'foo' egg as it is not on pypi
+As we want to show the update capability of the recipe, we will first install the oldest foo version.
+
+::
+
+    >>> globals().update(layer['globs'])
+
+Let's create a buildout configuration file and a basic egg not published on pypi::
+
+    >>> makedist()
+    >>> makedist(version="2.0")
+    >>> makedist(name="foo3", version="2.0")
+    >>> makedist(name="foo4", version="2.0")
+    >>> makedist(name="foo4", version="3.0")
+    >>> data = """
+    ... [versions]
+    ... foo=1.0
+    ... [buildout]
+    ... eggs-directory =${buildout:directory}/eggs
+    ... download-cache=${buildout:directory}
+    ... index=%(index)s
+    ... parts =
+    ...     part
+    ... [part]
+    ... recipe=minitage.recipe.egg
+    ... find-links=%(index)s
+    ... eggs=foo
+    ... """% bsettings
+    >>> touch('buildout.cfg', data=data)
+    >>> clean()
+    >>> sh('bin/buildout -vvvvv install part')
+    bin/...
+    Installing part.
+    minitage.recipe: Installing python egg(s)...
+    minitage.recipe: Downloading http://...:.../foo-1.0.tar.gz in .../eggs/foo-1.0.tar.gz
+    minitage.recipe: Unpacking in ...
+    Processing foo-1.0.tar.gz...
+    minitage.recipe: Installed foo 1.0 (.../eggs/foo-1.0-p....egg)...
+
+
+Static distribution dev+static urls
+++++++++++++++++++++++++++++++++++++++++++++++++++
+You can also install directly from urls.
+We ll use it to check the already present distribution files in the cache.
+
+    >>> bsettings["foo3url"] = "%sfoo3-2.0.tar.gz" % (bsettings["index"])
+    >>> bsettings["foo4url"] = "%sfoo4-2.0.tar.gz" % (bsettings["index"])
+    >>> bsettings["foo43url"] = "%sfoo4-3.0.tar.gz" % (bsettings["index"])
+    >>> data = """
+    ... [versions]
+    ... mr.developer=0.15
+    ... [buildout]
+    ... eggs-directory =${buildout:directory}/eggs
+    ... versions = versions
+    ... download-cache=${buildout:directory}
+    ... parts =
+    ...     part
+    ... index=%(index)s
+    ... [part]
+    ... recipe = minitage.recipe.egg
+    ... eggs=mr.developer
+    ... [a]
+    ... recipe=minitage.recipe.egg
+    ... urls=
+    ...      %(foo3url)s
+    ...      %(foo4url)s
+    ... """ % bsettings
+    >>> touch('buildout.cfg', data=data)
+    >>> sh('bin/buildout -vvvvvv install a') #doctest +REPORT_NDIFF
+    b...
+    Installing a...
+    minitage.recipe: Download archive from http://.../foo...-2.0.tar.gz...
+    minitage.recipe: Installed foo...
+    minitage.recipe: Pinning custom egg version in buildout, trying to write the configuration
+    minitage.recipe: CREATING buildout backup in ...
+    ...
+
+As we are installing from an url, we must pin the version to be sure to use this egg,
+even if we have some other similar egg on index or find-links.
+See the versions pinned to use your downloaded stuff
+::
+
+    >>> cat('buildout.cfg') # doctest: +REPORT_NDIFF
+    <BLANKLINE>
+    [versions]
+    mr.developer=0.15
+    foo... = 2.0
+    foo... = 2.0
+    [buildout]
+    eggs-directory =${buildout:directory}/eggs
+    versions = versions
+    download-cache=${buildout:directory}
+    parts =
+        part
+    index...
+    [part]
+    recipe = minitage.recipe.egg
+    eggs=mr.developer
+    [a]
+    recipe=minitage.recipe.egg
+    urls=
+    .../foo3-2.0.tar.gz
+    .../foo4-2.0.tar.gz...
+
+
+If we try to install a newer version, via an url, it will work, even if the version is pinned.::
+
+    >>> data = """
+    ... [versions]
+    ... mr.developer=0.15
+    ... [buildout]
+    ... versions = versions
+    ... download-cache=${buildout:directory}
+    ... eggs-directory =${buildout:directory}/eggs
+    ... parts =
+    ...     part
+    ... index=%(index)s
+    ... [part]
+    ... recipe = minitage.recipe.egg
+    ... eggs=mr.developer
+    ... [a]
+    ... recipe=minitage.recipe.egg
+    ... urls=
+    ...     %(foo43url)s
+    ... """ % bsettings
+    >>> touch('buildout.cfg', data=data)
+    >>> sh('bin/buildout -vvvvv install a')
+    b...
+    >>> cat('buildout.cfg') # doctest: +REPORT_NDIFF
+    <BLANKLINE>
+    [versions]...
+    foo4 = 3.0...
+
+If we try to rebuild the egg, we cannot, as the same egg is already built.
+This is to prevent rebuilding triggered by buildout each time we launch it,
+and also to delete already good versions present in the cache.::
+
+    >>> sh('bin/buildout -ovvvvv install a')
+    b...
+    minitage.recipe: If you want to rebuild, please do 'rm -rf .../eggs/foo...
+
+
