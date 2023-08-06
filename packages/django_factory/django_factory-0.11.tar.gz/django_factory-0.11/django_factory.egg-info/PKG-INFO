@@ -1,0 +1,451 @@
+Metadata-Version: 1.1
+Name: django-factory
+Version: 0.11
+Summary: Generic factory for creating instances of Django models in tests.
+Home-page: https://launchpad.net/django-factory
+Author: James Westby
+Author-email: james.westby@canonical.com
+License: Apache-2
+Description: django_factory
+        ==============
+        
+        django_factory is a generic implementation of `Creation Methods`_ for Django models.
+        
+        .. _Creation Methods: http://xunitpatterns.com/Creation%20Method.html
+        
+        Using django_factory in your tests means that each test can create instances of the
+        models, but only has to specify the model attributes that are germane to that
+        particular test.
+        
+        Using creation methods usually leads to tests that are easier to read, and
+        makes it easier to avoid convoluted test setup methods that are shared, as
+        the pre-conditions for each test are easier to establish.
+        
+        Lineage
+        -------
+        
+        django_factory is inspired by `model_mommy`_ but has several important
+        improvements:
+        
+        .. _model_mommy: https://github.com/vandersonmota/model_mommy
+        
+          * The creation methods are deterministic.
+        
+            - This ensures that your tests are repeatable, and you will have
+              fewer eratic tests.
+        
+            - As the default values in the test are deterministic, if they
+              suit a test they can be omitted. With random values you have
+              to specify many more of the values, reducing the benefit you
+              get from creation methods.
+        
+          * Model-specific creation logic can be specified on the model itself,
+            encapsulating the logic there.
+        
+        Use
+        ---
+        
+        The first thing to do is create an instance of the factory::
+        
+            from django_factory import Factory
+        
+            factory = Factory()
+        
+        Often this will be done in the setUp method of a TestCase::
+        
+            class ModelTests(TestCase):
+        
+                def setUp(self):
+                    super(ModelTests, self).setUp()
+                    self.factory = Factory()
+        
+        If you are using `testtools`_ then you can pass your test case
+        instance to the constructor in order to get better default
+        values::
+        
+            class ModelTests(DjangoTestCase, TesttoolsTestCase):
+        
+                def setUp(self):
+                    super(ModelTests, self).setUp()
+                    self.factory = Factory(test_case=self)
+        
+        .. _testtools: http://pypi.python.org/pypi/testtools
+        
+        However, you don't have to define this yourself, you can just subclass
+        the provided ``TestCase`` or ``TransactionTestCase`` classes
+        (corresponding to the Django classes of the same names) and
+        start using ``self.factory`` in your tests::
+        
+            from django_factory import TestCase
+        
+            class ModelTests(TestCase):
+                pass
+        
+        Once you have a factory instance you can create instances of
+        your models::
+        
+            def test_model(self):
+               instance = self.factory.make_one(Model)
+        
+        This will create an instance of Model with arbitrary values for
+        its attributes. If you need to fix particular attribute values
+        then pass them in to the make_one method::
+        
+            def test_model(self):
+               instance = self.factory.make_one(Model, name="Mike")
+               # Now instance.name == "Mike"
+        
+        There are a few other methods that you might want to use::
+        
+            def test_model(self):
+               instances = self.factory.make(5, Model, name="Mike")
+               # instances will now be a list of 5 Model instances, each
+               # with name == 'Mike'
+        
+               instance = self.factory.prepare_one(Model, name="Mike")
+               # This time the instance won't be saved, you'll have to
+               # do that if you want. Also note that ForeignKey and
+               # ManyToManyFields will be empty, as they can't be filled
+               # when not saving.
+        
+               instances = self.factory.prepare(5, Model, name="Mike")
+               # The same as make(), but without saving the instances.
+        
+        
+        Customising the behaviour
+        -------------------------
+        
+        Frequently the generated values won't be right for the particular
+        model that you have. In these cases you can override the way
+        that the values are created in order to suit your particular
+        requirements.
+        
+        This overriding is done by creating a "Factory" nested class
+        on the model::
+        
+            class Person(models.Model):
+        
+                name = models.CharField(max_length=100)
+                active = models.BooleanField()
+        
+        If we create an instance of Person using the factory, it will
+        have ``active == False``::
+        
+            person = factory.make_one(Person)
+            print person.active
+        
+        It may be that you want most of your tests to use active people,
+        and just test with inactive people in a few cases. You could
+        do this by passing the value every time::
+        
+            person = factory.make_one(Person, active=True)
+        
+        However this would be very repetitive. Instead you can override
+        the default value using a nested class::
+        
+            class Person(models.Model):
+        
+                name = models.CharField(max_length=100)
+                active = models.BooleanField()
+        
+                class Factory:
+                    @staticmethod
+                    def get_active(field, factory):
+                        return True
+        
+        Now if you don't specify ``active`` when calling the factory,
+        the person instance will have ``active == True``::
+        
+            person = factory.make_one(Person)
+            print person.active
+        
+        The value for each field can be controlled in this way, by
+        providing a method on the ``Factory`` nested class that is
+        named ``get_`` and the name of the field to control the
+        value of.
+        
+        The values passed to the ``get_active`` method are as follows:
+        
+          * ``field``: the field instance the value is being generated
+            for. This is useful if you have a function which is used for
+            several fields, and want to include some information from
+            the field in the value, such as the name::
+        
+                class Factory:
+                    @staticmethod
+                    def get_name(field, factory):
+                        return field.name
+        
+          * ``factory``: the factory instance that is being used to generate
+            the value. This is passed so that you can access the methods
+            on the factory if needed. The methods that may be useful are:
+        
+            * ``prepare``/``prepare_one``: if you need a model instance
+              for a field then you can ask the factory to create one for
+              you, passing in any important values.
+        
+            * ``getUniqueInteger``: it is a good idea to include some
+              uniqueness in the values that you are generating, so that
+              you are less likely to get tests passing by accident, and
+              it's easier to track back from a value to where it was
+              created. This is one of the methods the factory provides
+              that will help with that. It will return an integer that
+              will only be returned once by the factory in any particular
+              test run.
+        
+            * ``getUniqueString``/``getUniqueUnicode``/``getUniqueDate``/
+              ``getUniqueTime``/``getUniqueDateTime``: similar to ``getUniqueInteger``,
+              but will return an object of type ``str``, ``unicode``,
+              ``datetime.date``, ``datetime.time``, ``datetime.datetime``
+              respectively.
+        
+        You can return any value from the method (including None) and it will
+        be set on the resulting instance. However, the instance must then pass
+        validation, so errors will be caught early.
+        
+        By default, when the factory finds a ManyToManyField, it will create
+        one instance of the referenced model for each instance of the model
+        that it creates. You can control this behaviour by providing an attribute
+        named ``number_of_`` and the name of the ManyToManyField::
+        
+            class Team(models.Model):
+        
+                people = models.ManyToManyField(Person)
+        
+                class Factory:
+                    number_of_people = 5
+        
+        Lastly, if controlling individual fields is not sufficient, you can
+        provide a single method, ``make_instance`` that is expected to
+        create an instance of the model when called. This is necessary
+        when there are complex inter-dependencies between the fields::
+        
+        
+            class Person(models.Model):
+        
+                name = models.CharField(max_length=100)
+                active = models.BooleanField()
+        
+                class Factory:
+        
+                    @staticmethod
+                    def make_instance(factory, name=None, active=None):
+                        if name is None:
+                            name = factory.getUniqueUnicode(prefix="name")
+                        if active is None:
+                            active = True
+                        return Person(name=name, active=active)
+        
+        Again you are passed a ``factory`` instance in order to be able
+        to get unique values to use in the model.
+        
+        Note that it is expected that your ``make_instance`` method doesn't
+        save the model, otherwise ``prepare`` won't work correctly with the
+        model.
+        
+        Custom field types
+        ------------------
+        
+        If you write a custom field you will want the factory to be able to
+        generate values for that field.
+        
+        In order to do that you need to write a function that returns a
+        suitable value for the field when passed an instance of the field
+        and an instance of the factory::
+        
+            def generate_value_for_custom_field(field, factory):
+                # Use uniqueness provided by factory, and inspect
+                # field for any constraints that are relevant. Return
+                # a suitable value
+        
+        Once you have your function you can pass it to the factory
+        constructor as part of the field_mapping::
+        
+           field_mapping = Factory.DEFAULT_FIELD_MAPPING.copy()
+           field_mapping[CustomField] = generate_value_for_custom_field
+           factory = Factory(field_mapping=field_mapping)
+        
+        Now you can use the factory to get an instance of any model using
+        the custom field without having to override the generator at the
+        model level.
+        
+        Generators for models you don't control
+        ---------------------------------------
+        
+        Sometimes you will want to customise the behaviour of models
+        you don't control. In those cases you can't define a Factory
+        nested class on the model, so instead you can control their
+        behaviour through model_generators::
+        
+            def create_user(factory, name=None, email=None):
+                if name is None:
+                    name = factory.getUniqueUnicode(prefix="name")
+                if email is None:
+                    email = factory.getUniqueString() + "@example.com"
+                return User(name=name, email=email)
+        
+            model_generators = {User: create_user}
+            factory = Factory(model_generators=model_generators)
+        
+        Now when you call
+        
+        ::
+        
+            factory.make_one(User)
+        
+        it will call your ``create_user`` method to create the instance.
+        
+        The default factory provided with django_factory's ``TestCase`` includes
+        a default generator for the User model so users with passwords can
+        be created:
+        
+            def test_auth(self):
+                password = 'password'
+                user = self.factory.make_one(User, password=password)
+                logged_in = self.client.login(username=user.username,
+                                              password=password)
+                self.assertTrue(loggend_in)
+        
+        If a password is not provided, it will default to 'test'.
+        
+        .. TODO: should there be a mapping from Model to Factory as well/instead?
+        
+        Known Limitations
+        -----------------
+        
+          * Using ``ManyToManyField`` with ``through=<model>`` breaks down when
+            ``<model>`` has multiple ForeignKeys pointing to one of the
+            models invovled in the ManyToManyField relationship. Currently you
+            have to use ``number_of_<field> = 0`` to avoid any instances being
+            created, and then create them yourself.
+        
+          * ``ContentType``s (and the associated classes, e.g. ``GenericRelation``)
+            will not be created with valid values without using ``model_generators``.
+        
+          * ``FilePathField`` is not currently supported in the default
+            ``field_mapping``.
+        
+          * ``FileField`` and ``ImageField`` do not create files on the filesystem,
+            and you cannot use the ``save`` etc. methods on the results. You
+            can override this either by changing ``field_mapping``, or using
+            a ``Factory`` nested class on your models to create the specific fields
+            as needed.
+        
+        Possible future enhancements
+        ----------------------------
+        
+        These are mostly rather vague currently, are in no particular order,
+        and may or may not be implemented it this or some other form.
+        
+          * Fix the `Known Limitations`_.
+        
+          * Add a ``RandomizingFactory`` that generates random values rather than
+            deterministic ones. This can be used as a fuzzer, or everywhere if
+            the developer prefers.
+        
+            - Yes I said above that ``model_mommy``'s random value generation is wrong,
+              but it has its uses on occaision, and some people disagree with me,
+              so they should be able to use ``django_factory`` with random data and
+              take advantage of all the other features.
+        
+            - It may be better as a boolean on Factory itself, or controlled by
+              an environment variable or something.
+        
+            - Some way of specifying and reporting seeds used for randomization
+              is important to allow failures to be reproduced.
+        
+          * Add a notion of "states" or something to the factory so that you can do
+            something like::
+        
+              user = factory.make_one_in_state(User, "active")
+              admin = factory.make_one_in_state(User, "admin")
+        
+            which fully and fairly explicitly specifies a set of values (e.g. admin
+            implies active) while still being terse.
+        
+            - Some models may want a default state, some may want every creation
+              to specify a state.
+        
+        
+        Changelog
+        ---------
+        
+        0.11
+        ````
+        
+          * Add a model_generator for User, so that a password can be set at creation.
+            (Michael Nelson)
+        
+        
+        0.10
+        ````
+        
+          * Passing `value=None` to `make_one` for a `ForeignKey` field no longer
+            causes a crash. It prevents generation of any value for that field,
+            which may cause an error if the field is required.
+        
+        
+        0.9
+        ```
+        
+          * Fix `TestCase` compatibility with 2.6. Previously when running under 2.6
+            `testtools.TestCase.__init__` wouldn't be called, leading to lots
+            of problems.
+        
+        0.8
+        ```
+        
+          * TextFields that have `max_length=None` no longer crash the generator
+            (regression due to the `max_length` change in 0.7)
+        
+        0.7
+        ```
+        
+          * Fields with choices are now handled correctly when the choices are split
+            in to groups.
+          * The max_length of a CharField is now automatically respected.
+          * A model with required ForeignKeys and a 'self' ManyToMany fields now
+            correctly creates all the required ForeignKeys, rather than failing
+            due to broken loop detection as before.
+        
+        0.6
+        ```
+        
+          * validators aren't run when calling ``prepare_one``.
+        
+          * Chains of ``ForeignKey``s are now correctly handled, saving the models
+            as needed to complete the chains.
+        
+          * ``URLField`` and ``EmailField`` now generate values that pass validation.
+        
+          * ``ManyToManyField``s with through are now supported on Django 1.1.
+        
+        0.5
+        ```
+        
+          * Generate values for any field that has null=True but blank=False. The
+            semantics here aren't entirely clear, but the developer can add
+            generators as needed to control the behaviour.
+        
+        0.4
+        ```
+        
+          * Cleanups for pypi: formatting of the README, and addition of classifiers
+            to setup.py.
+        
+        0.3
+        ```
+        
+          * Add ``model_generators`` to allow functions to be provided to create
+            instances of models where you can't add a nested ``Factory`` class, or
+            don't want to use the default.
+        
+Platform: UNKNOWN
+Classifier: Development Status :: 4 - Beta
+Classifier: Framework :: Django
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: Apache Software License
+Classifier: Programming Language :: Python :: 2.6
+Classifier: Topic :: Database
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
+Classifier: Topic :: Software Development :: Testing
