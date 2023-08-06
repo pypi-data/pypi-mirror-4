@@ -1,0 +1,992 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# Copyright (c) 2009, 2010, 2011, 2012, 2013 Jack Kaliko <efrim@azylum.org>
+#
+#  This file is part of MPD_sima
+#
+#  MPD_sima is free software: you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation, either version 3 of the License, or
+#  (at your option) any later version.
+#
+#  MPD_sima is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with MPD_sima.  If not, see <http://www.gnu.org/licenses/>.
+#
+#
+
+# DOC
+"""
+This code is dealing with your MPD server.
+It will add automagicaly track to the playlist.
+Simply run:
+    python mpd_sima
+
+See "python mpd_sima --help" for command line options.
+
+For user instructions please refer to doc/README.*
+"""
+
+
+__version__ = '0.11.0'
+__revison__ = '$Revision: 639 $'[11:-2]
+__author__ = '$Author: kaliko $'
+__date__ = '$Date: 2013-04-13 15:09:09 +0200 (sam. 13 avril 2013) $'[7:26]
+__url__ = 'http://codingteam.net/project/sima'
+
+WAIT_RESUME = 9
+
+# IMPORTS
+import re
+import random
+import signal
+import sys
+import time
+import traceback
+
+from collections import deque
+from difflib import get_close_matches
+from hashlib import md5
+from urllib.request import urlopen
+
+from mpdsima.lib.daemon import Daemon
+from mpdsima.lib.mpd_client import (Player, PlayerError, PlayerCommandError)
+from mpdsima.lib.mpd_client import (MPDError as PlayerUnHandledError)
+from mpdsima.lib.simadb import (SimaDB, SimaDBNoFile, SimaDBUpgradeError)
+from mpdsima.lib.simafm import (SimaFM, XmlFMHTTPError, XmlFMNotFound,
+                                XmlFMError)
+from mpdsima.lib.simastr import SimaStr
+from mpdsima.lib.track import Track
+from mpdsima.utils.config import ConfMan
+from mpdsima.utils.leven import levenshtein_ratio
+from mpdsima.utils.logutil import (logger, LEVELS)
+from mpdsima.utils.startopt import StartOpt
+
+
+class Sima(Daemon):
+    """
+    Main Object dealing with what and how to queue.
+    """
+
+    def __init__(self, config_man, log):
+        """
+        Declare default or empty attributes
+        """
+        self.__cache = None
+        ## Conf
+        self.config = config_man.config
+        self.conf_obj = config_man
+        self.log = log
+        ## Set daemon
+        Daemon.__init__(self, self.config.get('daemon', 'pidfile'))
+        ## Set player
+        self.player = Player(host=self.config.get('MPD', 'host'),
+                port=self.config.get('MPD', 'port'),
+                password=config_man.get_pw())
+        self.player.track_format = True
+        self.is_playing = True
+        # Track objects
+        self.current_track = None
+        self.state_change = None
+        # Track object we are looking similar art/track for
+        self.current_searched = None
+        self.tracks_to_add = list()
+        ## SQLite Database
+        self.db = SimaDB(db_path=self.conf_obj.userdb_file)
+        ## Set queue mode
+        self._set_queue_mode()
+
+    def findtrk(self, artists):
+        """
+        Find tracks to play (ie. not in history and etc.) while
+        self.tracks_to_add is not reached.
+        """
+        self.tracks_to_add = []
+        nbtracks_target = self.config.getint('sima', 'track_to_add')
+        for artist in artists:
+            self.log.debug('Trying to find titles to add for "%s"' %
+                           artist)
+            found = self.player.find('artist', artist)
+            # find tracks not in history
+            tracks_in_hist = self.tracks_in_hist(artist=artist)
+            not_in_hist = list(set(found) - set(tracks_in_hist))
+            if not not_in_hist:
+                self.log.debug('All tracks already in current history for "%s"' %
+                        artist)
+            random.shuffle(not_in_hist)
+            unplayed_track = self._extract_playable_track(not_in_hist)
+            if not unplayed_track:
+                self.log.debug('Unable to find title to add' +
+                              ' for "%s".' % artist)
+            else:
+                self.tracks_to_add.append(unplayed_track)
+            if len(self.tracks_to_add) == nbtracks_target:
+                break
+        if not self.tracks_to_add:
+            self.log.debug('Found no unplayed tracks, is your ' +
+                             'history getting too large?')
+            return False
+        return True
+
+    def find_top_tracks(self, artists):
+        """
+        Find top tracks for artists in artists list.
+        N.B.:
+            titles_list in UNICODE list
+        """
+        self.tracks_to_add = list()
+        nbtracks_target = self.config.getint('sima', 'track_to_add')
+        ## DEBUG
+        self.log.info('Looking for top tracks: "%s"...' %
+                      ' / '.join(artists[0:4]))
+        for artist in artists:
+            if len(self.tracks_to_add) == nbtracks_target:
+                return True
+            self.log.debug('Artist: "%s"' % artist)
+            titles_list = [t for t, r in self.get_top_tracks_from_db(artist)]
+            # find tracks not in history
+            tracks_in_hist = self.tracks_in_hist(artist=artist)
+            for title in self._cross_check_titles(artist, titles_list):
+                found = self.player.find('artist', artist, 'title', title)
+                not_in_hist = list(set(found) - set(tracks_in_hist))
+                if not not_in_hist:
+                    self.log.debug('No tracks available for "%s" (already played)' % title)
+                unplayed_track = self._extract_playable_track(not_in_hist)
+                if not unplayed_track:
+                    continue
+                self.tracks_to_add.append(unplayed_track)
+                break
+        if not self.tracks_to_add:
+            return False
+        return True
+
+    def find_album(self, artists):
+        """Find albums to queue.
+        """
+        self.tracks_to_add = list()
+        nb_album_add = 0
+        for artist in artists:
+            self.log.info('Looking for an album to add for "%s"...' % artist)
+            albums = set(self.player.list('album', 'artist', artist))
+            albums_yet_in_hist = albums & self._get_album_history(artist=artist)  # albums yet in history for this artist
+            albums_not_in_hist = list(albums - albums_yet_in_hist)
+            # Get to next artist if there are no unplayed albums
+            if not albums_not_in_hist:
+                self.log.info('No album found for "%s"' % artist)
+                continue
+            album_to_queue = str()
+            random.shuffle(albums_not_in_hist)
+            for album in albums_not_in_hist:
+                tracks = self.player.find('album', album)
+                if self._detects_var_artists_album(album, artist):
+                    continue
+                if tracks and self.db.get_bl_album(tracks[0], add_not=True):
+                    self.log.debug('Blacklisted album: "%s"' % album)
+                    self.log.debug('using track: "%s"' % tracks[0])
+                    continue
+                # Look if one track of the album is already queued
+                # Good heuristic, at least enough to guess if the whole album is
+                # already queued.
+                if self._is_inqueue(tracks[0]):
+                    self.log.debug('"%s" already queued, skipping!' %
+                            tracks[0].album)
+                    continue
+                album_to_queue = album
+            if not album_to_queue:
+                self.log.info('No album found for "%s"' % artist)
+                continue
+            self.log.info('# Add album to playlist: %s - %s' %
+                    (artist, album_to_queue))
+            nb_album_add += 1
+            for track in self.player.find_aa(artist, album_to_queue):
+                self.tracks_to_add.append(track)
+            if nb_album_add == self.config.getint('sima', 'album_to_add'):
+                return True
+        if self.tracks_to_add:
+            return True
+        return False
+
+    def add_track(self):
+        """
+        Add track to MPD.
+        """
+        mode = self.config.get('sima', 'queue_mode')
+        tracks = self.tracks_to_add
+        for track in tracks:
+            if mode in ['top', 'track']:
+                self.log.info('# Add to playlist: {0}'.format(track))
+            # DEV##ADD#
+            self.player.add(track.file)
+
+    def crop_playlist(self):
+        """"""
+        nb_tracks = self.config.getint('sima', 'consume')
+        if nb_tracks == 0:
+            return
+        current_pos = self.player.currentsong().pos
+        if current_pos <= nb_tracks:
+            return
+        while current_pos > nb_tracks:
+            self.player.remove()
+            current_pos = self.player.currentsong().pos
+
+    def _set_queue_mode(self):
+        """Set queue mode"""
+        mode = self.config.get('sima', 'queue_mode')
+        if mode == 'top':
+            self.queue_mode = self.queue_top_tracks
+        elif mode == 'album':
+            self.queue_mode = self.queue_albums
+        else:
+            self.queue_mode = self.queue_similar_artist
+        return False
+
+    def _detects_var_artists_album(self, album, artist):
+        """Detects either an album is a "Various Artists" or a
+        single artist release."""
+        art_first_track = None
+        for track in self.player.find('album', album):
+            if not art_first_track:  # set artist for the first track
+                art_first_track = track.artist
+            alb_art = track.albumartist
+            #  Special heuristic used when AlbumArtist is available
+            if (alb_art):
+                if artist == alb_art:
+                    # When album artist field is similar to the artist we're
+                    # looking an album for, the album is considered good to queue
+                    return False
+                else:
+                    self.log.debug(track)
+                    self.log.debug('album art says "%s", looking for "%s", not queueing this album' %
+                            (alb_art, artist))
+                    return True
+        return False
+
+    def _cross_check_titles(self, artist, titles):
+        """
+        cross check titles
+            * titles is UNICODE list
+            * artist is UNICODE string
+        """
+        # Retrieve all tracks from artist
+        all_tracks = self.player.find('artist', artist)
+        # Get all titles (filter missing titles set to 'None')
+        all_artist_titles = frozenset([tr.title for tr in all_tracks
+            if tr.title is not None])
+        for title in titles:
+            # DEBUG
+            #self.log.debug(u'looking for "%s" in MPD library.' % title)
+            match = get_close_matches(title, all_artist_titles, 50, 0.78)
+            if not match:
+                continue
+            #self.log.debug(u'found close match for "%s": %s' % (title, match))
+            for title_ in match:
+                leven = levenshtein_ratio(title.lower(), title_.lower())
+                if leven == 1:
+                    yield title_
+                    self.log.debug('"%s" matches "%s".' % (title_, title))
+                elif leven >= 0.79:  # PARAM
+                    yield title_
+                    self.log.debug('FZZZ: "%s" should match "%s" (lr=%1.3f)' %
+                                   (title_, title, leven))
+                else:
+                    self.log.debug('FZZZ: "%s" does not match "%s" (lr=%1.3f)' %
+                                   (title_, title, leven))
+                    continue
+        self.log.debug('Found no top tracks for "%s"' % artist)
+
+    def _cross_check_artist(self, liste):
+        """
+        Controls presence of artists in liste in MPD library.
+        Crosschecking artist names with SimaStr objects / difflib / levenshtein
+
+        Actually this method is not calling MPDClient() to search because MPD
+        search engine narrow too much the results (sic.). For instance :
+            client.search('artist', 'The Doors')
+        would not return tracks tagged "Doors".
+        The method is then searching through complete artist list.
+
+        N.B.: Cannot use a generator here because we need the complete artist
+              list to process it with self._get_artists_list_reorg()
+
+        TODO: proceed crosschecking even when an artist matched !!!
+              Not because we found "The Doors" as "The Doors" that there is no
+              remaining entries as "Doors" :/
+              not straight forward, need probably heavy refactoring.
+        """
+        matching_artists = list()
+        artist_list = [SimaStr(art) for art in liste]
+        all_artists = self.__cache.get('artists')
+        for artist in artist_list:
+            # Check against the actual string in artist list
+            if artist.orig in all_artists:
+                matching_artists.append(artist)
+                self.log.debug('found exact match for "%s"' % artist)
+                continue
+            # Then proceed with fuzzy matching if got nothing
+            match = get_close_matches(artist.orig, all_artists, 50, 0.73)
+            if not match:
+                continue
+            self.log.debug('found close match for "%s": %s' %
+                           (artist, '/'.join(match)))
+            # Does not perform fuzzy matching on short and single word strings
+            # Only lowercased comparison
+            if ' ' not in artist.orig and len(artist) < 8:
+                for fuzz_art in match:
+                    # Regular string comparison SimaStr().lower is regular string
+                    if artist.lower() == fuzz_art.lower():
+                        matching_artists.append(fuzz_art)
+                        self.log.debug('"%s" matches "%s".' % (fuzz_art, artist))
+                continue
+            for fuzz_art in match:
+                # Regular string comparison SimaStr().lower is regular string
+                if artist.lower() == fuzz_art.lower():
+                    matching_artists.append(fuzz_art)
+                    self.log.debug('"%s" matches "%s".' % (fuzz_art, artist))
+                    continue
+                # Proceed with levenshtein and SimaStr
+                leven = levenshtein_ratio(artist.stripped.lower(),
+                        SimaStr(fuzz_art).stripped.lower())
+                # SimaStr string __eq__, not regular string comparison here
+                if artist == fuzz_art:
+                    matching_artists.append(fuzz_art)
+                    self.log.info('"%s" quite probably matches "%s" (SimaStr)' %
+                                  (fuzz_art, artist))
+                elif leven >= 0.82:  # PARAM
+                    matching_artists.append(fuzz_art)
+                    self.log.debug('FZZZ: "%s" should match "%s" (lr=%1.3f)' %
+                                   (fuzz_art, artist, leven))
+                else:
+                    self.log.debug('FZZZ: "%s" does not match "%s" (lr=%1.3f)' %
+                                   (fuzz_art, artist, leven))
+        return matching_artists
+
+    def _extract_playable_track(self, tracks):
+        """
+        Extract one unplayed track from a Track object list.
+        Check against history and file in queue.
+        Check against black listing.
+        """
+        for track in tracks:
+            if self.db.get_bl_album(track, add_not=True):
+                self.log.debug('Blacklisted album: %s' % track.album)
+                continue
+            if self.db.get_bl_track(track, add_not=True):
+                self.log.debug('Blacklisted track: %s' % track)
+                continue
+            if track in self.tracks_to_add:
+                continue  # track already to be queued
+            if self._is_inqueue(track):
+                continue  # track already queued
+            #if (track.album == self.current_track.album and
+            #        track.albumartist == self.current_track.albumartist):
+            # TODO: should control albumartist as well
+            curr = [trk.album for trk in self.tracks_to_add]
+            curr.append(self.current_track.album)
+            if track.album in curr:
+                self.log.debug('Found unplayed track ' +
+                               'but from an album already in queue: %s' % (track))
+                if self.config.getboolean('sima', 'single_album'):
+                    continue  # Do not queue if single_album is set
+            return track
+        return None
+
+    def _nb_track_ahead(self):
+        """
+        How many tracks ahead?
+        """
+        # current playing track position in the playlist & playlist length
+        track_id = int(self.player.status().get('song', '0'))
+        playlist_length = int(self.player.status().get('playlistlength', 0))
+        return playlist_length - track_id - 1
+
+    def _is_inqueue(self, track):
+        """
+        Check if track is in the queue.
+        """
+        cursonpos = int(self.player.currentsong().pos)
+        queue_lst = self.player.playlist()[cursonpos:]
+        if track in queue_lst:
+            self.log.debug('"{0}" already in the queue'.format(track))
+            return True
+        return False
+
+    def tracks_in_hist(self, artist):
+        """Check against history for tracks already in history for a specific
+        artist.
+        """
+        duration = self.config.getint('sima', 'history_duration')
+        tracks_from_db = self.db.get_history(duration=duration, artist=artist)
+        # Construct Track() objects list from database history
+        played_tracks = [Track(**{'artist': tr[0], 'album': tr[1],
+            'title': tr[2], 'file': tr[3]}) for tr in tracks_from_db]
+        return played_tracks
+
+    def _get_album_history(self, artist=None):
+        """Retrieve album history"""
+        duration = self.config.getint('sima', 'history_duration')
+        albums_list = set()
+        for tr in self.db.get_history(artist=artist, duration=duration):
+            albums_list.add(tr[1])
+        return albums_list
+
+    def _need_tracks(self):
+        """whether or not playlist needs tracks"""
+        # Does not queue if in single or repeat mode
+        if self.player.status().get('single') == str(1):
+            self.log.info('Not queueing in "single" mode.')
+            return False
+        if self.player.status().get('repeat') == str(1):
+            self.log.info('Not queueing in "repeat" mode.')
+            return False
+        queue_trigger = self.config.getint('sima', 'queue_length')
+        nb_track_ahead = self._nb_track_ahead()
+        self.log.debug('Currently %i track(s) ahead. (target %s)' %
+                       (nb_track_ahead, queue_trigger))
+        if nb_track_ahead < queue_trigger:
+            return True
+        return False
+
+    def _got_nothing(self):
+        """log in case the script got nothing to add"""
+        self.log.warning('Got nothing even with previous artists in playlist!')
+        self.log.warning('...purge history?! rip more music?!')
+        self.log.warning('Try running with debug verbosity to get more info.')
+
+    def _get_artists_list_reorg(self, artists_list):
+        """
+        Move around items in artists_list in order to play first not recently played
+        artists
+        """
+        duration = self.config.getint('sima', 'history_duration')
+        art_in_hist = list()
+        for trk in self.db.get_history(duration=duration, artists=artists_list):
+            if trk[0] not in art_in_hist:
+                art_in_hist.append(trk[0])
+        art_in_hist.reverse()
+        art_not_in_hist = [ar for ar in artists_list if ar not in art_in_hist]
+        random.shuffle(art_not_in_hist)
+        art_not_in_hist.extend(art_in_hist)
+        return art_not_in_hist
+
+    def get_top_tracks_from_db(self, artist=None):
+        """
+        Retrieve top tracks, ie. most popular song, from an artist.
+        get_top_tracks_from_db function returns a list
+        """
+        tops = deque()
+        simafm = SimaFM()
+        req = simafm.get_toptracks(artist=artist)
+        try:
+            tops = [(song, rank) for song, rank in req]
+        except XmlFMNotFound as err:
+            self.log.warning("last.fm: %s" % err)
+        return tops
+
+    def get_similar_artists_from_udb(self):
+        """retrieve similar artists form user DB sqlite"""
+        current_artist = self.current_searched.artist
+        self.log.debug('Looking in user db for artist similar to "%s"' %
+                      current_artist)
+        sims = [(a.get('artist'), a.get('score'))
+                for a in self.db.get_similar_artists(current_artist)]
+        if not sims:
+            self.log.debug('Got nothing from user db')
+        if sims:
+            self.log.debug('Got something from user db: %s' % sims)
+        return sims
+
+    def supersedes_db_art(self, similar):
+        udb_art = self.get_similar_artists_from_udb()
+        udb_art_dict = dict()
+        results = list()
+        for a, m in udb_art:
+            udb_art_dict.update({a:m})
+        for art, match in list(similar):
+            if art in list(udb_art_dict.keys()):  # updates similar with udb match score
+                results.append((art, udb_art_dict.pop(art)))
+            else:
+                results.append((art, match))
+        for a, m in udb_art_dict.items():
+            results.append((a, m))
+        return results
+
+    def get_similar_artists_from_db(self):
+        """
+        Retrieve similar artists on last.fm server.
+        """
+        current_search = self.current_searched
+        self.log.info('Looking for artist similar to "%s"' %
+                      current_search.artist)
+        simafm = SimaFM()
+        # initialize artists deque list to construct from DB
+        as_art = deque()
+        as_artists = simafm.get_similar(artist=current_search.artist)
+        self.log.debug('Requesting last.fm for "%s"' %
+                       current_search.artist)
+        try:
+            [as_art.append((a, m)) for a, m in as_artists]
+        except XmlFMHTTPError as err:
+            self.log.warning('last.fm http error: %s' % err)
+        except XmlFMNotFound as err:
+            self.log.warning("last.fm: %s" % err)
+        if not as_art:
+            self.log.info('Got nothing from last.fm!')
+        else:
+            self.log.debug('Fetched %d artist(s) from last.fm' % len(as_art))
+        return as_art
+
+    def _cross_check_wrapper(self, similarities):
+        dynamic = self.config.getint('sima', 'dynamic')
+        similarity = self.config.getint('sima', 'similarity')
+        results = list()
+        if dynamic == 0:
+            artists_list = [art for art, match in similarities if match > similarity]
+            results = self._cross_check_artist(artists_list)
+        else:
+            similarities.reverse()
+            while len(results) < dynamic:
+                if len(similarities) == 0: break
+                art_pop, match = similarities.pop()
+                if match < similarity: break
+                results.extend(self._cross_check_artist([art_pop,]))
+            results and self.log.debug('Dynamic similarity: %d%%' % match)
+        return results
+
+    def get_artists_from_player(self, similarities):
+        """
+        Look in player library for availability of similar artists in similarities
+        """
+        similarities_lst = [art + str(match) for art, match in similarities]
+        similars = list()
+        hash_list = md5(''.join(similarities_lst).encode('utf-8')).hexdigest()
+        search_cache = self.__cache.get('search')
+        self.log.info('Looking availability in music library')
+        if hash_list in search_cache:
+            self.log.debug('Already cross check music library for these artists.')
+            similars = list(search_cache.get(hash_list))
+        else:
+            similars = self._cross_check_wrapper(similarities)
+            if len(search_cache) > 100:
+                #limit size of search_cache
+                self.log.debug('popitem in search_cache, reached limit')
+                search_cache.popitem()
+            search_cache.update({hash_list: list(similars)})
+        if not similars:
+            self.log.warning('Got nothing from music library.')
+            self.log.warning('Try running in debug mode to guess why...')
+            return None
+        # Remove current artist in order to avoid loop. When the script is going
+        # back in the playlist, because last searched does not return any track,
+        # similar artist from DB does suggest the current artist which we
+        # started similarity search with.
+        if self.current_track.artist in similars:
+            self.log.debug('Current searched "%s"' % self.current_searched.artist)
+            self.log.debug('Removing "%s" from artist list' %
+                           self.current_track.artist)
+            similars.remove(self.current_track.artist)
+        black_listed = set()
+        for art in similars:
+            if self.db.get_bl_artist(art, add_not=True):
+                self.log.info('Blacklisted artist removed: %s' % art)
+                black_listed.add(art)
+        similars = list(set(similars) - black_listed)
+        self.log.info('Got %d artists in library' % len(similars))
+        self.log.info(' / '.join(similars))
+        random.shuffle(similars)
+        # Move around similars items to get in unplayed|not recently played
+        # artist first.
+        similars_reorg = self._get_artists_list_reorg(similars)
+        self.log.debug('Looking for these artists (got them reorganized).')
+        self.log.debug(' / '.join(similars_reorg))
+        return similars_reorg
+
+    def get_similars(self):
+        """Retrive similar artists from last.fm and user DB"""
+        similar = self.get_similar_artists_from_db()
+        if self.config.getboolean('sima', 'user_db'):
+            similar = self.supersedes_db_art(similar)
+        if not similar:
+            self.log.debug('Damn! got nothing from databases!!!')
+            return False
+        similar = sorted(similar, key=lambda sim: sim[1], reverse=True)
+        self.log.info('First five similar artist(s): %s...' %
+                      ' / '.join([a for a, m in similar[0:5]]))
+        return similar
+
+    def queue_similar_artist(self):
+        """
+        Queue similar artist (at random)
+        """
+        similar = self.get_similars()
+        if not similar:
+            return False
+        artists = self.get_artists_from_player(similar)
+        if not artists:
+            return False
+        if not self.findtrk(artists):
+            return False
+        random.shuffle(self.tracks_to_add)
+        self.add_track()
+        return True
+
+    def queue_top_tracks(self):
+        """
+        Queue Top track from similar artist (at random)
+        """
+        similar = self.get_similars()
+        if not similar:
+            return False
+        artists = self.get_artists_from_player(similar)
+        if not artists:
+            return False
+        if not self.find_top_tracks(artists):
+            return False
+        random.shuffle(self.tracks_to_add)
+        self.add_track()
+        return True
+
+    def queue_albums(self):
+        """
+        Queue entire albums from similar artist (at random)
+        """
+        similar = self.get_similars()
+        if not similar:
+            return False
+        artists = self.get_artists_from_player(similar)
+        if not artists:
+            return False
+        if not self.find_album(artists):
+            return False
+        self.add_track()
+        return True
+
+    def loop_detection(self):
+        """Loop detection computes artist appearence frequency.
+        """
+        #  TODO: loop detection should be launch only on new track playing.
+        moy = float(0); nt = 8
+        loop_mapping = dict()  # this mapping is used to identify artist looped over
+        history = list()
+        for tr in self.db.get_history():
+            #  Gathers nt uniq artist from history
+            history.append(tr[0])
+            if len(set(history)) == nt:
+                break
+        recent_hist = history[:nt] # get only the last nt tracks, when looping, recent_hist ≠ history
+        for art in set(history):  # get uniq artists list
+            moy += history.count(art)
+            loop_mapping[art] = history.count(art)
+        self.log.debug('Loop detection: %f' % (moy/len(set(recent_hist)),))
+        self.log.debug('Loop detection: %s' % loop_mapping)
+
+    def queue(self, track):
+        """
+        On new track playing:
+            add track in history
+            Check either playlist needs more tracks or not.
+            Find tracks to add.
+        """
+        if not track.artist:
+            self.log.warning('## No artist tag set for %s' %
+                             track.get_filename())
+            self.log.warning('Cannot look for similar artist.')
+            return False
+        if not track.title:
+            self.log.warning('## MISSING TITLE TAG for %s' %
+                            track.get_filename())
+        self.log.info('Playing: %s' % track)
+        if track.collapse_tags_bool:
+            self.log.info('This file contains multiple tags: %s' %
+                          track.get_filename())
+            self.log.debug('Multiple tags: ' + '/'.join(track.collapsed_tags))
+        # crop playlist if necessary
+        self.crop_playlist()
+        if not self._need_tracks():
+            return False
+        self.log.info('The playlist needs tracks.')
+
+        # Artist we want similar track from:
+        self.current_searched = self.current_track
+
+        # Already searched artists list (used when getting backward in play
+        # history if nothing got queued)
+        artist = self.current_searched.artist
+        artists_searched = list([artist])
+
+        history_copy = deque()
+        for tr in self.db.get_history():
+            # Back in history 'till SimaDB.__HIST_DURATION__
+            history_copy.appendleft(Track(**{'artist': tr[0]}))
+        while 42:
+            if not self.queue_mode():
+                # In case nothing got queued
+                # get through play history backward until another artist got
+                # something to queue
+                self.log.debug('Looking for another artist in play history.')
+                arthist = Track(artist=artist)
+                while arthist.artist in artists_searched:
+                    try:
+                        arthist = history_copy.pop()
+                        if not arthist.artist:
+                            continue
+                    except IndexError:
+                        self._got_nothing()
+                        return False
+                # update the current_searched with new artist
+                self.current_searched = arthist
+                artists_searched.append(arthist.artist)
+                self.log.warning('Trying with previous artist: %s' %
+                                self.current_searched.artist)
+            else:
+                break
+
+    def _flush_cache(self):
+        """
+        Both flushes and instanciates __cache
+        """
+        if isinstance(self.__cache, dict):
+            self.log.debug('Flushing cache!')
+        else:
+            self.log.debug('Initialising cache!')
+        self.__cache = {'artists': None, 'search': dict()}
+        self.__cache['artists'] = frozenset(self.player.list('artist'))
+
+    def reconnect(self):
+        """Trying to reconnect cycling through longer timeout
+        cycle : 5s 10s 1m 5m 20m 1h
+        """
+        sleepfor = [5, 10, 60, 300, 1200, 3600]
+        while True:
+            tmp = sleepfor.pop(0)
+            sleepfor.append(tmp)
+            self.log.info('Trying to reconnect in {:>4d} seconds'.format(tmp))
+            time.sleep(tmp)
+            try:
+                self.player.connect()
+            except PlayerError:
+                continue
+            except PlayerUnHandledError as err:
+                #TODO: unhandled Player exceptions
+                self.log.warning('Unhandled player exception: %s' % err)
+            self.log.info('Got reconnected')
+            break
+
+    def loop(self):
+        """
+        Main loop.
+        Two events may trigger the queue process
+            0) new track playing
+            1) playing track has been moved or number of queued tracks has
+               changed
+        """
+        if not isinstance(self.__cache, dict):
+            self._flush_cache()  # init internal cache
+        changed = None
+        if isinstance(self.current_track, Track):  # first loop detection
+            changed = self.player.idle()  # hangs here untill player state changes
+            self.log.debug('Player state changed: %s' % changed)
+            # controls if player media DB has been updated.
+            if 'database' in changed:
+                self._flush_cache()
+        curr_track = self.player.currentsong()
+        playing_state = self.player.state()
+        if self.is_playing and playing_state != 'play':
+            self.is_playing = False
+            self.log.info('Player state is “%s”' % playing_state)
+            self.current_track = Track()  # Set self.current_track to avoid 1st loop detection
+            return
+        elif not self.is_playing and playing_state == 'play':
+            self.is_playing = True
+            self.current_track = Track()
+            self.log.info('Playing again, proceeding...')
+        if not self.is_playing:
+            self.current_track = Track()
+            return
+        if (curr_track != self.current_track or
+           changed != self.state_change or
+           self._nb_track_ahead() == 0):
+            if not curr_track:
+                self.log.warning('Found no current track!')
+                return
+            if curr_track != self.current_track:
+                self.db.add_history(curr_track)
+            # Update current playlist state
+            self.current_track = curr_track
+            self.state_change = changed
+            self.queue(curr_track)
+
+    def run(self):
+        self.log.info('About to connect to %s:%s' %
+                     (self.config.get('MPD', 'host'),
+                      self.config.get('MPD', 'port')))
+        try:
+            self.player.connect()
+        except PlayerError as connect_err:
+            self.player.disconnect()
+            self.log.warning('Player error: %s' % connect_err)
+        while 42:
+            try:
+                self.loop()
+            except XmlFMHTTPError as error:
+                self.log.warning('last.fm http error: %s...' % error)
+                # initialize current_track to have next loop gone through
+                self.current_track = Track()
+                time.sleep(WAIT_RESUME)
+            except XmlFMError as err:
+                self.log.warning('last.fm module error: %s' % err)
+                # initialize current_track to have next loop gone through
+                self.current_track = Track()
+                time.sleep(WAIT_RESUME)
+            except PlayerCommandError as err:
+                self.log.warning('Player command error: %s' % err)
+                self.current_track = Track()
+            except PlayerUnHandledError as err:
+                #TODO: unhandled Player exceptions
+                self.log.warning('Unhandled player exception: %s' % err)
+                time.sleep(WAIT_RESUME)
+            except PlayerError as err:
+                # initialize current_track to have next loop gone through
+                # Setting current_track to None overrides idle command in self.loop()
+                self.current_track = None
+                self.log.warning('Player error: %s' % err)
+                self.reconnect()
+
+    def shutdown(self):
+        """
+        """
+        self.log.warning('Starting shutdown.')
+        self.log.info('Cleaning database')
+        db = SimaDB(db_path=self.conf_obj.userdb_file)
+        db.purge_history()
+        db.clean_database()
+        self.log.info('The way is shut, it was made by those who are dead. ' +
+                      'And the dead keep it…')
+        self.log.info('bye...')
+        sys.exit(0)
+
+
+# FUNCTIONS
+
+def sig_term_handler(signum, frame):
+    """Catch sig term"""
+    raise KeyboardInterrupt('Caught a %d\' SIG TERM signal' % signum)
+
+
+def new_version_available():
+    def version_convert(version):
+        """Convert version string to float"""
+        float_version = float()
+        vsplit = version.split('.')
+        for i in range(len(vsplit)):
+            if not vsplit[i].isdigit():
+                # get rid of the non digit like beta, rc, etc.
+                continue
+            float_version = float_version + (float(vsplit[i]) / pow(10, int(i)))
+        return float_version
+
+    pattern = '.*Latest stable version: <a href=".*?"><strong>(?P<version>[0-9.]*)</strong>.*$'
+    pat = re.compile(pattern)
+    try:
+        fd = urlopen(__url__)
+    except IOError as urllib_err:
+        return False
+    for line in fd:
+        me = pat.match(line)
+        if me and version_convert(me.group('version')) > version_convert(__version__):
+            return True
+    return False
+
+
+def exception_log(log):
+    """Log unknown exceptions"""
+    log.error('Exception caught!!!')
+    log.error(''.join(traceback.format_exc()))
+    log.info('Please report the previous message along with some log entries right before the crash.')
+    log.info('thanks for your help :)')
+    log.info('Quiting now!')
+    sys.exit(1)
+
+
+def main():  # BOOT SEQUENCE
+    """
+    Main function.
+    """
+    info = dict({'version': __version__,})
+    # StartOpt gathers options from command line call (in StartOpt().options)
+    sopt = StartOpt(info)
+
+    # Logging facility, default log level is INFO
+    log_file = sopt.options.get('logfile', None)
+    log = logger(log_level='info', log_file=log_file)
+
+    log.info('')
+    log.info('Starting MPD_sima %s' % (__version__))
+
+    # Configuration manager Object
+    conf_manager = ConfMan(log, sopt.options)
+    config = conf_manager.config
+
+    # Controls new version
+    check_new = config.getboolean('sima', 'check_new_version')
+    if check_new and new_version_available():
+        log.warning('New stable version available at %s' % __url__)
+
+    # Logging settings
+    # Define the logger following user conf
+    #  default log level is INFO.
+    log.setLevel(LEVELS.get(config.get('log', 'verbosity')))
+    log.debug('Command line say: %s' % sopt.options)
+
+    # Create Database
+    if sopt.options.get('create_db', None):
+        log.info('Creating database in "%s"' % conf_manager.userdb_file)
+        open(conf_manager.userdb_file, 'a').close()
+        SimaDB(db_path=conf_manager.userdb_file).create_db()
+        log.info('Done, bye...')
+        sys.exit(0)
+
+    # Upgrading User DB if necessary, create one if not existing
+    try:
+        SimaDB(db_path=conf_manager.userdb_file).upgrade()
+    except SimaDBUpgradeError as err:
+        log.warning('Error upgrading database: %s' % err)
+    except SimaDBNoFile:
+        log.info('Creating database in "%s"' % conf_manager.userdb_file)
+        open(conf_manager.userdb_file, 'a').close()
+        SimaDB(db_path=conf_manager.userdb_file).create_db()
+    log.info('Using database "%s"' % conf_manager.userdb_file)
+
+    # Run as a daemon
+    if config.getboolean('daemon', 'daemon'):
+        sima = Sima(conf_manager, log)
+        try:
+            sima.start()
+        except Exception:
+            exception_log(log)
+        return
+
+    # Interactive run
+    # Sima Object init
+    sima = Sima(conf_manager, log)
+    # In order to catch "kill 15" as KeyboardInterrupt when run in background
+    signal.signal(signal.SIGTERM, sig_term_handler)
+    try:
+        sima.foreground()
+    except KeyboardInterrupt as err:
+        sys.exit(0)
+    except Exception:
+        exception_log(log)
+# END FUNCTIONS
+
+# Script starts here
+if __name__ == '__main__':
+    main()
+
+# VIM MODLINE
+# vim: ai ts=4 sw=4 sts=4 expandtab
