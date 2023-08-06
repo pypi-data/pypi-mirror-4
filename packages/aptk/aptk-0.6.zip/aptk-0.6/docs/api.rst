@@ -1,0 +1,2 @@
+.. automodule:: aptk
+   :members:
