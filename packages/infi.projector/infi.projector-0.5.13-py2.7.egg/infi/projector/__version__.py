@@ -1,0 +1,10 @@
+__version__ = "0.5.13"
+__git_commiter_name__ = "Arnon Yaari"
+__git_commiter_email__ = "arnony@infinidat.com"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = 'a501438d06bcb3b99b760eb048162ca8ab94b68e'
+__git_head_subject__ = 'upgrade to use zc.buildout 2.1.0'
+__git_head_message__ = ''
+__git_dirty_diff__ = ''
