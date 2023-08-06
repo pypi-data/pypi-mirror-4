@@ -1,0 +1,1 @@
+{% extends "arch-base.spec" %}
