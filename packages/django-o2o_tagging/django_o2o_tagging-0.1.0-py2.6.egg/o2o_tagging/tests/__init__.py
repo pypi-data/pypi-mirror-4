@@ -1,0 +1,3 @@
+from tests_models import O2OTagManagerTest
+from tests_models import O2OTagTest
+from tests_views import TagCreateViewTest
