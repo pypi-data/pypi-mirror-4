@@ -1,0 +1,79 @@
+#!/usr/bin/python
+
+#http://docs.python.org/2/library/argparse.html#module-argparse
+
+import argparse
+import time
+import signal
+
+from longtang.config import configuration
+from longtang.system import properties
+from longtang.system import system
+from longtang.common import interactions
+from longtang.actors.supervisors.main import main, messages, factory
+
+def end_the_thingy_baby(signum, frame):
+	print 'Signal handler called with signal', signum
+
+if __name__ == '__main__':
+
+	parser = argparse.ArgumentParser(description='Longtang v1.0.0',\
+									 prefix_chars='-',\
+									 epilog='For further information, please contact me at gszeliga@gmail.com')
+
+	parser.add_argument('--source', dest='source_path', required=True, action='store', help='Source path where all your media files are located')
+	parser.add_argument('--target', dest='target_path', required=True, action='store', help='Target path where all the media files will be classified')
+	parser.add_argument('--verbosity', dest='verbosity', required=False, action='store', default=None, choices=['DEBUG', 'INFO', 'WARN', 'ERROR'], help='Verbosity level')
+	parser.add_argument('--override-tags', dest='override', required=False, action='store', nargs='?', default=False, const=True, help='If present, all id3tags will be overriden using MusicBrainz information (not recommended with a large number of files (this parameter is not compatible with --offline option)')
+	parser.add_argument('--offline', dest='offline', required=False, action='store', nargs='?', default=False, const=True, help='If present, no request to MusicBrainz service will be commited so that any incomplete metatag will cause the file to be ignored (this parameter is not compatible with --override option)')	
+					   
+	args = parser.parse_args()
+
+	if args.override and args.offline:
+		print '--override parameter and --offline parameter are incompatible. Only one of them should be present.'
+	else:
+
+		config_builder = configuration.LongTangConfigurationBuilder()
+
+		source_path = unicode(args.source_path, encoding='utf-8', errors='replace')
+		target_path = unicode(args.target_path, encoding='utf-8', errors='replace')
+
+		config = config_builder.read_from(source_path).generate_at(target_path).override_tags(args.override).build()
+
+		props_builder = properties.SystemPropertiesBuilder()
+
+		props_builder.verbosity(args.verbosity)
+
+		actor_system = system.ActorSystem(props_builder.build())
+		main_ref = actor_system.with_factory(factory.MainSupervisorFactory(config),'main-actor')
+
+		starting_point = time.time()
+
+		signal.signal(signal.SIGINT, end_the_thingy_baby)
+
+		summary = interactions.InteractionPatterns.ask(actor_system, main_ref, messages.KickOffMediaProcessing()).summary() 
+
+		elapsed_time = int(time.time() - starting_point)
+
+		elapsed_time_minutes = elapsed_time / 60
+		elapsed_time_seconds = elapsed_time % 60
+
+		elapsed_time_hours= elapsed_time_minutes / 60
+		elapsed_time_minutes = elapsed_time_minutes % 60
+
+		print '\nSummary:\n\n'
+
+		print 'Successfull Cases:\n\n'
+		for tracking_id, successfull_media in summary.successes():
+			print '[' + tracking_id + '] ' + successfull_media.mediafile.sourcepath.replace(source_path, './')
+
+		print '\nFailed Cases:\n\n'
+		for tracking_id, failedmedia in summary.failures():
+			print '[' + tracking_id + '] ' + failedmedia.mediafile.sourcepath.replace(source_path, './')
+
+		print '\n\n'
+		print 'Total: {0}'.format(summary.total())
+		print 'Successes: {0}'.format(summary.total_successes())
+		print 'Failures: {0}'.format(summary.total_failures())
+		print '\nElapsed time: {0}h {1}m {2}s'.format(elapsed_time_hours, elapsed_time_minutes, elapsed_time_seconds)
+		print '\n'
