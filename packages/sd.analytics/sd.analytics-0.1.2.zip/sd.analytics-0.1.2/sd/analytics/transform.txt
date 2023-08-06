@@ -1,0 +1,102 @@
+
+The Transform
+=============
+
+Transforms comply with the collective.singing.interfaces.ITransform``
+interface.
+
+Setup
+-----
+
+First we do some test setup. We'll mock a context object
+with an ``absolute_url`` method and access to portal_newsletters:
+
+  >>> from zope import component
+  >>> from zope import interface
+  
+  >>> class INewsletters(interface.Interface):
+  ...     """ """
+  >>> class Newsletter(object):
+  ...     interface.implements(INewsletters)
+  >>> class Context(object):
+  ...     def __init__(self, id, url):
+  ...         self.id = id
+  ...         self.url = url
+  ...         self.portal_newsletters = Newsletter()
+  ...     def absolute_url(self):
+  ...         return self.url
+  ...     def getId(self):
+  ...         return self.id
+
+  >>> context = Context('470', 'http://xkcd.com/470/')
+
+The same class will also be our ``IPloneSiteRoot`` and our zope site:
+
+  >>> site = Context('xkcd.com', 'http://xkcd.com/')
+  >>> from zope import component
+  >>> from Products.CMFPlone.interfaces import IPloneSiteRoot
+  >>> component.provideUtility(site, IPloneSiteRoot)
+
+Next we provide an adapter for getting analytics setting from our
+fake portal_newsletter. 
+  
+  >>> defaults = {'enabled':True,
+  ...             'utm_source':'newsletter',
+  ...             'utm_medium':'email',
+  ...             'utm_term':'',
+  ...             'utm_content':'',
+  ...             'utm_campaign':'plone'}
+
+  >>> from sd.analytics.interfaces import IAnalytics
+  >>> @interface.implementer(IAnalytics)
+  ... @component.adapter(INewsletters)
+  ... def analytics_settings_for_newsletters(context):
+  ...     return defaults
+  >>> component.provideAdapter(analytics_settings_for_newsletters)
+  
+Due to a nasty workaround, we'll need to override
+``utils.fix_request`` to always return the site unchanged:
+
+  >>> def fix_request(context, level):
+  ...     return context
+  >>> from collective.dancing import utils
+  >>> safe_fix_request = utils.fix_request
+  >>> utils.fix_request = fix_request
+
+
+Analytics Transform
+-------------
+
+The analytics transform adds tracking parameters to internal urls.
+``URL`` transform makes sure of that.
+
+
+We'll start off our tests by assuring that the transform does nothing
+when external URLs are passed:
+
+  >>> from sd.analytics.transform import Analytics
+  >>> url = Analytics(context)
+  >>> url('<a href="http://plone.org/newsreport.html">News Report</a>', None)
+  '<a href="http://plone.org/newsreport.html">News Report</a>'
+
+An internal url will get the analytics parameters
+
+  >>> url('<a href="http://xkcd.com/front-page">Welcome to Plone</a>', None)
+  '<a href="http://xkcd.com/front-page?utm_campaign=plone&amp;utm_medium=email&amp;utm_source=newsletter">Welcome to Plone</a>'
+
+Existing GET params are preserved  
+
+  >>> url('<a href="http://xkcd.com/search?what=stuff">Search for stuff</a>', None)
+  '<a href="http://xkcd.com/search?utm_campaign=plone&amp;what=stuff&amp;utm_medium=email&amp;utm_source=newsletter">Search for stuff</a>'
+
+Relative urls work too
+
+  >>> url('<a href="search?what=stuff">Search for stuff</a>', None)
+  '<a href="search?utm_campaign=plone&amp;what=stuff&amp;utm_medium=email&amp;utm_source=newsletter">Search for stuff</a>'
+
+Mailto urls are not affected of course
+
+  >>> url('<a href="mailto:thomas@headnet.dk">Mail me</a>', None)
+  '<a href="mailto:thomas@headnet.dk">Mail me</a>'
+
+

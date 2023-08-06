@@ -1,0 +1,162 @@
+Browser tests
+=============
+
+These are browser-driven tests for the functionality provided by the
+``sd.analytics`` package.
+
+This package adds two things to S&D.
+A transform that rewrites urls in outgoing newsletters, appending googles utm_* arguments for tracking clicks.
+A configuration page for setting the utm_* values for the site.
+
+
+Setup
+-----
+
+  >>> from Testing.ZopeTestCase import user_password
+  >>> from Products.Five.testbrowser import Browser
+  >>> def new_browser():
+  ...     browser = Browser()
+  ...     browser.handleErrors = False
+  ...     return browser
+  >>> browser = new_browser()
+
+  >>> from collective.dancing.tests import setup_error_log
+  >>> print_error = setup_error_log(portal)
+
+We want messages to be printed out instead of sending them:
+
+  >>> from collective.dancing.tests import setup_testing_maildelivery
+  >>> delivery = setup_testing_maildelivery()
+
+We need to be Manager for all this.
+
+  >>> browser.addHeader('Authorization',
+  ...                   'Basic %s:%s' % ('portal_owner', user_password))
+  
+The tests
+---------
+  
+Let's start by taking a look at the configuration page.
+
+To play nice with other s&d addons, we do not override the default control panel.
+
+  >>> browser.open(portal.absolute_url()+'/portal_newsletters')
+  >>> 'Configure the google analytics addon.' in browser.contents
+  False
+
+The package has it's own alternative s&d control panel for now. We really need a
+way for thirdparty packages to plug in links on the control panel!
+
+  >>> browser.open(portal.absolute_url()+'/portal_newsletters/control-panel-with-analytics')
+  >>> 'Configure the google analytics addon.' in browser.contents
+  True
+  >>> browser.getLink('Google Analytics').click()
+  
+  >>> 'Google Analytics setup' in browser.contents
+  True
+
+By default the transform is disabled.
+
+  >>> browser.getControl(name='form.widgets.enabled:list').value
+  ['false']
+
+Source and Medium have reasonable default values.
+
+  >>> browser.getControl('Campaign Source (utm_source').value
+  'newsletter'
+  >>> browser.getControl('Campaign Medium (utm_medium').value
+  'email'
+  >>> browser.getControl('Campaign Term (utm_term').value
+  ''
+  >>> browser.getControl('Campaign Content (utm_content').value
+  ''
+  >>> browser.getControl('Campaign Name (utm_campaign').value
+  ''
+
+  
+We can get the same information by looking directly at the settings
+annotated unto portal_ewsletters.
+
+  >>> from zope.app.component.hooks import getSite
+  >>> from sd.analytics.interfaces import IAnalytics
+  >>> newsletters = getSite().portal_newsletters
+  >>> settings = IAnalytics(newsletters)
+  >>> sorted(settings.items())
+  [('enabled', False), ('utm_campaign', ''), ('utm_content', ''), ('utm_medium', 'email'), ('utm_source', 'newsletter'), ('utm_term', '')]
+
+  
+Let's render a preview of the frontpage to see what it looks like normaly.
+
+  >>> browser.open(portal.absolute_url()+'/front-page/send-newsletter.html')
+  >>> browser.getControl('Newsletter').click()
+  >>> browser.getControl('Address').value = u'tmog@localhost'
+  >>> browser.getControl('Show preview').click()
+  >>> print browser.contents # doctest: +ELLIPSIS +NORMALIZE_WHITESPACE
+  <html ...
+  ...
+  ..."http://nohost/plone/front-page/plone_control_panel"...
+  ..."http://plone.org/about/team"...
+  ...
+
+Now let's activate the analytics transform.
+
+  >>> browser.open(portal.absolute_url()+'/portal_newsletters/analytics.html')
+  >>> 'Google Analytics setup' in browser.contents
+  True
+  >>> browser.getControl(name='form.widgets.enabled:list').value = ['true']
+  >>> browser.getControl('Save').click()
+  >>> 'Data successfully updated.' in browser.contents
+  True
+
+This changes the settings on our portal_newsletters.
+  
+  >>> settings = IAnalytics(newsletters)
+  >>> settings['enabled']
+  True
+  
+  >>> browser.open(portal.absolute_url()+'/portal_newsletters/analytics.html')
+  >>> browser.getControl(name='form.widgets.enabled:list').value
+  ['true']
+
+
+Let's render a second preview of the frontpage to see the transform in effect.
+
+  >>> browser.open(portal.absolute_url()+'/front-page/send-newsletter.html')
+  >>> browser.getControl('Newsletter').click()
+  >>> browser.getControl('Address').value = u'tmog@localhost'
+  >>> browser.getControl('Show preview').click()
+  >>> print browser.contents # doctest: +ELLIPSIS +NORMALIZE_WHITESPACE
+  <html ...
+  ...
+  ..."http://nohost/plone/front-page/plone_control_panel?utm_campaign=default-channel&amp;utm_medium=email&amp;utm_source=newsletter"...
+  ..."http://plone.org/about/team"...
+  ...
+
+
+Let's try changing a few settings... this is not exhaustive, we just fill out all
+parameters and see that they're included. Notice that only internal urls are affected.
+
+  >>> browser.open(portal.absolute_url()+'/portal_newsletters/analytics.html')
+  >>> browser.getControl('Campaign Source (utm_source').value =  u'news'
+  >>> browser.getControl('Campaign Medium (utm_medium').value = u'mail'
+  >>> browser.getControl('Campaign Term (utm_term').value = 'myterm'
+  >>> browser.getControl('Campaign Content (utm_content').value = 'mycontent'
+  >>> browser.getControl('Campaign Name (utm_campaign').value = 'anychannel'
+  >>> browser.getControl('Save').click()
+  >>> 'Data successfully updated.' in browser.contents
+  True
+
+  >>> browser.open(portal.absolute_url()+'/front-page/send-newsletter.html')
+  >>> browser.getControl('Newsletter').click()
+  >>> browser.getControl('Address').value = u'tmog@localhost'
+  >>> browser.getControl('Show preview').click()
+  >>> print browser.contents # doctest: +ELLIPSIS +NORMALIZE_WHITESPACE
+  <html ...
+  ...
+  ..."http://nohost/plone/front-page/plone_control_panel?utm_campaign=anychannel&amp;utm_medium=mail&amp;utm_content=mycontent&amp;utm_source=news&amp;utm_term=myterm"...
+  ..."http://plone.org/about/team"...
+  ...
+
+
+That's it folks.
+  
