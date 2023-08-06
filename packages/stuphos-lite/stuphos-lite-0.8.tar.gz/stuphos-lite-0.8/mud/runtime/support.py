@@ -1,0 +1,135 @@
+# PyUtiLib Runtime Architecture
+ #-
+ # Copyright (c) 2013 Clint Banis (hereby known as "The Author")
+ # All rights reserved.
+ #
+ # Redistribution and use in source and binary forms, with or without
+ # modification, are permitted provided that the following conditions
+ # are met:
+ # 1. Redistributions of source code must retain the above copyright
+ #    notice, this list of conditions and the following disclaimer.
+ # 2. Redistributions in binary form must reproduce the above copyright
+ #    notice, this list of conditions and the following disclaimer in the
+ #    documentation and/or other materials provided with the distribution.
+ # 3. All advertising materials mentioning features or use of this software
+ #    must display the following acknowledgement:
+ #        This product includes software developed by The Author, Clint Banis.
+ # 4. The name of The Author may not be used to endorse or promote products
+ #    derived from this software without specific prior written permission.
+ #
+ # THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS
+ # ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+ # TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ # PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS
+ # BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ # CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ # SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ # INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ # POSSIBILITY OF SUCH DAMAGE.
+ #
+# Note: this isn't in use yet.
+from pyutilib.component.core import *
+
+PluginGlobals.clear()
+PluginGlobals.interface_registry.clear()
+
+def getTriggerName(name):
+    return 'on' + name[0].upper() + name[1:].lower()
+
+class Bridge:
+    class Event:
+        # XXX All shared across instances of Bridge for single subclass.
+        def __init__(self, triggerName = None, behavior = None):
+            self.triggerName = triggerName
+            self.behavior = behavior
+
+        def install(self, bridge, module, name):
+            # Configure this instance.
+            self.bridge = bridge
+            self.name = name
+
+            if self.triggerName is None:
+                self.triggerName = getTriggerName(name)
+
+            # And put into bridge module space.
+            setattr(module, name, self)
+
+        def __call__(self, *args, **kwd):
+            return self.bridge.callEvent(self, *args, **kwd)
+        def __repr__(self):
+            return '<%s: %s>' % (self.__class__.__name__, self.name)
+
+    def __init__(self, module):
+        self.listeners = ExtensionPoint(self.Interface)
+
+        for (name, event) in self.__class__.__dict__.iteritems():
+            if isinstance(event, self.Event):
+                event.install(self, module, name)
+
+    def callEvent(self, event, *args, **kwd):
+        for o in self.listeners:
+            trigger = getattr(o, event.triggerName, None)
+            if callable(trigger):
+                # Todo: implement calling conventions (like EventController) via event.behavior.
+                #
+                # This probably means putting most of this code back into Event,
+                # but exposing what it needs (listeners), too.
+                #
+                # Note: this doesn't pass a event controller object as first argument.
+                trigger(*args, **kwd)
+
+
+# MUD World-Bridge Runtime Implementation.
+# Todo: eliminate some redundancy in declaration of the methods & their bindings.
+# Todo: get rid of trigger-based naming convention.
+class IWorldEvents(Interface):
+    # Trigger-based naming conventions.
+    # todo: finish programming in all of these?
+    def onHeartbeat(secs, usecs):
+        'Called whenever possible.'
+    def onMovement(ch, direction, cost):
+        'Called when mobiles move.'
+
+class WorldComponent(Plugin):
+    # Q: Not sure if this is proper because it should be 'abstract'?
+    # Hmm, this gets registered in the PluginEnvironment's registry,
+    # as do all subclasses of this (under the class name, so they can
+    # not be the same!!)  Research this.
+    implements(IWorldEvents)
+
+class WorldBridge(Bridge):
+    Interface = IWorldEvents
+
+    # Names as called via extension bridge.
+    heartbeat = Bridge.Event()
+    movement = Bridge.Event()
+
+def bootStart():
+    # Install the world events onto the module for dispatch.
+    from game import bridgeModule
+    WorldBridge(bridgeModule())
+
+
+# Example.
+class Facility:
+    @classmethod
+    def create(self):
+        # hmm, PluginEnvironment.registry makes this design unrealistic?
+        self.Instrument()
+
+class X(Facility):
+    # Whereby Facility will automatically instance this as plugin.
+    class Instrument(WorldComponent):
+        def onHeartbeat(self, secs, usecs):
+            print 'heartbeat:', secs, usecs
+            #raise NotImplementedError
+        def onMovement(self, ch, direction, cost):
+            print 'movement:', ch, direction, cost
+            #raise NotImplementedError
+
+import __main__ as main
+WorldBridge(main)
+
+X.create()
