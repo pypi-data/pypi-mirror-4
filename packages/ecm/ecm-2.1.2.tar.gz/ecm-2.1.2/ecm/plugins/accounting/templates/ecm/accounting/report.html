@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% block headtitle %}{% trans 'Report' %}{% endblock %}
+
+
+{% block main_content %}
+<div class="page-header">
+  <h1>Report</h1>
+</div>
+
+<ul class="nav nav-tabs" id="myTab">
+	<li class="active"><a href="#summary" data-toggle="tab">{% trans 'Summary' %}</a></li>
+	<li><a href="#income" data-toggle="tab">{% trans 'Income' %}</a></li>
+	<li><a href="#expenditure" data-toggle="tab">{% trans 'Expenditure' %}</a></li>
+	{% for custom_report in custom_reports %}
+	<li><a href="#{{ custom_report.name|slugify }}" data-toggle="tab">{{ custom_report.name }}</a></li>
+	{% endfor %}
+</ul>
+
+<div class="tab-content">
+	<div class="tab-pane active" id="summary">
+		<div class="span4">
+			<table class="table table-condensed table-striped" id="cashflow_table">
+			<!-- HEADER -->
+			  <thead>
+			    <tr>{% for name, width, type, sortable, css in columns_cashflow %}
+			      <th style="text-align: {{ css }};">{{name}}</th>
+			    {% endfor %}</tr>
+			  </thead>
+			<tbody>
+			    <tr>
+				<td>{% trans 'Income total' %}</td>
+				<td style="text-align: right;">{{income_total|ecm_amount}}</td>
+			    </tr>
+			<tr>
+				<td>{% trans 'Expenditure total' %}</td>
+				<td style="text-align: right;">{{expenditure_total|ecm_amount}}</td>
+			</tr>
+			</tbody>
+			<tfoot>
+			    <tr>
+				<th>{% trans 'Net cash inflow' %}</th>
+				<th style="text-align: right;">{{cashflow|ecm_amount}}</th>
+			    </tr>
+			</tfoot>
+			</table>
+		</div>
+		<div id="chart_balances"></div>
+	</div>
+	<div class="tab-pane" id="income">
+		<div class="span7">
+			<table class="table table-condensed table-striped" id="income_table">
+			<!-- HEADER -->
+			  <thead>
+			    <tr>{% for name, width, type, sortable, css in columns_income %}
+			      <th style="text-align: {{ css }};">{{name}}</th>
+			    {% endfor %}</tr>
+			  </thead>
+			<tbody>
+			{% for item in income_aggregated %}
+			    <tr>
+				<td>{{item.type__refTypeName}}</td>
+				<td style="text-align: right;">{{item.percentage|floatformat:2}} %</td>
+				<td style="text-align: right;">{{item.amount|ecm_amount}}</td>
+			    </tr>
+			{% endfor %}
+			  </tbody>
+			<tfoot>
+			    <tr>
+			      <th>{% trans 'Total' %}:</th>
+			      <th style="text-align: right;">100 %</th>
+			      <th style="text-align: right;">{{income_total|ecm_amount}}</th>
+			    </tr>
+			</tfoot>
+			</table>
+		</div>
+		<div id="chart_income" class="span4"></div>
+		<div id="chart_incomes" class="span11"></div>
+	</div>
+	<div class="tab-pane" id="expenditure">
+		<div class="span7">
+			<table class="table table-condensed table-striped" id="expenditure_table">
+			<!-- HEADER -->
+			  <thead>
+			    <tr>{% for name, width, type, sortable, css in columns_expenditure %}
+			      <th style="text-align: {{ css }};">{{name}}</th>
+			    {% endfor %}</tr>
+			  </thead>
+			<tbody>
+			{% for item in expenditure_aggregated %}
+			    <tr>
+				<td>{{item.type__refTypeName}}</td>
+				<td style="text-align: right;">{{item.percentage|floatformat:2}} %</td>
+				<td style="text-align: right;">{{item.amount|ecm_amount}}</td>
+			    </tr>
+			{% endfor %}
+			  </tbody>
+			<tfoot>
+			    <tr>
+			      <th>{% trans 'Total' %}:</th>
+			      <th style="text-align: right;">100 %</th>
+			      <th style="text-align: right;">{{expenditure_total|ecm_amount}}</th>
+			    </tr>
+			</tfoot>
+			</table>
+		</div>
+		<div id="chart_expenditure" class="span4"></div>
+		<div id="chart_expenditures" class="span11"></div>
+	</div>
+	{% for custom_report in custom_reports %}
+	<div class="tab-pane" id="{{ custom_report.name|slugify }}">
+		<div class="span7">
+			<table class="table table-condensed table-striped" id="{{ custom_report.name|slugify }}-table">
+			<!-- HEADER -->
+			  <thead>
+			    <tr>{% for name, width, type, sortable, css in custom_report.columns %}
+			      <th style="text-align: {{ css }};">{{name}}</th>
+			    {% endfor %}</tr>
+			  </thead>
+			<tbody>
+{% if custom_report.entries %}{% for item in custom_report.entries %}<tr>
+				<td>{{item.type__refTypeName}}</td>
+				<td style="text-align: right;">{{item.amount|ecm_amount}}</td>
+			    </tr>
+			{% endfor %}{% else %}<td>{% trans 'No data' %}.</td>
+				<td style="text-align: right;"></td>
+			    </tr>{% endif %}
+			  </tbody>
+			<tfoot>
+			    <tr>
+			      <th>{% trans 'Total' %}:</th>
+			      <th style="text-align: right;">{{ custom_report.total|ecm_amount}}</th>
+			    </tr>
+			</tfoot>
+			</table>
+		</div>
+		<!--<div id="chart_expenditure" class="span4"></div>
+		<div id="chart_expenditures" class="span11"></div>-->
+	</div>
+	{% endfor %}
+</div>
+
+{% endblock %}
+
+{% block javascripts %}
+<script type="text/javascript" src="//www.google.com/jsapi"></script>
+<script type="text/javascript">
+</script>
+{% endblock %}
+
+{% block post_javascripts %}
+<script type="text/javascript">
+
+google.load("visualization", "1", {packages:["corechart"]});
+      google.setOnLoadCallback(drawIncome);
+      function drawIncome() {
+        var data = google.visualization.arrayToDataTable([
+        ['Income', 'Amount'],
+	{% for item in income_aggregated %}
+	['{{ item.type__refTypeName }}', {{ item.amount }}]{% if forloop.last %}{% else %},{% endif %}{% endfor %}
+        ]);
+
+        var options = {
+          title: 'Income',
+          width: 550, 
+          height: 350,
+  	  colors: ['#80c65a','#94cf74','#a9d98f','#bde2a9','#d2ebc4'],
+	  tooltip: {text: 'percentage'}
+        };
+
+        var chart = new google.visualization.PieChart(document.getElementById('chart_income'));
+        chart.draw(data, options);
+      }
+
+      google.setOnLoadCallback(drawIncomes);
+      function drawIncomes() {
+        var data = new google.visualization.DataTable();
+	data.addColumn('string', 'Date'); 
+	data.addColumn('number', 'ISK'); 
+	data.addColumn({type:'string',role:'tooltip'});
+	data.addRows([
+	  {% for item in income_time %}
+	  ['{{ item.date|date:"D M d" }}', {{ item.amount|ecm_absolute }}, '{{ item.date|date:"D M d" }}\n{{ item.amount|ecm_amount }} ISK']{% if forloop.last %}{% else %},{% endif %}{% endfor %}
+	]);
+
+        var options = {
+          title: "{% trans 'Income over time (w/o Corporation Account Withdrawal)' %}",
+	  width:  800, 
+          height: 550,
+	  hAxis: {title: 'Last 30 Days', slantedText: true, slantedTextAngle: '30'},
+	  vAxis: {format: '+#,###,###,###'},
+	  legend:{position: 'in'},
+  	  colors: ['#80c65a','#94cf74','#a9d98f','#bde2a9','#d2ebc4']
+        };
+
+        var chart = new google.visualization.ColumnChart(document.getElementById('chart_incomes'));
+        chart.draw(data, options);
+      }
+
+      google.setOnLoadCallback(drawExps);
+      function drawExps() {
+	var data = new google.visualization.DataTable();
+	data.addColumn('string', 'Date'); 
+	data.addColumn('number', 'ISK'); 
+	data.addColumn({type:'string',role:'tooltip'});
+	data.addRows([
+	  {% for item in expenditure_time %}
+	  ['{{ item.date|date:"D M d" }}', {{ item.amount|ecm_absolute }}, '{{ item.date|date:"D M d" }}\n{{ item.amount|ecm_amount }} ISK']{% if forloop.last %}{% else %},{% endif %}{% endfor %}
+	]);
+
+        var options = {
+          title: "{% trans 'Expenditures over time (w/o Corporation Account Withdrawal' %})",
+	  width:  800, 
+          height: 550,
+	  hAxis: {title: 'Last 30 Days', slantedText: true, slantedTextAngle: '30'},
+	  vAxis: {format: '-#,###,###,###'},
+	  legend:{position: 'in'},
+	  colors: ['#ff9900','#ffa928','#ffba51','#ffca7a','#ffdba3']
+        };
+
+        var chart = new google.visualization.ColumnChart(document.getElementById('chart_expenditures'));
+        chart.draw(data, options);
+      }
+
+
+      google.setOnLoadCallback(drawExpenditure);
+      function drawExpenditure() {
+        var data = google.visualization.arrayToDataTable([
+        ['Expenditure', 'Amount'],
+	{% for item in expenditure_aggregated %}
+	['{{ item.type__refTypeName }}', {{ item.amount|ecm_absolute }}]{% if forloop.last %}{% else %},{% endif %}{% endfor %}
+        ]);
+
+        var options = {
+          title: '{% trans 'Expenditure' %}',
+          width: 550, 
+          height: 350,
+  	  	  colors: ['#ff9900','#ffa928','#ffba51','#ffca7a','#ffdba3'],
+	      tooltip: {text: 'percentage'}
+        };
+
+        var chart = new google.visualization.PieChart(document.getElementById('chart_expenditure'));
+        chart.draw(data, options);
+      }
+
+</script>
+{% endblock %}

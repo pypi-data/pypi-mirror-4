@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+
+{% load i18n %}
+{% load static from staticfiles %}
+
+{% block headtitle %}{% trans 'Contributions to Corp tax' %}{% endblock %}
+
+{% block stylesheets %}
+<link rel="stylesheet" type="text/css" href="{% static 'ecm/css/jquery-ui-1.8.13.custom.css' %}" />
+<link rel="stylesheet" type="text/css" href="{% static 'accounting/css/classes.css' %}" />
+<link rel="stylesheet" type="text/css" href="{% static 'hr/css/classes.css' %}" />
+{% endblock %}
+
+
+
+{% block main_content %}
+<div class="page-header">
+	<h1>
+	  {% trans 'Contributions to Corp tax' %}
+	  <small>{% trans 'last update' %} {{ scan_date|ecm_datetime }}</small>
+	</h1>
+</div>
+
+<form id="search_form" class="form-search form-inline btn-toolbar center">
+  <div class="control-group info" style="display: inline;">
+    <span class="label label-info">{% trans 'Period' %}</span>
+    <select id="period_selector" class="input-small">
+      <option value="all" selected="selected">{% trans 'All Time' %}</option>
+      <option value="thismonth">{% trans 'This Month' %}</option>
+      <option value="week">{% trans 'Last Week' %}</option>
+      <option value="month">{% trans 'Last Month' %}</option>
+      <option value="year">{% trans 'Last Year' %}</option>
+    </select>
+    <span class="label label-info">{% trans 'From' %}</span>
+    <input type="text" id="from_date" name="from_date" value="{{ from_date }}" class="input-small"/>
+    <span class="label label-info">{% trans 'To' %}</span>
+    <input type="text" id="to_date" name="to_date" value="{{ to_date }}" class="input-small"/>
+    <a class="btn btn-info btn-small" id="refresh_table"><i class="icon-refresh icon-white"></i>{% trans 'Refresh' %}</a>
+  </div>
+</form>
+
+<div class="center well">
+    <h2>Total tax income: <span class="credit" id="total_contribs">{{total_contribs|ecm_price}}</span> ISK</h2>
+</div>
+
+<div class="row-fluid">
+  <div class="span6">
+  {% datatable 'member_contrib_table' member_contrib_columns 
+             css_class='table table-bordered table-condensed' 
+             defaults=datatables_defaults 
+             sAjaxSource=member_ajax_url 
+             sCookiePrefix='ecm_member_contrib_table_' 
+             fnRowCallback='ContribRowCallback' 
+             fnServerData='ContribServerData'
+             aaSorting=sorting 
+             iDisplayLength=10 %}
+  {% datatable 'player_contrib_table' player_contrib_columns 
+             css_class='table table-bordered table-condensed' 
+             defaults=datatables_defaults 
+             sAjaxSource=player_ajax_url 
+             sCookiePrefix='ecm_player_contrib_table_' 
+             fnRowCallback='ContribRowCallback' 
+             fnServerData='ContribServerData'
+             aaSorting=sorting 
+             iDisplayLength=10 %}
+  </div>
+  <div class="span6">
+  {% datatable 'system_contrib_table' system_contrib_columns 
+             css_class='table table-bordered table-condensed' 
+             defaults=datatables_defaults 
+             sAjaxSource=system_ajax_url 
+             sCookiePrefix='ecm_system_contrib_table_' 
+             fnRowCallback='ContribRowCallback' 
+             fnServerData='ContribServerData'
+             aaSorting=sorting 
+             iDisplayLength=25 %}
+  </div>
+</div>
+{% endblock %}
+
+
+
+{% block compressed_javascripts %}
+<script type="text/javascript" src="{% static 'ecm/js/lib/jquery.ui.js' %}"></script>
+<script type="text/javascript">
+FROM_DATE = "{{ from_date }}";
+TO_DATE = "{{ to_date }}";
+DAY = 1000 * 60 * 60 * 24;
+WEEK = DAY * 7;
+MONTH = DAY * 30;
+YEAR = DAY * 365;
+
+function ContribRowCallback( nRow, aData, iDisplayIndex, iDisplayIndexFull ) {
+    $('td:eq(1)', nRow).addClass('credit');
+    return nRow;
+}
+
+/* this function will be called when the table has to query data to be displayed */
+function ContribServerData( sSource, aoData, fnCallback ) {
+    /* Add some extra variables to the url */
+    aoData.push( {
+        name: "from_date",
+        value: $("#from_date").val()
+    }, {
+        name: "to_date",
+        value: $("#to_date").val()
+    } );
+
+    $.getJSON( sSource, aoData, function (json) {
+        fnCallback(json)
+    } );
+}
+
+$(document).ready(function() {
+    $("#refresh_table").click(function () {
+        $('#member_contrib_table').dataTable().fnDraw();
+        $('#system_contrib_table').dataTable().fnDraw();
+        $('#player_contrib_table').dataTable().fnDraw();
+        var params = {
+            from_date: $("#from_date").val(),
+            to_date: $("#to_date").val()
+        };
+        $("#total_contribs").load('/accounting/contributions/total/data/', params);
+    });
+
+    $("#period_selector").change(function() {
+        var period = $("#period_selector option:selected").val();
+        if (period == "all") {
+            $("#from_date").val(FROM_DATE);
+            $("#to_date").val(TO_DATE);
+        } else if (period == "thismonth") {
+            var date = $.datepicker.parseDate('yy-mm-dd', TO_DATE);
+            date.setTime(Date.UTC(date.getFullYear(),date.getMonth(),1));
+            $("#from_date").val($.datepicker.formatDate("yy-mm-dd", date));
+            $("#to_date").val(TO_DATE);
+        } else if (period == "week") {
+            var date = $.datepicker.parseDate('yy-mm-dd', TO_DATE);
+            date.setTime(date.getTime() - WEEK);
+            $("#from_date").val($.datepicker.formatDate("yy-mm-dd", date));
+            $("#to_date").val(TO_DATE);
+        } else if (period == "month") {
+            var date = $.datepicker.parseDate('yy-mm-dd', TO_DATE);
+            date.setTime(date.getTime() - MONTH);
+            $("#from_date").val($.datepicker.formatDate("yy-mm-dd", date));
+            $("#to_date").val(TO_DATE);
+        } else if (period == "year") {
+            var date = $.datepicker.parseDate('yy-mm-dd', TO_DATE);
+            date.setTime(date.getTime() - YEAR);
+            $("#from_date").val($.datepicker.formatDate("yy-mm-dd", date));
+            $("#to_date").val(TO_DATE);
+        }
+    });
+
+    $(function() {
+        var dates = $( "#from_date, #to_date" ).datepicker({
+            dateFormat: 'yy-mm-dd',
+            defaultDate: "{{ to_date }}",
+            changeMonth: true,
+            numberOfMonths: 1,
+            onSelect: function( selectedDate ) {
+                var option = this.id == "from_date" ? "minDate" : "maxDate",
+                    instance = $( this ).data( "datepicker" ),
+                    date = $.datepicker.parseDate(
+                        instance.settings.dateFormat ||
+                        $.datepicker._defaults.dateFormat,
+                        selectedDate, instance.settings );
+                dates.not( this ).datepicker( "option", option, date );
+            }
+        });
+    });
+    
+    /* disable multi column sorting */
+    $('#member_contrib_table thead th').click(function(event) {
+        if (!$(event.target).hasClass('sorthandle')) {
+            event.shiftKey = false;
+        }
+    });
+
+} );
+
+</script>
+{% endblock %}
+
+
+
+
+

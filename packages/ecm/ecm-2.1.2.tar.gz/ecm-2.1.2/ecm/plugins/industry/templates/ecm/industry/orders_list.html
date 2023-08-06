@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+
+{% load i18n %}
+{% load static from staticfiles %}
+
+{% block headtitle %}{% trans 'Order list' %}{% endblock %}
+
+
+{% block stylesheets %}
+<link rel="stylesheet" type="text/css" href="{% static 'hr/css/classes.css' %}" />
+<link rel="stylesheet" type="text/css" href="{% static 'industry/css/industry.css' %}" />
+{% endblock %}
+
+
+{% block main_content %}
+<div class="page-header">
+    <h1>{% trans 'Orders list' %}</h1>
+</div>
+
+<form id="search_form" class="form-search form-inline">
+  <div class="btn-toolbar" >
+    <input type="text" id="search_text" class="input-medium search-query" value="" />
+    <div class="btn-group">
+      <a class="btn btn-small" id="search_button"><i class="icon-search"></i>{% trans 'Search' %}</a>
+      <a class="btn btn-small" id="clear_search">{% trans 'Reset' %}</a>
+    </div>
+    <div class="control-group inline error" style="display: inline;">
+      <span class="label label-important">{% trans 'Display' %}</span>
+      <select id="display_mode_selector" class="input-medium">
+        {% for mode_id, name in display_modes %}
+        <option value="{{mode_id}}">{{name}}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+</form>
+
+<table class="table table-bordered table-condensed" id="orders_list">
+  <thead>
+    <tr>
+      {%for col in columns%}
+      <th class="top" scope="col" >{{col}}</th>
+      {%endfor%}
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="{{columns|length}}" class="dataTables_empty">{% trans 'Loading data from server...' %}</td>
+    </tr>
+  </tbody>
+  <tfoot>
+    <tr>
+      {%for col in columns%}
+      <th>{{col}}</th>
+      {%endfor%}
+    </tr>
+  </tfoot>
+
+</table>
+{% endblock %}
+
+
+{% block post_javascripts %}
+<script>
+  /************************************
+ * "Orders List" table setup *
+ ************************************/
+
+DISPLAY_MODE = '{{selected_mode}}';
+
+$(document).ready(function() {
+      var table = $('#orders_list').dataTable($.extend(true, {}, DATATABLE_DEFAULTS, {
+        sAjaxSource: '/industry/orders/data/',
+        aoColumns: [
+            { /* # */               sWidth: "10%" },
+            { /* State */           sWidth: "10%" },
+            { /* Originator */      sWidth: "10%" },
+            { /* Client */          sWidth: "10%" },
+            { /* Delivery Date */   sWidth: "10%" },
+            { /* Items */           sWidth: "30%", bSortable: false },
+            { /* Quote */           sWidth: "20%", sClass: 'right' },
+        ],
+        fnRowCallback: function( nRow, aData, iDisplayIndex, iDisplayIndexFull ) {
+            return nRow;
+        },
+
+        /* this function will be called when the table has to query data to be displayed */
+        fnServerData: function ( sSource, aoData, fnCallback ) {
+            /* Add some extra variables to the url */
+            aoData.push( {
+                name: 'display_mode',
+                value: DISPLAY_MODE
+            } );
+            $.getJSON( sSource, aoData, function (json) {
+                fnCallback(json)
+            } );
+        },
+        
+        /* the search field being outside the table object, we need to save its status
+         * explicitly here in order to restore it with the rest */
+        fnStateSaveParams: function (oSettings, oData) {
+            oData.sFilter = $("#search_text").val()
+            oData.display_mode = DISPLAY_MODE;
+        },
+
+        /* restore the search field content */
+        fnStateLoadParams: function (oSettings, oData) {
+            $("#search_text").val(oData.sFilter);
+            if ('display_mode' in oData) {
+            	DISPLAY_MODE = oData.display_mode;
+                $('#display_mode_selector').val(DISPLAY_MODE);
+            }
+            return true;
+        }
+        
+    }));
+
+    /* trigger the search when pressing return in the text field */
+    $("#search_form").submit(function(event) {
+        event.preventDefault();
+        table.fnFilter($("#search_text").val());
+    });
+
+    /* trigger the search when clicking the "search" button */
+    $("#search_button").click(function() {
+        table.fnFilter($("#search_text").val());
+    });
+
+    /* reset the search when clicking the "reset" button */
+    $("#clear_search").click(function() {
+        $("#search_text").val("");
+        table.fnFilter("");
+    });
+
+    /* disable multi column sorting */
+    $('#orders_list thead th').click(function(event) {
+        if (!$(event.target).hasClass('sorthandle')) {
+            event.shiftKey = false;
+        }
+    });
+    
+    $('#display_mode_selector').on('change', function () {
+    	DISPLAY_MODE = this.value;
+    	table.fnDraw();
+    });
+    
+    $('#display_mode_selector').val(DISPLAY_MODE);
+
+} );
+
+</script>
+{% endblock %}

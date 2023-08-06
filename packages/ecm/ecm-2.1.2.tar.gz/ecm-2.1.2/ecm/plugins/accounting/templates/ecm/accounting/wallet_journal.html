@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+
+{% load i18n %}
+{% load static from staticfiles %}
+
+{% block stylesheets %}
+<link rel="stylesheet" type="text/css" href="{% static 'ecm/css/jquery-ui-1.8.13.custom.css' %}" />
+<link rel="stylesheet" type="text/css" href="{% static 'accounting/css/classes.css' %}" />
+<link rel="stylesheet" type="text/css" href="{% static 'hr/css/classes.css' %}" />
+{% endblock %}
+
+{% block headtitle %}{% trans 'Wallets Journal' %}{% endblock %}
+
+
+
+{% block main_content %}
+<div class="page-header">
+	<h1>{% trans 'Wallets Journal' %} <small>{% trans 'last update' %} {{ scan_date|ecm_datetime }}</small></h1>
+</div>
+
+<form id="search_form" class="form-search form-inline btn-toolbar center">
+    <div class="btn-group">
+    	<i class="icon-search"></i>
+    	<input type="text" id="search_text" class="input-small search-query" value="" />
+	</div>
+    <div style="display: inline;">
+	  	<span class="label label-info">{% trans 'Amount' %}</span>
+	  	<select id="comp_selector" class="span1">
+		   	<option value="eq">==</option>
+		   	<option value="neq">&lt;&gt;</option>
+		   	<option value="gte">&gt;=</option>
+		   	<option value="gt">&gt;</option>
+		   	<option value="lte">&lt;=</option>
+		   	<option value="lt">&lt;</option>
+	    </select>
+	  	<input type="number" id="amount_text" class="input-small search-query" value="" />
+    </div>
+    <div style="display: inline;">
+		<span class="label label-info"><i class="icon-calendar icon-white"></i>{% trans 'Period' %}</span>
+		<select id="period_selector" class="input-small">
+			<option value="all" selected="selected">{% trans 'All Time' %}</option>
+			<option value="thismonth">{% trans 'This Month' %}</option>
+			<option value="week">{% trans 'Last Week' %}</option>
+			<option value="month">{% trans 'Last Month' %}</option>
+			<option value="year">{% trans 'Last Year' %}</option>
+		</select>
+	</div>
+	<div style="display: inline;">
+		<span class="label label-info">{% trans 'From' %}</span>
+		<input type="text" id="from_date" name="from_date" value="{{ from_date }}" class="input-small" />
+	</div>
+	<div style="display: inline;">
+		<span class="label label-info">{% trans 'To' %}</span>
+		<input type="text" id="to_date" name="to_date" value="{{ to_date }}" class="input-small" />
+	</div>
+	<div class="btn-group">
+    	<button type="submit" id="search_button" class="btn btn-small"><i class="icon-search"></i>{% trans 'Search' %}</button>
+    	<button type="submit" id="clear_search" class="btn btn-small">{% trans 'Reset' %}</button>
+	</div>
+</form>
+
+<div class="btn-toolbar center form-inline">
+    <div style="display: inline;">
+	    <span class="label label-important">{% trans 'Wallet' %}</span>
+	    <select id="wallet_selector" class="error">{% for w in wallets %}
+	      <option value="{{ w.walletID }}"{% if w.selected %} selected{% endif %}>{{ w.name }}</option>
+	    {% endfor %}</select>
+	</div>
+	<div style="display: inline;">
+	    <span class="label label-important">{% trans 'Operation' %}</span>
+	    <select id="type_selector" class="error">{% for et in entryTypes %}
+	      <option value="{{ et.refTypeID }}"{% if et.selected %} selected{% endif %}>{{ et.refTypeName }}</option>
+	    {% endfor %}</select>
+	</div>
+</div>
+{% datatable 'wallet_journal_columns' columns
+        css_class='table table-bordered table-condensed'
+        defaults=datatable_defaults
+        sAjaxSource="/accounting/journal/data/"
+        sCookiePrefix='ecm_wallet_journal_table_'
+        fnRowCallback='walletJournalRowCallback'
+        fnServerData='serverData'
+
+        %}
+<!--table class="table table-bordered table-condensed" id="journal_table">
+  <thead>
+    <tr>
+      <th class="top" scope="col" >{% trans 'Date' %}</th>
+      <th class="top" scope="col" >{% trans 'Wallet' %}</th>
+      <th class="top" scope="col" >{% trans 'Operation' %}</th>
+      <th class="top" scope="col" >{% trans 'From' %}</th>
+      <th class="top" scope="col" >{% trans 'To' %}</th>
+      <th class="top" scope="col" >{% trans 'Amount' %}</th>
+      <th class="top" scope="col" >{% trans 'Balance' %}</th>
+      <th class="top" scope="col" style="display:none;">{% trans 'Reason' %}</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="7" class="dataTables_empty">{% trans 'Loading data from server...' %}</td>
+    </tr>
+  </tbody>
+  <tfoot>
+    <tr>
+      <th>{% trans 'Date' %}</th>
+      <th>{% trans 'Wallet' %}</th>
+      <th>{% trans 'Operation' %}</th>
+      <th>{% trans 'From' %}</th>
+      <th>{% trans 'To' %}</th>
+      <th>{% trans 'Amount' %}</th>
+      <th>{% trans 'Balance' %}</th>
+      <th style="display:none;">{% trans 'Reason' %}</th>
+    </tr>
+  </tfoot>
+
+</table-->
+{% endblock %}
+
+
+{% block compressed_javascripts %}
+<script type="text/javascript" src="{% static 'ecm/js/lib/jquery.ui.js' %}"></script>
+{% endblock %}
+
+
+{% block post_javascripts %}
+<script type="text/javascript">
+COLOR_THRESHOLDS = {{ colorThresholds|safe }};
+{% include "ecm/accounting/wallet_journal.js" %}
+
+FROM_DATE = "{{ from_date }}";
+TO_DATE = "{{ to_date }}";
+DAY = 1000 * 60 * 60 * 24;
+WEEK = DAY * 7;
+MONTH = DAY * 30;
+YEAR = DAY * 365;
+
+function serverData(sSource, aoData, fnCallback) {
+            /* Add some extra variables to the url */
+            aoData.push( {
+                name: "walletID",
+                value: $("#wallet_selector option:selected").val()
+            },{
+                name: "entryTypeID",
+                value: $("#type_selector option:selected").val()
+            },{
+                name: "amount",
+                value: $("#amount_text").val()
+            },{
+                name: "comparator",
+                value: $("#comp_selector option:selected").val()
+            },{
+                name: "from_date",
+                value: $("#from_date").val()
+            },{
+                name: "to_date",
+                value: $("#to_date").val()
+            } );
+
+            $.getJSON( sSource, aoData, function (json) {
+                fnCallback(json)
+            } );
+        }
+$(document).ready(function() {
+  /* trigger the search when pressing return in the text field */
+    $("#search_form").submit(function(event) {
+        event.preventDefault();
+        $('table').dataTable().fnFilter($("#search_text").val());
+    });
+
+    /* trigger the search when clicking the "search" button */
+    $("#search_button").click(function() {
+        $('table').dataTable().fnFilter($("#search_text").val());
+    });
+
+    /* reset the search when clicking the "reset" button */
+    $("#clear_search").click(function() {
+        $("#search_text").val("");
+        $("#amount_text").val("");
+        $('table').dataTable().fnFilter("");
+    });
+
+    $("#wallet_selector").change(function () {
+        $('table').dataTable().fnDraw();
+    });
+
+    $("#type_selector").change(function () {
+        $('table').dataTable().fnDraw();
+    });
+    
+    $("#period_selector").change(function() {
+        var period = $("#period_selector option:selected").val();
+        if (period == "all") {
+            $("#from_date").val(FROM_DATE);
+            $("#to_date").val(TO_DATE);
+        } else if (period == "thismonth") {
+            var date = $.datepicker.parseDate('yy-mm-dd', TO_DATE);
+            date.setTime(Date.UTC(date.getFullYear(),date.getMonth(),1));
+            $("#from_date").val($.datepicker.formatDate("yy-mm-dd", date));
+            $("#to_date").val(TO_DATE);
+        } else if (period == "week") {
+            var date = $.datepicker.parseDate('yy-mm-dd', TO_DATE);
+            date.setTime(date.getTime() - WEEK);
+            $("#from_date").val($.datepicker.formatDate("yy-mm-dd", date));
+            $("#to_date").val(TO_DATE);
+        } else if (period == "month") {
+            var date = $.datepicker.parseDate('yy-mm-dd', TO_DATE);
+            date.setTime(date.getTime() - MONTH);
+            $("#from_date").val($.datepicker.formatDate("yy-mm-dd", date));
+            $("#to_date").val(TO_DATE);
+        } else if (period == "year") {
+            var date = $.datepicker.parseDate('yy-mm-dd', TO_DATE);
+            date.setTime(date.getTime() - YEAR);
+            $("#from_date").val($.datepicker.formatDate("yy-mm-dd", date));
+            $("#to_date").val(TO_DATE);
+        }
+    });
+
+    $(function() {
+        var dates = $( "#from_date, #to_date" ).datepicker({
+            dateFormat: 'yy-mm-dd',
+            defaultDate: "{{ to_date }}",
+            changeMonth: true,
+            numberOfMonths: 1,
+            onSelect: function( selectedDate ) {
+                var option = this.id == "from_date" ? "minDate" : "maxDate",
+                    instance = $( this ).data( "datepicker" ),
+                    date = $.datepicker.parseDate(
+                        instance.settings.dateFormat ||
+                        $.datepicker._defaults.dateFormat,
+                        selectedDate, instance.settings );
+                dates.not( this ).datepicker( "option", option, date );
+            }
+        });
+    });
+    
+     /* disable multi column sorting */
+    $('#member_contrib_table thead th').click(function(event) {
+        if (!$(event.target).hasClass('sorthandle')) {
+            event.shiftKey = false;
+        }
+    });
+
+} );
+</script>
+{% endblock %}
+
+

@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+
+{% load i18n %}
+{% load static from staticfiles %}
+
+{% block headtitle %}
+{% if contract.title %}{{contract.title|safe}}
+{% else %}{% trans '&lt;No Title&gt;' %}
+{% endif	%}
+{%endblock %}
+
+{% block stylesheets %}
+<link rel="stylesheet" type="text/css"
+	href="{% static 'accounting/css/classes.css' %}" />
+<link rel="stylesheet" type="text/css"
+	href="{% static 'hr/css/classes.css' %}" />
+{% endblock %}
+
+
+
+{% block main_content %}
+<div class="page-header">
+	<h1>
+	  {% trans 'Contract Details' %}
+	  <small>{% if contract.title %}{{contract.title|safe}}{% else %}#{{ contract.contractID }}{% endif %}</small>
+	</h1>
+</div>
+
+<div class="row-fluid">
+	<div class="span1">
+		<img src="{% static 'accounting/img/'|concat:contract.get_type_display|lower|concat:'.png' %}" />
+	</div>
+	<div class="span2">
+		<dl>
+			<dt>{% trans 'Title' %}</dt>
+			<dd id="contract-title">{% if contract.title %}{{contract.title|safe}}{% else %}{% trans '&lt;No Title&gt;' %}{% endif	%}</dd>
+			<dt>{% trans 'Type' %}</dt>
+			<dd id="contract-type">{{contract.permalink_type|safe}}</dd>
+			<dt>{% trans 'Status' %}</dt>
+			<dd class="contract-{{contract.status|lower}}">{{contract.status_html|safe}}</dd>
+			<dt>{% trans 'Availability' %}</dt>
+			<dd id="contract-availability">{{contract.availability_string}}</dd>
+			<dt>{% trans 'Date Issued' %}</dt>
+			<dd id="contract-dateissued">{{contract.dateIssued|ecm_datetime}}</dd>
+			<dt>{% trans 'Date Expired' %}</dt>
+			<dd id="contract-dateexpired">{{contract.dateExpired|ecm_datetime}}</dd>
+			<dt>{% trans 'Date Accepted' %}</dt>
+			<dd id="contract-dateaccepted">{{contract.dateAccepted|ecm_datetime}}</dd>
+			<dt>{% trans 'Date Completed' %}</dt>
+			<dd id="contract-datecompleted">{{contract.dateCompleted|ecm_datetime}}</dd>
+			<dt>{% trans 'Station (start)' %}</dt>
+			<dd id="contract-startstation">{{startStation}}</dd>
+			<dt>{% trans 'Station (end)' %}</dt>
+			<dd id="contract-endstation">{{endStation}}</dd>
+		</dl>
+	</div>
+	<div class="span2">
+		<dl>
+				<dt>{% trans 'Time left' %}</dt>
+				<dd id="contract-numdays">{{contract.numDays}} {% trans 'days' %}</dd>
+				<dt>{% trans 'Price' %}</dt>
+				<dd id="contract-price">{{contract.price|ecm_price}} ISK</dd>
+				<dt>{% trans 'Reward' %}</dt>
+				<dd id="contract-reward">{{contract.reward|ecm_price}} ISK</dd>
+				<dt>{% trans 'Collateral' %}</dt>
+				<dd id="contract-price">{{contract.collateral|ecm_price}} ISK</dd>
+				<dt>{% trans 'Buyout' %}</dt>
+				<dd id="contract-price">{{contract.buyout|ecm_price}} ISK</dd>
+				<dt>{% trans 'Volume' %}</dt>
+				<dd id="contract-price">{{contract.volume}} m&sup3;</dd>
+				<dt>{% trans 'Issuer' %}</dt>
+				<dd id="contract-issuer">{{issuer|safe}}</dd>
+				<dt>{% trans 'Assignee' %}</dt>
+				<dd id="contract-assignee">{{assignee|safe}}</dd>
+				<dt>{% trans 'Acceptor' %}</dt>
+				<dd id="contract-acceptor">{{acceptor|safe}}</dd>
+		</dl>
+	</div>
+</div>
+
+<h3>{% trans 'Contract Items' %}</h3>
+<form id="search_form" class="form-search form-inline">
+  <div class="btn-toolbar" >
+    <input type="text" id="search_text" class="input-medium search-query" value="" />
+    <div class="btn-group">
+      <a class="btn btn-small" id="search_button"><i class="icon-search"></i>{% trans 'Search' %}</a>
+      <a class="btn btn-small" id="clear_search">{% trans 'Reset' %}</a>
+    </div>
+    <a class="btn btn-small" data-toggle="button" id="toggle_grouped">{% trans 'Group' %}</a>
+  </div>
+</form>
+<div class="span10">
+	<table class="table table-bordered table-condensed"
+		id="contractitems_table">
+		<thead>
+			<tr>{% for name, width, type, sortable, css in columns %}
+			<th>{{name}}</th>
+			{% endfor %}</tr>
+		</thead>
+		<tbody>
+			<tr>
+				<td colspan="{{columns|length}}" class="dataTables_empty">{% trans 'Loading
+					data from server...' %}</td>
+			</tr>
+		</tbody>
+	</table>
+</div>
+{% endblock %} {% block post_javascripts %}
+<script>
+$('.tabs').button()
+GROUPED = '{{ grouped }}';
+$(document).ready(function() {
+    var table = $('#contractitems_table').dataTable($.extend(true, {}, DATATABLE_DEFAULTS, {
+        sAjaxSource: "/accounting/contracts/{{ contract.contractID }}/data/",
+        aoColumns: [{% for name, width, type, sortable, css in columns %}
+            { /* {{name}} */ sWidth: '{{width}}', sType: '{{type}}', bSortable: {{sortable}}, sClass: '{{css}}' },
+        {%endfor%}],
+        fnRowCallback: function( nRow, aData, iDisplayIndex, iDisplayIndexFull ) {
+            //return nRow;
+        },
+
+        /* this function will be called when the table has to query data to be displayed */
+        fnServerData: function ( sSource, aoData, fnCallback ) {
+			aoData.push( {
+                name: 'grouped',
+                value: GROUPED
+            } );
+            $.getJSON( sSource, aoData, function (json) {
+                fnCallback(json)
+            } );
+        },
+    }));
+
+  /* trigger the search when pressing return in the text field */
+    $("#search_form").submit(function(event) {
+        event.preventDefault();
+        table.fnFilter($("#search_text").val());
+    });
+
+    /* trigger the search when clicking the "search" button */
+    $("#search_button").click(function() {
+        table.fnFilter($("#search_text").val());
+    });
+
+    /* reset the search when clicking the "reset" button */
+    $("#clear_search").click(function() {
+        $("#search_text").val("");
+        table.fnFilter("");
+    });
+    /* Toggle between grouped and ungrouped items */
+    $("#toggle_grouped").click(function() {
+    	if (GROUPED != 1) {
+            GROUPED = 1;
+        } else {
+        	GROUPED = 0;
+        }
+        table.fnFilter($("#search_text").val());
+    });
+    /* disable multi column sorting */
+    $('#contractitems_table thead th').click(function(event) {
+        if (!$(event.target).hasClass('sorthandle')) {
+            event.shiftKey = false;
+        }
+    });
+
+} );
+</script>
+{% endblock %}
+
+

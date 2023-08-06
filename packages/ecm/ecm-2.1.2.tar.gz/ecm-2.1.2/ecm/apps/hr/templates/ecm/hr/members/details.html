@@ -1,0 +1,195 @@
+{% extends "ecm/hr/hr_base.html" %}
+
+{% load i18n %}
+{% load static from staticfiles %}
+
+{% block hr_stylesheets %}<link rel="stylesheet" type="text/css" href="{% static 'accounting/css/classes.css' %}" />{% endblock %}
+
+{% block headtitle %}{% trans 'Member Details' %} - {{ member.name }}{% endblock %}
+
+
+{% block main_content %}
+<div class="page-header">
+  <h1{%if member.corp_id != my_corp.corporationID %} class="error"{% endif %}>{{ member.name }}
+    <small>{{ member.corp|default:'NO CORP' }}</small>
+  </h1>
+</div>
+
+<div class="row-fluid">
+  <div class="span4">
+    <img src="//image.eveonline.com/Character/{{ member.characterID }}_256.jpg"></img>
+    {% if killboardUrl %}
+    <a class="kill" href="{{killboardUrl}}?a=search&searchtype=pilot&searchphrase={{member.name|iriencode}}">{% trans 'Link to killboard' %}</a>
+    {%endif%}
+  </div>
+  <div class="span8">
+    <dl>
+      <dt>{% trans 'Nickname' %}</dt><dd>{{ member.nickname }}</dd>
+      <dt>{% trans 'Corp Date' %}</dt><dd>{{ member.corpDate|ecm_datetime }}</dd>
+      <dt>{% trans 'Last Login' %}</dt><dd>{{ member.lastLogin|ecm_datetime }}</dd>
+      <dt>{% trans 'Last Logoff' %}</dt><dd>{{ member.lastLogoff|ecm_datetime }}</dd>
+      <dt>{% trans 'Avg. Session Duration (30 Days)' %}</dt><dd>{{ sessiondata.sessionlength|ecm_time }}</dd>
+      <dt>{% trans 'Logged in (last 30 Days)' %}</dt><dd>{{ sessiondata.30days|ecm_time }}</dd>
+      <dt>{% trans 'Logged in (last 7 Days)' %}</dt><dd>{{ sessiondata.7days|ecm_time }}</dd>
+      <dt>{% trans 'Base Office' %}</dt><dd>{% if member.baseID %}{{ member.base }}{% else %}None{% endif %}</dd>
+      <dt>{% trans 'Owned by' %}</dt><dd>{{ member.owner_permalink|safe }}</dd>
+      <dt>{% trans 'Latest location' %}</dt><dd>{{ member.location }} <em>({%if member.ship %}{{ member.ship }}{% else %}{% trans 'Docked' %}{% endif %})</em> {% trans 'on' %} {{ member.date|ecm_datetime }}</dd>
+      <dt>{% trans 'Links' %}</dt><dd><a class="kill" href="http://eve-kill.net/?a=pilot_detail&plt_external_id={{member.characterID|iriencode}}">EVE-Kill</a></dd>
+      <dd><a class="evewho" href="http://evewho.com/pilot/{{member.name|iriencode}}">EVE WHO</a></dd>
+      <dd><a class="eveboard" href="http://eveboard.com/pilot/{{member.name|iriencode}}">EVEBoard</a></dd>
+      <dd><a class="evesearch" href="http://eve-search.com/search/author/{{member.name|iriencode}}">EVE-Search</a></dd>
+      <dd><a class="evegate" href="https://gate.eveonline.com/Profile/{{member.name|iriencode}}">EVE Gate</a></dd>
+    </dl>
+  </div>
+</div>
+
+<h3>Notes</h3>
+<p id="notes" class="editable" >{{ member.notes|default_if_none:"" }}</p>
+
+<h3>Access Level</h3>
+<div class="row-fluid row-{{ member.color }}">
+  <strong>
+    {% if member.is_director %}
+    {% trans 'DIRECTOR' %}
+    {% else %}
+    {{ member.accessLvl }}
+    {% endif %}
+  </strong>
+</div>
+
+<div class="row-fluid">
+  <div class="span6">
+    <h3>Titles</h3>
+    <ul>{% for title in member.titles.all %}
+      <li>{{ title.permalink|safe }}</li>
+      {% empty %}
+      <p>{% trans 'No titles' %}</p>
+    {% endfor %}</ul>
+  </div>
+  <div class="span6">
+    <h3>Extra Roles</h3>
+    <ul>{% for role in member.roles_no_director %}
+      <li>{{ role.permalink|safe }}</li>
+      {% empty %}
+      <p>{% trans 'No extra roles' %}</p>
+    {% endfor %}</ul>
+  </div>
+</div>
+      
+
+<h3>Login-History</h3>
+<table class="table table-bordered table-condensed">
+  <thead>
+  <tr>
+    <th class="top" scope="col">{% trans 'Login' %}</th>
+    <th class="top" scope="col">{% trans 'Logout' %}</th>
+    <th class="top" scope="col">{% trans 'Duration' %}</th>
+  </tr>
+  </thead>
+  <tbody>
+  {% for login in logins %}
+    <tr>
+      <td>{{ login.session_begin|ecm_datetime }}</td>
+      <td>{{ login.session_end|ecm_datetime }}</td>
+      <td>{{ login.session_seconds|ecm_time }}</td>
+  </tr>
+    {% empty %}
+    <tr><td colspan="3">{% trans 'No Data.' %}</td></tr>
+  {% endfor %}
+  </tbody>
+  <tfoot>
+  	<tr>
+	  <th>{% trans 'Last Week' %}: {{ lastWeek|ecm_time }}</th>
+	  <th>{% trans 'Last Month' %}: {{ lastMonth|ecm_time }}</th>
+	  <th>{% trans 'Total' %}: {{ total|ecm_time }}</th>
+	</tr>
+  </tfoot>
+</table>
+
+
+<h3>{% trans 'Security Access Changes' %}</h3>
+{% datatable 'access_changes_table' access_columns 
+             css_class='table table-bordered table-condensed' 
+             defaults=datatables_defaults 
+             aaSorting=sorting 
+             sAjaxSource="/hr/members/"|concat:member.characterID|concat:"/accesschanges/data/" 
+             sCookiePrefix='ecm_member_access_changes_table_' 
+             fnRowCallback='membersAccessRowCallback' %}
+
+<!-- Skill List  -->
+<!-- ##########################################################################
+     # Type    Item    Price    Station    Issued
+     ########################################################################## -->
+<h3>Skills</h3>
+<h4>Current Skills: {{skill_count}} (Skill Points: {{skillpoint_count}})</h4>
+
+<div id="skills-tree"></div>
+
+<!-- /skill list -->
+{% endblock %}
+
+{% block compressed_javascripts %}
+<script type="text/javascript" src="{% static 'ecm/js/lib/jquery.jstree.js' %}"></script>
+{% endblock %}
+
+{% block post_javascripts %}
+<script type="text/javascript">
+function membersAccessRowCallback(nRow, aData, iDisplayIndex, iDisplayIndexFull) {
+    if (aData[0]) {
+        $('td:eq(0)', nRow).html('<img src="{% static "ecm/img/plus.png" %}"></img>');
+    } else {
+        $('td:eq(0)', nRow).html('<img src="{% static "ecm/img/minus.png" %}"></img>');
+    }
+    return nRow;
+}
+</script>
+
+<script type="text/javascript">
+
+$(document).ready(function() {
+	$('#skills-tree').jstree({
+        plugins: [ 'themes' , 'json_data' , 'ui',  'types' ],
+        json_data: { data: {{skills_tree|safe}} },
+        core: {
+            animation : 150,
+            html_titles : true
+        },
+        ui: {
+            select_limit : 1
+        },
+        themes: {
+            url : '{{ STATIC_URL }}hr/css/jstree.css',
+            dots : false
+        },
+        types: {
+            valid_children: [ 'group', 'skill', ],
+            types: {
+                group: {
+                    valid_children: [ 'skill' ],
+                    open_node: true,
+                    close_node: true
+                },
+                skill: {
+                    icon: {
+                        image: '{{ STATIC_URL }}hr/img/skillbook.png'
+                    },
+                    valid_children: 'none',
+                    open_node: true,
+                    close_node: true
+                },
+            }
+        },
+    });
+	/* Apply a jEditable handler to the "notes" paragraph */
+	$('#notes').editable( '/hr/members/{{ member.characterID }}/updatenotes/', {
+	    placeholder: 'Click to add notes...',
+	    style: 'inherit',
+	    cssClass: 'edited',
+	    callback: function( sValue, y ) {
+	        $('#notes').html(sValue);
+	    },
+	    tooltip   : '{% trans "Click to edit..." %}'
+	});
+});
+</script>
+{% endblock %}
