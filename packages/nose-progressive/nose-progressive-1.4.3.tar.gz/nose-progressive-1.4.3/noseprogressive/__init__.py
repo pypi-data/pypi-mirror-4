@@ -1,0 +1,1 @@
+from noseprogressive.plugin import ProgressivePlugin
