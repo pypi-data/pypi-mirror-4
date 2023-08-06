@@ -1,0 +1,299 @@
+Doctest for ``..adapter.StandardDataAdapter``
+=============================================
+
+The ``..interfaces.IDataAdapter`` task is to normalize
+the types passed from the protocol layer
+to the service implementation (``normalize_in``)
+and from the service implementation to the protocol implementation
+(``normalize_out``) to
+reduce the differences between various protocols and
+free the service implementation from such details.
+
+This package contains a standard data adapter
+``..adapter.StandardDataAdapter`` used by all
+marshallers (currently) implemented in this package (although
+it is easy to define marshallers using a different adapter).
+It uses a type set roughly corresponding to the types supported
+by extended xmlrpc implementations (such as that implemented by Python's
+``xmlrpclib``).
+It supports both modern service implementations (using
+``unicode`` to represent text and Python's ``datetime`` types
+to represent date and datetime) and traditional service
+implementations (using ``str`` to represent text and
+Zope's ``DateTime.DateTime`` to represent date and datetime);
+however, some consistency is required.
+Configuration options indicate how text and date/datetime values
+should be handled.
+
+Text handling is controlled by ``text_uses_str`` and ``encoding``.
+If ``text_uses_str`` is true (traditional service implementation,
+default ``False``), then the protocols text type (``unicode``)
+is mapped to ``str`` and vice versa. ``encoding`` is
+used as encoding for these conversions. An empty encoding
+(the default) means the use of Python's default encoding;
+otherwise, ``encoding`` must be a registered Python encoding.
+
+Date/datetime handling is controlled by ``use_zope_datetime``.
+If it is true (traditional service implementation, default: ``False``),
+the module converts between the Python ``datetime`` types and
+Zope's ``DateTime.DateTime``.
+
+Below are doctests to explain (and check) the behaviour
+of the standard data adapter.
+
+
+Adaptation for modern service implementation
+--------------------------------------------
+
+>>> from datetime import date, datetime
+>>> from DateTime import DateTime
+>>> from dm.zope.rpc.type import binary
+>>> from dm.zope.rpc.adapter import StandardDataAdapter
+>>> sda = StandardDataAdapter()
+
+``normalize_in``
+................
+
+>>> n_in = sda.normalize_in
+
+Iterables are mapped to lists; ``bool``, ``int``, ``float``, ``unicode``,
+``None``, ``date``, ``datetime`` values are passed on unchanged.
+
+>>> n_in((True, 1, 1.0, u'1', None, date(2010,1,1), datetime(2010,1,1,12,0,0)))
+[True, 1, 1.0, u'1', None, datetime.date(2010, 1, 1), datetime.datetime(2010, 1, 1, 12, 0)]
+
+``str`` values are converted to ``..type.binary`` values. They derive
+from ``str`` (behave almost identically) and tag binary values.
+
+>>> r = n_in('1')
+>>> r
+'1'
+>>> type(r)
+<class 'dm.zope.rpc.type.binary'>
+
+Binary values are passed unchanged.
+
+>>> r = n_in(binary('1'))
+>>> r
+'1'
+>>> type(r)
+<class 'dm.zope.rpc.type.binary'>
+
+The protocol implementations usually support structures and
+either use dicts or instances to represent such structures.
+Both are normalized to structure wrappers which support both
+a mapping and attribute access api. An ``_rpc_type`` key may
+be implicitely added to inform the application of the original
+type (though this feature is experimental).
+
+>>> class C(object):
+...   def __init__(self, d): self.__dict__.update(d)
+... 
+>>> # the following fixup in necessary because the testrunner
+>>> # executes the code in module '__builtin__' -- very
+>>> # strange for code that should get tested...
+>>> if C.__module__ == '__builtin__': C.__module__ = '__main__'
+>>>
+>>> d = dict(i='1', t=u'text')
+>>> c = C(d)
+>>> 
+>>> nd = n_in(d)
+>>> isinstance(nd, dict)
+True
+>>> nd['i'], nd['t']
+('1', u'text')
+>>> nd.i, nd.t
+('1', u'text')
+>>> '_rpc_type' in nd
+False
+>>> 
+>>> nc = n_in(c)
+>>> isinstance(nc, dict)
+True
+>>> nc['i'], nc['t']
+('1', u'text')
+>>> nc.i, nc.t
+('1', u'text')
+>>> '_rpc_type' in nc
+True
+>>> nc['_rpc_type']
+u'__main__.C'
+>>> nc.x=1
+>>> nc.x
+1
+>>> 'x' in nc
+True
+>>> del nc.x
+>>> 'x' in nc
+False
+
+
+
+``normalize_out``
+.................
+
+>>> n_out=sda.normalize_out
+
+Iterables are mapped to lists; ``bool``, ``int``, ``float``, ``unicode``,
+``None``, ``date``, ``datetime`` values are passed on unchanged.
+
+>>> n_out((True, 1, 1.0, u'1', None, date(2010,1,1), datetime(2010,1,1,12,0,0)))
+[True, 1, 1.0, u'1', None, datetime.date(2010, 1, 1), datetime.datetime(2010, 1, 1, 12, 0)]
+
+``str`` values are converted to ``..type.binary`` values.
+
+>>> type(n_out('1'))
+<class 'dm.zope.rpc.type.binary'>
+
+
+Binary values are passed unchanged.
+
+>>> r = n_out(binary('1'))
+>>> r
+'1'
+>>> type(r)
+<class 'dm.zope.rpc.type.binary'>
+
+
+Dictionaries have their keys converted to unicode and
+their values normalized.
+
+>>> d = dict(s='1', _non_private=None)
+>>> r = n_out(d)
+>>> sorted(r.items())
+[(u'_non_private', None), (u's', '1')]
+>>> type(r[u's'])
+<class 'dm.zope.rpc.type.binary'>
+
+
+Instances with ``items`` are converted like a dict made from these
+items.
+
+>>> class CItems(object):
+...   def __init__(self, d): self.d = d
+...   def items(self): return self.d.items()
+... 
+>>> citems = CItems(d)
+>>> r = n_out(citems)
+>>> sorted(r.items())
+[(u'_non_private', None), (u's', '1')]
+
+
+Instances with ``__iter__`` are converted to the list
+of normalized iterated values.
+
+>>> class CIter(object):
+...   def __iter__(self): return iter(('1', '2'))
+... 
+>>> citer = CIter()
+>>> r = n_out(citer)
+>>> r
+['1', '2']
+>>> type(r[0])
+<class 'dm.zope.rpc.type.binary'>
+
+
+Other instances are converted by converting their ``__dict__``.
+Keys starting with ``_`` are omitted (seen as private attributes).
+An additional key ``_rpc_type`` is added when not already present
+to convey the type information (this feature is experimental).
+
+>>> class COther(object):
+...   def __init__(self, **kw): self.__dict__.update(kw)
+... 
+>>> # the following fixup in necessary because the testrunner
+>>> # executes the code in module '__builtin__' -- very
+>>> # strange for code that should get tested...
+>>> if COther.__module__ == '__builtin__': COther.__module__ = '__main__'
+>>>
+>>> cother = COther(_private='1', non_private='2')
+>>> r = n_out(cother)
+>>> sorted(r.items())
+[(u'_rpc_type', u'__main__.COther'), (u'non_private', '2')]
+>>> type(r['non_private'])
+<class 'dm.zope.rpc.type.binary'>
+>>> cother._rpc_type = u'already present'
+>>> r = n_out(cother)
+>>> sorted(r.items())
+[(u'_rpc_type', u'already present'), (u'non_private', '2')]
+
+
+Zope's ``DateTime`` instances are converted to either ``date``
+or ``datetime`` instances (depending on whether or not non date
+components are set). Datetimes are converted to utc before conversion
+(to avoid test problems, we use a ``DateTime`` in the utc zone).
+
+>>> d = DateTime(2010,1,1)
+>>> n_out(d)
+datetime.date(2010, 1, 1)
+>>> t = DateTime(2010,1,1,12,0,0, 'utc')
+>>> n_out(t)
+datetime.datetime(2010, 1, 1, 12, 0)
+
+
+
+
+Adaptation for traditional service implementation
+-------------------------------------------------
+
+Configuration uses keyword parameters.
+
+>>> tda = StandardDataAdapter(text_uses_str=True, use_zope_datetime=True)
+>>> n_in = tda.normalize_in
+
+We note (without test, for brevity) that the behaviour is
+identical for types different from text and date/datetime.
+
+
+``normalize_in``
+................
+
+Text is converted to ``str`` with Python's default encoding, unless
+``encoding`` is set (the test below assumes that Python's default
+encoding is unchanged; it will fail, otherwise).
+
+>>> r = n_in(u'text')
+>>> r
+'text'
+>>> type(r)
+<type 'str'>
+
+>>> n_in(u'\xef')
+Traceback (most recent call last):
+ ...
+UnicodeEncodeError: 'ascii' codec can't encode character u'\xef' in position 0: ordinal not in range(128)
+
+>>> tda.encoding='utf-8'
+>>> n_in(u'\xef')
+'\xc3\xaf'
+
+
+``date`` and ``datetime`` values are converted to ``DateTime``.
+For ``datetime``, the resulting ``DateTime`` is in the utc timezone
+(we might want an additional option to control conversion to local time).
+
+>>> d = date(2010,1,1)
+>>> n_in(d)
+DateTime('2010/01/01')
+>>> t = datetime(2010, 1, 1, 12)
+>>> n_in(t)
+DateTime('2010/01/01 12:00:00 UTC')
+
+
+``normalize_out``
+.................
+
+``str`` is converted to text type.
+
+>>> n_out = tda.normalize_out
+>>> 
+>>> n_out('1')
+u'1'
+
+
+
+
+
+
+
+
