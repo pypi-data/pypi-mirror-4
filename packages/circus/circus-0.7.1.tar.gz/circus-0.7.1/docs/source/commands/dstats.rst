@@ -1,0 +1,45 @@
+.. _dstats:
+
+
+Get circusd stats
+=================
+
+You can get at any time some statistics about circusd
+with the dstat command.
+
+ZMQ Message
+-----------
+
+To get the circusd stats, simply run::
+
+     {
+         "command": "dstats"
+     }
+
+
+The response returns a mapping the property "infos"
+containing some process informations::
+
+     {
+       "info": {
+         "children": [],
+         "cmdline": "python",
+         "cpu": 0.1,
+         "ctime": "0:00.41",
+         "mem": 0.1,
+         "mem_info1": "3M",
+         "mem_info2": "2G",
+         "nice": 0,
+         "pid": 47864,
+         "username": "root"
+       },
+       "status": "ok",
+       "time": 1332265655.897085
+     }
+
+Command Line
+------------
+
+::
+
+     $ circusctl dstats
