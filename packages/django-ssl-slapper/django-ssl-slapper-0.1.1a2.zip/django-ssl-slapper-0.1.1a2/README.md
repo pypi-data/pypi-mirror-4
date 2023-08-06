@@ -1,0 +1,34 @@
+Django SSL Slapper
+===================
+
+Django django-ssl-slapper is a middleware that allows you to set urls to ssl only.  It can also redirects anonymous users off your https service onto your http.  Logged-in users may also be directed to https.
+
+Decorators are also included that use cache to count the number of login attempts.  Excessive login attempts, for example from computer hackers, temporary lock the login page.
+
+Installation
+------------
+
+```pip install django-ssl-slapper```
+
+Add     ```ssl_slapper.middleware.ssl_slapper``` to middleware in your django settings file
+
+
+Securing Views
+--------------
+
+To secure a url simply add it to the list in your settings file.  For example:
+
+Add the decorator to login pages, for example:
+    url(r'^account/login/$', \
+        decorators.redirect_authenticated_user()(decorators.ratelimit_login()(auth_views.login)), \
+        {'template_name': 'registration/login.html'},name='auth_login'),
+
+
+Settings
+--------
+```SSL_SLAPPER_SSL_ONLY_PAGES = ('/account/login/','/admin/.*')``` Add to this list any pages that you want as ssl.
+
+```SSL_SLAPPER_SSL_REDIRECT_ANONYMOUS=True```  Set to true to redirect anonymous users to http.
+
+```SSL_SLAPPER_SSL_REDIRECT_AUTHENTICATED=True```  Set to true to redirect authenticated users to https.
+
