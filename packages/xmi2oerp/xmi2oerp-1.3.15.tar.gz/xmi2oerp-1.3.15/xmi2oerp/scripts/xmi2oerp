@@ -1,0 +1,107 @@
+#!/usr/bin/env python
+##############################################################################
+#
+#    XMI2OERP, XMI convesort to OpenERP module
+#    Copyright (C) 2012 Coop Trab Moldeo Interactive, Grupo AdHoc S.A.
+#    (<http://www.moldeointeractive.com.ar>; <www.grupoadhoc.com.ar>).
+#
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU Affero General Public License as
+#    published by the Free Software Foundation, either version 3 of the
+#    License, or (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU Affero General Public License for more details.
+#
+#    You should have received a copy of the GNU Affero General Public License
+#    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+##############################################################################
+
+import sys, os
+import argparse
+from xmi2oerp.model import Model
+from xmi2oerp.builder import Builder
+from xmi2oerp.validation import Validator
+import logging
+
+_loglevel = [ logging.ERROR, logging.INFO, logging.DEBUG ]
+
+def convert(func, infile, dbfile, target, logfile, loglevel, remove):
+    """
+    Convert XMI file to a set of OpenERP modules.
+    """
+    logging.basicConfig(stream=logfile, level=_loglevel[loglevel])
+    logging.info('Starting.')
+
+    if infile and dbfile and os.path.exists(dbfile):
+        os.remove(dbfile)
+
+    if dbfile is None:
+        dbfile = ':memory:'
+
+    model = Model(infile, db=dbfile)
+
+    if not Validator(model).run():
+        logging.info('Cant validate model. Stop building.\n')
+        return False
+
+    if target and os.path.exists(target):
+        builder = Builder(target, model)
+        if remove: builder.reset()
+        builder.build(logfile=logfile)
+
+    logging.info('End.\n')
+
+def main():
+    """
+    Main function. Parse arguments and execute conversion.
+    """
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--infile', '-i',
+                        type=argparse.FileType('r'), nargs='?',
+                        default=None,
+                        help='XMI input file')
+    parser.add_argument('--dbfile', '-d',
+                        type=str, nargs='?',
+                        default=None,
+                        help='database file')
+    parser.add_argument('--target', '-t',
+                        type=str, nargs='?',
+                        default=None,
+                        help='Target directory of openerp modules')
+    parser.add_argument('--logfile', '-l',
+                        type=argparse.FileType('w'), nargs='?',
+                        default=sys.stderr,
+                        help='Log processing')
+    parser.add_argument('--loglevel', '-v',
+                        type=int, nargs='?',
+                        default=0,
+                        help='Log level. 0 - basic, 1 - info, 2 - debug.')
+    parser.add_argument('--remove', '-r',
+                        action='store_true',
+                        help='Remove destination before recreate.')
+
+    parser.set_defaults(func=convert)
+
+    args = parser.parse_args()
+
+    #logging.basicConfig(level=logging.WARNING)
+    #logging.basicConfig(level=logging.INFO)
+
+    try:
+        args.func(**args.__dict__)
+    except OSError, m:
+        print "\nERROR: Target exists?"
+    except Exception, m:
+        print "\nERROR:", m.message
+        return -1
+    return 0
+
+if __name__ == '__main__':
+        main()
+
+# vim:expandtab:smartindent:tabstop=4:softtabstop=4:shiftwidth=4:
