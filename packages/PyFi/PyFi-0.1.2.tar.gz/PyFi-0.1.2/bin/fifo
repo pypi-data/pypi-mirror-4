@@ -1,0 +1,105 @@
+#!/usr/bin/env python2
+
+import ConfigParser
+import os
+import sys
+import argparse
+
+import sys, os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+
+from fifo.api.wiggle import Wiggle
+from fifo.api.hypervisor import Hypervisor
+from fifo.api.vm import VM
+from fifo.api.package import Package
+from fifo.api.dataset import Dataset
+from fifo.api.network import Network
+from fifo.api.dtrace import Dtrace
+
+from fifo.api.user import User
+from fifo.api.group import Group
+
+from pprint import pprint
+import json
+
+
+
+#First we initialize our configuration read the data and generate a default if needed
+
+config = ConfigParser.ConfigParser()
+config_file = os.environ.get('HOME') + "/.fifo"
+
+config.read(config_file);
+
+if not config.has_section('GENERAL'):
+    print ("fifo client is not configured creating an example config at: " + config_file)
+    config.add_section('GENERAL')
+    config.set('GENERAL', 'active', 'fifo_default')
+    config.add_section('fifo_default')
+    config.set('fifo_default', 'host', '127.0.0.1')
+    config.set('fifo_default', 'user', 'test')
+    config.set('fifo_default', 'pass', 'test')
+    with open(config_file, 'w') as configfile:
+        config.write(configfile)
+        exit(1)
+
+
+# Now we initialize our wiggle endpoint
+wiggle = Wiggle()
+
+#Define the Diferent format options for the list sections
+
+# Parse the arguments ...
+
+parser = argparse.ArgumentParser(description='FiFo API client.')
+parser.add_argument("-c",
+                    default=config.get('GENERAL', 'active'))
+parser.add_argument("--host")
+parser.add_argument("--user")
+parser.add_argument("--password")
+
+subparsers = parser.add_subparsers(help='sub commands')
+
+Hypervisor(wiggle).make_parser(subparsers)
+
+VM(wiggle).make_parser(subparsers)
+Package(wiggle).make_parser(subparsers)
+Dataset(wiggle).make_parser(subparsers)
+Network(wiggle).make_parser(subparsers)
+Dtrace(wiggle).make_parser(subparsers)
+
+User(wiggle).make_parser(subparsers)
+Group(wiggle).make_parser(subparsers)
+
+args = parser.parse_args(sys.argv[1:])
+
+
+active_config = args.c
+
+if not config.has_section(active_config):
+    print("Active configuration " + active_config + " does not exist")
+    exit(1)
+
+host = args.host or config.get(active_config, 'host')
+user = args.user or config.get(active_config, 'user')
+pw = args.password or config.get(active_config, 'pass')
+
+token = False
+
+if config.has_option(active_config, 'token'):
+    token = config.get(active_config, 'token')
+
+
+wiggle.init(host, user, pw, token)
+#We check if we can get a valid token from wiggle and store it on our config
+if wiggle.get_token():
+    config.set(active_config, 'token', wiggle.get_token())
+with open(config_file, 'w') as configfile:
+    config.write(configfile)
+
+
+if 'func' in args:
+    args.func(args)
+else:
+    parser.print_help()
