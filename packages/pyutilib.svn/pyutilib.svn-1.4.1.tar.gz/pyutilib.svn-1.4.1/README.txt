@@ -1,0 +1,48 @@
+===================
+pyutilib.svn README
+===================
+
+A PyUtilib package for subversion-related utilities.
+
+
+-------
+License
+-------
+
+BSD.  See the LICENSE.txt file.
+
+
+------------
+Organization
+------------
+
++ Directories
+
+  * pyutilib - The root directory for PyUtilib source code
+
++ Documentation and Bug Tracking
+
+  * Trac wiki: https://software.sandia.gov/trac/pyutilib
+
++ Authors
+
+  * See the AUTHORS.txt file.
+
++ Project Managers
+
+  * William Hart, wehart@sandia.gov
+
++ Mailing List
+
+  * pyutilib-forum@googlegroups.com
+    - The main list for help and announcements
+  * pyutilib-developers@googlegroups.com
+    - Where developers of PyUtilib discuss new features
+
+--------------------
+Third Party Software
+--------------------
+
+pyutilib.svn relies on the following libraries:
+  - PyYAML (available from http://pyyaml.org/wiki/PyYAML)
+
