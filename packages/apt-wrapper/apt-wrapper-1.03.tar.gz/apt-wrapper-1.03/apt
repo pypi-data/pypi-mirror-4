@@ -1,0 +1,137 @@
+#!/usr/bin/env python
+'''
+    A simpler interface to Debian APT commands. (C) 2012 Mike Miller
+    License: GPLv3+
+
+    %prog [options] COMMAND ARGS
+    %prog           # with no arguments to list available commands
+'''
+import sys, os
+from subprocess import call
+from optparse import OptionParser
+
+# initialization
+__version__ = '1.03'
+use_sudo = ('apt-get', 'apt-get remove', 'aptitude', 'apt-key', 'dpkg -i',
+            'add-apt-repository ', 'apt-get install')
+
+# map commands to their appropriate binaries:
+cmd_map = {
+    # apt-get
+    'autoclean': 'apt-get',
+    'autoremove': 'apt-get',
+    'build-dep': 'apt-get',
+    'changelog': 'apt-get',
+    'check': 'apt-get',
+    'clean': 'apt-get',
+    'dist-upgrade': 'apt-get',
+    'download': 'apt-get',
+    'dselect-upgrade': 'apt-get',
+    'install': 'apt-get',
+    'in': 'apt-get install',        # alias
+    'markauto': 'apt-get',
+    'purge': 'apt-get',
+    'remove': 'apt-get',
+    'rm': 'apt-get remove',         # alias
+    'source': 'apt-get',
+    'unmarkauto': 'apt-get',
+    'update': 'apt-get',
+    'upgrade': 'apt-get',
+
+    # cache
+    'depends': 'apt-cache',
+    'dotty': 'apt-cache',
+    'dump': 'apt-cache',
+    'dumpavail': 'apt-cache',
+    'gencaches': 'apt-cache',
+    'pkgnames': 'apt-cache',
+    'policy': 'apt-cache',
+    'rdepends': 'apt-cache',
+    'search': 'apt-cache',
+    'se': 'apt-cache search',       # alias
+    'show': 'apt-cache',
+    'showauto': 'apt-cache',
+    'showpkg': 'apt-cache',
+    'showsrc': 'apt-cache',
+    'stats': 'apt-cache',
+    'unmet': 'apt-cache',
+    'xvcg': 'apt-cache',
+
+    # config
+    'shell': 'apt-config',
+    'dumpcon': 'apt-config',
+
+    # aptitude
+    'hold': 'aptitude',
+    'unhold': 'aptitude',
+    'reinstall': 'aptitude',
+    'why': 'aptitude',
+    'why-not': 'aptitude',
+
+    # more
+    'fingerprint': 'apt-key',
+    'list': 'dpkg-query -l',
+    'status': 'dpkg-query -l',      # alias
+    'listfiles': 'dpkg-query -L',
+    'searchfiles': 'dpkg-query -S',
+    'who-owns': 'dpkg-query -S',    # alias
+    'instdeb': 'dpkg -i',
+    'addrepo': 'add-apt-repository ',  # trailing space hack to override cmd
+}
+commands = sorted(set(cmd_map.keys()))  # make a list for the user
+
+def is_uniq(fragment):
+    ''' Check whether a given command fragment uniquely identifies a command.
+        Returns:  boolean, first command or None, all matches.
+    '''
+    results = [ c  for c in commands  if c.startswith(fragment) ]
+    uniq = (len(results) == 1)
+    return uniq, (results or [None])[0], results
+
+# check & prepare args
+parser = OptionParser(usage=__doc__.rstrip(), version=__version__)
+parser.add_option('-d', '--debug', action='store_true', default=False,
+                  help='turn on debugging output.')
+opts, args = parser.parse_args()
+
+if not args:
+    sys.exit('Error: no command given.  Must be one of: \n\n(%s).\n' %
+             ', '.join(commands))
+else:
+    command = args[0]
+
+
+# find applicable binary, command
+if command in cmd_map:
+    binary = cmd_map[command]
+else:
+    uniq, command, matches = is_uniq(command)
+    if opts.debug:
+        print 'Unique:', args[0], command
+    if not uniq:
+        sys.exit('Error: %s command, %s --> %s' % (
+                 ('ambiguous' if matches else 'unknown'),
+                 args[0], matches))
+    binary = cmd_map[command]
+
+# should this be elevated?
+if binary in use_sudo and os.geteuid() != 0:
+    prefix = 'sudo '
+else:
+    prefix = ''
+
+# check if binary uses a flag instead of command
+if ' ' in binary:
+    binary, command = binary.split(' ', 1)
+
+
+# build command line
+cmdline = (prefix + ' '.join([binary, command] + args[1:])).replace('  ', ' ')
+if opts.debug:
+    print 'Running:', cmdline
+
+# http://youtu.be/0hiUuL5uTKc?t=8s
+try:
+    sys.exit(call(cmdline, shell=True))
+except KeyboardInterrupt:
+    print >> sys.stderr, '\nWarning: Ctrl+C entered, exiting.'
