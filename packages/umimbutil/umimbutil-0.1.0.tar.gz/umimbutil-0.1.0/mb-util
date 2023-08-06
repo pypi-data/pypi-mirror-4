@@ -1,0 +1,332 @@
+#!/usr/bin/env python
+
+# MBUtil: a tool for MBTiles files
+# Supports importing, exporting, and more
+#
+# (c) Development Seed 2012
+# Licensed under BSD
+
+import logging, os, sys
+from optparse import OptionParser, OptionGroup
+
+from mbutil import mbtiles_to_disk, disk_to_mbtiles, mbtiles_create, merge_mbtiles, optimize_database_file, compact_mbtiles, check_mbtiles, test_mbtiles, fill_mbtiles, execute_commands_on_mbtiles, convert_string
+
+if __name__ == '__main__':
+
+    logging.basicConfig(level=logging.INFO)
+
+    parser = OptionParser(usage="""usage: %prog [command] [options] file|directory [file|directory ...]
+
+    Examples:
+
+    Export an mbtiles database to a directory of files:
+    $ mb-util --export world.mbtiles tiles
+
+    Import a directory of tiles into an mbtiles database:
+    $ mb-util --import tiles world.mbtiles
+
+    Create an empty mbtiles file:
+    $ mb-util --create empty.mbtiles
+
+    Execute commands on all tiles in the mbtiles file:
+    $ mb-util --process --execute "COMMAND ARGUMENTS" [--execute "SECOND COMMAND"] world.mbtiles
+
+    Merge two or more mbtiles files (receiver will be the first file):
+    $ mb-util --merge receiver.mbtiles file1.mbtiles [file2.mbtiles ...]
+
+    Fill a mbtiles database with a given tile image
+    $ mb-util --fill --min-zoom=7 --max-zoom=12 world.mbtiles transparent.png
+
+    Check if a mbtiles file contains all tiles at a specific zoom level:
+    $ mb-util --check --zoom=7 world.mbtiles
+
+    Test tiles with a command, print tile coordinates for non-zero return values
+    $ mb-util --test --execute "COMMAND ARGUMENTS" world.mbtiles
+
+    Compact a mbtiles file by eliminating duplicate images:
+    $ mb-util --compact world.mbtiles
+
+    Convert tile coordinates and bounding boxes:
+    $ mb-util --convert="13/4328/2861"
+    $ mb-util --convert="10.195312,47.546872,10.239258,47.576526" --min-zoom=12 --max-zoom=13
+    """)
+
+    group = OptionGroup(parser, "Commands", "These are the commands to use on mbtiles databases")
+
+    group.add_option("-e", "--export",
+        dest='export_tiles', action="store_true",
+        help='''Export an mbtiles database to a directory of files. If the directory exists, any already existing tiles will be overwritten.''',
+        default=False)
+
+    group.add_option("-i", "--import",
+        dest='import_tiles', action="store_true",
+        help='''Import a directory of tiles into an mbtiles database. If the mbtiles database already exists, existing tiles will be overwritten with the imported tiles.''',
+        default=False)
+
+    group.add_option("-m", "--merge",
+        dest='merge_tiles', action="store_true",
+        help='''Merge two or more databases. The receiver will be created if it doesn\'t yet exist.''',
+        default=False)
+
+    group.add_option("-p", "--process",
+        action="store_true", dest="process", default=False,
+        help='''Processes a mbtiles databases. Only usefull together with one or more --execute.''')
+
+    group.add_option("--check",
+        dest='check', action="store_true",
+        help='''Check the database for missing tiles.''',
+        default=False)
+
+    group.add_option("--test",
+        dest='test', action="store_true",
+        help='''Test every tile with the given command, print the tile coordinate if the command returns anything non-zero.''',
+        default=False)
+
+    group.add_option("--fill",
+        dest='fill', action="store_true",
+        help='''Fill a mbtiles database with transparent tiles where it doesn\'t already contain tiles. Only usefull with --min-zoom/--max-zoom and --tile-bbox/--bbox.''',
+        default=False)
+
+    group.add_option("--compact",
+        dest='compact', action="store_true",
+        help='''Eliminate duplicate images to reduce mbtiles filesize.''',
+        default=False)
+
+    group.add_option("--create",
+        action="store_true", dest="create", default=False,
+        help='''Create an empty mbtiles database.''')
+
+    group.add_option('--convert',
+        dest='convert', type="string", default=None,
+        help='''Convert tile coordinates 'y/x/z' to bounding box 'left,bottom,right,top' or vice versa.''')
+
+    parser.add_option_group(group)
+
+    group = OptionGroup(parser, "Options", "")
+
+    group.add_option("--execute",
+        dest="command_list", type="string", metavar="COMMAND",
+        action="append", default=None,
+        help='''Commands to execute for each tile image. %s will be replaced with the file name. This argument may be repeated several times and can be used together with --import/--export/--merge/--compact/--process.''')
+
+    group.add_option('--flip-y', dest='flip_y',
+        help='''Flip the y tile coordinate during --export/--import/--merge/--convert.''',
+        action="store_true", default=False)
+
+    group.add_option('--min-zoom', dest='min_zoom',
+        help='''Minimum zoom level for --export/--import/--merge/--process/--check/--convert.''',
+        type="int", default=0)
+
+    group.add_option('--max-zoom', dest='max_zoom',
+        help='''Maximum zoom level for --export/--import/--merge/--process/--check/--convert.''',
+        type="int", default=18)
+
+    group.add_option('--zoom', dest='zoom',
+        help='''Zoom level for --export/--import/--process/--check/--convert. (Overrides --min-zoom and --max-zoom)''',
+        type='int', default=-1)
+
+    group.add_option('--min-timestamp', dest='min_timestamp',
+        help='''Minimum numerical timestamp for --export/--merge.''',
+        type="long", default=0)
+
+    group.add_option('--max-timestamp', dest='max_timestamp',
+        help='''Maximum numerical timestamp for --export/--merge.''',
+        type="long", default=0)
+
+    group.add_option('--bbox', dest='bbox',
+        help='''Bounding box in coordinates 'left,bottom,right,top' (10.195312,47.546872,10.239258,47.576526)''',
+        type='string', default=None)
+
+    group.add_option('--tile-bbox', dest='tile_bbox',
+        help='''Bounding box in tile coordinates 'left,bottom,right,top' (10,10,20,20). Can only be used with --zoom.''',
+        type='string', default=None)
+
+    group.add_option("--no-overwrite",
+        action="store_true", dest="no_overwrite", default=False,
+        help='''don't overwrite existing tiles during --merge/--import/--export.''')
+
+    group.add_option("--revert-test",
+        action="store_true", dest="revert_test", default=False,
+        help='''For --test, print the tile coordinates if the command returns zero.''')
+
+    group.add_option("--auto-commit",
+        action="store_true", dest="auto_commit", default=False,
+        help='''Enable auto commit for --merge/--import/--process.''')
+
+    group.add_option("--synchronous-off",
+        action="store_true", dest="synchronous_off", default=False,
+        help='''DANGEROUS!!! Set synchronous=OFF for the database connections.''')
+
+    group.add_option("--use-wal-journal",
+        action="store_true", dest="wal_journal", default=False,
+        help='''Use journal_mode=WAL for the databases (default is DELETE).''')
+
+    group.add_option("--check-before-merge",
+        action="store_true", dest="check_before_merge", default=False,
+        help='''Runs some basic checks (like --check) on mbtiles before merging them.''')
+
+    group.add_option("--delete-after-export",
+        action="store_true", dest="delete_after_export", default=False,
+        help='''DANGEROUS!!! After a --merge or --export, this option will delete all the merged/exported tiles from the (sending) database. Only really usefull with --min-zoom/--max-zoom or --zoom since it would remove all tiles from the database otherwise.''')
+
+    group.add_option("--delete-vanished-tiles",
+        action="store_true", dest="delete_vanished_tiles", default=False,
+        help='''DANGEROUS!!! If a tile vanishes during --execute then delete it also from the database or ignore it during --merge/--process.''')
+
+    group.add_option("--poolsize",
+        type="int", default=-1,
+        help="""Pool size for processing tiles with --process/--merge. Default is to use a pool size equal to the number of cpus/cores.""")
+
+    group.add_option('--tmp-dir',
+        dest='tmp_dir', type="string", default=None,
+        help='''Temporary directory to use for --execute (e.g. /dev/shm).''')
+
+    group.add_option("--vacuum",
+        action="store_false", dest="skip_vacuum", default=True,
+        help='''VACUUM the mbtiles database after --import/--merge/--process/--compact.''')
+
+    group.add_option("--analyze",
+        action="store_false", dest="skip_analyze", default=True,
+        help='''ANALYZE the mbtiles database after --import/--merge/--process/--compact.''')
+
+    group.add_option("--progress",
+        action="store_true", dest="progress", default=False,
+        help='''Print progress updates and keep them on one line during --import/--merge/--export/--compact/--process.''')
+
+    group.add_option("-q", "--quiet",
+        action="store_true", dest="quiet", default=False,
+        help='''don't print any status messages to stdout except errors.''')
+
+    group.add_option("-d", "--debug",
+        action="store_true", dest="debug", default=False,
+        help='''print debug messages to stdout (exclusive to --quiet).''')
+
+    parser.add_option_group(group)
+
+    (options, args) = parser.parse_args()
+
+    # Transfer operations
+    if len(args) == 0:
+        if options.convert:
+            convert_string(options.convert, **options.__dict__)
+            sys.exit(0)
+
+        parser.print_help()
+        sys.exit(1)
+
+    if options.quiet:
+        logging.getLogger().setLevel(logging.ERROR)
+    elif options.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+
+    logger = logging.getLogger(__name__)
+
+    if options.wal_journal:
+        logger.debug("Using journal_mode=WAL")
+    else:
+        logger.debug("Using journal_mode=DELETE")
+
+    if options.auto_commit:
+        logger.debug("Using auto commit (isolation_level = None)")
+    if options.flip_y:
+        logger.debug("Flipping the y coordinate")
+
+    if options.tmp_dir:
+        logger.debug("Using tmp dir: %s" % (options.tmp_dir, ))
+
+    if len(args) == 1:
+        # Check the mbtiles db?
+        if options.check:
+            if not os.path.isfile(args[0]):
+                sys.stderr.write('The mbtiles database to check must exist.\n')
+                sys.exit(1)
+            result = check_mbtiles(args[0], **options.__dict__)
+            sys.exit(0) if result else sys.exit(1)
+
+        # Execute commands on the tiles in the mbtiles db?
+        if options.process:
+            if not os.path.isfile(args[0]):
+                sys.stderr.write('The mbtiles database to process must exist.\n')
+                sys.exit(1)
+            execute_commands_on_mbtiles(args[0], **options.__dict__)
+            optimize_database_file(args[0], options.skip_analyze, options.skip_vacuum, options.wal_journal)
+            sys.exit(0)
+
+        if options.compact:
+            if not os.path.isfile(args[0]):
+                sys.stderr.write('The mbtiles database to compact must exist.\n')
+                sys.exit(1)
+            compact_mbtiles(args[0], **options.__dict__)
+            optimize_database_file(args[0], options.skip_analyze, options.skip_vacuum, options.wal_journal)
+            sys.exit(0)
+
+        if options.test:
+            if not os.path.isfile(args[0]):
+                sys.stderr.write('The mbtiles database to test must exist.\n')
+                sys.exit(1)
+            if options.command_list == None or len(options.command_list) != 1:
+                sys.stderr.write('Need exactly one command to execute for each tile.\n')
+                sys.exit(1)
+            test_mbtiles(args[0], **options.__dict__)
+            sys.exit(0)
+
+        # Create an empty mbtiles db?
+        if options.create:
+            if os.path.exists(args[0]):
+                sys.stderr.write('The mbtiles database to create must not exist yet.\n')
+                sys.exit(1)
+            mbtiles_create(args[0], **options.__dict__)
+            sys.exit(0)
+
+        sys.stderr.write("No command given, don't know what to do. Exiting...")
+        sys.exit(0)
+
+    if len(args) == 2:
+        if options.fill:
+            if not os.path.isfile(args[0]):
+                sys.stderr.write('The mbtiles database to fill must exist.\n')
+                sys.exit(1)
+            if not os.path.isfile(args[1]):
+                sys.stderr.write('The tile image file must exist.\n')
+                sys.exit(1)
+            fill_mbtiles(args[0], args[1], **options.__dict__)
+            optimize_database_file(args[0], options.skip_analyze, options.skip_vacuum, options.wal_journal)
+            sys.exit(0)
+
+    # merge mbtiles files
+    if options.merge_tiles:
+        if not os.path.isfile(args[0]):
+            mbtiles_create(args[0], **options.__dict__)
+
+        receiving_mbtiles = args[0]
+        for n in range(1, len(args)):
+            other_mbtiles = args[n]
+            if not options.quiet:
+                logging.info("%d: Merging %s" % (n, other_mbtiles))
+            if not os.path.isfile(other_mbtiles):
+                continue
+            merge_mbtiles(receiving_mbtiles, other_mbtiles, **options.__dict__)
+
+        optimize_database_file(args[0], options.skip_analyze, options.skip_vacuum, options.wal_journal)
+        sys.exit(0)
+
+    # export from mbtiles to disk
+    if options.export_tiles:
+        if not os.path.isfile(args[0]):
+            sys.stderr.write('The mbtiles database to export must exist.\n')
+            sys.exit(1)
+
+        mbtiles_file, directory_path = args
+        mbtiles_to_disk(mbtiles_file, directory_path, **options.__dict__)
+        sys.exit(0)
+
+    # import from disk to mbtiles
+    if options.import_tiles:
+        if not os.path.isdir(args[0]):
+            sys.stderr.write('The directory to import from must exist.\n')
+            sys.exit(1)
+
+        directory_path, mbtiles_file = args
+        disk_to_mbtiles(directory_path, mbtiles_file, **options.__dict__)
+        optimize_database_file(mbtiles_file, options.skip_analyze, options.skip_vacuum, options.wal_journal)
+        sys.exit(0)
