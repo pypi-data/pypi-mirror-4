@@ -1,0 +1,330 @@
+{% load i18n permissions_tags compress media_tags %}
+{% ifhasperm "manage_block" %}
+
+{% addmedia "css" %}
+  <link rel="stylesheet" type="text/css" href="{{ MEDIA_URL }}merengue/css/render_blocks.css"/>
+{% endaddmedia %}
+
+{% compress js %}
+<script type="text/javascript">
+// <![CDATA[
+(function($) {
+  if (!$.browser.msie || $.browser.version != '6.0') {
+    $(document).ready(function() {
+        var containers = $(".blockContainer:visible");
+
+        function getBlocksOrder(className) {
+            var order = [];
+            containers.each(function () {
+                var orderList = [];
+                var place = $(this).children(".blockPlace").val();
+                $(this).find("." + className).find(".blockId").each(function() {
+                    var val = $(this).val();
+                    if (val) {
+                        order.push(val +"#"+ place);
+                    }
+                });
+            });
+            return order.join(",");
+        }
+
+        function initBlockTools() {
+            $(".block").each(function() {
+                initBlock($(this));
+            });
+        }
+
+        function initBlock(block) {
+            var dragAnchor, confAnchor, removeAnchor, cacheAnchor, divTools, position;
+            position = block.position();
+            divTools = $("<div>");
+            // creating block tools
+            dragAnchor = $("<a>");
+            dragAnchor.attr("href", "javascript:void(0)");
+            dragAnchor.attr("title", "{% trans "Enable/disable blocks dragging" %}");
+            if (!block.hasClass('fixed')){
+                dragAnchor.addClass("drag");
+                dragAnchor.click(enableDragging);
+                divTools.append(dragAnchor);
+            }
+            if (!block.hasClass("noconfig")) {
+                confAnchor = $("<a>");
+                confAnchor.attr("href", "javascript:void(0)");
+                confAnchor.attr("rel", "shadowbox");
+                confAnchor.click(loadBlockConfiguration);
+                confAnchor.addClass("configure");
+                confAnchor.attr("title", "{% trans "Configure block" %}");
+                divTools.append(confAnchor);
+            }
+            if (block.parent().hasClass("cached-block")) {
+                cacheAnchor = $("<a>");
+                cacheAnchor.attr("href", "javascript:void(0)");
+                cacheAnchor.click(invalidateCache);
+                cacheAnchor.addClass("invalidate-cache");
+                cacheAnchor.attr("title", "{% trans "Invalidate cache" %}");
+                divTools.append(cacheAnchor);
+            }
+            removeAnchor = $("<a>");
+            removeAnchor.attr("href", "javascript:void(0)");
+            removeAnchor.click(removeBlock);
+            removeAnchor.addClass("remove");
+            removeAnchor.attr("title", "{% trans "Remove block" %}");
+            divTools.append(removeAnchor);
+
+            divTools.addClass("blockTools");
+            if (block.css('position') != 'absolute') {
+                divTools.css({"left": position.left - 20});
+                divTools.css({"top": position.top});
+            } else { // blocks positioned absolutely will have relative blockTools
+                divTools.css({"left": -20});
+                divTools.css({"top": 0});
+            }
+            block.append(divTools);
+            block.mouseenter(function() {
+                if(block.attr("id")) {
+                    block.children(".blockTools").stop(true, true).show();
+                }
+            }).mouseleave(function() {
+                if(block.attr("id")) {
+                    block.children(".blockTools").delay(1000).fadeOut();
+                }
+            });
+        }
+
+        function invalidateCache() {
+            if (!confirm("{% trans "Are you sure you want to invalidate the cache of this block" %}")) {
+                return false;
+            }
+            var blocks_index_url = '{% url blocks_index %}';
+            var block = $(this).parents('.block');
+            var block_name = block.attr('id');
+            var block_id = block.find('.blockId').val();
+            var block_invalidate_url = blocks_index_url + 'ajax/invalidate-cache/' + block_id + '/';
+            var render_block_url = '.?render_block=' + block_id;
+            $.ajax({
+                url: block_invalidate_url,
+                success: function(data){
+                    if(data == 'ok') {
+                        var block_parent = block.parents('.blockWrapper').eq(0);
+                        block_parent.fadeOut(1000, function() {
+                            block_parent.load(render_block_url, function() {
+                                initBlock(block_parent.find('#' + block_name));
+                            }).fadeIn('slow');
+                        });
+                    }
+                }
+            });
+            return false;
+        }
+
+        function removeBlock() {
+            if (!confirm("{% trans "Are you sure you want to remove this block" %}")) {
+                return false;
+            }
+            var blocks_index_url = '{% url blocks_index %}';
+            var block = $(this).parents('.block');
+            var block_name = block.attr('id');
+            var block_title = block.find('.blockHiddenTitle').html();
+            var block_id = block.find('.blockId').val();
+            var block_remove_url = blocks_index_url + 'ajax/remove-block/' + block_id + '/';
+            $.ajax({
+                url: block_remove_url,
+                success: function(data){
+                    block.fadeOut(function() {
+                        block.remove();
+                    });
+                }
+            });
+            return false;
+        }
+
+        function loadBlockConfiguration() {
+            var blocks_index_url = '{% url blocks_index %}';
+            var block = $(this).parents('.block');
+            var block_name = block.attr('id');
+            var block_id = block.find('.blockId').val();
+            var block_title = block.find('.blockHiddenTitle').html();
+            var block_config_url = blocks_index_url + 'ajax/config/' + block_id;
+            $.ajax({
+                url: block_config_url,
+                context: document.body,
+                success: function(data){
+                    Shadowbox.open({
+                        content:    data,
+                        type:       "html",
+                        title:      block_title,
+                        height:     600,
+                        width:      500
+                    });
+                }
+            });
+            function getBlock(block_id, block_name) {
+                return $('.blockId[value='+ block_id +']').parents('#' + block_name);
+            }
+
+            // when block config was loaded by AJAX (previous function)
+            // we change usual submit by a AJAX submit (without refreshing browser)
+            $('#config-block-form').live("submit", function(event) {
+                event.preventDefault();
+                var block_id = $(this).find('[name=blockid]').val();
+                var block_name = $(this).find('[name=blockname]').val();
+                var block = getBlock(block_id, block_name);
+                var render_block_url = '.?render_block=' + block_id;
+                $.ajax({
+                    type: 'POST',
+                    url: $(this).attr('action'),
+                    data: $(this).serialize(),
+                    success: function(data) {
+                        if(data == 'ok') {
+                            block.parent().fadeOut(1000, function() {
+                                block.parent().load(render_block_url, function() {
+                                    initBlock(getBlock(block_id, block_name));
+                                }).fadeIn('slow');
+                            });
+                            Shadowbox.close();
+                        } else {
+                            // a validation error happens. We will render the form again
+                            $('#config-block').replaceWith(data);
+                        }
+                    }
+                });
+                return false;
+            });
+
+        }
+
+        function enableDragging() {
+            var container = $(this).parents(".blockContainer")[0];
+            var containerType = "blocks";
+            var validCSSClasses = ["contentblocks", "sectionblocks"];
+            for (var i=0; i<validCSSClasses.length; i++) {
+                if ($(container).hasClass(validCSSClasses[i])) {
+                    containerType = validCSSClasses[i];
+                    break;
+                }
+            }
+            var validContainers = containers.filter("." + containerType).not('.nondraggable');
+            validContainers.each(function() {
+                if ($(this).children().length < 2 || $(this).height() == 0) {
+                    var child;
+                    child = $("<div>");
+                    child.html("{% trans "Drag here" %}");
+                    child.addClass("blockDrag");
+                    $(this).append(child);
+                }
+            });
+            if (!validContainers.hasClass("blockContainerBorder")) {
+                validContainers.addClass("blockContainerBorder");
+                validContainers.sortable({
+                    connectWith: '.blockContainer',
+                    parent: 'document',
+                    opacity: 0.6,
+                    revert: true,
+                    items: '.block',
+                    helper: 'clone',
+                    tolerance: 'pointer',
+                    start: function(event, ui) {
+                        $(".block .blockTools").hide();
+                    },
+                    stop: function(event, ui) {
+                        $(".block .blockTools").hide();
+                        disableDragging();
+                        recalculatePosition(ui.item);
+                        postNewOrder();
+                    }
+                });
+                validContainers.disableSelection();
+            } else {
+                disableDragging();
+            }
+            return false;
+        }
+
+        function disableDragging() {
+            containers.sortable("destroy");
+            containers.removeClass("blockContainerBorder");
+            containers.find(".blockDrag").remove();
+        }
+
+        function recalculatePosition(ui) {
+            var position;
+            position = $(ui).position();
+            divTools = $(ui).children(".blockTools");
+            divTools.css({"left": position.left - 20});
+            divTools.css({"top": position.top});
+        }
+
+        function postNewOrder() {
+            var newOrder = getBlocksOrder("blockGlobal");
+            var blockCntRltd = getBlocksOrder("blockRelated");
+            $.ajax({
+                url: "{% url blocks_reorder %}",
+                type: "POST",
+                data: ({new_order : newOrder, block_cnt_rltd: blockCntRltd}),
+                dataType: "json",
+                success: function(msg) {
+                    // It's not necesary to alert the user
+                },
+                error: function() {
+                    window.location = window.location;
+                }
+            });
+        }
+
+        var initAddBlock = function() {
+            $("a.add-block-in-container").click(function() {
+                var trigger = $(this);
+                $.ajax({
+                    url: trigger.attr('href'),
+                    data: {
+                        place: $(this).parent().find('.blockPlace').val(),
+                        contentid: $(this).parent().find('.contentid').val(),
+                        sectionid: $(this).parent().find('.sectionid').val()
+                    },
+                    context: document.body,
+                    success: function(data){
+                        Shadowbox.open({
+                            content:    data,
+                            type:       "html",
+                            title:      trigger.text(),
+                            height:     200,
+                            width:      400
+                        });
+                    }
+                });
+                $('#add-block-form').live("submit", function(event) {
+                    event.preventDefault();
+                    $.ajax({
+                        type: 'POST',
+                        url: $(this).attr('action'),
+                        data: $(this).serialize(),
+                        success: function(data) {
+                            if(data.indexOf('div id="add-block"') < 0) {
+                                trigger.before(data);
+                                var block = trigger.prev('.blockWrapper').find('.block');
+                                if (block.length) {
+                                    initBlock(block);
+                                }
+                                Shadowbox.close();
+                            } else {
+                                // a validation error happens. We will render the form again
+                                $('#add-block').replaceWith(data);
+                            }
+                        }
+                    });
+                    return false;
+                });
+                return false;
+            });
+        }
+
+        initBlockTools();
+        initAddBlock();
+    });
+  }
+})(jQuery);
+// ]]>
+</script>
+{% endcompress %}
+
+{% endifhasperm %}

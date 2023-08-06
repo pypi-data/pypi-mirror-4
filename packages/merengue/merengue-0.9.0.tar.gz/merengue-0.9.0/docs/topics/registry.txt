@@ -1,0 +1,257 @@
+.. _topics-registry:
+
+=================
+Merengue registry
+=================
+
+.. highlightlang:: html+django
+
+
+Introduction
+============
+
+In any modern cms you usually have several components that will be registered
+and/or configured in every installed site. This registration and configurations
+parameters would be defined by superuser in merengue admin interface. All would
+be stored in database.
+
+Example use cases:
+
+* Registering plugins, with plugin options (see :ref:`plugin development docs <topics-plugins-overview>`).
+* Registering actions with configuration parameters (see :ref:`actions docs <topics-actions>`).
+* Storing user preferences.
+* Theme configuration (basic colors, etc.).
+
+
+Using registry
+==============
+
+Example use case
+----------------
+
+*Use case is*: imagine we wants to implement a plugin registering system, with
+plugins configurable by developers. This is the current Merengue `pluggable module`_.
+
+.. _`pluggable module`: http://dev.merengueproject.org/browser/trunk/merengueproj/merengue/pluggable/__init__.py
+
+Defining a registrable and configurable component
+-------------------------------------------------
+
+First step is defining a registrable component. This is a Python class that
+must inherits from ``merengue.registry.items.RegistrableItem`` class:
+
+.. code-block:: python
+
+    from merengue.registry.items import RegistrableItem
+
+    class Plugin(RegistrableItem):
+
+        @classmethod
+        def get_category(cls):
+            return 'plugin'
+
+The ``get_category`` method is needed, and say to Merengue what kind of objects
+you will register.
+
+With this example, you have created a base class for all plugins. A plugin
+developer could declare his plugin with this fragment:
+
+.. code-block:: python
+
+    from merengue.pluggable import Plugin
+
+    class PluginConfig(Plugin):
+        name = 'fooplugin'
+
+This is all you need to implement a registrable component.
+
+Now we will consider we have implemented all pluggable system. Now we will
+learn to use registry for registering and unregistering objects.
+
+For testing previous code fragment, make a ``fooplugin`` directory into ``plugins``
+directory, with a ``__init__.py`` file inside it and a ``config.py`` file. In
+the last file, copy and paste previous code fragment.
+
+How can I do plugin registering? With these sentences:
+
+.. code-block:: python
+
+    >>> from merengue.registry import register, is_registered, have_registered_items
+    >>> from plugins.fooplugin.config import PluginConfig
+    >>> have_registered_items(PluginConfig)
+    False
+    >>> reg_item = register(PluginConfig)
+    >>> have_registered_items(PluginConfig)
+    True
+    >>> item = reg_item.get_registry_item()
+    >>> is_registered(item)
+    True
+
+.. admonition:: Plugin autoregistering
+
+    Note your first call to ``is_registered`` returns ``True``, this is
+    because Merengue has plugin autoregistering activated and you have
+    accessed to plugins admin view.
+
+This sentences will register plugin by default in a ``RegisteredItem`` model in
+database. The RegisteredItem model definition is in ``merengue.registry.models``
+module.
+
+.. admonition:: Note
+
+    Do not confusing RegisteredItem with RegistrableItem. The latter is not a
+    Django model but an registrable object. The first is a model that store all
+    ``RegistrableItem``s have been registered with ``merengue.registry.register``
+    function.
+
+You can access to registered object with these sentences:
+
+.. code-block:: python
+
+    >>> from merengue.registry.models import RegisteredItem
+    >>> RegisteredItem.objects.all().values()
+    [{'class_name': u'PluginConfig', 'category': u'plugin', 'config': u'', 'id': 5, 'module': u'plugins.fooplugin.config'}]
+    >>> RegisteredItem.objects.by_item_class(PluginConfig)
+    [<RegisteredItem: PluginConfig>]
+
+.. _topics-registry-configuration-params:
+
+Configuring your registrable components
+---------------------------------------
+
+Let's look at this example:
+
+.. code-block:: python
+
+    from django.utils.translation import ugettext_lazy as _
+    from merengue.pluggable import Plugin
+    from merengue.registry import params
+
+    class PluginConfig(Plugin):
+        name = 'fooplugin'
+        config_params = [
+            params.Single(name='username', label=_('username'), default='pepe'),
+            params.List(name='friends', label=_('friends'),
+                        default=['antonio', 'juan'],
+                        choices=[('antonio', 'Antonio'),
+                                ('paco', 'Paco'),
+                                ('rosa', 'Rosa'),
+                                ('juan', 'Juan')]),
+            params.Single(name='season', label=_('season'),
+                          choices=[('spring', _('Spring')),
+                                  ('summer', _('Summer')),
+                                  ('autumn', _('Autumn')),
+                                  ('winter', _('Winter'))]),
+        ]
+
+Automatically, with this configuration, you can access to registered item in
+admin and will see and configure all parameters of this component:
+
+.. image:: _images/registry_config.png
+
+If plugin developer want to access this configuration (remember, the
+configuration you customize in admin, no the default config_params for plugin),
+he would use these sentences:
+
+.. code-block:: python
+
+    >>> from merengue.registry import get_item
+    >>> plugin = get_item('plugins.fooplugin.config.PluginConfig')
+    >>> config = plugin.get_config()
+    >>> print config['friends'].get_value()
+    ['paco', 'juan']
+    >>> print config['friends'].choices
+    [('antonio', 'Antonio'), ('paco', 'Paco'), ('rosa', 'Rosa'), ('juan', 'Juan')]
+    >>> print config['friends'].default
+    ['antonio', 'juan']
+    >>> config['friends'].get_type()
+    'List'
+
+If you register a registrable item, you also will save this configuration in
+database. See this example:
+
+.. code-block:: python
+
+    class PersonItem(RegistrableItem):
+        config_params = [
+            params.Bool(name='is_human', default=True),
+            params.Integer(name='age'),
+            params.List(name='friends', choices=('Juan', 'Luis', 'Pepe'))
+        ]
+
+And now an example use:
+
+.. code-block:: python
+
+    >>> reg_item = register(PersonItem)
+    >>> item = reg_item.get_registry_item()
+    >>> item.get_config()
+    {'is_human': <True, Bool>,
+    'age': <<class 'merengue.registry.params.NOT_PROVIDED'>, Integer>,
+    'friends': <<class 'merengue.registry.params.NOT_PROVIDED'>, List>}
+    >>> reg_item.config
+    {u'is_human': True}
+    >>> reg_item.config['age'] = 30
+    >>> reg_item.save()
+    >>> item.get_config()
+    {'is_human': <True, Bool>,
+    'age': <30, Integer>,
+    'friends': <<class 'merengue.registry.params.NOT_PROVIDED'>, List>}
+
+Items not active by default
+---------------------------
+
+You can define a registered item not actived by default:
+
+.. code-block:: python
+
+    class PersonItem(RegistrableItem):
+        active_by_default = False
+
+When you register a item with ``active_by_default`` attribute to ``False`` will
+be included in the database but will not affect in the website until manager
+actives it in admin interface.
+
+Singleton items
+---------------
+
+Sometimes you need to define a constrain to register only one item for every
+item class. This is named a `singleton`_. In a Merengue plugin, its actions,
+panels and viewlets are singletons, but blocks not (because you can add two
+same blocks in your web).
+
+To define a singleton you have to add a ``singleton=True`` in your registrable
+class definition. See this explanatory example:
+
+.. code-block:: python
+
+    class NonSingletonItem(RegistrableItem):
+        pass
+
+    class SingletonItem(RegistrableItem):
+        singleton = True
+
+See what happen if I do some registering tasks:
+
+.. code-block:: python
+
+    >>> register(NonSingletonItem)
+    <RegisteredItem: NonSingletonItem>
+    >>> register(NonSingletonItem)
+    <RegisteredItem: NonSingletonItem>
+    >>> register(SingletonItem)
+    <RegisteredItem: SingletonItem>
+    >>> register(SingletonItem)
+    ...
+    AlreadyRegistered: item class "<class 'fooplugin.SingletonItem'>" is already registered
+    >>> from merengue.registry import get_items, get_item
+    >>> get_item(SingletonItem)
+    <fooplugin.SingletonItem object at 0xaae482c>
+    >>> list(get_items(NonSingletonItem))
+    [<fooplugin.NonSingletonItem object at 0xad60f2c>,
+    <fooplugin.NonSingletonItem object at 0xad60e6c>]
+    >>> get_item(NonSingletonItem)
+    ...
+    MultipleObjectsReturned: get() returned more than one RegisteredItem -- it returned 2! Lookup parameters were {}
+
+.. _`singleton`: http://en.wikipedia.org/wiki/Singleton_pattern

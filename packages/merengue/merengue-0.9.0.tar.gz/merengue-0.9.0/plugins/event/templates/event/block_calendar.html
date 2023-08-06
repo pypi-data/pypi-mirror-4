@@ -1,0 +1,113 @@
+{% extends "block.html" %}
+{% load i18n media_tags %}
+
+{% block blockbody %}
+  <style type="text/css">
+    .datepicker-loading {
+        z-index: 5000;
+        position: absolute;
+        display: none;
+        top: 50%;
+        left: 30%;
+        padding: 5px;
+        border: 1px solid gray;
+        background: #eee;
+    }
+    .ui-datepicker {
+        width: auto;
+    }
+    .eventsCalendar {
+        font-size:73%;
+        position: relative;
+    }
+    #content .eventsCalendar{
+        margin-top: -10px;
+    }
+  </style>
+  <div class="eventsCalendar calendar">
+      <div class="datepicker-loading">
+        {% trans "Loading..." %} <img src="{{ MEDIA_URL }}merengue/img/ajax-loader-admin.gif" title="loading"/>
+      </div>
+  </div>
+
+{% addmedia "css" %}
+    <link href="{{ MEDIA_URL }}merengue/css/jquery-ui-1.8.css" rel="stylesheet" type="text/css"/>
+    <link href="{{ MEDIA_URL }}event/jquery.tooltip.css" rel="stylesheet" type="text/css"/>
+{% endaddmedia %}
+
+{% addmedia "js" %}
+    <script language="javascript" src="{{ MEDIA_URL }}event/lib/jquery.bgiframe.js"></script>
+    <script language="javascript" src="{{ MEDIA_URL }}event/jquery.tooltip.js"></script>
+{% endaddmedia %}
+
+<script language="javascript" src="{{ MEDIA_URL }}merengue/js/jquery.ui.datepicker-{{ LANGUAGE_CODE }}.js"></script>
+
+<script language="javascript" >
+ (function($) {
+    $(document).ready(function() {
+        function bind_days_tooltip ()
+        {
+            $(".calendarEventDay").tooltip();
+        }
+
+        var datepickerOptions, eventDate;
+        eventDate = {};
+        {% for date, event in events_dic.items %}
+        eventDate["{{ date }}"] = {
+            'name': '{{ event.name }}',
+            'url': '{{ event.url }}'
+        }
+        {% endfor %}
+        datepickerOptions = {
+            showButtonPanel: false,
+            changeMonth: false,
+            changeYear: false,
+            showOtherMonths: true,
+            selectOtherMonths: true,
+            weekHeader: 'W',
+            beforeShowDay: function(date) {
+                var key;
+                key = date.getFullYear() +"-"+ (date.getMonth() + 1) +"-"+ date.getDate();
+                if (eventDate[key] && eventDate[key]['name'])
+                {
+                    return [true, "calendarEventDay", eventDate[key]['name']];
+                }
+                else
+                {
+                    return [false, "", ""];
+                }
+            },
+            onSelect: function(dateText, inst) {
+                var date, key;
+                var date_splitted = dateText.split('/');
+                date = new Date(parseInt(date_splitted[2], 10),
+                                parseInt(date_splitted[1], 10) - 1,
+                                parseInt(date_splitted[0], 10));
+                key = date.getFullYear() +"-"+ (date.getMonth() + 1) +"-"+ date.getDate();
+                if (eventDate[key]) {
+                    window.location = eventDate[key]['url'];
+                }
+            },
+            onChangeMonthYear: function(year, month, inst) {
+                $('.datepicker-loading').fadeIn("slow");
+                $.ajax({
+                    url: "{% url events_calendar %}",
+                    type: "GET",
+                    data: ({month: month, year: year, section_id: {{ section_id }}}),
+                    dataType: "json",
+                    success: function(events) {
+                        $('.datepicker-loading').fadeOut("slow");
+                        eventDate = events;
+                        $(".calendar").datepicker("refresh");
+                        bind_days_tooltip();
+                    }
+                });
+            }
+        };
+        $(".calendar").datepicker(datepickerOptions);
+        bind_days_tooltip();
+        $('.datepicker-loading').hide();
+    });
+})(jQuery);
+</script>
+{% endblock %}
