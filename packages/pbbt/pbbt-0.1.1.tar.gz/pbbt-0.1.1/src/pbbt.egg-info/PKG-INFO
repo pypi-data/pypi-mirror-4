@@ -1,0 +1,1076 @@
+Metadata-Version: 1.1
+Name: pbbt
+Version: 0.1.1
+Summary: Pluggable Black-Box Testing toolkit
+Home-page: http://bitbucket.org/prometheus/pbbt
+Author: Kirill Simonov (Prometheus Research, LLC)
+Author-email: xi@resolvent.net
+License: MIT
+Download-URL: http://pypi.python.org/pypi/pbbt
+Description: ***********************************************
+          PBBT -- Pluggable Black-Box Testing toolkit
+        ***********************************************
+        
+        
+        .. contents:: Table of Contents
+        
+        
+        Overview
+        ========
+        
+        PBBT is a regression test harness for *black-box testing*.  It is
+        suitable for testing complex software components with well-defined input
+        and output interfaces.
+        
+        ::
+        
+              input    +----------+   output
+            o--------> | Software | --------->o
+                       +----------+
+        
+        In black-box testing, a *test case* is a combination of *input* and
+        expected *output* data.  The test harness executes the software with the
+        given input and verifies that the produced output coincides with the
+        expected output.
+        
+        Black-box testing could be implemented for many different types of
+        software.  For example,
+        
+        * *a database system:* the input is a SQL statement, the output is a set
+          of records;
+        * *a web service:* the input is an HTTP request, the output is an HTTP
+          response;
+        * *a command-line utility:* the input is a sequence of command-line
+          parameters and ``stdin``, the output is ``stdout``;
+        * *a GUI application:* different approaches are possible; for instance,
+          the input could be a sequence of user actions, and the output could be
+          the state of a particular widget.
+        
+        PBBT is a Python library and an application which allows you to:
+        
+        * use built-in test types for testing command-line scripts and Python
+          code;
+        * register custom test types;
+        * prepare test input in a succinct YAML_ format;
+        * in the *train* mode, run the test cases and record expected output;
+        * in the *check* mode, run the test cases and verify that the produced
+          output coincides with the pre-recorded expected output.
+        
+        PBBT is a free software released under MIT license.  PBBT is created by
+        Clark C. Evans and Kirill Simonov from `Prometheus Research, LLC`_.
+        
+        
+        Using PBBT
+        ==========
+        
+        To install PBBT, you can use pip_ package manager::
+        
+            # pip install pbbt
+        
+        This command downloads and installs the latest version of PBBT from
+        `Python Package Index`_.  After successful installation, you should be
+        able to import ``pbbt`` Python module and run ``pbbt`` command-line
+        utility.
+        
+        To start using PBBT, you need to create a file with input data.  For
+        example, create ``input.yaml`` with the following content::
+        
+            py: |
+              print "Hello, World!"
+        
+        This file is in YAML_ format, which is a data serialization language
+        similar to JSON_, and, in fact, a superset of JSON.  The file above
+        could be represented in JSON as::
+        
+            { "py": "print \"Hello, World!\"\n" }
+        
+        For description of YAML syntax and semantics, see http://yaml.org/.
+        
+        Next, execute PBBT in *training* mode to generate expected output data.
+        Run::
+        
+            $ pbbt input.yaml output.yaml --train
+        
+        and accept new output when asked.  PBBT will write output data to
+        ``output.yaml``::
+        
+            py: print-hello-world
+            stdout: |
+              Hello, World!
+        
+        Now you can start PBBT in *checking* mode, in which it executes test
+        cases and verifies that expected and actual output data coincide::
+        
+            $ pbbt input.yaml output.yaml
+        
+        To add more test cases to ``input.yaml``, you need to convert it to a
+        *test suite*::
+        
+            title: My Tests
+            tests:
+            - py: |
+                print "Hello, World!"
+            - sh: echo Hello, World!
+        
+        The file now contains a test suite *My Tests* with two test cases: one
+        as in the previous example, and another that executes a shell command
+        ``echo Hello, World!``::
+        
+            sh: echo Hello, World!
+        
+        The output of this test case is ``stdout`` produced by the shell
+        command.  To record expected output, run ``pbbt`` in training mode
+        again.
+        
+        
+        Built-in Test Types
+        ===================
+        
+        Out of the box, PBBT supports a small set of predefined test types:
+        
+        * test Python code;
+        * test a shell command;
+        * file manipulation tests.
+        
+        Also available are special test types:
+        
+        * test suite;
+        * include;
+        * conditional variables.
+        
+        Each test type defines the structure of input and output records, that
+        is, the set of mandatory and optional fields and the type of field
+        values.  In this section, we list all available test types and describe
+        their input fields.
+        
+        Common Fields
+        -------------
+        
+        The following optional fields are available for all test types where
+        they make sense:
+        
+        ``skip``: ``true`` or ``false``
+            On ``true``, skip this test case.
+        
+        ``if``: variable, list of variables or Python expression
+            On a *variable name*, run this test case only if the variable is
+            defined and not false.
+        
+            On a *list of variables*, run this test case only if at least one
+            variable is defined and not false.
+        
+            On a *Python expression*, run this test case if the expression
+            evaluates to true.  You can use any conditional variables in the
+            expression.
+        
+        ``unless``: variable, list of variables or Python expression
+            On a *variable name*, skip this test case if the variable is defined
+            and not false.
+        
+            On a *list of variables*, skip this test case if at least one
+            variable is defined and not false.
+        
+            On a *Python expression*, skip this test case if the expression
+            evaluates to true.  You can use any conditional variables in the
+            expression.
+        
+        ``ignore``: ``true``, ``false`` or regular expression
+            On ``true``, permit the actual and expected output to be unequal.
+            The test case must still execute without any errors.
+        
+            On a *regular expression*, pre-process the actual and expected
+            output before comparing them:
+        
+            1. Run the regular expression against the output data and find
+               all matches.
+            2. If the regular expression does not contain ``()`` subgroups,
+               erase all the matches from the output.
+            3. If the regular expression contains one or more ``()`` subgroups,
+               erase the content of the subgroups from the output.
+        
+            The regular expression is compiled with ``MULTILINE`` and
+            ``VERBOSE`` flags.
+        
+        Example::
+        
+            title: Integration with MySQL
+            if: has_mysql
+            tests:
+            - set:
+                MYSQL_HOST: localhost
+                MYSQL_PORT: 3306
+              unless: [MYSQL_HOST, MYSQL_PORT]
+            - read: /etc/mysql/my.cnf
+              if: MYSQL_HOST == 'localhost'
+            - py: test-scalar-types.py
+              ignore: |
+                ^Today:.(\d\d\d\d)-(\d\d)-(\d\d)$
+            - py: test-array-types.py
+              skip: true    # No array type in MySQL
+        
+        Test Suite
+        ----------
+        
+        A test suite is a collection of test cases.
+        
+        A suite may contain other suites and thus all test suites form a tree
+        structure.  A *path* formed from suite identifiers can uniquely locate
+        any suite.  We use file-system notation for suite paths (e.g.
+        ``/path/to/suite``).
+        
+        Fields:
+        
+        ``title``: text
+            The title of the suite.
+        
+        ``suite``: identifier (optional)
+            The identifier of the suite.  If not set, generated from the title.
+        
+        ``tests``: list of input records
+            The content of the suite.
+        
+        ``output``: path (optional)
+            If set, the expected output of the suite is loaded from the given
+            file.
+        
+        Example::
+        
+            title: All Tests
+            suite: all
+            output: output.yaml
+            tests:
+            - py: ./test/core.py
+            - py: ./test/ext.py
+            - title: Database Tests
+              tests:
+              - py: ./test/sqlite.py
+              - py: ./test/pgsql.py
+              - py: ./test/mysql.py
+        
+        In this example, the path to the *Database Tests* suite is
+        ``/all/database-tests``.
+        
+        Conditional Variables
+        ---------------------
+        
+        This test case defines a conditional variable.
+        
+        Variables could be used in ``if`` and ``unless`` clauses to
+        conditionally enable or disable a test case.  Variables could also be
+        set or read in Python tests via a global dictionary ``__pbbt__``.
+        
+        Conditional variables could also be set from command line using ``-D``
+        option.
+        
+        Setting a conditional variable affects all subsequent test cases within
+        the same test suite.  Variable values are reset on exit from the suite.
+        
+        Fields:
+        
+        ``set``: variable or dictionary of variables
+            On a *variable name*, set the value of the given variable to
+            ``True``.
+        
+            On a *dictionary*, set the values of the given variables.
+        
+        Example::
+        
+            title: MySQL Tests
+            tests:
+            - set: MYSQL
+            - set:
+                MYSQL_HOST: localhost
+                MYSQL_PORT: 3306
+              unless: [MYSQL_HOST, MYSQL_PORT]
+            - py: |
+                # Determine the version of the MySQL server
+                import MySQLdb
+                connection = MySQLdb.connect(host=__pbbt__['MYSQL_HOST'],
+                                             port=int(__pbbt__['MYSQL_PORT']),
+                                             db='mysql')
+                cursor = connection.cursor()
+                cursor.execute("""SELECT VERSION()""")
+                version_string = cursor.fetchone()[0]
+                version = tuple(map(int, version_string.split('-')[0].split('.')))
+                __pbbt__['MYSQL_VERSION'] = version
+            - py: test-ddl.py
+            - py: test-dml.py
+            - py: test-select.py
+            - py: test-new-features.py
+              if: MYSQL_VERSION >= (5, 5)
+        
+        Include Test
+        ------------
+        
+        This test case loads and executes a test case from a file.
+        
+        Fields:
+        
+        ``include``: path
+            The file to load.  The file should contain an input test record in
+            YAML format.
+        
+        Example::
+        
+            title: All Tests
+            tests:
+            - include: test/core.yaml
+            - include: test/ext.yaml
+            - include: test/sqlite.yaml
+            - include: test/pgsql.yaml
+            - include: test/mysql.yaml
+        
+        Python Code
+        -----------
+        
+        This test case executes Python code and produces ``stdout``.
+        
+        Fields:
+        
+        ``py``: path or Python code
+            On *Python code*, the source code to execute.
+        
+            On a *file name*, the file which contains source code to execute.
+        
+        ``stdin``: text (optional)
+            Content of the standard input.
+        
+        ``except``: exception type (optional)
+            If set, indicates that the code is expected to raise an exception of
+            the given type.
+        
+        Example::
+        
+            title: Python tests
+            tests:
+            - py: hello.py
+            - py: &sum |
+                # Sum of two numbers
+                import sys
+                a = int(sys.stdin.readline())
+                b = int(sys.stdin.readline())
+                c = a+b
+                sys.stdout.write("%s\n" % c)
+              stdin: |
+                2
+                2
+            - py: *sum
+              stdin: |
+                1
+                -5
+            - py: *sum
+              stdin: |
+                one
+                three
+              except: ValueError
+        
+        Note that we use a YAML anchor (denoted by ``&sum``) and aliases
+        (denoted by ``*sum``) to use the same piece of code in several tests.
+        
+        Shell Command
+        -------------
+        
+        This test case executes a shell command and produces ``stdout``.
+        
+        Fields:
+        
+        ``sh``: command or executable with a list of parameters
+            The shell command to execute.
+        
+        ``stdin``: text (optional)
+            Content of the standard input.
+        
+        ``cd``: path (optional)
+            Change the current working directory to the given path before
+            executing the command.
+        
+        ``environ``: dictionary of variables (optional)
+            Add the given variables to the command environment.
+        
+        ``exit``: integer (optional)
+            The expected exit code; ``0`` by default.
+        
+        Example::
+        
+            title: Shell tests
+            tests:
+            - sh: echo Hello, World!
+            - sh: cat
+              stdin: |
+                Hello, World!
+            - sh: [cat, /etc/shadow]
+              exit: 1   # Permission denied
+        
+        Write to File
+        -------------
+        
+        This test case creates a file with the given content.
+        
+        Fields:
+        
+        ``write``: path
+            The file to create.
+        
+        ``data``: text
+            The file content.
+        
+        Example::
+        
+            write: test/tmp/data.txt
+            data: |
+                Hello, World!
+        
+        Read from File
+        --------------
+        
+        The output of this test is the content of a file.
+        
+        Fields:
+        
+        ``read``: path
+            The file to read.
+        
+        Example::
+        
+            read: test/tmp/data.txt
+        
+        Remove File
+        -----------
+        
+        This test case removes a file.  It is not an error if the file does not
+        exist.
+        
+        Fields:
+        
+        ``rm``: path or list of paths
+            File(s) to remove.
+        
+        Example::
+        
+            rm: test/tmp/data.txt
+        
+        Make Directory
+        --------------
+        
+        This test case creates a directory.
+        
+        Parent directories are also created if necessary.  It is not an error if
+        the directory already exists.
+        
+        Fields:
+        
+        ``mkdir``: path
+            The directory to create.
+        
+        Example::
+        
+            mkdir: test/tmp
+        
+        Remove Directory
+        ----------------
+        
+        This test case removes a directory with all its content.
+        
+        It is not an error if the directory does not exist.
+        
+        Fields:
+        
+        ``rmdir``: path
+            The directory to delete.
+        
+        Example::
+        
+            rmdir: test/tmp
+        
+        
+        Custom Test Types
+        =================
+        
+        In this section, we discuss how to add custom test types to PBBT.
+        
+        Suppose we want to test a SQL database by running a series of SQL
+        queries and validating that we get expected output.  To implement this
+        testing scheme, we need a way to:
+        
+        * open a connection to the database;
+        * execute a SQL statement and produce a sequence of records.
+        
+        The input file may look like this::
+        
+            title: Database tests
+            tests:
+            # Remove the database file left after the last testing session.
+            - rm: test.sqlite
+            # Create a new SQLite database.
+            - connect: test.sqlite
+            # Run a series of SQL commands.
+            - sql: |
+                SELECT 'Hello, World!';
+            - sql: |
+                CREATE TABLE student (
+                    id      INTEGER PRIMARY KEY,
+                    name    TEXT NOT NULL,
+                    gender  CHAR(1) NOT NULL
+                            CHECK (gender in ('f', 'i', 'm')),
+                    dob     DATE NOT NULL
+                );
+            - sql: |
+                INSERT INTO student (id, name, gender, dob)
+                VALUES (1001, 'Linda Wright', 'f', '1988-10-03'),
+                       (1002, 'Beth Thompson', 'f', '1988-01-24'),
+                       (1003, 'Mark Melton', 'm', '1984-06-05'),
+                       (1004, 'Judy Flynn', 'f', '1986-09-02'),
+                       (1005, 'Jonathan Bouchard', 'm', '1982-02-12');
+            - sql: |
+                SELECT *
+                FROM student
+                ORDER BY dob;
+            - sql: |
+                SELECT name
+                FROM student
+                WHERE id = 1003;
+        
+        In this input file, we use two new types of test cases:
+        
+        ``connect``
+            Specifies the connection to a SQLite database.
+        ``sql``
+            Specifies a SQL statement to execute.
+        
+        We will write a PBBT extension implementing these test types.
+        
+        Create a file ``sql.py`` with the following content::
+        
+            from pbbt import Test, Field, BaseCase, MatchCase, listof
+            import sqlite3, traceback, csv, StringIO
+        
+            @Test
+            class ConnectCase(BaseCase):
+        
+                class Input:
+                    connect = Field(str)
+        
+                def check(self):
+                    self.state['connect'] = None
+                    try:
+                        self.state['connect'] = sqlite3.connect(self.input.connect)
+                    except:
+                        self.ui.literal(traceback.format_exc())
+                        self.ui.warning("exception occurred while"
+                                        " connecting to the database")
+                        self.ctl.failed()
+                    else:
+                        self.ctl.passed()
+        
+            @Test
+            class SQLCase(MatchCase):
+        
+                class Input:
+                    sql = Field(str)
+        
+                class Output:
+                    sql = Field(str)
+                    rows = Field(listof(listof(object)))
+        
+                def render(self, output):
+                    stream = StringIO.StringIO()
+                    writer = csv.writer(stream, lineterminator='\n')
+                    writer.writerows(output.rows)
+                    return stream.getvalue()
+        
+                def run(self):
+                    connection = self.state.get('connect')
+                    if not connection:
+                        self.ui.warning("database connection is not defined")
+                        return
+                    rows = []
+                    try:
+                        cursor = connection.cursor()
+                        cursor.execute(self.input.sql)
+                        for row in cursor.fetchall():
+                            rows.append(list(row))
+                    except:
+                        self.ui.literal(traceback.format_exc())
+                        self.ui.warning("exception occurred while"
+                                        " executing a SQL query")
+                        connection.rollback()
+                        new_output = None
+                    else:
+                        connection.commit()
+                        new_output = self.Output(sql=self.input.sql, rows=rows)
+                    return new_output
+        
+        To use this extension, add parameter ``-E sql.py`` to all PBBT
+        invocations.  For example::
+        
+            $ pbbt -E sql.py input.yaml output.yaml --train
+        
+        Now we will explain the content of ``sql.py`` line by line.
+        
+        The first line imports some classes and decorators we will use::
+        
+            from pbbt import Test, Field, BaseCase, MatchCase
+        
+        To register a test type, use ``@Test`` decorator.  Here is a most
+        general template::
+        
+            @Test
+            class CustomCase(object):
+        
+                class Input:
+                    some_field = Field(...)
+                    [...]
+        
+                class Output:
+                    some_field = Field(...)
+                    [...]
+        
+                def __init__(self, ctl, input, output):
+                    self.ctl = ctl
+                    self.input = input
+                    self.output = output
+        
+                def __call__(self):
+                    [...]
+                    return new_output
+        
+        The argument of the decorator must be a class that adheres the following
+        rules:
+        
+        * The structure of input and output records is described with nested
+          classes ``Input`` and ``Output``.  Record fields are specified using
+          ``Field`` descriptor.
+        
+        * To create a test case, the test harness makes an instance of the class.
+          The class constructor accepts three arguments:
+        
+          ``ctl``
+              Test harness controller.  It is used for user interaction,
+              reporting test success or failure, and as a storage for
+              conditional variables.
+          ``input``
+              The input record.
+          ``output``
+              The expected output record or ``None``.
+        
+        * The test case is executed by calling its ``__call__()`` method.  This
+          method must run the test case, generate a new output record, and compare
+          it with the given expected output record.
+        
+          If the expected and actual output record do not coincide:
+        
+          * In the *check* mode, the method must report a failure.
+          * In the *train* mode, the method may ask the user for permission to
+            update expected output.  If expected output is to be updated, the
+            method should return the new output record.
+        
+        PBBT also provides two mixin classes: ``BaseCase`` and ``MatchCase``.
+        These classes implement most of the necessary functionality for common
+        types of tests.
+        
+        Let's review ``connect`` test type, which is implemented by
+        ``ConnectCase`` class::
+        
+            @Test
+            class ConnectCase(BaseCase):
+        
+                class Input:
+                    connect = Field(str)
+        
+                def check(self):
+                    [...]
+        
+        ``ConnectCase`` is inherited from ``BaseCase``, which is suitable for
+        test which produce no output data and are executed for their side
+        effects.  The nested ``Input`` class definition is used to declare the
+        fields of the input record.  In this case, the input record has just one
+        text field ``connect``, which contains the name of the database.
+        
+        Test types inherited from ``BaseCase`` must override abstract method
+        ``check()``::
+        
+            import sqlite3, traceback
+            [...]
+        
+            @Test
+            class ConnectCase(BaseCase):
+                [...]
+        
+                def check(self):
+                    self.state['connect'] = None
+                    try:
+                        self.state['connect'] = sqlite3.connect(self.input.connect)
+                    except:
+                        self.ui.literal(traceback.format_exc())
+                        self.ui.warning("exception occurred while"
+                                        " connecting to the database")
+                        self.ctl.failed()
+                    else:
+                        self.ctl.passed()
+        
+        This code attempts to create a new database connection and store it as a
+        conditional variable ``connect``.  If the attempt fails, it calls
+        ``ui.literal()`` to display the exception traceback and ``ctl.failed()``
+        to report test failure.  Otherwise, ``ctl.passed()`` is called to
+        indicate that the test succeeded.
+        
+        Next, let's review ``sql`` test type::
+        
+            @Test
+            class SQLCase(MatchCase):
+        
+                class Input:
+                    sql = Field(str)
+        
+                class Output:
+                    sql = Field(str)
+                    rows = Field(listof(listof(object)))
+        
+                def run(self):
+                    [...]
+        
+                def render(self, output):
+                    [...]
+        
+        This test type has both input and output records, which are described
+        with ``Input`` and ``Output`` nested classes.  The input record contains
+        one field ``sql``, a SQL query to execute.  The output record contains
+        two fields: ``sql`` and ``rows``.  Field ``sql`` contains the same SQL
+        query and is used for matching the output record with the complementary
+        input record.  Field ``rows`` contains a list of output rows generated
+        by the SQL query.
+        
+        ``SQLCase`` is inherited from ``MatchCase``, which is a mixin class
+        for test types that produce text output.  Test types inherited from
+        ``MatchCase`` must override two methods:
+        
+        ``run()``
+            Executes the test case and returns the produced output record.
+        ``render(output)``
+            Convert an output record to printable form.
+        
+        In ``SQLCase``, ``render()`` is implemented by converting output rows to
+        CSV format::
+        
+            import csv, StringIO
+            [...]
+        
+            @Test
+            class SQLCase(MatchCase):
+                [...]
+        
+                def render(self, output):
+                    stream = StringIO.StringIO()
+                    writer = csv.writer(stream, lineterminator='\n')
+                    writer.writerows(output.rows)
+                    return stream.getvalue()
+        
+        Method ``run()`` is implemented as follows::
+        
+            @Test
+            class SQLCase(MatchCase):
+                [...]
+        
+                def run(self):
+                    connection = self.state.get('connect')
+                    if not connection:
+                        self.ui.warning("database connection is not defined")
+                        return
+                    rows = []
+                    try:
+                        cursor = connection.cursor()
+                        cursor.execute(self.input.sql)
+                        for row in cursor.fetchall():
+                            rows.append(list(row))
+                    except:
+                        self.ui.literal(traceback.format_exc())
+                        self.ui.warning("exception occurred while"
+                                        " executing a SQL query")
+                        connection.rollback()
+                        new_output = None
+                    else:
+                        connection.commit()
+                        new_output = self.Output(sql=self.input.sql, rows=rows)
+                    return new_output
+        
+        
+        Command-line Interface
+        ======================
+        
+        Usage::
+        
+            pbbt [<options>] INPUT [OUTPUT]
+        
+        Here, ``INPUT`` and ``OUTPUT`` are files which contain input and output
+        test data respectively.
+        
+        The following options are available:
+        
+        ``-h``, ``--help``
+            Display usage information and exit.
+        
+        ``-q``, ``--quiet``
+            Show only warnings and errors.
+        
+        ``-T``, ``--train``
+            Run tests in the training mode.
+        
+        ``-P``, ``--purge``
+            Purge stale output data.
+        
+        ``-M N``, ``--max-errors N``
+            Halt after ``N`` tests failed; ``0`` means "never".
+        
+        ``-D VAR``, ``-D VAR=VALUE``, ``--define VAR``, ``--define VAR=VALUE``
+            Set a conditional variable.
+        
+        ``-E FILE``, ``-E MODULE``, ``--extend FILE``, ``--extend MODULE``
+            Load a PBBT extension from a file or a Python module.
+        
+        ``-S ID``, ``--suite ID``
+            Run a specific test suite.
+        
+        
+        API Reference
+        =============
+        
+        ``pbbt.maybe(T)``
+            Pseudo-type for ``isinstance(X, ...)``: checks if ``X`` is an
+            instance of ``T`` or equal to ``None``.
+        
+        ``pbbt.oneof(T1, T2, ...)``
+            Pseudo-type for ``isinstance(X, ...)``: checks if ``X`` is an
+            instance of ``T1`` or an instance of ``T2``, etc.
+        
+        ``pbbt.choiceof(values)``
+            Pseudo-type for ``isinstance(X, ...)``: checks if ``X`` is equal to
+            one of the given values.
+        
+        ``pbbt.listof(T, length=None)``
+            Pseudo-type for ``isinstance(X, ...)``: checks if ``X`` is a list of
+            elements of ``T``.
+        
+        ``pbbt.tupleof(T1, T2, ...)``
+            Pseudo-type for ``isinstance(X, ...)``: checks if ``X`` is a tuple
+            with fields of types ``T1``, ``T2``, etc.
+        
+        ``pbbt.dictof(T1, T2)``
+            Pseudo-type for ``isinstance(X, ...)``: checks if ``X`` is a
+            dictionary with keys of type ``T1`` and values of type ``T2``.
+        
+        ``pbbt.Test(CaseType)``
+            Registers the given class as a test type.
+        
+        ``pbbt.Field(check=None, default=REQUIRED, order=None, hint=None)``
+            Describes a field of an input or an output record.
+        
+            ``check``
+                The type of the field value.
+        
+            ``default``
+                Default value if the field is missing.  If not set, the
+                field is mandatory.
+        
+            ``order``
+                If set, allows you to override the default field order.
+        
+            ``hint``
+                Short description of the field.
+        
+        ``pbbt.Record(*p_fields, **kv_fields)``
+            Base class for all input and output records.
+        
+            The ``Test`` decorator converts nested ``Input`` and ``Output``
+            classes to ``Record`` subclasses.
+        
+            The following methods could be used or overridden:
+        
+            ``classmethod __recognizes__(keys)``
+                Checks if the set of keys is compatible with the record type.
+        
+                The default implementation checks if the set of keys contains
+                all mandatory record fields.
+        
+            ``classmethod __load__(mapping)``
+                Generates a record instance from a mapping of record keys and
+                values.
+        
+            ``__dump__()``
+                Generates a list of field keys and values.
+        
+            ``__complements__(other)``
+                Checks if two records are complementary input and output records
+                for the same test case.
+        
+            ``__clone__(**kv_fields)``
+                Makes a copy of the record with new values for the given fields.
+        
+            ``__str__()``
+                Generates a printable representation.
+        
+        ``pbbt.Control(...)``
+            Test harness.
+        
+            The test harness object is passed to test cases as the first
+            argument of the constructor.  The following methods and attributes
+            could be used by test case objects.
+        
+            Attributes:
+        
+            ``ui``
+                Provides user interaction services.
+        
+            ``training``
+                If set, the harness is in training mode.
+        
+            ``purging``
+                If set, the harness is in purging mode.
+        
+            ``quiet``
+                If set, only warnings and errors are displayed.
+        
+            ``halted``
+                If set, the test process has been halted.
+        
+            ``state``
+                Conditional variables.
+        
+            ``selection``
+                Selected suites.
+        
+            Methods:
+        
+            ``passed(text=None)``
+                Attests that the current test case has passed.
+        
+            ``failed(text=None)``
+                Attests that the current test case has failed.
+        
+            ``updated(text=None)``
+                Attests that output data for the current test case has been
+                updated.
+        
+            ``halt(text=None)``
+                Halts testing process.
+        
+            ``load_input(path)``
+                Loads input test data from the given file.
+        
+            ``load_output(path)``
+                Loads output test data from the given file.
+        
+            ``dump_output(path, data)``
+                Saves output test data to the given file.
+        
+            ``run(case)``
+                Executes a test case.
+        
+            ``__call__(input_path, output_path)``
+                Runs testing process with the given input and output.
+        
+        ``pbbt.locate(record)``
+            Finds the location of the given record.
+        
+        ``pbbt.Location(filename, line)``
+            Position of an input or output record in the YAML document.
+        
+        ``pbbt.run(input_path, output_path=None, **configuration)``
+            Loads test data from the given files and runs the tests.
+        
+            Configuration:
+        
+            ``ui``
+                User interaction controller.
+            ``variables``
+                Predefined conditional variables.
+            ``targets``
+                Selected suites.
+            ``training``
+                Set the harness into training mode.
+            ``purging``
+                Purge stale output data.
+            ``max_errors``
+                Maximum permitted number of failures before the harness halts.
+            ``quiet``
+                Display only warnings and errors.
+        
+        ``pbbt.main()``
+            Implements the ``pbbt`` command-line utility.
+        
+        ``pbbt.BaseCase``
+            Template class suitable for most test types.
+        
+            Subclasses need to override the following methods:
+        
+            ``check()``
+                Runs the test case in check mode.
+        
+            ``train()``
+                Runs the test case in train mode.  The default implementation
+                simply calls ``check()``.
+        
+        ``pbbt.MatchCase``
+            Template class for test types which produce output.
+        
+            Subclasses need to override the following methods:
+        
+            ``run()``
+                Executes the case; returns produced output.
+        
+            ``render(output)``
+                Converts output record to text.
+        
+        ``pbbt.UI``
+            Abstract class for user interaction services.
+        
+            Methods:
+        
+            ``part()``
+                Starts a new section.
+        
+            ``section()``
+                Starts a subsection.
+        
+            ``header(text)``
+                Shows a section header.
+        
+            ``notice(text)``
+                Shows a notice.
+        
+            ``warning(text)``
+                Shows a warning.
+        
+            ``error(text)``
+                Shows an error.
+        
+            ``literal(text)``
+                Shows a literal text.
+        
+            ``choice(text, *choices)``
+                Asks a single-choice question.
+        
+        ``pbbt.ConsoleUI(stdin=None, stdout=None, stderr=None)``
+            Implements ``UI`` for console input/output.
+        
+        ``pbbt.SilentUI(backend)``
+            Implements ``UI`` for use with ``--quiet`` option.
+        
+        
+        .. _YAML: http://yaml.org/
+        .. _Prometheus Research, LLC: http://prometheusresearch.com/
+        .. _pip: http://pip-installer.org/
+        .. _Python Package Index: http://pypi.python.org/pypi/pbbt
+        .. _JSON: http://json.org/
+        
+        .. vim: set spell spelllang=en textwidth=72:
+        
+Platform: UNKNOWN
+Classifier: Development Status :: 2 - Pre-Alpha
+Classifier: Environment :: Console
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: POSIX :: Linux
+Classifier: Programming Language :: Python
+Classifier: Programming Language :: Python :: 2
+Classifier: Programming Language :: Python :: 3
+Classifier: Topic :: Utilities
