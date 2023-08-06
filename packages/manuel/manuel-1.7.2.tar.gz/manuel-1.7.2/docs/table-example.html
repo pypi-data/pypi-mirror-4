@@ -1,0 +1,418 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>FIT Table Example &mdash; Manuel Documentation</title>
+    
+    <link rel="stylesheet" href="_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     '1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="Manuel Documentation" href="index.html" />
+    <link rel="next" title="Fixed Bugs" href="bugs.html" />
+    <link rel="prev" title="Theory of Operation" href="README.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="bugs.html" title="Fixed Bugs"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="README.html" title="Theory of Operation"
+             accesskey="P">previous</a> |</li>
+        <li><a href="index.html">Manuel Documentation</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="fit-table-example">
+<span id="id1"></span><h1>FIT Table Example<a class="headerlink" href="#fit-table-example" title="Permalink to this headline">¶</a></h1>
+<p>Here is an example of writing a relatively complex Manuel plug-in.</p>
+<p>Occasionally when writing a doctest, you want a better way to express a test
+than doctest by itself provides.</p>
+<p>For example, you may want to succinctly express the result of an expression for
+several sets of inputs and outputs.</p>
+<p>That&#8217;s something <a class="reference external" href="http://fit.c2.com/wiki.cgi?SimpleExample">FIT</a> tables do a
+good job of.</p>
+<p>We can use Manuel to write a parser that can read the tables, an evaluator that
+can check to see if the assertions made in the tables match reality, and a
+formatter to display the results if they don&#8217;t.</p>
+<p>We&#8217;ll use <a class="reference external" href="http://docutils.sourceforge.net/rst.html">reST</a> tables as the
+table format.  The table source will look like this:</p>
+<div class="highlight-python"><pre>=====  =====  ======
+\      A or B
+--------------------
+  A      B    Result
+=====  =====  ======
+False  False  False
+True   False  True
+False  True   True
+True   True   True
+=====  =====  ======</pre>
+</div>
+<p>When rendered to HTML, it will look like this:</p>
+<blockquote>
+<div><table border="1" class="docutils">
+<colgroup>
+<col width="31%" />
+<col width="31%" />
+<col width="38%" />
+</colgroup>
+<thead valign="bottom">
+<tr class="row-odd"><th class="head" colspan="3">     A or B</th>
+</tr>
+<tr class="row-even"><th class="head">A</th>
+<th class="head">B</th>
+<th class="head">Result</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr class="row-odd"><td>False</td>
+<td>False</td>
+<td>False</td>
+</tr>
+<tr class="row-even"><td>True</td>
+<td>False</td>
+<td>True</td>
+</tr>
+<tr class="row-odd"><td>False</td>
+<td>True</td>
+<td>True</td>
+</tr>
+<tr class="row-even"><td>True</td>
+<td>True</td>
+<td>True</td>
+</tr>
+</tbody>
+</table>
+</div></blockquote>
+<div class="section" id="documents">
+<h2>Documents<a class="headerlink" href="#documents" title="Permalink to this headline">¶</a></h2>
+<p>Here is an example of a source document we want our plug-in to be able to
+understand:</p>
+<div class="highlight-python"><pre>The "or" operator
+=================
+
+Here is an example of the "or" operator in action:
+
+=====  =====  ======
+\      A or B
+--------------------
+  A      B    Result
+=====  =====  ======
+False  False  False
+True   False  True
+False  True   True
+True   True   True
+=====  =====  ======</pre>
+</div>
+<p>Manuel plug-ins operate on instances of <tt class="xref py py-class docutils literal"><span class="pre">manuel.Document</span></tt>.</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="kn">import</span> <span class="nn">manuel</span>
+<span class="n">document</span> <span class="o">=</span> <span class="n">manuel</span><span class="o">.</span><span class="n">Document</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">location</span><span class="o">=</span><span class="s">&#39;fake.txt&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="section" id="parsing">
+<h2>Parsing<a class="headerlink" href="#parsing" title="Permalink to this headline">¶</a></h2>
+<p>We need an object to represent the tables.</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="k">class</span> <span class="nc">Table</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">expression</span><span class="p">,</span> <span class="n">variables</span><span class="p">,</span> <span class="n">examples</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">expression</span> <span class="o">=</span> <span class="n">expression</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">variables</span> <span class="o">=</span> <span class="n">variables</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">examples</span> <span class="o">=</span> <span class="n">examples</span>
+</pre></div>
+</div>
+<p>We&#8217;ll also need a function to find the tables in the document, extract the
+pertinent details, and instantiate Table objects.</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">import</span> <span class="nn">six</span>
+
+<span class="n">table_start</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&#39;(?&lt;=\n\n)=[= ]+\n(?=[ \t]*?\S)&#39;</span><span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">DOTALL</span><span class="p">)</span>
+<span class="n">table_end</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&#39;\n=[= ]+\n(?=\Z|\n)&#39;</span><span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">DOTALL</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">parse_tables</span><span class="p">(</span><span class="n">document</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">region</span> <span class="ow">in</span> <span class="n">document</span><span class="o">.</span><span class="n">find_regions</span><span class="p">(</span><span class="n">table_start</span><span class="p">,</span> <span class="n">table_end</span><span class="p">):</span>
+        <span class="n">lines</span> <span class="o">=</span> <span class="nb">enumerate</span><span class="p">(</span><span class="nb">iter</span><span class="p">(</span><span class="n">region</span><span class="o">.</span><span class="n">source</span><span class="o">.</span><span class="n">splitlines</span><span class="p">()))</span>
+        <span class="n">six</span><span class="o">.</span><span class="n">advance_iterator</span><span class="p">(</span><span class="n">lines</span><span class="p">)</span> <span class="c"># skip the first line</span>
+
+        <span class="c"># grab the expression to be evaluated</span>
+        <span class="n">expression</span> <span class="o">=</span> <span class="n">six</span><span class="o">.</span><span class="n">advance_iterator</span><span class="p">(</span><span class="n">lines</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">expression</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\\</span><span class="s">&#39;</span><span class="p">):</span>
+            <span class="n">expression</span> <span class="o">=</span> <span class="n">expression</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span>
+
+        <span class="n">six</span><span class="o">.</span><span class="n">advance_iterator</span><span class="p">(</span><span class="n">lines</span><span class="p">)</span> <span class="c"># skip the divider line</span>
+        <span class="n">variables</span> <span class="o">=</span> <span class="p">[</span><span class="n">v</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">six</span><span class="o">.</span><span class="n">advance_iterator</span><span class="p">(</span><span class="n">lines</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">split</span><span class="p">()][:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+
+        <span class="n">six</span><span class="o">.</span><span class="n">advance_iterator</span><span class="p">(</span><span class="n">lines</span><span class="p">)</span> <span class="c"># skip the divider line</span>
+
+        <span class="n">examples</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">lineno_offset</span><span class="p">,</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">lines</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">line</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;=&#39;</span><span class="p">):</span>
+                <span class="k">break</span> <span class="c"># we ran into the final divider, so stop</span>
+
+            <span class="n">values</span> <span class="o">=</span> <span class="p">[</span><span class="nb">eval</span><span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">strip</span><span class="p">(),</span> <span class="p">{})</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">()]</span>
+            <span class="n">inputs</span> <span class="o">=</span> <span class="n">values</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="n">output</span> <span class="o">=</span> <span class="n">values</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+
+            <span class="n">examples</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">inputs</span><span class="p">,</span> <span class="n">output</span><span class="p">,</span> <span class="n">lineno_offset</span><span class="p">))</span>
+
+        <span class="n">table</span> <span class="o">=</span> <span class="n">Table</span><span class="p">(</span><span class="n">expression</span><span class="p">,</span> <span class="n">variables</span><span class="p">,</span> <span class="n">examples</span><span class="p">)</span>
+        <span class="n">document</span><span class="o">.</span><span class="n">claim_region</span><span class="p">(</span><span class="n">region</span><span class="p">)</span>
+        <span class="n">region</span><span class="o">.</span><span class="n">parsed</span> <span class="o">=</span> <span class="n">table</span>
+</pre></div>
+</div>
+<p>If we parse the Document we can see that the table was recognized.</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">parse_tables</span><span class="p">(</span><span class="n">document</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">region</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">document</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span> <span class="nn">six</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">six</span><span class="o">.</span><span class="n">print_</span><span class="p">(</span><span class="n">region</span><span class="o">.</span><span class="n">source</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">)</span>
+<span class="go">=====  =====  ======</span>
+<span class="go">\      A or B</span>
+<span class="go">--------------------</span>
+<span class="go">  A      B    Result</span>
+<span class="go">=====  =====  ======</span>
+<span class="go">False  False  False</span>
+<span class="go">True   False  True</span>
+<span class="go">False  True   True</span>
+<span class="go">True   True   True</span>
+<span class="go">=====  =====  ======</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">region</span><span class="o">.</span><span class="n">parsed</span>
+<span class="go">&lt;Table object at ...&gt;</span>
+</pre></div>
+</div>
+</div>
+<div class="section" id="evaluating">
+<h2>Evaluating<a class="headerlink" href="#evaluating" title="Permalink to this headline">¶</a></h2>
+<p>Now that we can find and extract the tables from the source, we need to be able
+to check them for correctness.</p>
+<p>The parse phase decomposed the <tt class="xref py py-class docutils literal"><span class="pre">Document</span></tt> into several <tt class="xref py py-class docutils literal"><span class="pre">Region</span></tt>
+instances.  During the evaluation phase each evaluater is called once for each
+region.</p>
+<p>The evaluate_table function iterates over each set of inputs given in a single
+table, evaluate the inputs with the expression and compare the result with what
+was expected.  Each discrepancy will be stored as a <tt class="xref py py-class docutils literal"><span class="pre">TableError</span></tt> in a
+<tt class="xref py py-class docutils literal"><span class="pre">TableErrors</span></tt> object.</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="k">class</span> <span class="nc">TableErrors</span><span class="p">(</span><span class="nb">list</span><span class="p">):</span>
+    <span class="k">pass</span>
+
+
+<span class="k">class</span> <span class="nc">TableError</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">location</span><span class="p">,</span> <span class="n">lineno</span><span class="p">,</span> <span class="n">expected</span><span class="p">,</span> <span class="n">got</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">location</span> <span class="o">=</span> <span class="n">location</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">lineno</span> <span class="o">=</span> <span class="n">lineno</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">expected</span> <span class="o">=</span> <span class="n">expected</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">got</span> <span class="o">=</span> <span class="n">got</span>
+
+    <span class="k">def</span> <span class="nf">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s">&#39;&lt;</span><span class="si">%s</span><span class="s"> </span><span class="si">%s</span><span class="s">:</span><span class="si">%s</span><span class="s">&gt;&#39;</span> <span class="o">%</span> <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">location</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">lineno</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">evaluate_table</span><span class="p">(</span><span class="n">region</span><span class="p">,</span> <span class="n">document</span><span class="p">,</span> <span class="n">globs</span><span class="p">):</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">region</span><span class="o">.</span><span class="n">parsed</span><span class="p">,</span> <span class="n">Table</span><span class="p">):</span>
+        <span class="k">return</span>
+
+    <span class="n">table</span> <span class="o">=</span> <span class="n">region</span><span class="o">.</span><span class="n">parsed</span>
+    <span class="n">errors</span> <span class="o">=</span> <span class="n">TableErrors</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">inputs</span><span class="p">,</span> <span class="n">output</span><span class="p">,</span> <span class="n">lineno_offset</span> <span class="ow">in</span> <span class="n">table</span><span class="o">.</span><span class="n">examples</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="nb">eval</span><span class="p">(</span><span class="n">table</span><span class="o">.</span><span class="n">expression</span><span class="p">,</span> <span class="nb">dict</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="n">table</span><span class="o">.</span><span class="n">variables</span><span class="p">,</span> <span class="n">inputs</span><span class="p">)))</span>
+        <span class="k">if</span> <span class="n">result</span> <span class="o">!=</span> <span class="n">output</span><span class="p">:</span>
+            <span class="n">lineno</span> <span class="o">=</span> <span class="n">region</span><span class="o">.</span><span class="n">lineno</span> <span class="o">+</span> <span class="n">lineno_offset</span>
+            <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="n">TableError</span><span class="p">(</span><span class="n">document</span><span class="o">.</span><span class="n">location</span><span class="p">,</span> <span class="n">lineno</span><span class="p">,</span> <span class="n">output</span><span class="p">,</span> <span class="n">result</span><span class="p">))</span>
+
+    <span class="n">region</span><span class="o">.</span><span class="n">evaluated</span> <span class="o">=</span> <span class="n">errors</span>
+</pre></div>
+</div>
+<p>Now we can use the function to evaluate our table.</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">evaluate_table</span><span class="p">(</span><span class="n">region</span><span class="p">,</span> <span class="n">document</span><span class="p">,</span> <span class="p">{})</span>
+</pre></div>
+</div>
+<p>Yay!  There were no errors:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">region</span><span class="o">.</span><span class="n">evaluated</span>
+<span class="go">[]</span>
+</pre></div>
+</div>
+<p>What would happen if there were errors?</p>
+<div class="highlight-python"><pre>The "or" operator
+=================
+
+Here is an (erroneous) example of the "or" operator in action:
+
+=====  =====  ======
+\      A or B
+--------------------
+  A      B    Result
+=====  =====  ======
+False  False  True
+True   False  True
+False  True   False
+True   True   True
+=====  =====  ======</pre>
+</div>
+<p>...the result of evaluaton would include them:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">region</span><span class="o">.</span><span class="n">evaluated</span>
+<span class="go">[&lt;TableError object at ...&gt;]</span>
+</pre></div>
+</div>
+</div>
+<div class="section" id="formatting-errors">
+<h2>Formatting Errors<a class="headerlink" href="#formatting-errors" title="Permalink to this headline">¶</a></h2>
+<p>Now that we can parse the tables and evaluate them, we need to be able to
+display the results in a readable fashion.</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="k">def</span> <span class="nf">format_table_errors</span><span class="p">(</span><span class="n">document</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">region</span> <span class="ow">in</span> <span class="n">document</span><span class="p">:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">region</span><span class="o">.</span><span class="n">evaluated</span><span class="p">,</span> <span class="n">TableErrors</span><span class="p">):</span>
+            <span class="k">continue</span>
+
+        <span class="c"># if there were no errors, there is nothing to report</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">region</span><span class="o">.</span><span class="n">evaluated</span><span class="p">:</span>
+            <span class="k">continue</span>
+
+        <span class="n">messages</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">error</span> <span class="ow">in</span> <span class="n">region</span><span class="o">.</span><span class="n">evaluated</span><span class="p">:</span>
+            <span class="n">messages</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;</span><span class="si">%s</span><span class="s">, line </span><span class="si">%d</span><span class="s">: expected </span><span class="si">%r</span><span class="s">, got </span><span class="si">%r</span><span class="s"> instead.&#39;</span> <span class="o">%</span> <span class="p">(</span>
+                <span class="n">error</span><span class="o">.</span><span class="n">location</span><span class="p">,</span> <span class="n">error</span><span class="o">.</span><span class="n">lineno</span><span class="p">,</span> <span class="n">error</span><span class="o">.</span><span class="n">expected</span><span class="p">,</span> <span class="n">error</span><span class="o">.</span><span class="n">got</span><span class="p">))</span>
+
+        <span class="n">sep</span> <span class="o">=</span> <span class="s">&#39;</span><span class="se">\n</span><span class="s">    &#39;</span>
+        <span class="n">header</span> <span class="o">=</span> <span class="s">&#39;when evaluating table at </span><span class="si">%s</span><span class="s">, line </span><span class="si">%d</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span>
+            <span class="n">document</span><span class="o">.</span><span class="n">location</span><span class="p">,</span> <span class="n">region</span><span class="o">.</span><span class="n">lineno</span><span class="p">)</span>
+        <span class="n">region</span><span class="o">.</span><span class="n">formatted</span> <span class="o">=</span> <span class="n">header</span> <span class="o">+</span> <span class="n">sep</span> <span class="o">+</span> <span class="n">sep</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">messages</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>We can see how the results are formatted.</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">format_table_errors</span><span class="p">(</span><span class="n">document</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">six</span><span class="o">.</span><span class="n">print_</span><span class="p">(</span><span class="n">region</span><span class="o">.</span><span class="n">formatted</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">)</span>
+<span class="go">when evaluating table at fake.txt, line 6</span>
+<span class="go">    fake.txt, line 11: expected True, got False instead.</span>
+<span class="go">    fake.txt, line 13: expected False, got True instead.</span>
+</pre></div>
+</div>
+</div>
+<div class="section" id="all-together-now">
+<h2>All Together Now<a class="headerlink" href="#all-together-now" title="Permalink to this headline">¶</a></h2>
+<p>All the pieces (parsing, evaluating, and formatting) are available now, so we
+just have to put them together into a single &#8220;Manuel&#8221; object.</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="k">class</span> <span class="nc">Manuel</span><span class="p">(</span><span class="n">manuel</span><span class="o">.</span><span class="n">Manuel</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">manuel</span><span class="o">.</span><span class="n">Manuel</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="p">[</span><span class="n">parse_tables</span><span class="p">],</span> <span class="p">[</span><span class="n">evaluate_table</span><span class="p">],</span>
+            <span class="p">[</span><span class="n">format_table_errors</span><span class="p">])</span>
+</pre></div>
+</div>
+<p>Now we can create a fresh document and tell it to do all the above steps
+(parse, evaluate, format) using an instance of our plug-in.</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">m</span> <span class="o">=</span> <span class="n">Manuel</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">document</span> <span class="o">=</span> <span class="n">manuel</span><span class="o">.</span><span class="n">Document</span><span class="p">(</span><span class="n">source_with_errors</span><span class="p">,</span> <span class="n">location</span><span class="o">=</span><span class="s">&#39;fake.txt&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">document</span><span class="o">.</span><span class="n">process_with</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">globs</span><span class="o">=</span><span class="p">{})</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">six</span><span class="o">.</span><span class="n">print_</span><span class="p">(</span><span class="n">document</span><span class="o">.</span><span class="n">formatted</span><span class="p">(),</span> <span class="n">end</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">)</span>
+<span class="go">when evaluating table at fake.txt, line 6</span>
+<span class="go">    fake.txt, line 11: expected True, got False instead.</span>
+<span class="go">    fake.txt, line 13: expected False, got True instead.</span>
+</pre></div>
+</div>
+<p>Of course, if there were no errors, nothing would be reported:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">document</span> <span class="o">=</span> <span class="n">manuel</span><span class="o">.</span><span class="n">Document</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">location</span><span class="o">=</span><span class="s">&#39;fake.txt&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">document</span><span class="o">.</span><span class="n">process_with</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">globs</span><span class="o">=</span><span class="p">{})</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">six</span><span class="o">.</span><span class="n">print_</span><span class="p">(</span><span class="n">document</span><span class="o">.</span><span class="n">formatted</span><span class="p">())</span>
+</pre></div>
+</div>
+<p>If we wanted to use instances of our Manuel object in a test, we would follow
+the directions in <a class="reference internal" href="index.html#getting-started"><em>Getting Started</em></a>, importing Manuel from the module
+where we placed the code, just like any other Manuel plug-in.</p>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">FIT Table Example</a><ul>
+<li><a class="reference internal" href="#documents">Documents</a></li>
+<li><a class="reference internal" href="#parsing">Parsing</a></li>
+<li><a class="reference internal" href="#evaluating">Evaluating</a></li>
+<li><a class="reference internal" href="#formatting-errors">Formatting Errors</a></li>
+<li><a class="reference internal" href="#all-together-now">All Together Now</a></li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="README.html"
+                        title="previous chapter">Theory of Operation</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="bugs.html"
+                        title="next chapter">Fixed Bugs</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/table-example.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="bugs.html" title="Fixed Bugs"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="README.html" title="Theory of Operation"
+             >previous</a> |</li>
+        <li><a href="index.html">Manuel Documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright Benji York.
+      Last updated on 2013-03-15.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>
