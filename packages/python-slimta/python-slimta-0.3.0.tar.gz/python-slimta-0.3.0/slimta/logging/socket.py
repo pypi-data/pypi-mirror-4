@@ -1,0 +1,129 @@
+# Copyright (c) 2012 Ian C. Good
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+#
+
+"""Utilities to make logging consistent and easy for any socket interaction."""
+
+from functools import partial
+from pprint import pformat
+
+from gevent.socket import SHUT_WR, SHUT_RD
+
+__all__ = ['SocketLogger']
+
+
+class SocketLogger(object):
+    """Provides a limited set of log methods that :mod:`slimta` packages may
+    use. This prevents free-form logs from mixing in with standard, machine-
+    parseable logs.
+
+    :param log: :class:python:`logging.Logger` object to log through.
+
+    """
+
+    def __init__(self, log):
+        from slimta.logging import logline
+        self.log = partial(logline, log.debug, 'fd')
+
+    def send(self, socket, data):
+        """Logs a socket :meth:`~socket.socket.send()` operation along with the
+        peer the socket is connected to.
+
+        :param socket: The socket that has sent data.
+        :param data: The data that was sent.
+
+        """
+        self.log(socket.fileno(), 'send', data=data)
+
+    def recv(self, socket, data):
+        """Logs a socket :meth:`~socket.socket.recv()` operation along with the
+        peer the socket is connected to.
+
+        :param socket: The socket that has received data.
+        :param data: The data that was received.
+
+        """
+        self.log(socket.fileno(), 'recv', data=data)
+
+    def accept(self, server, client, address=None):
+        """Logs a socket :meth:`~socket.socket.accept()` operation along with
+        the server that received it and the peer that initiated it.
+
+        :param server: The server socket that received the connection.
+        :param client: The client socket that was accepted.
+        :param address: If known, the peer address of the client socket.
+
+        """
+        client_peer = address or client.getpeername()
+        self.log(server.fileno(), 'accept', clientfd=client.fileno(),
+                                            peer=client_peer)
+
+    def connect(self, socket, address=None):
+        """Logs a socket :meth:`~socket.socket.connect()` operation along with
+        the peer the socket is connected to. Logged at the ``DEBUG`` level.
+
+        :param socket: The socket that was connected.
+        :param address: If known, the peer address the socket connected to.
+
+        """
+        peer = address or socket.getpeername()
+        self.log(socket.fileno(), 'connect', peer=peer)
+
+    def encrypt(self, socket, tls_args):
+        """Logs a socket encryption operation along with the certificate and key
+        files used and whether the socket is acting as the client or the server.
+
+        :param socket: The socket that was shutdown.
+        :param tls_args: Keyword rguments passed to the encryption operation.
+
+        """
+        keyfile = tls_args.get('keyfile', None)
+        certfile = tls_args.get('certfile', None)
+        server_side = tls_args.get('server_side', False)
+        self.log(socket.fileno(), 'encrypt', keyfile=keyfile, certfile=certfile,
+                                             server_side=server_side)
+
+    def shutdown(self, socket, how):
+        """Logs a socket :meth:`~socket.socket.shutdown()` operation along
+        with which part of the socket was shut down. Logged at the
+        ``DEBUG`` level.
+
+        :param socket: The socket that was shutdown.
+        :param how: The ``how`` parameter, as passed to ``shutdown()``.
+
+        """
+        how_str = 'both'
+        if how == SHUT_WR:
+            how_str = 'write'
+        elif how == SHUT_RD:
+            how_str = 'read'
+        self.log(socket.fileno(), 'shutdown', how=how_str)
+
+    def close(self, socket):
+        """Logs a socket :meth:`~socket.socket.close()` operation along with
+        the peer the socket was connected to. Logged at the ``DEBUG`` level.
+
+        :param socket: The socket that was closed.
+
+        """
+        self.log(socket.fileno(), 'close')
+
+
+# vim:et:fdm=marker:sts=4:sw=4:ts=4
