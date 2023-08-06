@@ -1,0 +1,351 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Fast Array Operations &mdash; tabular v0.0.8 documentation</title>
+    <link rel="stylesheet" href="../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '0.0.8',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <link rel="top" title="tabular v0.0.8 documentation" href="../index.html" />
+    <link rel="next" title="Web &amp; HTML" href="web.html" />
+    <link rel="prev" title="Column hierarchies and the coloring attribute" href="hierarchical.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="web.html" title="Web &amp; HTML"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="hierarchical.html" title="Column hierarchies and the coloring attribute"
+             accesskey="P">previous</a> |</li>
+    
+        <li><a href="../index.html">tabular</a> &raquo;</li>
+ 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="fast-array-operations">
+<span id="fastops"></span><h1>Fast Array Operations<a class="headerlink" href="#fast-array-operations" title="Permalink to this headline">¶</a></h1>
+<p><a class="reference internal" href="../modules/tabular.fast.html#module-tabular.fast" title="tabular.fast"><tt class="xref py py-mod docutils literal"><span class="pre">tabular.fast</span></tt></a> is a module containing efficient NumPy algorithms for solving list-membership problems.</p>
+<div class="section" id="motivation">
+<h2>Motivation<a class="headerlink" href="#motivation" title="Permalink to this headline">¶</a></h2>
+<p>NumPy arrays are typically used for &#8220;matrix math&#8221; operations (e.g. linear algebra), while list-membership queries are often handled in Python itself.   For instance, consider the <em>PathAlong</em> problem:  given two Python lists of file paths F1 and F2 (in reduced form), find all indices of paths in F1 that are &#8220;above&#8221;: in the file-system sense, paths in F2, together with the corresponding sets of contained paths in F2 for each path in F1.  For example, if:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="n">F1</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;../Data/Dan_Data/&#39;</span><span class="p">,</span> <span class="s">&#39;../Users/DanYamins/&#39;</span><span class="p">,</span><span class="s">&#39;../Users/ElaineAngelino/&#39;</span><span class="p">]</span>
+
+<span class="n">F2</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;../Data/Dan_Data/NPR_Puzzle_Solutions&#39;</span><span class="p">,</span>  <span class="s">&#39;../Data/Dan_Data/NPR_Puzzle_Solutions/AmericaPensacolaPuzzle/&#39;</span><span class="p">,</span> <span class="s">&#39;../Data/Dan_Data/RandomData&#39;</span><span class="p">,</span><span class="s">&#39;../Users/DanYamins/Finance/&#39;</span><span class="p">]</span>
+</pre></div>
+</div>
+<p>then find out that:</p>
+<ul class="simple">
+<li>F1[0] is &#8220;path above&#8221; all items in F2[0:3]</li>
+<li>F1[1] is &#8220;path above&#8221; all items in F2[3:4]</li>
+<li>F2[2] is &#8220;path above&#8221; no items in F2.</li>
+</ul>
+<p>A typical python solution to the <em>PathAlong</em> problem is:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="k">def</span> <span class="nf">PathAlong</span><span class="p">(</span><span class="n">F1</span><span class="p">,</span><span class="n">F2</span><span class="p">):</span>
+        <span class="n">L</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">F1</span><span class="p">:</span>
+                <span class="n">Alongs</span> <span class="o">=</span> <span class="p">[]</span>
+                <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="n">F2</span><span class="p">:</span>
+                        <span class="k">if</span> <span class="n">j</span><span class="p">[:</span><span class="nb">len</span><span class="p">(</span><span class="n">i</span><span class="p">)]</span> <span class="o">==</span> <span class="n">i</span> <span class="ow">and</span> <span class="p">((</span><span class="nb">len</span><span class="p">(</span><span class="n">j</span><span class="p">)</span> <span class="o">&gt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="ow">and</span> <span class="n">j</span><span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="n">i</span><span class="p">)]</span><span class="o">==</span><span class="s">&#39;/&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">i</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">==</span><span class="s">&#39;/&#39;</span><span class="p">):</span>
+                                <span class="n">Alongs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">j</span><span class="p">)</span>
+                <span class="n">L</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">i</span><span class="p">,</span><span class="n">Alongs</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">L</span>
+</pre></div>
+</div>
+<p>Though this solution works perfectly well, it is quite slow when F1 and F2 are both large lists.</p>
+<p>It turns out that the <em>PathAlong</em> problem, along with many other typical list-membership query problems, can be solved with fast NumPy algorithms &#8211; as long as the data types of the lists involved are sufficiently uniform that the lists can be cast into NumPy arrays.  The <a class="reference internal" href="../modules/tabular.fast.html#module-tabular.fast" title="tabular.fast"><tt class="xref py py-mod docutils literal"><span class="pre">tabular.fast</span></tt></a> module contains a set of &#8220;building blocks&#8221; for such algorithms.  The algorithms are especially useful for constructing efficient spread-sheet style operations on large tabular datasets.</p>
+</div>
+<div class="section" id="membership-testing">
+<h2>Membership Testing<a class="headerlink" href="#membership-testing" title="Permalink to this headline">¶</a></h2>
+<p><strong>isin</strong></p>
+<p><a class="reference internal" href="../modules/tabular.fast.html#tabular.fast.isin" title="tabular.fast.isin"><tt class="xref py py-func docutils literal"><span class="pre">tabular.fast.isin()</span></tt></a> is a fast routine for determining indices of elements in one numpy array that appear in another, returning a boolean array of those indices.</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span> <span class="nn">tabular.fast</span> <span class="kn">as</span> <span class="nn">fast</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span> <span class="nn">numpy</span><span class="o">,</span> <span class="nn">time</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">X</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">10000</span><span class="p">,</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">10000</span><span class="p">,))</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">Y</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">4000</span><span class="p">,</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">10000</span><span class="p">,))</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">Z</span> <span class="o">=</span> <span class="n">fast</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="n">X</span><span class="p">,</span><span class="n">Y</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">X</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="mi">10</span><span class="p">]</span>
+<span class="go">array([3383, 8715, 4990, 3314, 3765, 1212, 1090, 8958, 1679,  862])</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">Z</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="mi">10</span><span class="p">]</span>
+<span class="go">array([ True, False, False,  True,  True,  True,  True, False,  True,  True], dtype=bool)</span>
+</pre></div>
+</div>
+<p><cite>isin</cite> works not just on numerical arrays, but also on string arrays:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">L</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="s">&#39;a&#39;</span><span class="p">,</span><span class="s">&#39;b&#39;</span><span class="p">,</span><span class="s">&#39;c&#39;</span><span class="p">,</span><span class="s">&#39;d&#39;</span><span class="p">,</span><span class="s">&#39;e&#39;</span><span class="p">,</span><span class="s">&#39;f&#39;</span><span class="p">,</span><span class="s">&#39;g&#39;</span><span class="p">,</span><span class="s">&#39;h&#39;</span><span class="p">,</span><span class="s">&#39;i&#39;</span><span class="p">,</span><span class="s">&#39;j&#39;</span><span class="p">,</span><span class="s">&#39;k&#39;</span><span class="p">,</span><span class="s">&#39;l&#39;</span><span class="p">,</span><span class="s">&#39;m&#39;</span><span class="p">,</span><span class="s">&#39;n&#39;</span><span class="p">,</span><span class="s">&#39;o&#39;</span><span class="p">,</span><span class="s">&#39;p&#39;</span><span class="p">,</span><span class="s">&#39;q&#39;</span><span class="p">,</span><span class="s">&#39;r&#39;</span><span class="p">,</span><span class="s">&#39;s&#39;</span><span class="p">,</span><span class="s">&#39;t&#39;</span><span class="p">,</span><span class="s">&#39;u&#39;</span><span class="p">,</span><span class="s">&#39;v&#39;</span><span class="p">,</span><span class="s">&#39;w&#39;</span><span class="p">,</span><span class="s">&#39;x&#39;</span><span class="p">,</span><span class="s">&#39;y&#39;</span><span class="p">,</span><span class="s">&#39;z&#39;</span><span class="p">])</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="p">[</span><span class="n">V1</span><span class="p">,</span><span class="n">V2</span><span class="p">,</span><span class="n">V3</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">26</span><span class="p">,</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">10000</span><span class="p">,)),</span><span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">26</span><span class="p">,</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">10000</span><span class="p">,)),</span><span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">26</span><span class="p">,</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">10000</span><span class="p">,))]</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">H</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">a</span><span class="p">)</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">L</span><span class="p">[</span><span class="n">V1</span><span class="p">],</span><span class="n">L</span><span class="p">[</span><span class="n">V2</span><span class="p">],</span><span class="n">L</span><span class="p">[</span><span class="n">V3</span><span class="p">])])</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="k">print</span> <span class="n">H</span><span class="p">[:</span><span class="mi">10</span><span class="p">]</span>
+<span class="go">[&#39;xhq&#39; &#39;dkh&#39; &#39;gfe&#39; &#39;uef&#39; &#39;lbt&#39; &#39;ped&#39; &#39;lem&#39; &#39;cyp&#39; &#39;jli&#39; &#39;wth&#39;]</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="p">[</span><span class="n">V1</span><span class="p">,</span><span class="n">V2</span><span class="p">,</span><span class="n">V3</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">26</span><span class="p">,</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">10000</span><span class="p">,)),</span><span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">26</span><span class="p">,</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">10000</span><span class="p">,)),</span><span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">26</span><span class="p">,</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">10000</span><span class="p">,))]</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">H2</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">a</span><span class="p">)</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">L</span><span class="p">[</span><span class="n">V1</span><span class="p">],</span><span class="n">L</span><span class="p">[</span><span class="n">V2</span><span class="p">],</span><span class="n">L</span><span class="p">[</span><span class="n">V3</span><span class="p">])]</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="k">print</span> <span class="n">H2</span><span class="p">[:</span><span class="mi">10</span><span class="p">]</span>
+<span class="go">[&#39;zhz&#39; &#39;klb&#39; &#39;qnr&#39; &#39;noq&#39; &#39;mzo&#39; &#39;mzr&#39; &#39;mjk&#39; &#39;cmu&#39; &#39;dnr&#39; &#39;klb&#39;]</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">t</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="p">;</span> <span class="n">Z</span> <span class="o">=</span> <span class="n">fast</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="n">H</span><span class="p">,</span><span class="n">H2</span><span class="p">)</span> <span class="p">;</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">t</span>
+<span class="go">0.0076260566711425781</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">t</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="p">;</span> <span class="n">T</span> <span class="o">=</span> <span class="p">[</span><span class="n">l</span> <span class="ow">in</span> <span class="n">H2</span> <span class="k">for</span> <span class="n">l</span> <span class="ow">in</span> <span class="n">H</span><span class="p">]</span> <span class="p">;</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">t</span>
+<span class="go">2.4915561676025391</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="p">(</span><span class="n">Z</span> <span class="o">==</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">T</span><span class="p">))</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+<span class="go">True</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">H</span><span class="p">[</span><span class="n">Z</span><span class="p">]</span>
+<span class="go">array([&#39;tlz&#39;, &#39;ntm&#39;, &#39;mza&#39;, &#39;rtj&#39;, &#39;dfu&#39;, &#39;rxz&#39;, &#39;jas&#39;, &#39;aei&#39;, &#39;vnk&#39;,</span>
+<span class="go">       &#39;lod&#39;, &#39;vse&#39;, &#39;xlt&#39;, &#39;klj&#39;, &#39;xht&#39;, &#39;trz&#39;, &#39;jun&#39;, &#39;upo&#39;, &#39;pfh&#39;,</span>
+<span class="go">       &#39;nlp&#39;, &#39;ztl&#39;, &#39;wpy&#39;, &#39;oxn&#39;, &#39;zbc&#39;, &#39;klg&#39;, &#39;tdv&#39;, &#39;rys&#39;, &#39;qpn&#39;,</span>
+<span class="go">       &#39;psk&#39;, &#39;vwz&#39;, &#39;wkp&#39;, &#39;gco&#39;, &#39;kak&#39;, &#39;cdc&#39;, &#39;lvg&#39;, &#39;dbd&#39;, &#39;flh&#39;,</span>
+<span class="go">       &#39;css&#39;, &#39;tlz&#39;, &#39;vsy&#39;, &#39;xha&#39;, &#39;vpz&#39;, &#39;tdu&#39;, &#39;otj&#39;, &#39;wtz&#39;, &#39;qvc&#39;,</span>
+<span class="go">       &#39;uud&#39;, &#39;iuu&#39;, &#39;cej&#39;, &#39;qyj&#39;, &#39;kxa&#39;, &#39;ixy&#39;, &#39;gag&#39;, &#39;mxo&#39;],</span>
+<span class="go">      dtype=&#39;|S3&#39;)</span>
+</pre></div>
+</div>
+<p><strong>recarrayisin</strong></p>
+<p><a class="reference internal" href="../modules/tabular.fast.html#tabular.fast.recarrayisin" title="tabular.fast.recarrayisin"><tt class="xref py py-func docutils literal"><span class="pre">tabular.fast.recarrayisin()</span></tt></a> is the analog of <cite>isin</cite> for NumPy recarrays.</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">L</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="s">&#39;a&#39;</span><span class="p">,</span><span class="s">&#39;b&#39;</span><span class="p">,</span><span class="s">&#39;c&#39;</span><span class="p">,</span><span class="s">&#39;d&#39;</span><span class="p">,</span><span class="s">&#39;e&#39;</span><span class="p">,</span><span class="s">&#39;f&#39;</span><span class="p">,</span><span class="s">&#39;g&#39;</span><span class="p">,</span><span class="s">&#39;h&#39;</span><span class="p">,</span><span class="s">&#39;i&#39;</span><span class="p">,</span><span class="s">&#39;j&#39;</span><span class="p">,</span><span class="s">&#39;k&#39;</span><span class="p">,</span><span class="s">&#39;l&#39;</span><span class="p">,</span><span class="s">&#39;m&#39;</span><span class="p">,</span><span class="s">&#39;n&#39;</span><span class="p">,</span><span class="s">&#39;o&#39;</span><span class="p">,</span><span class="s">&#39;p&#39;</span><span class="p">,</span><span class="s">&#39;q&#39;</span><span class="p">,</span><span class="s">&#39;r&#39;</span><span class="p">,</span><span class="s">&#39;s&#39;</span><span class="p">,</span><span class="s">&#39;t&#39;</span><span class="p">,</span><span class="s">&#39;u&#39;</span><span class="p">,</span><span class="s">&#39;v&#39;</span><span class="p">,</span><span class="s">&#39;w&#39;</span><span class="p">,</span><span class="s">&#39;x&#39;</span><span class="p">,</span><span class="s">&#39;y&#39;</span><span class="p">,</span><span class="s">&#39;z&#39;</span><span class="p">])</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="p">[</span><span class="n">V1</span><span class="p">,</span><span class="n">V2</span><span class="p">,</span><span class="n">V3</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">26</span><span class="p">,</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">10000</span><span class="p">,)),</span><span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">26</span><span class="p">,</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">10000</span><span class="p">,)),</span><span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">26</span><span class="p">,</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">10000</span><span class="p">,))]</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">H</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">rec</span><span class="o">.</span><span class="n">fromrecords</span><span class="p">([(</span><span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">10</span><span class="p">),</span><span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">a</span><span class="p">))</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">L</span><span class="p">[</span><span class="n">V1</span><span class="p">],</span><span class="n">L</span><span class="p">[</span><span class="n">V2</span><span class="p">],</span><span class="n">L</span><span class="p">[</span><span class="n">V3</span><span class="p">])],</span><span class="n">names</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;Number&#39;</span><span class="p">,</span><span class="s">&#39;Letters&#39;</span><span class="p">])</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="p">[</span><span class="n">V1</span><span class="p">,</span><span class="n">V2</span><span class="p">,</span><span class="n">V3</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">26</span><span class="p">,</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">10000</span><span class="p">,)),</span><span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">26</span><span class="p">,</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">10000</span><span class="p">,)),</span><span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">26</span><span class="p">,</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mi">10000</span><span class="p">,))]</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">H2</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">rec</span><span class="o">.</span><span class="n">fromrecords</span><span class="p">([(</span><span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">10</span><span class="p">),</span><span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">a</span><span class="p">))</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">L</span><span class="p">[</span><span class="n">V1</span><span class="p">],</span><span class="n">L</span><span class="p">[</span><span class="n">V2</span><span class="p">],</span><span class="n">L</span><span class="p">[</span><span class="n">V3</span><span class="p">])],</span><span class="n">names</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;Number&#39;</span><span class="p">,</span><span class="s">&#39;Letters&#39;</span><span class="p">])</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">Z</span> <span class="o">=</span> <span class="n">fast</span><span class="o">.</span><span class="n">recarrayisin</span><span class="p">(</span><span class="n">H</span><span class="p">,</span><span class="n">H2</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">t</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="p">;</span> <span class="n">Z</span> <span class="o">=</span> <span class="n">fast</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="n">H</span><span class="p">,</span><span class="n">H2</span><span class="p">)</span> <span class="p">;</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">t</span>
+<span class="go">0.25945591926574707</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">t</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="p">;</span> <span class="n">T</span> <span class="o">=</span> <span class="p">[</span><span class="n">l</span> <span class="ow">in</span> <span class="n">H2</span> <span class="k">for</span> <span class="n">l</span> <span class="ow">in</span> <span class="n">H</span><span class="p">]</span> <span class="p">;</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">t</span>
+<span class="go">4.2678370475769043</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="p">(</span><span class="n">Z</span> <span class="o">==</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">T</span><span class="p">))</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+<span class="go">True</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="k">print</span> <span class="n">H</span><span class="p">[</span><span class="n">Z</span><span class="p">][:</span><span class="mi">10</span><span class="p">]</span>
+<span class="go">[(4, &#39;xpc&#39;) (7, &#39;umr&#39;) (1, &#39;gmn&#39;) (6, &#39;qub&#39;) (6, &#39;fdz&#39;) (6, &#39;nht&#39;)</span>
+<span class="go"> (5, &#39;uts&#39;) (2, &#39;nlt&#39;) (6, &#39;xzv&#39;) (3, &#39;jae&#39;)]</span>
+</pre></div>
+</div>
+</div>
+<div class="section" id="equality-testing">
+<h2>Equality Testing<a class="headerlink" href="#equality-testing" title="Permalink to this headline">¶</a></h2>
+<p><strong>equalspairs</strong></p>
+<p>Given one NumPy array <cite>X</cite> and another sorted numpy array <cite>Y</cite>, <a class="reference internal" href="../modules/tabular.fast.html#tabular.fast.equalspairs" title="tabular.fast.equalspairs"><tt class="xref py py-func docutils literal"><span class="pre">tabular.fast.equalspairs()</span></tt></a> determines the indices in <cite>Y</cite> which are equal to indices in <cite>X</cite>.</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">N</span> <span class="o">=</span> <span class="mi">10000</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">Y</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="mi">10</span><span class="p">,</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="n">N</span><span class="p">,))</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">Y</span><span class="o">.</span><span class="n">sort</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">X</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="mi">10</span><span class="p">,</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="n">N</span><span class="p">,))</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">t</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="p">;</span> <span class="p">[</span><span class="n">A</span><span class="p">,</span><span class="n">B</span><span class="p">]</span> <span class="o">=</span> <span class="n">equalspairs</span><span class="p">(</span><span class="n">X</span><span class="p">,</span><span class="n">Y</span><span class="p">)</span> <span class="p">;</span> <span class="k">print</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">t</span>
+<span class="go">0.00613594055176</span>
+</pre></div>
+</div>
+<p>For each <cite>i = 0, ...., N</cite>, the values <cite>A[i]</cite> and <cite>B[i]</cite> represent, respectively, the positions in <cite>B</cite> of the first and last appearances of the value <cite>X[i]</cite>, so that:</p>
+<blockquote>
+<div>Y[A[i]:B[i]] = Y[Y == X[i]]</div></blockquote>
+<p>For comparison, a (purer) Python approach to this computation:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">t</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="p">;</span> <span class="n">C</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="nb">min</span><span class="p">((</span><span class="n">Y</span> <span class="o">==</span> <span class="n">k</span><span class="p">)</span><span class="o">.</span><span class="n">nonzero</span><span class="p">()[</span><span class="mi">0</span><span class="p">])</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">X</span><span class="p">])</span> <span class="p">;</span> <span class="k">print</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">t</span>
+<span class="go">3.72342395782</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">t</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="p">;</span> <span class="n">D</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">1</span> <span class="o">+</span> <span class="nb">max</span><span class="p">((</span><span class="n">Y</span> <span class="o">==</span> <span class="n">k</span><span class="p">)</span><span class="o">.</span><span class="n">nonzero</span><span class="p">()[</span><span class="mi">0</span><span class="p">])</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">X</span><span class="p">])</span> <span class="p">;</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">t</span>
+<span class="go">3.7644798755645752</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="p">(</span><span class="n">A</span> <span class="o">==</span> <span class="n">C</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span> <span class="ow">and</span> <span class="p">(</span><span class="n">B</span> <span class="o">==</span> <span class="n">D</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+<span class="go">True</span>
+</pre></div>
+</div>
+<p><strong>recarrayequalspairs</strong></p>
+<p><a class="reference internal" href="../modules/tabular.fast.html#tabular.fast.recarrayequalspairs" title="tabular.fast.recarrayequalspairs"><tt class="xref py py-func docutils literal"><span class="pre">tabular.fast.recarrayequalspairs()</span></tt></a> is analogous to <a class="reference internal" href="../modules/tabular.fast.html#tabular.fast.equalspairs" title="tabular.fast.equalspairs"><tt class="xref py py-func docutils literal"><span class="pre">tabular.fast.equalspairs()</span></tt></a>, but works on recarrays.   It is slightly different, of course, because the concept of being sorted is less well-defined for a record array.   Specifically, on record arrays <cite>X</cite> and <cite>Y</cite>, <a class="reference internal" href="../modules/tabular.fast.html#tabular.fast.recarrayequalspairs" title="tabular.fast.recarrayequalspairs"><tt class="xref py py-func docutils literal"><span class="pre">tabular.fast.recarrayequalspairs()</span></tt></a> returns a triple:</p>
+<blockquote>
+<div>[A,B,s] = fast.recarraypairs(X,Y)</div></blockquote>
+<p>where <cite>s</cite> is a permutation of <cite>Y</cite> such that for</p>
+<blockquote>
+<div>Z = Y[s]</div></blockquote>
+<p>we have</p>
+<blockquote>
+<div>Z[A[i]:B[i]] = Z[Z == X[i]]</div></blockquote>
+</div>
+<div class="section" id="uniqification">
+<h2>&#8220;Uniqification&#8221;<a class="headerlink" href="#uniqification" title="Permalink to this headline">¶</a></h2>
+<p>It is often useful to obtain the unique instance of elements in an array.</p>
+<p>The function <a class="reference internal" href="../modules/tabular.utils.html#tabular.utils.uniqify" title="tabular.utils.uniqify"><tt class="xref py py-func docutils literal"><span class="pre">tabular.utils.uniqify()</span></tt></a> is a fast way to do this, with the additional nice property that it retains the order of the original array.</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">A</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">100000</span><span class="p">,</span><span class="n">size</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1000000</span><span class="p">,))</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">t</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="p">;</span> <span class="n">B</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">tb</span><span class="o">.</span><span class="n">uniqify</span><span class="p">(</span><span class="n">A</span><span class="p">))</span> <span class="p">;</span> <span class="k">print</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">t</span>
+<span class="go">0.492871046066</span>
+</pre></div>
+</div>
+<p>If retaining order is not important, the function <a class="reference internal" href="../modules/tabular.fast.html#tabular.fast.arrayuniqify" title="tabular.fast.arrayuniqify"><tt class="xref py py-func docutils literal"><span class="pre">tabular.fast.arrayuniqify()</span></tt></a> is even faster.</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">t</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="p">;</span> <span class="p">[</span><span class="n">D</span><span class="p">,</span><span class="n">s</span><span class="p">]</span> <span class="o">=</span> <span class="n">fast</span><span class="o">.</span><span class="n">arrayuniqify</span><span class="p">(</span><span class="n">A</span><span class="p">)</span> <span class="p">;</span> <span class="k">print</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">t</span>
+<span class="go">0.157983064651</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">C</span> <span class="o">=</span> <span class="n">A</span><span class="p">[</span><span class="n">s</span><span class="p">][</span><span class="n">D</span><span class="p">]</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">B</span><span class="p">)</span> <span class="o">==</span> <span class="n">C</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+<span class="go">True</span>
+</pre></div>
+</div>
+<p><a class="reference internal" href="../modules/tabular.fast.html#tabular.fast.recarrayuniqify" title="tabular.fast.recarrayuniqify"><tt class="xref py py-func docutils literal"><span class="pre">tabular.fast.recarrayuniqify()</span></tt></a> is a record-array version of <a class="reference internal" href="../modules/tabular.fast.html#tabular.fast.arrayuniqify" title="tabular.fast.arrayuniqify"><tt class="xref py py-func docutils literal"><span class="pre">tabular.fast.arrayuniqify()</span></tt></a>.</p>
+</div>
+<div class="section" id="solution-to-pathalong">
+<h2>Solution to <cite>PathAlong</cite><a class="headerlink" href="#solution-to-pathalong" title="Permalink to this headline">¶</a></h2>
+<p>Let&#8217;s return to the problem mentioned at the beginning of this section.   Suppose we have two lists of file paths, and we want to know which elements of the first list are &#8220;above&#8221; elements of the second list.  The following algorithm uses <a class="reference internal" href="../modules/tabular.fast.html#tabular.fast.isin" title="tabular.fast.isin"><tt class="xref py py-func docutils literal"><span class="pre">tabular.fast.isin()</span></tt></a> to solve this problem efficiently, the basic strategy being to break up the problem into a set of problems, one for each level of the file hierarchy:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="k">def</span> <span class="nf">getpathalong</span><span class="p">(</span><span class="n">Y</span><span class="p">,</span><span class="n">Z</span><span class="p">):</span>
+
+        <span class="n">Z</span> <span class="o">=</span> <span class="n">Z</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span> <span class="p">;</span> <span class="n">Z</span><span class="o">.</span><span class="n">sort</span><span class="p">()</span>
+        <span class="n">Y</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">y</span> <span class="o">+</span> <span class="s">&#39;/&#39;</span> <span class="k">if</span> <span class="n">y</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">!=</span> <span class="s">&#39;/&#39;</span> <span class="k">else</span> <span class="n">y</span> <span class="k">for</span> <span class="n">y</span> <span class="ow">in</span> <span class="n">Y</span><span class="p">])</span>
+        <span class="n">Z</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">y</span> <span class="o">+</span> <span class="s">&#39;/&#39;</span> <span class="k">if</span> <span class="n">y</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">!=</span> <span class="s">&#39;/&#39;</span> <span class="k">else</span> <span class="n">y</span> <span class="k">for</span> <span class="n">y</span> <span class="ow">in</span> <span class="n">Z</span><span class="p">])</span>
+        <span class="n">SlashList</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="nb">len</span><span class="p">(</span><span class="n">y</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">))</span> <span class="o">-</span> <span class="mi">1</span> <span class="k">for</span> <span class="n">y</span> <span class="ow">in</span> <span class="n">Y</span><span class="p">])</span>
+        <span class="n">Max</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">SlashList</span><span class="p">)</span> <span class="p">;</span>  <span class="n">Min</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">SlashList</span><span class="p">)</span>
+        <span class="n">W</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">Y</span><span class="p">),</span><span class="nb">int</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">Min</span><span class="p">,</span><span class="n">Max</span><span class="o">+</span><span class="mi">1</span><span class="p">):</span>
+                <span class="n">T</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="s">&#39;/&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">z</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">)[:</span><span class="n">i</span><span class="p">])</span> <span class="o">+</span> <span class="p">(</span><span class="s">&#39;/&#39;</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">z</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">))</span> <span class="o">&gt;</span> <span class="n">i</span> <span class="k">else</span> <span class="s">&#39;&#39;</span><span class="p">)</span>  <span class="k">for</span> <span class="n">z</span> <span class="ow">in</span> <span class="n">Z</span> <span class="p">])</span>
+                <span class="n">L</span> <span class="o">=</span> <span class="n">SlashList</span> <span class="o">==</span> <span class="n">i</span>
+                <span class="n">W</span><span class="p">[</span><span class="n">L</span><span class="p">]</span> <span class="o">=</span> <span class="n">fast</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="n">Y</span><span class="p">[</span><span class="n">L</span><span class="p">],</span><span class="n">T</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">W</span>
+</pre></div>
+</div>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">F1</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="s">&#39;../Data/Dan_Data/&#39;</span><span class="p">,</span> <span class="s">&#39;../Users/DanYamins/&#39;</span><span class="p">,</span><span class="s">&#39;../Users/ElaineAngelino/&#39;</span><span class="p">,</span><span class="s">&#39;../Data&#39;</span><span class="p">])</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">F2</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="s">&#39;../Data/Dan_Data/NPR_Puzzle_Solutions&#39;</span><span class="p">,</span><span class="s">&#39;../Data/Dan_Data/NPR_Puzzle_Solutions/AmericaPensacolaPuzzle/&#39;</span><span class="p">,</span> <span class="s">&#39;../Data/Dan_Data/RandomData&#39;</span><span class="p">,</span><span class="s">&#39;../Users/DanYamins/Finance/&#39;</span><span class="p">])</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">test</span><span class="o">.</span><span class="n">getpathalong</span><span class="p">(</span><span class="n">F1</span><span class="p">,</span><span class="n">F2</span><span class="p">)</span>
+<span class="go">array([1, 1, 0, 1])</span>
+</pre></div>
+</div>
+<p>Of course, it is useful sometimes not only to have which elements of the first list are &#8220;above&#8221; elements of the second but also the indices in the second list of items they&#8217;re above.  This algorithm solves that problem:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="k">def</span> <span class="nf">getpathalongpairs</span><span class="p">(</span><span class="n">Y</span><span class="p">,</span><span class="n">Z</span><span class="p">):</span>
+
+        <span class="n">s</span> <span class="o">=</span> <span class="n">Z</span><span class="o">.</span><span class="n">argsort</span><span class="p">()</span> <span class="p">;</span> <span class="n">Z</span> <span class="o">=</span> <span class="n">Z</span><span class="p">[</span><span class="n">s</span><span class="p">]</span>
+        <span class="n">Y</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">y</span> <span class="o">+</span> <span class="s">&#39;/&#39;</span> <span class="k">if</span> <span class="n">y</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">!=</span> <span class="s">&#39;/&#39;</span> <span class="k">else</span> <span class="n">y</span> <span class="k">for</span> <span class="n">y</span> <span class="ow">in</span> <span class="n">Y</span><span class="p">])</span>
+        <span class="n">Z</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">y</span> <span class="o">+</span> <span class="s">&#39;/&#39;</span> <span class="k">if</span> <span class="n">y</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">!=</span> <span class="s">&#39;/&#39;</span> <span class="k">else</span> <span class="n">y</span> <span class="k">for</span> <span class="n">y</span> <span class="ow">in</span> <span class="n">Z</span><span class="p">])</span>
+        <span class="n">SlashList</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="nb">len</span><span class="p">(</span><span class="n">y</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">))</span> <span class="o">-</span> <span class="mi">1</span> <span class="k">for</span> <span class="n">y</span> <span class="ow">in</span> <span class="n">Y</span><span class="p">])</span>
+        <span class="n">Max</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">SlashList</span><span class="p">)</span> <span class="p">;</span>  <span class="n">Min</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">SlashList</span><span class="p">)</span>
+        <span class="n">W</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">Y</span><span class="p">),</span><span class="nb">int</span><span class="p">)</span> <span class="p">;</span> <span class="n">U</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">Y</span><span class="p">),</span><span class="nb">int</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">Min</span><span class="p">,</span><span class="n">Max</span><span class="o">+</span><span class="mi">1</span><span class="p">):</span>
+                <span class="n">T</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="s">&#39;/&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">z</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">)[:</span><span class="n">i</span><span class="p">])</span> <span class="o">+</span> <span class="p">(</span><span class="s">&#39;/&#39;</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">z</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">))</span> <span class="o">&gt;</span> <span class="n">i</span> <span class="k">else</span> <span class="s">&#39;&#39;</span><span class="p">)</span>  <span class="k">for</span> <span class="n">z</span> <span class="ow">in</span> <span class="n">Z</span> <span class="p">])</span>
+                <span class="n">L</span> <span class="o">=</span> <span class="n">SlashList</span> <span class="o">==</span> <span class="n">i</span>
+                <span class="p">[</span><span class="n">W</span><span class="p">[</span><span class="n">L</span><span class="p">],</span><span class="n">U</span><span class="p">[</span><span class="n">L</span><span class="p">]]</span> <span class="o">=</span> <span class="n">fast</span><span class="o">.</span><span class="n">equalspairs</span><span class="p">(</span><span class="n">Y</span><span class="p">[</span><span class="n">L</span><span class="p">],</span> <span class="n">T</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">[</span><span class="n">W</span><span class="p">,</span><span class="n">U</span><span class="p">,</span><span class="n">s</span><span class="p">]</span>
+</pre></div>
+</div>
+<p>Using the same test data as above:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="p">[</span><span class="n">A</span><span class="p">,</span><span class="n">B</span><span class="p">,</span><span class="n">s</span><span class="p">]</span> <span class="o">=</span> <span class="n">test</span><span class="o">.</span><span class="n">getpathalongpairs</span><span class="p">(</span><span class="n">F1</span><span class="p">,</span><span class="n">F2</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">A</span>
+<span class="go">array([0, 3, 0, 0])</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">B</span>
+<span class="go">array([0, 3, 4, 0])</span>
+</pre></div>
+</div>
+<p>Finally, let&#8217;s solve a seemingly more difficult problem.   Suppose we have a list of pairs of file paths, like so:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">Recs</span> <span class="o">=</span> <span class="p">[(</span><span class="s">&#39;Data/Sports/Analysis/Raw1&#39;</span><span class="p">,</span><span class="s">&#39;Data/Sports/Analysis/Computations/&#39;</span><span class="p">),</span> <span class="p">(</span><span class="s">&#39;Data/Sports/Analysis/Raw1&#39;</span><span class="p">,</span><span class="s">&#39;Data/Sports/Analysis/Computations/Analysis1.csv&#39;</span><span class="p">),(</span><span class="s">&#39;Data/Sports/Analysis/Raw1&#39;</span><span class="p">,</span><span class="s">&#39;Data/Sports/Analysis/Computations/Analysis2.csv&#39;</span><span class="p">),(</span><span class="s">&#39;Data/Sports/Analysis/Raw2&#39;</span><span class="p">,</span><span class="s">&#39;Data/Sports/Analysis/Computations/Analysis3.csv&#39;</span><span class="p">),(</span><span class="s">&#39;Data/Sports/Analysis/Raw2&#39;</span><span class="p">,</span><span class="s">&#39;Data/Sports/Analysis/Computations/&#39;</span><span class="p">)]</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">Recs</span><span class="o">.</span><span class="n">sort</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">Data</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">rec</span><span class="o">.</span><span class="n">fromrecords</span><span class="p">(</span><span class="n">Recs</span><span class="p">,</span><span class="n">names</span><span class="o">=</span><span class="p">[</span><span class="s">&#39;Input&#39;</span><span class="p">,</span><span class="s">&#39;Output&#39;</span><span class="p">])</span>
+</pre></div>
+</div>
+<p>Now, suppose what we want to know is:  which records in <cite>Data[&#8216;Output&#8217;]</cite> are <strong>strictly above</strong>, in the file-system sense, other recods in the same column, but have the save value of <cite>Data[&#8216;Input&#8217;]</cite>?  Here is an efficient solution, using what we&#8217;ve just learned:</p>
+<div class="highlight-python"><div class="highlight"><pre><span class="k">def</span> <span class="nf">PathPairSolution</span><span class="p">(</span><span class="n">R</span><span class="p">):</span>
+
+        <span class="n">RR</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">x</span> <span class="o">+</span> <span class="s">&#39; ; &#39;</span> <span class="o">+</span> <span class="n">y</span> <span class="k">for</span> <span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="n">y</span><span class="p">)</span> <span class="ow">in</span> <span class="n">R</span><span class="p">])</span>
+        <span class="p">[</span><span class="n">A</span><span class="p">,</span><span class="n">B</span><span class="p">,</span><span class="n">s</span><span class="p">]</span> <span class="o">=</span> <span class="n">getpathalongpairs</span><span class="p">(</span><span class="n">RR</span><span class="p">,</span><span class="n">RR</span><span class="p">)</span>
+        <span class="p">[</span><span class="n">C</span><span class="p">,</span><span class="n">D</span><span class="p">]</span> <span class="o">=</span> <span class="n">fast</span><span class="o">.</span><span class="n">equalspairs</span><span class="p">(</span><span class="n">RR</span><span class="p">,</span><span class="n">RR</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="nb">zip</span><span class="p">(</span><span class="n">D</span><span class="p">,</span><span class="n">B</span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="highlight-python"><div class="highlight"><pre><span class="gp">&gt;&gt;&gt; </span><span class="n">PathPairSolution</span><span class="p">(</span><span class="n">Data</span><span class="p">)</span>
+<span class="go">[(1, 3), (2, 2), (3, 3), (4, 5), (5, 5)]</span>
+</pre></div>
+</div>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<p class="logo"><a href="http://web.mit.edu/yamins/www/tabular">
+  <img class="logo" src="../_static/tabularclear.png" alt="Logo"/>
+</a></p>
+  <h3><a href="../index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Fast Array Operations</a><ul>
+<li><a class="reference internal" href="#motivation">Motivation</a></li>
+<li><a class="reference internal" href="#membership-testing">Membership Testing</a></li>
+<li><a class="reference internal" href="#equality-testing">Equality Testing</a></li>
+<li><a class="reference internal" href="#uniqification">&#8220;Uniqification&#8221;</a></li>
+<li><a class="reference internal" href="#solution-to-pathalong">Solution to <cite>PathAlong</cite></a></li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="hierarchical.html"
+                        title="previous chapter">Column hierarchies and the <cite>coloring</cite> attribute</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="web.html"
+                        title="next chapter">Web &amp; HTML</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="../_sources/reference/fastops.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" size="18" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="web.html" title="Web &amp; HTML"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="hierarchical.html" title="Column hierarchies and the coloring attribute"
+             >previous</a> |</li>
+    
+        <li><a href="../index.html">tabular</a> &raquo;</li>
+ 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2013, Elaine Angelino and Daniel Yamins.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.0.7.
+    </div>
+  </body>
+</html>
