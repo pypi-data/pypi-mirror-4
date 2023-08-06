@@ -1,0 +1,117 @@
+#
+# Copyright 2012 Corporation of Balclutha (http://www.balclutha.org)
+# 
+#                All Rights Reserved
+# 
+# This software is subject to the provisions of the Zope Public License,
+# Version 2.1 (ZPL).  A copy of the ZPL should accompany this distribution.
+# THIS SOFTWARE IS PROVIDED "AS IS" AND ANY AND ALL EXPRESS OR IMPLIED
+# WARRANTIES ARE DISCLAIMED, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+# WARRANTIES OF TITLE, MERCHANTABILITY, AGAINST INFRINGEMENT, AND FITNESS
+# FOR A PARTICULAR PURPOSE
+#
+
+
+
+################################
+# These variables are overwritten by Zenoss when the ZenPack is exported
+# or saved.  Do not modify them directly here.
+# NB: PACKAGES is deprecated
+NAME = "ZenPacks.lbn.LDAPMonitor"
+VERSION = "4.0.1"
+AUTHOR = "Last Bastion Network"
+LICENSE = "ZPL/2.1"
+NAMESPACE_PACKAGES = ['ZenPacks', 'ZenPacks.lbn']
+PACKAGES = ['ZenPacks', 'ZenPacks.lbn', 'ZenPacks.lbn.LDAPMonitor']
+INSTALL_REQUIRES = ['ZenPacks.lbn.Base>=4.0.3', 'python-ldap']
+COMPAT_ZENOSS_VERS = ">=3.0"
+PREV_ZENPACK_NAME = ""
+# STOP_REPLACEMENTS
+################################
+# Zenoss will not overwrite any changes you make below here.
+
+def read(name):
+    try:
+        return open(name).read()
+    except IOError:
+	return ''
+
+long_description=(
+        read('README.txt')
+        + '\n' +
+        read('CHANGES.txt')
+    )
+
+
+from setuptools import setup, find_packages
+
+setup(
+    # This ZenPack metadata should usually be edited with the Zenoss
+    # ZenPack edit page.  Whenever the edit page is submitted it will
+    # overwrite the values below (the ones it knows about) with new values.
+    name = NAME,
+    version = VERSION,
+    author = AUTHOR,
+    license = LICENSE,
+
+    description = 'ZenPack to monitor LDAP Server stats',
+    long_description = long_description,
+
+    # Get more strings from http://www.python.org/pypi?%3Aaction=list_classifiers
+    classifiers=[
+        "Framework :: Zope2",
+        "Intended Audience :: Information Technology",
+        "Programming Language :: Python",
+        "Programming Language :: Zope",
+        "Development Status :: 5 - Production/Stable",
+        "License :: OSI Approved :: Zope Public License",
+        "Topic :: System :: Monitoring",
+        "Topic :: System :: Networking :: Monitoring",
+        ],
+
+    url = 'http://linux.last-bastion.net/LBN/up2date/monitor',
+    author_email = 'helpdesk@last-bastion.net',
+
+    # This is the version spec which indicates what versions of Zenoss
+    # this ZenPack is compatible with
+    ###compatZenossVers = COMPAT_ZENOSS_VERS,
+    
+    # previousZenPackName is a facility for telling Zenoss that the name
+    # of this ZenPack has changed.  If no ZenPack with the current name is
+    # installed then a zenpack of this name if installed will be upgraded.
+    ###prevZenPackName = PREV_ZENPACK_NAME, 
+    
+    # Indicate to setuptools which namespace packages the zenpack
+    # participates in
+    namespace_packages = NAMESPACE_PACKAGES,
+    
+    # Tell setuptools what packages this zenpack provides.
+    packages = find_packages(),
+    
+    #scripts = [ 'ZenPacks/lbn/LDAPMonitor/daemons/zenperfldap', ],
+
+    # Tell setuptools to figure out for itself which files to include
+    # in the binary egg when it is built.
+    include_package_data = True,
+    
+    # The MANIFEST.in file is the recommended way of including additional files
+    # in your ZenPack. package_data is another.
+    #package_data = {}
+
+    # Indicate dependencies on other python modules or ZenPacks.  This line
+    # is modified by zenoss when the ZenPack edit page is submitted.  Zenoss
+    # tries to put add/delete the names it manages at the beginning of this
+    # list, so any manual additions should be added to the end.  Things will
+    # go poorly if this line is broken into multiple lines or modified to
+    # dramatically.
+    install_requires = INSTALL_REQUIRES,
+
+    # Every ZenPack egg must define exactly one zenoss.zenpacks entry point
+    # of this form.
+    entry_points = {
+        'zenoss.zenpacks': '%s = %s' % (NAME, NAME),
+    },
+
+    # All ZenPack eggs must be installed in unzipped form.
+    zip_safe = False,    
+)
