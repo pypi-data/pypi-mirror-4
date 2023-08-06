@@ -1,0 +1,309 @@
+#!/usr/bin/python
+
+#
+#  erlenmeyer
+#  Erlenmeyer
+#
+#  Created by Patrick Perini on February 5, 2013.
+#  See LICENSE.txt for licensing information.
+#
+
+# imports
+import os
+import sys
+import flask
+import shutil
+import jinja2
+import getpass
+import optparse
+import datetime
+import erlenmeyer
+from erlenmeyer import CoreData
+from erlenmeyer.ext import jinja2 as jinja2Extensions
+from sqlalchemy import exc as sqlExceptions
+from flask.ext.sqlalchemy import SQLAlchemy
+
+# constants
+projectFiles = {
+    "flaskProject": "%(directory)s/%(projectName)s.py",
+    
+    "modelsInit": "%(directory)s/models/__init__.py",
+    "modelsModelObject": "%(directory)s/models/%(modelName)s.py",
+    
+    "handlersInit": "%(directory)s/handlers/__init__.py",
+    "handlersModelObjectHandler": "%(directory)s/handlers/%(modelName)sHandler.py",
+    
+    "flaskProjectDocumentation": "%(directory)s/documentation/%(projectName)s.html",
+    
+    "settings": "%(directory)s/settings/settings.json"
+}
+
+templateFiles = {
+    "flaskProject": "erlenmeyer.project.tmpl.py",
+    
+    "modelsModel": "erlenmeyer.model.tmpl.py",
+    "modelsModelObject": "erlenmeyer.ModelObject.tmpl.py",
+    
+    "handlersModelObjectHandler": "erlenmeyer.ModelObjectHandler.tmpl.py",
+    
+    "flaskProjectDocumentation": "erlenmeyer.server.tmpl.html",
+    
+    "settings": "erlenmeyer.settings.tmpl.json"
+}
+
+# globals
+optionParser = optparse.OptionParser()
+
+templateEnvironment = jinja2.Environment(
+    loader = jinja2.FileSystemLoader(os.path.dirname(__file__))
+)
+
+for filter in dir(jinja2Extensions):
+    templateEnvironment.filters[filter] = getattr(jinja2Extensions, filter)
+
+# functions
+def main():
+    (options, args) = optionParser.parse_args()
+    
+    commandIsMalformed = False
+    commandIsMalformed |= (not options.project)
+    commandIsMalformed |= (not options.coreDataFile)
+    
+    if commandIsMalformed:
+        optionParser.print_help()
+        return
+        
+    # setup variables
+    project = os.path.abspath(options.project)
+    coreDataFile = os.path.abspath(options.coreDataFile)
+    sqlLogin = {
+        "user": options.sqlLogin.split(":")[0],
+        "password": options.sqlLogin.split(":")[1]
+    }
+        
+    if not os.path.isdir(coreDataFile):
+        print "Error: %(coreDataFile)s does not exist." % ({
+            "coreDataFile": coreDataFile
+        })
+        
+        return
+        
+    # setup variables        
+    projectName = os.path.basename(project)
+    sqlLogin['database'] = projectName.lower()
+    
+    metadata = {
+        "projectName": projectName,
+        "projectOwner": projectOwner if options.projectOwner else getpass.getuser(),
+        "fileAuthor": options.fileAuthor if options.fileAuthor else getpass.getuser(),
+        "pubDate": datetime.datetime.today().strftime("%h %d, %Y"),
+        "pubYear": datetime.datetime.today().strftime("%Y")
+    }
+    
+    if options.databaseType == "mysql":
+        metadata['databaseURL'] = "'mysql://%(user)s:%(password)s@localhost/%(database)s'" % (sqlLogin)
+    elif options.databaseType == "heroku-postgresql":
+        metadata['databaseURL'] = "os.environ['DATABASE_URL']"
+    
+    # retrieve models
+    print "Parsing Core Data file..."
+    coreData = CoreData.CoreData(coreDataFile, options.primaryKey)
+    
+    # create flask file
+    print "Creating Flask file..."
+    flaskProjectTemplateDict = {
+        "metadata": metadata,
+        "models": coreData['models']
+    }
+    
+    flaskProjectFileNameDict = {
+        "directory": project,
+        "projectName": projectName
+    }
+    
+    renderTemplate('flaskProject', flaskProjectTemplateDict, flaskProjectFileNameDict)
+    
+    # create models files
+    # - create init file
+    print "Creating models module..."
+    modelsInitFileNameDict = {
+        "directory": project
+    }
+    
+    renderTemplate('modelsInit', {}, modelsInitFileNameDict)
+    
+    # - create Model subclass files
+    for model in coreData['models']:
+        print "  Creating %(model)s object..." % ({
+            "model": model["className"]
+        })
+        
+        modelsModelObjectTemplateDict = {
+            "metadata": metadata,
+            "model": model
+        }
+        
+        modelsModelFileNameDict = {
+            "directory": project,
+            "modelName": model["className"]
+        }
+        
+        renderTemplate('modelsModelObject', modelsModelObjectTemplateDict, modelsModelFileNameDict)
+
+    # create handlers files
+    # - create init file
+    print "Creating handlers module..."
+    
+    handlersInitFileNameDict = {
+        "directory": project
+    }
+    
+    renderTemplate('handlersInit', {}, modelsInitFileNameDict)
+    
+    # - create Model subclass files
+    for model in coreData['models']:
+        print "  Creating %(model)s handler..." % ({
+            "model": model["className"]
+        })
+        
+        handlersModelObjectHandlerTemplateDict = {
+            "metadata": metadata,
+            "model": model
+        }
+        
+        handlersModelHandlerFileNameDict = {
+            "directory": project,
+            "modelName": model["className"]
+        }
+        
+        renderTemplate('handlersModelObjectHandler', handlersModelObjectHandlerTemplateDict, handlersModelHandlerFileNameDict)
+        
+    # create documentation directory
+    # - create documentation file
+    print "Creating documentation file..."
+    
+    documentationTemplateDict = {
+        "metadata": metadata,
+        "models": coreData['models']
+    }
+    
+    documentationTemplateFileNameDict = {
+        "directory": project,
+        "projectName": projectName
+    }
+    
+    renderTemplate('flaskProjectDocumentation', documentationTemplateDict, documentationTemplateFileNameDict)
+        
+    # create settings directory
+    # - create settings file
+    print "Creating settings file..."
+    
+    settingsTemplateDict = {
+        "metadata": metadata,
+        "sql": sqlLogin
+    }
+    
+    settingsFileNameDict = {
+        "directory": project
+    }
+    
+    renderTemplate('settings', settingsTemplateDict, settingsFileNameDict)
+        
+    # create database & tables
+    if options.databaseType == "mysql":
+        # create MySQL database & tables
+        print "Creating MySQL database..."
+        flaskApp = flask.Flask(__name__)
+        flaskApp.config['SQLALCHEMY_DATABASE_URI'] = metadata['databaseURL'][1:-1] # Account for ''
+        
+        database = SQLAlchemy(flaskApp)
+        
+        databaseEngine = database.create_engine(flaskApp.config['SQLALCHEMY_DATABASE_URI'])
+        databaseEngineExecutor = databaseEngine.connect().execute
+        
+        try:
+            databaseEngineExecutor("create database %(database)s" % ({
+                "database": sqlLogin['database']
+            }))
+        except sqlExceptions.ProgrammingError:
+            print "  MySQL database already exists!"
+
+    elif options.databaseType == "heroku-postgresql":
+        pass
+    
+    # finish
+    print "Finished!"
+        
+# template renderers
+def renderTemplate(fileName, templateDict, projectFileNameDict):
+    """
+    Renders the given template and writes it to the cooresponding file.
+    
+    @param fileName: The name of the template and output file.
+    @param templateDict: The values for the template.
+    @param projectFileNameDict: The values for the project file name.
+    """
+    
+    templateFilePath = projectFiles[fileName] % (projectFileNameDict)
+    templatePath = os.path.dirname(templateFilePath)
+    
+    template = None
+    if fileName in templateFiles:
+        template = templateEnvironment.get_template(templateFiles[fileName])
+        
+    if 'metadata' in templateDict:
+        templateDict['metadata']['fileName'] = os.path.basename(templateFilePath)
+        
+    renderedTemplate = template.render(templateDict) if template else ""
+    
+    if not os.path.isdir(templatePath):
+        os.makedirs(templatePath)
+        
+    templateFile = open(templateFilePath, 'w')
+    templateFile.write(renderedTemplate)
+    templateFile.close()        
+
+# main
+if __name__ == "__main__":
+    # add options
+    optionParser.add_option(
+        "-p", "--project", dest = "project",
+        help = "Location of the project to manipulate."
+    )
+    
+    optionParser.add_option(
+        "-c", "--coredata", dest = "coreDataFile",
+        help = "Location of the Core Data xcdatamodeld file."
+    )
+    
+    optionParser.add_option(
+        "--sql", dest = "sqlLogin",
+        help = "The username:password combination for SQLALchemy.",
+        default = "root:"
+    )
+    
+    optionParser.add_option(
+        "--db", dest = "databaseType",
+        help = "The database type to use.",
+        choices = ["mysql", "heroku-postgresql"],
+        default = "mysql"
+    )
+    
+    optionParser.add_option(
+        "--primaryKey", dest = "primaryKey",
+        default = "uuid", help = "The primary key of all Models. Default to UUID."
+    )
+    
+    optionParser.add_option(
+        "--projectOwner", dest = "projectOwner",
+        help = "The owner to whom this project is copyrighted.",
+        default = None
+    )
+    
+    optionParser.add_option(
+        "--fileAuthor", dest = "fileAuthor",
+        help = "The creator of this file. Defaults to current user.",
+        default = None
+    )
+    
+    main()
