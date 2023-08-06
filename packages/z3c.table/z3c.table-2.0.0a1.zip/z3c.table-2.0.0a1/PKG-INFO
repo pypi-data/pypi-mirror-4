@@ -1,0 +1,3458 @@
+Metadata-Version: 1.1
+Name: z3c.table
+Version: 2.0.0a1
+Summary: Modular table rendering implementation for Zope3
+Home-page: http://pypi.python.org/pypi/z3c.table
+Author: Stephan Richter, Roger Ineichen and the Zope Community
+Author-email: zope-dev@zope.org
+License: ZPL 2.1
+Description: This package provides a modular table rendering implementation for Zope3.
+        
+        
+        =========
+        z3c Table
+        =========
+        
+        .. contents::
+        
+        The goal of this package is to offer a modular table rendering library. We use
+        the content provider pattern and the column are implemented as adapters which
+        will give us a powerful base concept.
+        
+        Some important concepts we use
+        ------------------------------
+        
+        - separate implementation in update render parts, This allows to manipulate
+          data after update call and before we render them.
+        
+        - allow to use page templates if needed. By default all is done in python.
+        
+        - allow to use the rendered batch outside the existing table HTML part.
+        
+        No skins
+        --------
+        
+        This package does not provide any kind of template or skin support. Most the
+        time if you need to render a table, you will use your own skin concept. This means
+        you can render the table or batch within your own templates. This will ensure
+        that we have as few dependencies as possible in this package and the package
+        can get reused with any skin concept.
+        
+        Note
+        ----
+        
+        As you probably know, batching is only possible after sorting columns. This is
+        a nightmare if it comes to performance. The reason is, all data need to get
+        sorted before the batch can start at the given position. And sorting can most
+        of the time only be done by touching each object. This means you have to be careful
+        if you are using a large set of data, even if you use batching.
+        
+        Sample data setup
+        -----------------
+        
+        Let's create a sample container which we can use as our iterable context:
+        
+          >>> from zope.container import btree
+          >>> class Container(btree.BTreeContainer):
+          ...     """Sample container."""
+          ...     __name__ = u'container'
+          >>> container = Container()
+        
+        and set a parent for the container:
+        
+          >>> root['container'] = container
+        
+        and create a sample content object which we use as container item:
+        
+          >>> class Content(object):
+          ...     """Sample content."""
+          ...     def __init__(self, title, number):
+          ...         self.title = title
+          ...         self.number = number
+        
+        Now setup some items:
+        
+          >>> container[u'first'] = Content('First', 1)
+          >>> container[u'second'] = Content('Second', 2)
+          >>> container[u'third'] = Content('Third', 3)
+        
+        
+        Table
+        -----
+        
+        Create a test request and represent the table:
+        
+          >>> from zope.publisher.browser import TestRequest
+          >>> from z3c.table import table
+          >>> request = TestRequest()
+          >>> plainTable = table.Table(container, request)
+          >>> plainTable.cssClassSortedOn = None
+        
+        Now we can update and render the table. As you can see with an empty container
+        we will not get anything that looks like a table. We just get an empty string:
+        
+          >>> plainTable.update()
+          >>> plainTable.render()
+          u''
+        
+        
+        Column Adapter
+        --------------
+        
+        We can create a column for our table:
+        
+          >>> import zope.component
+          >>> from z3c.table import interfaces
+          >>> from z3c.table import column
+        
+          >>> class TitleColumn(column.Column):
+          ...
+          ...     weight = 10
+          ...     header = u'Title'
+          ...
+          ...     def renderCell(self, item):
+          ...         return u'Title: %s' % item.title
+        
+        Now we can register the column:
+        
+          >>> zope.component.provideAdapter(TitleColumn,
+          ...     (None, None, interfaces.ITable), provides=interfaces.IColumn,
+          ...      name='firstColumn')
+        
+        Now we can render the table again:
+        
+          >>> plainTable.update()
+          >>> print(plainTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>Title</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Title: First</td>
+              </tr>
+              <tr>
+                <td>Title: Second</td>
+              </tr>
+              <tr>
+                <td>Title: Third</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        We can also use the predefined name column:
+        
+          >>> zope.component.provideAdapter(column.NameColumn,
+          ...     (None, None, interfaces.ITable), provides=interfaces.IColumn,
+          ...      name='secondColumn')
+        
+        Now we will get an additional column:
+        
+          >>> plainTable.update()
+          >>> print(plainTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Title</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>first</td>
+                <td>Title: First</td>
+              </tr>
+              <tr>
+                <td>second</td>
+                <td>Title: Second</td>
+              </tr>
+              <tr>
+                <td>third</td>
+                <td>Title: Third</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        
+        Colspan
+        -------
+        
+        Now let's show how we can define a colspan condition of 2 for a column:
+        
+          >>> class ColspanColumn(column.NameColumn):
+          ...
+          ...     weight = 999
+          ...
+          ...     def getColspan(self, item):
+          ...         # colspan condition
+          ...         if item.__name__ == 'first':
+          ...             return 2
+          ...         else:
+          ...             return 0
+          ...
+          ...     def renderHeadCell(self):
+          ...         return u'Colspan'
+          ...
+          ...     def renderCell(self, item):
+          ...         return u'colspan: %s' % item.title
+        
+        Now we register this column adapter as colspanColumn:
+        
+          >>> zope.component.provideAdapter(ColspanColumn,
+          ...     (None, None, interfaces.ITable), provides=interfaces.IColumn,
+          ...      name='colspanColumn')
+        
+        Now you can see that the colspan of the ColspanAdapter is larger than the table.
+        This will raise a ValueError:
+        
+          >>> plainTable.update()
+          Traceback (most recent call last):
+          ...
+          ValueError: Colspan for column '<ColspanColumn u'colspanColumn'>' is larger than the table.
+        
+        But if we set the column as first row, it will render the colspan correctly:
+        
+          >>> class CorrectColspanColumn(ColspanColumn):
+          ...     """Colspan with correct weight."""
+          ...
+          ...     weight = -1  # NameColumn is 0
+        
+        Register and render the table again:
+        
+          >>> zope.component.provideAdapter(CorrectColspanColumn,
+          ...     (None, None, interfaces.ITable), provides=interfaces.IColumn,
+          ...      name='colspanColumn')
+        
+          >>> plainTable.update()
+          >>> print(plainTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>Colspan</th>
+                <th>Name</th>
+                <th>Title</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td colspan="2">colspan: First</td>
+                <td>Title: First</td>
+              </tr>
+              <tr>
+                <td>colspan: Second</td>
+                <td>second</td>
+                <td>Title: Second</td>
+              </tr>
+              <tr>
+                <td>colspan: Third</td>
+                <td>third</td>
+                <td>Title: Third</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        Setup columns
+        -------------
+        
+        The existing implementation allows us to define a table in a class without
+        using the modular adapter pattern for columns.
+        
+        First we need to define a column which can render a value for our items:
+        
+          >>> class SimpleColumn(column.Column):
+          ...
+          ...     weight = 0
+          ...
+          ...     def renderCell(self, item):
+          ...         return item.title
+        
+        Let's define our table which defines the columns explicitly. you can also see
+        that we do not return the columns in the correct order:
+        
+          >>> class PrivateTable(table.Table):
+          ...     cssClassSortedOn = None
+          ...
+          ...     def setUpColumns(self):
+          ...         firstColumn = TitleColumn(self.context, self.request, self)
+          ...         firstColumn.__name__ = u'title'
+          ...         firstColumn.weight = 1
+          ...         secondColumn = SimpleColumn(self.context, self.request, self)
+          ...         secondColumn.__name__ = u'simple'
+          ...         secondColumn.weight = 2
+          ...         secondColumn.header = u'The second column'
+          ...         return [secondColumn, firstColumn]
+        
+        Now we can create, update and render the table and see that this renders a nice
+        table too:
+        
+          >>> privateTable = PrivateTable(container, request)
+          >>> privateTable.update()
+          >>> print(privateTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>The second column</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Title: First</td>
+                <td>First</td>
+              </tr>
+              <tr>
+                <td>Title: Second</td>
+                <td>Second</td>
+              </tr>
+              <tr>
+                <td>Title: Third</td>
+                <td>Third</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        
+        Cascading Style Sheet
+        ---------------------
+        
+        Our table and column implementation supports css class assignment. Let's define
+        a table and columns with some css class values:
+        
+          >>> class CSSTable(table.Table):
+          ...
+          ...     cssClasses = {'table': 'table',
+          ...                   'thead': 'thead',
+          ...                   'tbody': 'tbody',
+          ...                   'th': 'th',
+          ...                   'tr': 'tr',
+          ...                   'td': 'td'}
+          ...     cssClassSortedOn = None
+          ...
+          ...     def setUpColumns(self):
+          ...         firstColumn = TitleColumn(self.context, self.request, self)
+          ...         firstColumn.__name__ = u'title'
+          ...         firstColumn.__parent__ = self
+          ...         firstColumn.weight = 1
+          ...         firstColumn.cssClasses = {'th':'thCol', 'td':'tdCol'}
+          ...         secondColumn = SimpleColumn(self.context, self.request, self)
+          ...         secondColumn.__name__ = u'simple'
+          ...         secondColumn.__parent__ = self
+          ...         secondColumn.weight = 2
+          ...         secondColumn.header = u'The second column'
+          ...         return [secondColumn, firstColumn]
+        
+        Now let's see if we got the css class assigned which we defined in the table and
+        column. Note that the ``th`` and ``td`` got CSS declarations from the table and
+        from the column:
+        
+          >>> cssTable = CSSTable(container, request)
+          >>> cssTable.update()
+          >>> print(cssTable.render())
+          <table class="table">
+            <thead class="thead">
+              <tr class="tr">
+                <th class="thCol th">Title</th>
+                <th class="th">The second column</th>
+              </tr>
+            </thead>
+            <tbody class="tbody">
+              <tr class="tr">
+                <td class="tdCol td">Title: First</td>
+                <td class="td">First</td>
+              </tr>
+              <tr class="tr">
+                <td class="tdCol td">Title: Second</td>
+                <td class="td">Second</td>
+              </tr>
+              <tr class="tr">
+                <td class="tdCol td">Title: Third</td>
+                <td class="td">Third</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        
+        Alternating table
+        -----------------
+        
+        We offer built in support for alternating table rows based on even and odd CSS
+        classes. Let's define a table including other CSS classes. For even/odd support,
+        we only need to define the ``cssClassEven`` and ``cssClassOdd`` CSS classes:
+        
+          >>> class AlternatingTable(table.Table):
+          ...
+          ...     cssClasses = {'table': 'table',
+          ...                   'thead': 'thead',
+          ...                   'tbody': 'tbody',
+          ...                   'th': 'th',
+          ...                   'tr': 'tr',
+          ...                   'td': 'td'}
+          ...
+          ...     cssClassEven = u'even'
+          ...     cssClassOdd = u'odd'
+          ...     cssClassSortedOn = None
+          ...
+          ...     def setUpColumns(self):
+          ...         firstColumn = TitleColumn(self.context, self.request, self)
+          ...         firstColumn.__name__ = u'title'
+          ...         firstColumn.__parent__ = self
+          ...         firstColumn.weight = 1
+          ...         firstColumn.cssClasses = {'th':'thCol', 'td':'tdCol'}
+          ...         secondColumn = SimpleColumn(self.context, self.request, self)
+          ...         secondColumn.__name__ = u'simple'
+          ...         secondColumn.__parent__ = self
+          ...         secondColumn.weight = 2
+          ...         secondColumn.header = u'The second column'
+          ...         return [secondColumn, firstColumn]
+        
+        Now update and render the new table. As you can see the given ``tr`` class is
+        added to the even and odd classes:
+        
+          >>> alternatingTable = AlternatingTable(container, request)
+          >>> alternatingTable.update()
+          >>> print(alternatingTable.render())
+          <table class="table">
+            <thead class="thead">
+              <tr class="tr">
+                <th class="thCol th">Title</th>
+                <th class="th">The second column</th>
+              </tr>
+            </thead>
+            <tbody class="tbody">
+              <tr class="even tr">
+                <td class="tdCol td">Title: First</td>
+                <td class="td">First</td>
+              </tr>
+              <tr class="odd tr">
+                <td class="tdCol td">Title: Second</td>
+                <td class="td">Second</td>
+              </tr>
+              <tr class="even tr">
+                <td class="tdCol td">Title: Third</td>
+                <td class="td">Third</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        
+        Class based Table setup
+        -----------------------
+        
+        There is a more elegant way to define table rows at class level. We offer
+        a method which you can use if you need to define some columns called
+        ``addColumn``. Before we define the table. let's define some cell renderer:
+        
+          >>> def headCellRenderer():
+          ...     return u'My items'
+        
+          >>> def cellRenderer(item):
+          ...     return u'%s item' % item.title
+        
+        Now we can define our table and use the custom cell renderer:
+        
+          >>> class AddColumnTable(table.Table):
+          ...
+          ...     cssClasses = {'table': 'table',
+          ...                   'thead': 'thead',
+          ...                   'tbody': 'tbody',
+          ...                   'th': 'th',
+          ...                   'tr': 'tr',
+          ...                   'td': 'td'}
+          ...
+          ...     cssClassEven = u'even'
+          ...     cssClassOdd = u'odd'
+          ...     cssClassSortedOn = None
+          ...
+          ...     def setUpColumns(self):
+          ...         return [
+          ...             column.addColumn(self, TitleColumn, u'title',
+          ...                              cellRenderer=cellRenderer,
+          ...                              headCellRenderer=headCellRenderer,
+          ...                              weight=1, colspan=0),
+          ...             column.addColumn(self, SimpleColumn, name=u'simple',
+          ...                              weight=2, header=u'The second column',
+          ...                              cssClasses = {'th':'thCol', 'td':'tdCol'})
+          ...             ]
+        
+        Add some more content::
+        
+          >>> container[u'fourth'] = Content('Fourth', 4)
+          >>> container[u'zero'] = Content('Zero', 0)
+        
+          >>> addColumnTable = AddColumnTable(container, request)
+          >>> addColumnTable.update()
+          >>> print(addColumnTable.render())
+          <table class="table">
+            <thead class="thead">
+              <tr class="tr">
+                <th class="th">My items</th>
+                <th class="thCol th">The second column</th>
+              </tr>
+            </thead>
+            <tbody class="tbody">
+              <tr class="even tr">
+                <td class="td">First item</td>
+                <td class="tdCol td">First</td>
+              </tr>
+              <tr class="odd tr">
+                <td class="td">Fourth item</td>
+                <td class="tdCol td">Fourth</td>
+              </tr>
+              <tr class="even tr">
+                <td class="td">Second item</td>
+                <td class="tdCol td">Second</td>
+              </tr>
+              <tr class="odd tr">
+                <td class="td">Third item</td>
+                <td class="tdCol td">Third</td>
+              </tr>
+              <tr class="even tr">
+                <td class="td">Zero item</td>
+                <td class="tdCol td">Zero</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        As you can see the table columns provide all attributes we set in the addColumn
+        method:
+        
+          >>> titleColumn = addColumnTable.rows[0][0][1]
+          >>> titleColumn
+          <TitleColumn u'title'>
+        
+          >>> titleColumn.__name__
+          u'title'
+        
+          >>> titleColumn.__parent__
+          <AddColumnTable None>
+        
+          >>> titleColumn.colspan
+          0
+        
+          >>> titleColumn.weight
+          1
+        
+          >>> titleColumn.header
+          u'Title'
+        
+          >>> titleColumn.cssClasses
+          {}
+        
+        and the second column:
+        
+          >>> simpleColumn = addColumnTable.rows[0][1][1]
+          >>> simpleColumn
+          <SimpleColumn u'simple'>
+        
+          >>> simpleColumn.__name__
+          u'simple'
+        
+          >>> simpleColumn.__parent__
+          <AddColumnTable None>
+        
+          >>> simpleColumn.colspan
+          0
+        
+          >>> simpleColumn.weight
+          2
+        
+          >>> simpleColumn.header
+          u'The second column'
+        
+          >>> sorted(simpleColumn.cssClasses.items())
+          [('td', 'tdCol'), ('th', 'thCol')]
+        
+        
+        Headers
+        -------
+        
+        We can change the rendering of the header of, e.g, the Title column by
+        registering a IHeaderColumn adapter. This may be useful for adding links to
+        column headers for an existing table implementation.
+        
+        We'll use a fresh almost empty container.:
+        
+          >>> container = Container()
+          >>> root['container-1'] = container
+          >>> container[u'first'] = Content('First', 1)
+          >>> container[u'second'] = Content('Second', 2)
+          >>> container[u'third'] = Content('Third', 3)
+        
+          >>> class myTableClass(table.Table):
+          ...     cssClassSortedOn = None
+        
+          >>> myTable = myTableClass(container, request)
+        
+          >>> class TitleColumn(column.Column):
+          ...
+          ...     header = u'Title'
+          ...     weight = -2
+          ...
+          ...     def renderCell(self, item):
+          ...         return item.title
+        
+        Now we can register a column adapter directly to our table class:
+        
+          >>> zope.component.provideAdapter(TitleColumn,
+          ...     (None, None, myTableClass), provides=interfaces.IColumn,
+          ...      name='titleColumn')
+        
+        And add a registration for a column header - we'll use here the provided generic
+        sorting header implementation:
+        
+          >>> from z3c.table.header import SortingColumnHeader
+          >>> zope.component.provideAdapter(SortingColumnHeader,
+          ...     (None, None, interfaces.ITable, interfaces.IColumn),
+          ...     provides=interfaces.IColumnHeader)
+        
+        Now we can render the table and we shall see a link in the header. Note that it
+        is set to switch to descending as the table initially will display the first
+        column as ascending:
+        
+          >>> myTable.update()
+          >>> print(myTable.render())
+          <table>
+           <thead>
+            <tr>
+             <th><a
+              href="?table-sortOn=table-titleColumn-0&table-sortOrder=descending"
+              title="Sort">Title</a></th>
+          ...
+          </table>
+        
+        If the table is initially set to descending, the link should allow to switch to
+        ascending again:
+        
+          >>> myTable.sortOrder = 'descending'
+          >>> print(myTable.render())
+          <table>
+           <thead>
+            <tr>
+             <th><a
+              href="?table-sortOn=table-titleColumn-0&table-sortOrder=ascending"
+              title="Sort">Title</a></th>
+          ...
+          </table>
+        
+        If the table is ascending but the request was descending,
+        the link should allow to switch again to ascending:
+        
+          >>> descendingRequest = TestRequest(form={'table-sortOn': 'table-titleColumn-0',
+          ...                                   'table-sortOrder':'descending'})
+          >>> myTable = myTableClass(container, descendingRequest)
+          >>> myTable.sortOrder = 'ascending'
+          >>> myTable.update()
+          >>> print(myTable.render())
+          <table>
+           <thead>
+            <tr>
+             <th><a
+              href="?table-sortOn=table-titleColumn-0&table-sortOrder=ascending"
+              title="Sort">Title</a></th>
+          ...
+          </table>
+        
+        
+        Sorting Table
+        -------------
+        
+        Another table feature is the support for sorting data given from columns. Since
+        sorting table data is an important feature, we offer this by default. But it
+        only gets used if there is a ``sortOn`` value set. You can set this value at
+        class level by adding a ``defaultSortOn`` value or set it as a request value.
+        We show you how to do this later. We also need a columns which allows us to do
+        a better sort sample. Our new sorting column will use the content items number
+        value for sorting:
+        
+          >>> from z3c.table import column, table
+          >>> class NumberColumn(column.Column):
+          ...
+          ...     header = u'Number'
+          ...     weight = 20
+          ...
+          ...     def getSortKey(self, item):
+          ...         return item.number
+          ...
+          ...     def renderCell(self, item):
+          ...         return 'number: %s' % item.number
+        
+        
+        Now let's set up a table:
+        
+          >>> from z3c.table.testing import TitleColumn
+          >>> class SortingTable(table.Table):
+          ...
+          ...     def setUpColumns(self):
+          ...         firstColumn = TitleColumn(self.context, self.request, self)
+          ...         firstColumn.__name__ = u'title'
+          ...         firstColumn.__parent__ = self
+          ...         secondColumn = NumberColumn(self.context, self.request, self)
+          ...         secondColumn.__name__ = u'number'
+          ...         secondColumn.__parent__ = self
+          ...         return [firstColumn, secondColumn]
+        
+        Create a container:
+        
+          >>> from z3c.table.testing import OrderedContainer
+          >>> container = OrderedContainer()
+        
+        We also need some container items that we can use for sorting:
+        
+          >>> from z3c.table.testing import Content
+          >>> container[u'first'] = Content('First', 1)
+          >>> container[u'second'] = Content('Second', 2)
+          >>> container[u'third'] = Content('Third', 3)
+          >>> container[u'fourth'] = Content('Fourth', 4)
+          >>> container[u'zero'] = Content('Zero', 0)
+        
+        And render them without set a ``sortOn`` value:
+        
+          >>> from zope.publisher.browser import TestRequest
+          >>> request = TestRequest()
+          >>> sortingTable = SortingTable(container, request)
+          >>> sortingTable.update()
+          >>> print(sortingTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th class="sorted-on ascending">Title</th>
+                <th>Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="sorted-on ascending">Title: First</td>
+                <td>number: 1</td>
+              </tr>
+              <tr>
+                <td class="sorted-on ascending">Title: Fourth</td>
+                <td>number: 4</td>
+              </tr>
+              <tr>
+                <td class="sorted-on ascending">Title: Second</td>
+                <td>number: 2</td>
+              </tr>
+              <tr>
+                <td class="sorted-on ascending">Title: Third</td>
+                <td>number: 3</td>
+              </tr>
+              <tr>
+                <td class="sorted-on ascending">Title: Zero</td>
+                <td>number: 0</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        Ooops, well, by default the table is sorted on the first column, ascending.
+        
+          >>> sortingTable.sortOn
+          0
+        
+        Now switch off sorting, now we get the original order:
+        
+          >>> sortingTable.sortOn = None
+          >>> sortingTable.update()
+          >>> print(sortingTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Title: First</td>
+                <td>number: 1</td>
+              </tr>
+              <tr>
+                <td>Title: Second</td>
+                <td>number: 2</td>
+              </tr>
+              <tr>
+                <td>Title: Third</td>
+                <td>number: 3</td>
+              </tr>
+              <tr>
+                <td>Title: Fourth</td>
+                <td>number: 4</td>
+              </tr>
+              <tr>
+                <td>Title: Zero</td>
+                <td>number: 0</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        
+        As you can see this table doesn't provide any explicit order. Let's find out
+        the index of our column that we like to sort on:
+        
+          >>> sortOnId = sortingTable.rows[0][1][1].id
+          >>> sortOnId
+          u'table-number-1'
+        
+        And let's use this id as ``sortOn`` value:
+        
+          >>> sortingTable.sortOn = sortOnId
+        
+        An important thing is to update the table after set an ``sortOn`` value:
+        
+          >>> sortingTable.update()
+          >>> print(sortingTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th class="sorted-on ascending">Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Title: Zero</td>
+                <td class="sorted-on ascending">number: 0</td>
+              </tr>
+              <tr>
+                <td>Title: First</td>
+                <td class="sorted-on ascending">number: 1</td>
+              </tr>
+              <tr>
+                <td>Title: Second</td>
+                <td class="sorted-on ascending">number: 2</td>
+              </tr>
+              <tr>
+                <td>Title: Third</td>
+                <td class="sorted-on ascending">number: 3</td>
+              </tr>
+              <tr>
+                <td>Title: Fourth</td>
+                <td class="sorted-on ascending">number: 4</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        We can also reverse the sorting order:
+        
+          >>> sortingTable.sortOrder = 'reverse'
+          >>> sortingTable.update()
+          >>> print(sortingTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th class="sorted-on reverse">Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Title: Fourth</td>
+                <td class="sorted-on reverse">number: 4</td>
+              </tr>
+              <tr>
+                <td>Title: Third</td>
+                <td class="sorted-on reverse">number: 3</td>
+              </tr>
+              <tr>
+                <td>Title: Second</td>
+                <td class="sorted-on reverse">number: 2</td>
+              </tr>
+              <tr>
+                <td>Title: First</td>
+                <td class="sorted-on reverse">number: 1</td>
+              </tr>
+              <tr>
+                <td>Title: Zero</td>
+                <td class="sorted-on reverse">number: 0</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        The table implementation is also able to get the sorting criteria given from a
+        request. Let's setup such a request:
+        
+          >>> sorterRequest = TestRequest(form={'table-sortOn': 'table-number-1',
+          ...                                   'table-sortOrder':'descending'})
+        
+        and another time, update and render. As you can see the new table gets sorted
+        by the second column and ordered in reverse order:
+        
+          >>> requestSortedTable = SortingTable(container, sorterRequest)
+          >>> requestSortedTable.update()
+          >>> print(requestSortedTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th class="sorted-on descending">Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Title: Fourth</td>
+                <td class="sorted-on descending">number: 4</td>
+              </tr>
+              <tr>
+                <td>Title: Third</td>
+                <td class="sorted-on descending">number: 3</td>
+              </tr>
+              <tr>
+                <td>Title: Second</td>
+                <td class="sorted-on descending">number: 2</td>
+              </tr>
+              <tr>
+                <td>Title: First</td>
+                <td class="sorted-on descending">number: 1</td>
+              </tr>
+              <tr>
+                <td>Title: Zero</td>
+                <td class="sorted-on descending">number: 0</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        There's a header renderer, which provides a handy link rendering for sorting:
+        
+          >>> import zope.component
+          >>> from z3c.table import interfaces
+          >>> from z3c.table.header import SortingColumnHeader
+          >>> zope.component.provideAdapter(SortingColumnHeader,
+          ...     (None, None, interfaces.ITable, interfaces.IColumn),
+          ...     provides=interfaces.IColumnHeader)
+        
+        Let's see now various sortings:
+        
+          >>> request = TestRequest()
+          >>> sortingTable = SortingTable(container, request)
+          >>> sortingTable.update()
+          >>> sortingTable.sortOn
+          0
+          >>> sortingTable.sortOrder
+          u'ascending'
+          >>> print(sortingTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th class="sorted-on ascending"><a href="?table-sortOn=table-title-0&table-sortOrder=descending" title="Sort">Title</a></th>
+                <th><a href="?table-sortOn=table-number-1&table-sortOrder=ascending" title="Sort">Number</a></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="sorted-on ascending">Title: First</td>
+                <td>number: 1</td>
+              </tr>
+              <tr>
+                <td class="sorted-on ascending">Title: Fourth</td>
+                <td>number: 4</td>
+              </tr>
+              <tr>
+                <td class="sorted-on ascending">Title: Second</td>
+                <td>number: 2</td>
+              </tr>
+              <tr>
+                <td class="sorted-on ascending">Title: Third</td>
+                <td>number: 3</td>
+              </tr>
+              <tr>
+                <td class="sorted-on ascending">Title: Zero</td>
+                <td>number: 0</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        Let's see the `number` column:
+        
+          >>> sortingTable.sortOn = u'table-number-1'
+        
+          >>> sortingTable.update()
+          >>> print(sortingTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th><a href="?table-sortOn=table-title-0&table-sortOrder=ascending" title="Sort">Title</a></th>
+                <th class="sorted-on ascending"><a href="?table-sortOn=table-number-1&table-sortOrder=descending" title="Sort">Number</a></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Title: Zero</td>
+                <td class="sorted-on ascending">number: 0</td>
+              </tr>
+              <tr>
+                <td>Title: First</td>
+                <td class="sorted-on ascending">number: 1</td>
+              </tr>
+              <tr>
+                <td>Title: Second</td>
+                <td class="sorted-on ascending">number: 2</td>
+              </tr>
+              <tr>
+                <td>Title: Third</td>
+                <td class="sorted-on ascending">number: 3</td>
+              </tr>
+              <tr>
+                <td>Title: Fourth</td>
+                <td class="sorted-on ascending">number: 4</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        Let's see the `title` column but descending:
+        
+          >>> sortingTable.sortOn = u'table-title-0'
+          >>> sortingTable.sortOrder = 'descending'
+        
+          >>> sortingTable.update()
+          >>> print(sortingTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th class="sorted-on descending"><a href="?table-sortOn=table-title-0&table-sortOrder=ascending" title="Sort">Title</a></th>
+                <th><a href="?table-sortOn=table-number-1&table-sortOrder=descending" title="Sort">Number</a></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="sorted-on descending">Title: Zero</td>
+                <td>number: 0</td>
+              </tr>
+              <tr>
+                <td class="sorted-on descending">Title: Third</td>
+                <td>number: 3</td>
+              </tr>
+              <tr>
+                <td class="sorted-on descending">Title: Second</td>
+                <td>number: 2</td>
+              </tr>
+              <tr>
+                <td class="sorted-on descending">Title: Fourth</td>
+                <td>number: 4</td>
+              </tr>
+              <tr>
+                <td class="sorted-on descending">Title: First</td>
+                <td>number: 1</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        
+        Batching
+        --------
+        
+        Our table implements batching out of the box. If the amount of
+        row items is smaller than the given ``startBatchingAt`` size, the table starts
+        to batch at this size. Let's define a new Table.
+        
+        We need to configure our batch provider for the next step first. See the
+        section ``BatchProvider`` below for more infos about batch rendering:
+        
+          >>> from zope.configuration.xmlconfig import XMLConfig
+          >>> import z3c.table
+          >>> import zope.component
+          >>> XMLConfig('meta.zcml', zope.component)()
+          >>> XMLConfig('configure.zcml', z3c.table)()
+        
+        Now we can create our table:
+        
+          >>> from zope.publisher.browser import TestRequest
+          >>> from z3c.table.testing import Container, Content, SimpleTable
+          >>> container = Container()
+          >>> root['container-1'] = container
+          >>> request = TestRequest()
+          >>> batchingTable = SimpleTable(container, request)
+          >>> batchingTable.cssClassSortedOn = None
+        
+        We also need to give the table a location and a name like we normally setup
+        in traversing:
+        
+          >>> batchingTable.__parent__ = container
+          >>> batchingTable.__name__ = u'batchingTable.html'
+        
+        Now setup some items:
+        
+          >>> container[u'zero'] = Content('Zero', 0)
+          >>> container[u'first'] = Content('First', 1)
+          >>> container[u'second'] = Content('Second', 2)
+          >>> container[u'third'] = Content('Third', 3)
+          >>> container[u'fourth'] = Content('Fourth', 4)
+          >>> container[u'sixth'] = Content('Sixth', 6)
+          >>> container[u'seventh'] = Content('Seventh', 7)
+          >>> container[u'eighth'] = Content('Eighth', 8)
+          >>> container[u'ninth'] = Content('Ninth', 9)
+          >>> container[u'tenth'] = Content('Tenth', 10)
+          >>> container[u'eleventh'] = Content('Eleventh', 11)
+          >>> container[u'twelfth '] = Content('Twelfth', 12)
+          >>> container[u'thirteenth'] = Content('Thirteenth', 13)
+          >>> container[u'fourteenth'] = Content('Fourteenth', 14)
+          >>> container[u'fifteenth '] = Content('Fifteenth', 15)
+          >>> container[u'sixteenth'] = Content('Sixteenth', 16)
+          >>> container[u'seventeenth'] = Content('Seventeenth', 17)
+          >>> container[u'eighteenth'] = Content('Eighteenth', 18)
+          >>> container[u'nineteenth'] = Content('Nineteenth', 19)
+          >>> container[u'twentieth'] = Content('Twentieth', 20)
+        
+        Now let's show the full table without batching:
+        
+          >>> batchingTable.update()
+          >>> print(batchingTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>My items</th>
+                <th>Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Eighteenth item</td>
+                <td>number: 18</td>
+              </tr>
+              <tr>
+                <td>Eighth item</td>
+                <td>number: 8</td>
+              </tr>
+              <tr>
+                <td>Eleventh item</td>
+                <td>number: 11</td>
+              </tr>
+              <tr>
+                <td>Fifteenth item</td>
+                <td>number: 15</td>
+              </tr>
+              <tr>
+                <td>First item</td>
+                <td>number: 1</td>
+              </tr>
+              <tr>
+                <td>Fourteenth item</td>
+                <td>number: 14</td>
+              </tr>
+              <tr>
+                <td>Fourth item</td>
+                <td>number: 4</td>
+              </tr>
+              <tr>
+                <td>Nineteenth item</td>
+                <td>number: 19</td>
+              </tr>
+              <tr>
+                <td>Ninth item</td>
+                <td>number: 9</td>
+              </tr>
+              <tr>
+                <td>Second item</td>
+                <td>number: 2</td>
+              </tr>
+              <tr>
+                <td>Seventeenth item</td>
+                <td>number: 17</td>
+              </tr>
+              <tr>
+                <td>Seventh item</td>
+                <td>number: 7</td>
+              </tr>
+              <tr>
+                <td>Sixteenth item</td>
+                <td>number: 16</td>
+              </tr>
+              <tr>
+                <td>Sixth item</td>
+                <td>number: 6</td>
+              </tr>
+              <tr>
+                <td>Tenth item</td>
+                <td>number: 10</td>
+              </tr>
+              <tr>
+                <td>Third item</td>
+                <td>number: 3</td>
+              </tr>
+              <tr>
+                <td>Thirteenth item</td>
+                <td>number: 13</td>
+              </tr>
+              <tr>
+                <td>Twelfth item</td>
+                <td>number: 12</td>
+              </tr>
+              <tr>
+                <td>Twentieth item</td>
+                <td>number: 20</td>
+              </tr>
+              <tr>
+                <td>Zero item</td>
+                <td>number: 0</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        As you can see, the table is not ordered and it uses all items. If we like
+        to use the batch, we need to set the startBatchingAt size to a lower value than
+        it is set by default.
+        The default value which a batch is used is set to ``50``:
+        
+          >>> batchingTable.startBatchingAt
+          50
+        
+        We will set the batch start to ``5`` for now. This means the first 5 items
+        do not get used:
+        
+          >>> batchingTable.startBatchingAt = 5
+          >>> batchingTable.startBatchingAt
+          5
+        
+        There is also a ``batchSize`` value which we need to set to ``5``. By default
+        the value gets initialized by the ``batchSize`` value:
+        
+          >>> batchingTable.batchSize
+          50
+        
+          >>> batchingTable.batchSize = 5
+          >>> batchingTable.batchSize
+          5
+        
+        Now we can update and render the table again. But you will see that we only get
+        a table size of 5 rows, which is correct. But the order doesn't depend on the
+        numbers we see in cells:
+        
+          >>> batchingTable.update()
+          >>> print(batchingTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>My items</th>
+                <th>Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Eighteenth item</td>
+                <td>number: 18</td>
+              </tr>
+              <tr>
+                <td>Eighth item</td>
+                <td>number: 8</td>
+              </tr>
+              <tr>
+                <td>Eleventh item</td>
+                <td>number: 11</td>
+              </tr>
+              <tr>
+                <td>Fifteenth item</td>
+                <td>number: 15</td>
+              </tr>
+              <tr>
+                <td>First item</td>
+                <td>number: 1</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        I think we should order the table by the second column before we show the next
+        batch values. We do this by simply set the ``defaultSortOn``:
+        
+          >>> batchingTable.sortOn = u'table-number-1'
+        
+        Now we should see a nice ordered and batched table:
+        
+          >>> batchingTable.update()
+          >>> print(batchingTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>My items</th>
+                <th>Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Zero item</td>
+                <td>number: 0</td>
+              </tr>
+              <tr>
+                <td>First item</td>
+                <td>number: 1</td>
+              </tr>
+              <tr>
+                <td>Second item</td>
+                <td>number: 2</td>
+              </tr>
+              <tr>
+                <td>Third item</td>
+                <td>number: 3</td>
+              </tr>
+              <tr>
+                <td>Fourth item</td>
+                <td>number: 4</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        The batch concept allows us to choose from all batches and render the rows
+        for this batched items. We can do this by set any batch as rows. as you can see
+        we have ``4`` batched row data available:
+        
+          >>> len(batchingTable.rows.batches)
+          4
+        
+        We can set such a batch as row values, then this batch data are used for
+        rendering. But take care, if we update the table, our rows get overridden
+        and reset to the previous values. this means you can set any batch as rows
+        data and only render them. This is possible since the update method sorted all
+        items and all batch contain ready-to-use data. This concept could be important
+        if you need to cache batches etc. :
+        
+          >>> batchingTable.rows = batchingTable.rows.batches[1]
+          >>> print(batchingTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>My items</th>
+                <th>Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Sixth item</td>
+                <td>number: 6</td>
+              </tr>
+              <tr>
+                <td>Seventh item</td>
+                <td>number: 7</td>
+              </tr>
+              <tr>
+                <td>Eighth item</td>
+                <td>number: 8</td>
+              </tr>
+              <tr>
+                <td>Ninth item</td>
+                <td>number: 9</td>
+              </tr>
+              <tr>
+                <td>Tenth item</td>
+                <td>number: 10</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        And like described above, if you call ``update`` our batch to rows setup get
+        reset:
+        
+          >>> batchingTable.update()
+          >>> print(batchingTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>My items</th>
+                <th>Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Zero item</td>
+                <td>number: 0</td>
+              </tr>
+              <tr>
+                <td>First item</td>
+                <td>number: 1</td>
+              </tr>
+              <tr>
+                <td>Second item</td>
+                <td>number: 2</td>
+              </tr>
+              <tr>
+                <td>Third item</td>
+                <td>number: 3</td>
+              </tr>
+              <tr>
+                <td>Fourth item</td>
+                <td>number: 4</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        This means you can probably update all batches, cache them and use them after.
+        But this is not useful for normal usage in a page without an enhanced concept
+        which is not a part of this implementation. This also means, there must be
+        another way to set the batch index. Yes there is, there are two other ways how
+        we can set the batch position. We can set a batch position by setting the
+        ``batchStart`` value in our table or we can use a request variable. Let's show
+        the first one first:
+        
+          >>> batchingTable.batchStart = 6
+          >>> batchingTable.update()
+          >>> print(batchingTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>My items</th>
+                <th>Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Seventh item</td>
+                <td>number: 7</td>
+              </tr>
+              <tr>
+                <td>Eighth item</td>
+                <td>number: 8</td>
+              </tr>
+              <tr>
+                <td>Ninth item</td>
+                <td>number: 9</td>
+              </tr>
+              <tr>
+                <td>Tenth item</td>
+                <td>number: 10</td>
+              </tr>
+              <tr>
+                <td>Eleventh item</td>
+                <td>number: 11</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        We can also set the batch position by using the batchStart value in a request.
+        Note that we need the table ``prefix`` and column ``__name__`` like we use in
+        the sorting concept:
+        
+          >>> batchingRequest = TestRequest(form={'table-batchStart': '11',
+          ...                                     'table-batchSize': '5',
+          ...                                     'table-sortOn': 'table-number-1'})
+          >>> requestBatchingTable = SimpleTable(container, batchingRequest)
+          >>> requestBatchingTable.cssClassSortedOn = None
+          
+        We also need to give the table a location and a name like we normally set up
+        in traversing:
+        
+          >>> requestBatchingTable.__parent__ = container
+          >>> requestBatchingTable.__name__ = u'requestBatchingTable.html'
+        
+        Note: our table needs to start batching at smaller amount of items than we
+        have by default otherwise we don't get a batch:
+        
+          >>> requestBatchingTable.startBatchingAt = 5
+          >>> requestBatchingTable.update()
+          >>> print(requestBatchingTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>My items</th>
+                <th>Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Twelfth item</td>
+                <td>number: 12</td>
+              </tr>
+              <tr>
+                <td>Thirteenth item</td>
+                <td>number: 13</td>
+              </tr>
+              <tr>
+                <td>Fourteenth item</td>
+                <td>number: 14</td>
+              </tr>
+              <tr>
+                <td>Fifteenth item</td>
+                <td>number: 15</td>
+              </tr>
+              <tr>
+                <td>Sixteenth item</td>
+                <td>number: 16</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        
+        BatchProvider
+        -------------
+        
+        The batch provider allows us to render the batch HTML independently of our
+        table. This means by default the batch gets not rendered in the render method.
+        You can change this in your custom table implementation and return the batch
+        and the table in the render method.
+        
+        As we can see, our table rows provides IBatch if it comes to batching:
+        
+          >>> from z3c.batching.interfaces import IBatch
+          >>> IBatch.providedBy(requestBatchingTable.rows)
+          True
+        
+        Let's check some batch variables before we render our test. This let us compare
+        the rendered result. For more information about batching see the README.txt in
+        z3c.batching:
+        
+          >>> requestBatchingTable.rows.start
+          11
+        
+          >>> requestBatchingTable.rows.index
+          2
+        
+          >>> requestBatchingTable.rows.batches
+          <z3c.batching.batch.Batches object at ...>
+        
+          >>> len(requestBatchingTable.rows.batches)
+          4
+        
+        We use our previous batching table and render the batch with the built-in
+        ``renderBatch`` method:
+        
+          >>> requestBatchingTable.update()
+          >>> print(requestBatchingTable.renderBatch())
+          <a href="...html?table-batchSize=5&table-batchStart=0&..." class="first">1</a>
+          <a href="...html?table-batchSize=5&table-batchStart=5&...">2</a>
+          <a href="...html?table-batchSize=5&table-batchStart=11&..." class="current">3</a>
+          <a href="...html?table-batchSize=5&table-batchStart=15&..." class="last">4</a>
+        
+        Now let's add more items so that we can test the skipped links in large
+        batches:
+        
+          >>> for i in range(1000):
+          ...     idx = i+20
+          ...     container[str(idx)] = Content(str(idx), idx)
+        
+        Now let's test the batching table again with the new amount of items and
+        the same ``startBatchingAt`` of 5 but starting the batch at item ``100``
+        and sorted on the second numbered column:
+        
+          >>> batchingRequest = TestRequest(form={'table-batchStart': '100',
+          ...                                     'table-batchSize': '5',
+          ...                                     'table-sortOn': 'table-number-1'})
+          >>> requestBatchingTable = SimpleTable(container, batchingRequest)
+          >>> requestBatchingTable.startBatchingAt = 5
+          >>> requestBatchingTable.cssClassSortedOn = None
+        
+        We also need to give the table a location and a name like we normally setup
+        in traversing:
+        
+          >>> requestBatchingTable.__parent__ = container
+          >>> requestBatchingTable.__name__ = u'requestBatchingTable.html'
+        
+          >>> requestBatchingTable.update()
+          >>> print(requestBatchingTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>My items</th>
+                <th>Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>100 item</td>
+                <td>number: 100</td>
+              </tr>
+              <tr>
+                <td>101 item</td>
+                <td>number: 101</td>
+              </tr>
+              <tr>
+                <td>102 item</td>
+                <td>number: 102</td>
+              </tr>
+              <tr>
+                <td>103 item</td>
+                <td>number: 103</td>
+              </tr>
+              <tr>
+                <td>104 item</td>
+                <td>number: 104</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        And test the batch. Note the three dots between the links are rendered by the
+        batch provider and are not a part of the doctest:
+        
+          >>> print(requestBatchingTable.renderBatch())
+          <a href="...html?table-batchSize=5&table-batchStart=0&table-sortOn=table-number-1" class="first">1</a>
+          ...
+          <a href="...html?table-batchSize=5&table-batchStart=85&table-sortOn=table-number-1">18</a>
+          <a href="...html?table-batchSize=5&table-batchStart=90&table-sortOn=table-number-1">19</a>
+          <a href="...html?table-batchSize=5&table-batchStart=95&table-sortOn=table-number-1">20</a>
+          <a href="...html?table-batchSize=5&table-batchStart=100&table-sortOn=table-number-1" class="current">21</a>
+          <a href="...html?table-batchSize=5&table-batchStart=105&table-sortOn=table-number-1">22</a>
+          <a href="...html?table-batchSize=5&table-batchStart=110&table-sortOn=table-number-1">23</a>
+          <a href="...html?table-batchSize=5&table-batchStart=115&table-sortOn=table-number-1">24</a>
+          ...
+          <a href="...html?table-batchSize=5&table-batchStart=1015&table-sortOn=table-number-1" class="last">204</a>
+        
+        You can change the spacer in the batch provider if you set the ``batchSpacer``
+        value:
+        
+          >>> from z3c.table.batch import BatchProvider
+          >>> from z3c.table.interfaces import IBatchProvider
+          >>> from zope.interface import implementer
+          >>> @implementer(IBatchProvider)
+          ... class XBatchProvider(BatchProvider):
+          ...     """Just another batch provider."""
+          ...     batchSpacer = u'xxx'
+        
+        Now register the new batch provider for our batching table:
+        
+          >>> import zope.publisher.interfaces.browser
+          >>> from zope.component import getSiteManager
+          >>> sm = getSiteManager(container)
+          >>> sm.registerAdapter(XBatchProvider,
+          ...     (zope.interface.Interface,
+          ...      zope.publisher.interfaces.browser.IBrowserRequest,
+          ...      SimpleTable), name='batch')
+        
+        If we update and render our table, the new batch provider should get used.
+        As you can see the spacer get changed now:
+        
+          >>> requestBatchingTable.update()
+          >>> requestBatchingTable.batchProvider
+          <XBatchProvider object at ...>
+          >>> print(requestBatchingTable.renderBatch())
+          <a href="...html?table-batchSize=5&table-batchStart=0&table-sortOn=table-number-1" class="first">1</a>
+          xxx
+          <a href="...html?table-batchSize=5&table-batchStart=85&table-sortOn=table-number-1">18</a>
+          <a href="...html?table-batchSize=5&table-batchStart=90&table-sortOn=table-number-1">19</a>
+          <a href="...html?table-batchSize=5&table-batchStart=95&table-sortOn=table-number-1">20</a>
+          <a href="...html?table-batchSize=5&table-batchStart=100&table-sortOn=table-number-1" class="current">21</a>
+          <a href="...html?table-batchSize=5&table-batchStart=105&table-sortOn=table-number-1">22</a>
+          <a href="...html?table-batchSize=5&table-batchStart=110&table-sortOn=table-number-1">23</a>
+          <a href="...html?table-batchSize=5&table-batchStart=115&table-sortOn=table-number-1">24</a>
+          xxx
+          <a href="...html?table-batchSize=5&table-batchStart=1015&table-sortOn=table-number-1" class="last">204</a>
+        
+        
+        Now test the extremities, need to define a new batchingRequest:
+        Beginning by the left end point:
+        
+          >>> leftBatchingRequest = TestRequest(form={'table-batchStart': '10',
+          ...                                        'table-batchSize': '5',
+          ...                                       'table-sortOn': 'table-number-1'})
+          >>> leftRequestBatchingTable = SimpleTable(container, leftBatchingRequest)
+          >>> leftRequestBatchingTable.__parent__ = container
+          >>> leftRequestBatchingTable.__name__ = u'leftRequestBatchingTable.html'
+          >>> leftRequestBatchingTable.update()
+          >>> print(leftRequestBatchingTable.renderBatch())
+          <a href="http://...html?table-batchSize=5&table-batchStart=0&table-sortOn=table-number-1" class="first">1</a>
+          <a href="http://...html?table-batchSize=5&table-batchStart=5&table-sortOn=table-number-1">2</a>
+          <a href="http://...html?table-batchSize=5&table-batchStart=10&table-sortOn=table-number-1" class="current">3</a>
+          <a href="http://...html?table-batchSize=5&table-batchStart=15&table-sortOn=table-number-1">4</a>
+          <a href="http://...html?table-batchSize=5&table-batchStart=20&table-sortOn=table-number-1">5</a>
+          <a href="http://...html?table-batchSize=5&table-batchStart=25&table-sortOn=table-number-1">6</a>
+          xxx
+          <a href="http://...html?table-batchSize=5&table-batchStart=1015&table-sortOn=table-number-1" class="last">204</a>
+        
+        Go on with the right extremity:
+        
+          >>> rightBatchingRequest = TestRequest(form={'table-batchStart': '1005',
+          ...                                     'table-batchSize': '5',
+          ...                                     'table-sortOn': 'table-number-1'})
+          >>> rightRequestBatchingTable = SimpleTable(container, rightBatchingRequest)
+          >>> rightRequestBatchingTable.__parent__ = container
+          >>> rightRequestBatchingTable.__name__ = u'rightRequestBatchingTable.html'
+          >>> rightRequestBatchingTable.update()
+          >>> print(rightRequestBatchingTable.renderBatch())
+          <a href="http://...html?table-batchSize=5&table-batchStart=0&table-sortOn=table-number-1" class="first">1</a>
+          xxx
+          <a href="http://...html?table-batchSize=5&table-batchStart=990&table-sortOn=table-number-1">199</a>
+          <a href="http://...html?table-batchSize=5&table-batchStart=995&table-sortOn=table-number-1">200</a>
+          <a href="http://...html?table-batchSize=5&table-batchStart=1000&table-sortOn=table-number-1">201</a>
+          <a href="http://...html?table-batchSize=5&table-batchStart=1005&table-sortOn=table-number-1" class="current">202</a>
+          <a href="http://...html?table-batchSize=5&table-batchStart=1010&table-sortOn=table-number-1">203</a>
+          <a href="http://...html?table-batchSize=5&table-batchStart=1015&table-sortOn=table-number-1" class="last">204</a>
+        
+        
+        None previous and next batch size. Probably it doesn't make sense but let's
+        show what happens if we set the previous and next batch size to 0 (zero):
+        
+          >>> from z3c.table.batch import BatchProvider
+          >>> class ZeroBatchProvider(BatchProvider):
+          ...     """Just another batch provider."""
+          ...     batchSpacer = u'xxx'
+          ...     previousBatchSize = 0
+          ...     nextBatchSize = 0
+        
+        Now register the new batch provider for our batching table:
+        
+          >>> import zope.publisher.interfaces.browser
+          >>> sm.registerAdapter(ZeroBatchProvider,
+          ...     (zope.interface.Interface,
+          ...      zope.publisher.interfaces.browser.IBrowserRequest,
+          ...      SimpleTable), name='batch')
+        
+        Update the table and render the batch:
+        
+          >>> requestBatchingTable.update()
+          >>> print(requestBatchingTable.renderBatch())
+          <a href="...html?table-batchSize=5&table-batchStart=0&table-sortOn=table-number-1" class="first">1</a>
+          xxx
+          <a href="...html?table-batchSize=5&table-batchStart=100&table-sortOn=table-number-1" class="current">21</a>
+          xxx
+          <a href="...html?table-batchSize=5&table-batchStart=1015&table-sortOn=table-number-1" class="last">204</a>
+        
+        
+        SequenceTable
+        -------------
+        
+        A sequence table can be used if we need to provide a table for a sequence
+        of items instead of a mapping. Define the same sequence of items we used before
+        we added the other 1000 items:
+        
+          >>> from z3c.table.testing import Content
+          >>> dataSequence = []
+          >>> dataSequence.append(Content('Zero', 0))
+          >>> dataSequence.append(Content('First', 1))
+          >>> dataSequence.append(Content('Second', 2))
+          >>> dataSequence.append(Content('Third', 3))
+          >>> dataSequence.append(Content('Fourth', 4))
+          >>> dataSequence.append(Content('Fifth', 5))
+          >>> dataSequence.append(Content('Sixth', 6))
+          >>> dataSequence.append(Content('Seventh', 7))
+          >>> dataSequence.append(Content('Eighth', 8))
+          >>> dataSequence.append(Content('Ninth', 9))
+          >>> dataSequence.append(Content('Tenth', 10))
+          >>> dataSequence.append(Content('Eleventh', 11))
+          >>> dataSequence.append(Content('Twelfth', 12))
+          >>> dataSequence.append(Content('Thirteenth', 13))
+          >>> dataSequence.append(Content('Fourteenth', 14))
+          >>> dataSequence.append(Content('Fifteenth', 15))
+          >>> dataSequence.append(Content('Sixteenth', 16))
+          >>> dataSequence.append(Content('Seventeenth', 17))
+          >>> dataSequence.append(Content('Eighteenth', 18))
+          >>> dataSequence.append(Content('Nineteenth', 19))
+          >>> dataSequence.append(Content('Twentieth', 20))
+        
+        Now let's define a new SequenceTable:
+        
+          >>> from z3c.table import table, column
+          >>> from z3c.table.testing import (TitleColumn, NumberColumn, cellRenderer,
+          ...                                headCellRenderer)
+          >>> class SequenceTable(table.SequenceTable):
+          ...
+          ...     def setUpColumns(self):
+          ...         return [
+          ...             column.addColumn(self, TitleColumn, u'title',
+          ...                              cellRenderer=cellRenderer,
+          ...                              headCellRenderer=headCellRenderer,
+          ...                              weight=1),
+          ...             column.addColumn(self, NumberColumn, name=u'number',
+          ...                              weight=2, header=u'Number')
+          ...             ]
+        
+        Now we can create our table adapting our sequence:
+        
+          >>> from zope.publisher.browser import TestRequest
+          >>> sequenceRequest = TestRequest(form={'table-batchStart': '0',
+          ...                                     'table-sortOn': 'table-number-1'})
+          >>> sequenceTable = SequenceTable(dataSequence, sequenceRequest)
+          >>> sequenceTable.cssClassSortedOn = None
+        
+        We also need to give the table a location and a name like we normally setup
+        in traversing:
+        
+          >>> from z3c.table.testing import Container
+          >>> container = Container()
+          >>> root['container-1'] = container
+          >>> sequenceTable.__parent__ = container
+          >>> sequenceTable.__name__ = u'sequenceTable.html'
+        
+        We need to configure our batch provider for the next step first. See the
+        section ``BatchProvider`` below for more infos about batch rendering:
+        
+          >>> from zope.configuration.xmlconfig import XMLConfig
+          >>> import z3c.table
+          >>> import zope.component
+          >>> XMLConfig('meta.zcml', zope.component)()
+          >>> XMLConfig('configure.zcml', z3c.table)()
+        
+        And update and render the sequence table:
+        
+          >>> sequenceTable.update()
+          >>> print(sequenceTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>My items</th>
+                <th>Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Zero item</td>
+                <td>number: 0</td>
+              </tr>
+              <tr>
+                <td>First item</td>
+                <td>number: 1</td>
+              </tr>
+              <tr>
+                <td>Second item</td>
+                <td>number: 2</td>
+              </tr>
+              <tr>
+                <td>Third item</td>
+                <td>number: 3</td>
+              </tr>
+              <tr>
+                <td>Fourth item</td>
+                <td>number: 4</td>
+              </tr>
+              <tr>
+                <td>Fifth item</td>
+                <td>number: 5</td>
+              </tr>
+              <tr>
+                <td>Sixth item</td>
+                <td>number: 6</td>
+              </tr>
+              <tr>
+                <td>Seventh item</td>
+                <td>number: 7</td>
+              </tr>
+              <tr>
+                <td>Eighth item</td>
+                <td>number: 8</td>
+              </tr>
+              <tr>
+                <td>Ninth item</td>
+                <td>number: 9</td>
+              </tr>
+              <tr>
+                <td>Tenth item</td>
+                <td>number: 10</td>
+              </tr>
+              <tr>
+                <td>Eleventh item</td>
+                <td>number: 11</td>
+              </tr>
+              <tr>
+                <td>Twelfth item</td>
+                <td>number: 12</td>
+              </tr>
+              <tr>
+                <td>Thirteenth item</td>
+                <td>number: 13</td>
+              </tr>
+              <tr>
+                <td>Fourteenth item</td>
+                <td>number: 14</td>
+              </tr>
+              <tr>
+                <td>Fifteenth item</td>
+                <td>number: 15</td>
+              </tr>
+              <tr>
+                <td>Sixteenth item</td>
+                <td>number: 16</td>
+              </tr>
+              <tr>
+                <td>Seventeenth item</td>
+                <td>number: 17</td>
+              </tr>
+              <tr>
+                <td>Eighteenth item</td>
+                <td>number: 18</td>
+              </tr>
+              <tr>
+                <td>Nineteenth item</td>
+                <td>number: 19</td>
+              </tr>
+              <tr>
+                <td>Twentieth item</td>
+                <td>number: 20</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        As you can see, the items get rendered based on a data sequence. Now we set
+        the ``start batch at`` size to ``5``:
+        
+          >>> sequenceTable.startBatchingAt = 5
+        
+        And the ``batchSize`` to ``5``:
+        
+          >>> sequenceTable.batchSize = 5
+        
+        Now we can update and render the table again. But you will see that we only get
+        a table size of 5 rows:
+        
+          >>> sequenceTable.update()
+          >>> print(sequenceTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>My items</th>
+                <th>Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Zero item</td>
+                <td>number: 0</td>
+              </tr>
+              <tr>
+                <td>First item</td>
+                <td>number: 1</td>
+              </tr>
+              <tr>
+                <td>Second item</td>
+                <td>number: 2</td>
+              </tr>
+              <tr>
+                <td>Third item</td>
+                <td>number: 3</td>
+              </tr>
+              <tr>
+                <td>Fourth item</td>
+                <td>number: 4</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        And we set the sort order to ``reverse`` even if we use batching:
+        
+          >>> sequenceTable.sortOrder = u'reverse'
+          >>> sequenceTable.update()
+          >>> print(sequenceTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>My items</th>
+                <th>Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Twentieth item</td>
+                <td>number: 20</td>
+              </tr>
+              <tr>
+                <td>Nineteenth item</td>
+                <td>number: 19</td>
+              </tr>
+              <tr>
+                <td>Eighteenth item</td>
+                <td>number: 18</td>
+              </tr>
+              <tr>
+                <td>Seventeenth item</td>
+                <td>number: 17</td>
+              </tr>
+              <tr>
+                <td>Sixteenth item</td>
+                <td>number: 16</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        
+        =============
+        Table Columns
+        =============
+        
+        Let's show the different columns we offer by default. But first take a look at
+        the README.txt which explains the Table and Column concepts.
+        
+        
+        Sample data setup
+        -----------------
+        
+        Let's create a sample container that we can use as our iterable context:
+        
+          >>> from zope.container import btree
+          >>> class Container(btree.BTreeContainer):
+          ...     """Sample container."""
+          >>> container = Container()
+          >>> root['container'] = container
+        
+        and create a sample content object that we use as container item:
+        
+          >>> class Content(object):
+          ...     """Sample content."""
+          ...     def __init__(self, title, number, email):
+          ...         self.title = title
+          ...         self.number = number
+          ...         self.email = email
+        
+        Now setup some items:
+        
+          >>> container[u'zero'] = Content('Zero', 0, 'zero@example.com')
+          >>> container[u'first'] = Content('First', 1, 'first@example.com')
+          >>> container[u'second'] = Content('Second', 2, 'second@example.com')
+          >>> container[u'third'] = Content('Third', 3, 'third@example.com')
+          >>> container[u'fourth'] = Content('Fourth', 4, None)
+        
+        Let's also create a simple number sortable column:
+        
+          >>> from z3c.table import column
+          >>> class NumberColumn(column.Column):
+          ...
+          ...     header = u'Number'
+          ...     weight = 20
+          ...
+          ...     def getSortKey(self, item):
+          ...         return item.number
+          ...
+          ...     def renderCell(self, item):
+          ...         return 'number: %s' % item.number
+        
+        
+        NameColumn
+        ----------
+        
+        Let's define a table using the NameColumn:
+        
+          >>> from z3c.table import table
+          >>> class NameTable(table.Table):
+          ...     cssClassSortedOn = None
+          ...
+          ...     def setUpColumns(self):
+          ...         return [
+          ...             column.addColumn(self, column.NameColumn, u'name',
+          ...                              weight=1),
+          ...             column.addColumn(self, NumberColumn, name=u'number',
+          ...                              weight=2, header=u'Number')
+          ...             ]
+        
+        Now create, update and render our table and you can see that the NameColumn
+        renders the name of the item using the zope.traversing.api.getName() concept:
+        
+          >>> from zope.publisher.browser import TestRequest
+          >>> request = TestRequest()
+          >>> nameTable = NameTable(container, request)
+          >>> nameTable.update()
+          >>> print(nameTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>first</td>
+                <td>number: 1</td>
+              </tr>
+              <tr>
+                <td>fourth</td>
+                <td>number: 4</td>
+              </tr>
+              <tr>
+                <td>second</td>
+                <td>number: 2</td>
+              </tr>
+              <tr>
+                <td>third</td>
+                <td>number: 3</td>
+              </tr>
+              <tr>
+                <td>zero</td>
+                <td>number: 0</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        
+        RadioColumn
+        -----------
+        
+        Let's define a table using the RadioColumn:
+        
+          >>> class RadioTable(table.Table):
+          ...     cssClassSortedOn = None
+          ...
+          ...     def setUpColumns(self):
+          ...         return [
+          ...             column.addColumn(self, column.RadioColumn, u'radioColumn',
+          ...                              weight=1),
+          ...             column.addColumn(self, NumberColumn, name=u'number',
+          ...                              weight=2, header=u'Number')
+          ...             ]
+        
+        Now create, update and render our table:
+        
+          >>> request = TestRequest()
+          >>> radioTable = RadioTable(container, request)
+          >>> radioTable.update()
+          >>> print(radioTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>X</th>
+                <th>Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><input type="radio" class="radio-widget" name="table-radioColumn-0-selectedItem" value="first"  /></td>
+                <td>number: 1</td>
+              </tr>
+              <tr>
+                <td><input type="radio" class="radio-widget" name="table-radioColumn-0-selectedItem" value="fourth"  /></td>
+                <td>number: 4</td>
+              </tr>
+              <tr>
+                <td><input type="radio" class="radio-widget" name="table-radioColumn-0-selectedItem" value="second"  /></td>
+                <td>number: 2</td>
+              </tr>
+              <tr>
+                <td><input type="radio" class="radio-widget" name="table-radioColumn-0-selectedItem" value="third"  /></td>
+                <td>number: 3</td>
+              </tr>
+              <tr>
+                <td><input type="radio" class="radio-widget" name="table-radioColumn-0-selectedItem" value="zero"  /></td>
+                <td>number: 0</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        As you can see, we can force to render the radio input field as selected with a
+        given request value:
+        
+          >>> radioRequest = TestRequest(form={'table-radioColumn-0-selectedItem': 'third'})
+          >>> radioTable = RadioTable(container, radioRequest)
+          >>> radioTable.update()
+          >>> print(radioTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>X</th>
+                <th>Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><input type="radio" class="radio-widget" name="table-radioColumn-0-selectedItem" value="first"  /></td>
+                <td>number: 1</td>
+              </tr>
+              <tr>
+                <td><input type="radio" class="radio-widget" name="table-radioColumn-0-selectedItem" value="fourth"  /></td>
+                <td>number: 4</td>
+              </tr>
+              <tr>
+                <td><input type="radio" class="radio-widget" name="table-radioColumn-0-selectedItem" value="second"  /></td>
+                <td>number: 2</td>
+              </tr>
+              <tr>
+                <td><input type="radio" class="radio-widget" name="table-radioColumn-0-selectedItem" value="third" checked="checked" /></td>
+                <td>number: 3</td>
+              </tr>
+              <tr>
+                <td><input type="radio" class="radio-widget" name="table-radioColumn-0-selectedItem" value="zero"  /></td>
+                <td>number: 0</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        
+        CheckBoxColumn
+        --------------
+        
+        Let's define a table using the RadioColumn:
+        
+          >>> class CheckBoxTable(table.Table):
+          ...     cssClassSortedOn = None
+          ...
+          ...     def setUpColumns(self):
+          ...         return [
+          ...             column.addColumn(self, column.CheckBoxColumn, u'checkBoxColumn',
+          ...                              weight=1),
+          ...             column.addColumn(self, NumberColumn, name=u'number',
+          ...                              weight=2, header=u'Number')
+          ...             ]
+        
+        Now create, update and render our table:
+        
+        
+          >>> request = TestRequest()
+          >>> checkBoxTable = CheckBoxTable(container, request)
+          >>> checkBoxTable.update()
+          >>> print(checkBoxTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>X</th>
+                <th>Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><input type="checkbox" class="checkbox-widget" name="table-checkBoxColumn-0-selectedItems" value="first"  /></td>
+                <td>number: 1</td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" class="checkbox-widget" name="table-checkBoxColumn-0-selectedItems" value="fourth"  /></td>
+                <td>number: 4</td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" class="checkbox-widget" name="table-checkBoxColumn-0-selectedItems" value="second"  /></td>
+                <td>number: 2</td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" class="checkbox-widget" name="table-checkBoxColumn-0-selectedItems" value="third"  /></td>
+                <td>number: 3</td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" class="checkbox-widget" name="table-checkBoxColumn-0-selectedItems" value="zero"  /></td>
+                <td>number: 0</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        And again you can set force to render the checkbox input field as selected with
+        a given request value:
+        
+          >>> checkBoxRequest = TestRequest(form={'table-checkBoxColumn-0-selectedItems':
+          ...                                     ['first', 'third']})
+          >>> checkBoxTable = CheckBoxTable(container, checkBoxRequest)
+          >>> checkBoxTable.update()
+          >>> print(checkBoxTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>X</th>
+                <th>Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><input type="checkbox" class="checkbox-widget" name="table-checkBoxColumn-0-selectedItems" value="first" checked="checked" /></td>
+                <td>number: 1</td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" class="checkbox-widget" name="table-checkBoxColumn-0-selectedItems" value="fourth"  /></td>
+                <td>number: 4</td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" class="checkbox-widget" name="table-checkBoxColumn-0-selectedItems" value="second"  /></td>
+                <td>number: 2</td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" class="checkbox-widget" name="table-checkBoxColumn-0-selectedItems" value="third" checked="checked" /></td>
+                <td>number: 3</td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" class="checkbox-widget" name="table-checkBoxColumn-0-selectedItems" value="zero"  /></td>
+                <td>number: 0</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        If you select a row, you can also give them an additional CSS style. This could
+        be used in combination with alternating ``even`` and ``odd`` styles:
+        
+          >>> checkBoxRequest = TestRequest(form={'table-checkBoxColumn-0-selectedItems':
+          ...                                     ['first', 'third']})
+          >>> checkBoxTable = CheckBoxTable(container, checkBoxRequest)
+          >>> checkBoxTable.cssClasses = {'tr': 'tr'}
+          >>> checkBoxTable.cssClassSelected = u'selected'
+          >>> checkBoxTable.cssClassEven = u'even'
+          >>> checkBoxTable.cssClassOdd = u'odd'
+          >>> checkBoxTable.update()
+          >>> print(checkBoxTable.render())
+          <table>
+            <thead>
+              <tr class="tr">
+                <th>X</th>
+                <th>Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="selected even tr">
+                <td><input type="checkbox" class="checkbox-widget" name="table-checkBoxColumn-0-selectedItems" value="first" checked="checked" /></td>
+                <td>number: 1</td>
+              </tr>
+              <tr class="odd tr">
+                <td><input type="checkbox" class="checkbox-widget" name="table-checkBoxColumn-0-selectedItems" value="fourth"  /></td>
+                <td>number: 4</td>
+              </tr>
+              <tr class="even tr">
+                <td><input type="checkbox" class="checkbox-widget" name="table-checkBoxColumn-0-selectedItems" value="second"  /></td>
+                <td>number: 2</td>
+              </tr>
+              <tr class="selected odd tr">
+                <td><input type="checkbox" class="checkbox-widget" name="table-checkBoxColumn-0-selectedItems" value="third" checked="checked" /></td>
+                <td>number: 3</td>
+              </tr>
+              <tr class="even tr">
+                <td><input type="checkbox" class="checkbox-widget" name="table-checkBoxColumn-0-selectedItems" value="zero"  /></td>
+                <td>number: 0</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        Let's test the ``cssClassSelected`` without any other css class:
+        
+          >>> checkBoxRequest = TestRequest(form={'table-checkBoxColumn-0-selectedItems':
+          ...                                     ['first', 'third']})
+          >>> checkBoxTable = CheckBoxTable(container, checkBoxRequest)
+          >>> checkBoxTable.cssClassSelected = u'selected'
+          >>> checkBoxTable.update()
+          >>> print(checkBoxTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>X</th>
+                <th>Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="selected">
+                <td><input type="checkbox" class="checkbox-widget" name="table-checkBoxColumn-0-selectedItems" value="first" checked="checked" /></td>
+                <td>number: 1</td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" class="checkbox-widget" name="table-checkBoxColumn-0-selectedItems" value="fourth"  /></td>
+                <td>number: 4</td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" class="checkbox-widget" name="table-checkBoxColumn-0-selectedItems" value="second"  /></td>
+                <td>number: 2</td>
+              </tr>
+              <tr class="selected">
+                <td><input type="checkbox" class="checkbox-widget" name="table-checkBoxColumn-0-selectedItems" value="third" checked="checked" /></td>
+                <td>number: 3</td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" class="checkbox-widget" name="table-checkBoxColumn-0-selectedItems" value="zero"  /></td>
+                <td>number: 0</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        
+        CreatedColumn
+        -------------
+        
+        Let's define a table using the CreatedColumn:
+        
+          >>> class CreatedColumnTable(table.Table):
+          ...     cssClassSortedOn = None
+          ...
+          ...     def setUpColumns(self):
+          ...         return [
+          ...             column.addColumn(self, column.CreatedColumn, u'createdColumn',
+          ...                              weight=1),
+          ...             ]
+        
+        Now create, update and render our table. Note, we use a Dublin Core stub
+        adapter which only returns ``01/01/01 01:01`` as created date:
+        
+          >>> request = TestRequest()
+          >>> createdColumnTable = CreatedColumnTable(container, request)
+          >>> createdColumnTable.update()
+          >>> print(createdColumnTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>01/01/01 01:01</td>
+              </tr>
+              <tr>
+                <td>01/01/01 01:01</td>
+              </tr>
+              <tr>
+                <td>01/01/01 01:01</td>
+              </tr>
+              <tr>
+                <td>01/01/01 01:01</td>
+              </tr>
+              <tr>
+                <td>01/01/01 01:01</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        
+        ModifiedColumn
+        --------------
+        
+        Let's define a table using the CreatedColumn:
+        
+          >>> class ModifiedColumnTable(table.Table):
+          ...     cssClassSortedOn = None
+          ...
+          ...     def setUpColumns(self):
+          ...         return [
+          ...             column.addColumn(self, column.ModifiedColumn,
+          ...                              u'modifiedColumn', weight=1),
+          ...             ]
+        
+        Now create, update and render our table. Note, we use a Dublin Core stub
+        adapter which only returns ``02/02/02 02:02`` as modified date:
+        
+          >>> request = TestRequest()
+          >>> modifiedColumnTable = ModifiedColumnTable(container, request)
+          >>> modifiedColumnTable.update()
+          >>> print(modifiedColumnTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>Modified</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>02/02/02 02:02</td>
+              </tr>
+              <tr>
+                <td>02/02/02 02:02</td>
+              </tr>
+              <tr>
+                <td>02/02/02 02:02</td>
+              </tr>
+              <tr>
+                <td>02/02/02 02:02</td>
+              </tr>
+              <tr>
+                <td>02/02/02 02:02</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        
+        GetAttrColumn
+        -------------
+        
+        The ``GetAttrColumn`` column is a handy column that retrieves the value from
+        the item by attribute access.
+        It also provides a ``defaultValue`` in case an exception happens.
+        
+          >>> class GetTitleColumn(column.GetAttrColumn):
+          ...
+          ...     attrName = 'title'
+          ...     defaultValue = u'missing'
+        
+          >>> class GetAttrColumnTable(table.Table):
+          ...     cssClassSortedOn = None
+          ...
+          ...     def setUpColumns(self):
+          ...         return [
+          ...             column.addColumn(self, GetTitleColumn, u'title'),
+          ...             ]
+        
+        Render and update the table:
+        
+          >>> request = TestRequest()
+          >>> getAttrColumnTable = GetAttrColumnTable(container, request)
+          >>> getAttrColumnTable.update()
+          >>> print(getAttrColumnTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>First</td>
+              </tr>
+              <tr>
+                <td>Fourth</td>
+              </tr>
+              <tr>
+                <td>Second</td>
+              </tr>
+              <tr>
+                <td>Third</td>
+              </tr>
+              <tr>
+                <td>Zero</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        If we use a non-existing Attribute, we do not raise an AttributeError, we will
+        get the default value:
+        
+          >>> class UndefinedAttributeColumn(column.GetAttrColumn):
+          ...
+          ...     attrName = 'undefined'
+          ...     defaultValue = u'missing'
+        
+          >>> class GetAttrColumnTable(table.Table):
+          ...     cssClassSortedOn = None
+          ...
+          ...     def setUpColumns(self):
+          ...         return [
+          ...             column.addColumn(self, UndefinedAttributeColumn, u'missing'),
+          ...             ]
+        
+        Render and update the table:
+        
+          >>> request = TestRequest()
+          >>> getAttrColumnTable = GetAttrColumnTable(container, request)
+          >>> getAttrColumnTable.update()
+          >>> print(getAttrColumnTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>missing</td>
+              </tr>
+              <tr>
+                <td>missing</td>
+              </tr>
+              <tr>
+                <td>missing</td>
+              </tr>
+              <tr>
+                <td>missing</td>
+              </tr>
+              <tr>
+                <td>missing</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        A missing ``attrName`` in ``GetAttrColumn`` would also end in return the
+        ``defaultValue``:
+        
+          >>> class BadAttributeColumn(column.GetAttrColumn):
+          ...
+          ...     defaultValue = u'missing'
+        
+          >>> firstItem = container[u'first']
+          >>> simpleTable = table.Table(container, request)
+          >>> badColumn = column.addColumn(simpleTable, BadAttributeColumn, u'bad')
+          >>> badColumn.renderCell(firstItem)
+          u'missing'
+        
+        If we try to access a protected attribute the object raises an ``Unauthorized``.
+        In this case we also return the defaultValue. Let's setup an object which
+        raises such an error if we access the title:
+        
+          >>> from zope.security.interfaces import Unauthorized
+          >>> class ProtectedItem(object):
+          ...
+          ...     @property
+          ...     def forbidden(self):
+          ...         raise Unauthorized('forbidden')
+        
+        Setup and test the item:
+        
+          >>> protectedItem = ProtectedItem()
+          >>> protectedItem.forbidden
+          Traceback (most recent call last):
+          ...
+          Unauthorized: forbidden
+        
+        Now define a column:
+        
+          >>> class ForbiddenAttributeColumn(column.GetAttrColumn):
+          ...
+          ...     attrName = 'forbidden'
+          ...     defaultValue = u'missing'
+        
+        And test the attribute access:
+        
+          >>> simpleTable = table.Table(container, request)
+          >>> badColumn = column.addColumn(simpleTable, ForbiddenAttributeColumn, u'x')
+          >>> badColumn.renderCell(protectedItem)
+          u'missing'
+        
+        
+        GetItemColumn
+        -------------
+        
+        The ``GetItemColumn`` column is a handy column that retrieves the value from
+        the item by index or key access. That means the item can be a tuple, list, dict
+        or anything that implements that.
+        It also provides a ``defaultValue`` in case an exception happens.
+        
+        Dict-ish
+        .........
+        
+          >>> sampleDictData = [
+          ...     dict(name='foo', value=1),
+          ...     dict(name='bar', value=7),
+          ...     dict(name='moo', value=42),]
+        
+          >>> class GetDictColumnTable(table.Table):
+          ...     cssClassSortedOn = None
+          ...
+          ...     def setUpColumns(self):
+          ...         return [
+          ...             column.addColumn(self, column.GetItemColumn, u'name',
+          ...                              header=u'Name',
+          ...                              idx='name', defaultValue='missing'),
+          ...             column.addColumn(self, column.GetItemColumn, u'value',
+          ...                              header=u'Value',
+          ...                              idx='value', defaultValue='missing'),
+          ...             ]
+          ...     @property
+          ...     def values(self):
+          ...         return sampleDictData
+        
+        Render and update the table:
+        
+          >>> request = TestRequest()
+          >>> getDictColumnTable = GetDictColumnTable(sampleDictData, request)
+          >>> getDictColumnTable.update()
+          >>> print(getDictColumnTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>bar</td>
+                <td>7</td>
+              </tr>
+              <tr>
+                <td>foo</td>
+                <td>1</td>
+              </tr>
+              <tr>
+                <td>moo</td>
+                <td>42</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        If we use a non-existing index/key, we do not raise an exception, we will
+        get the default value:
+        
+          >>> class GetDictColumnTable(table.Table):
+          ...     cssClassSortedOn = None
+          ...
+          ...     def setUpColumns(self):
+          ...         return [
+          ...             column.addColumn(self, column.GetItemColumn, u'name',
+          ...                              idx='not-existing', defaultValue='missing'),
+          ...             ]
+          ...     @property
+          ...     def values(self):
+          ...         return sampleDictData
+        
+        Render and update the table:
+        
+          >>> request = TestRequest()
+          >>> getDictColumnTable = GetDictColumnTable(container, request)
+          >>> getDictColumnTable.update()
+          >>> print(getDictColumnTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>missing</td>
+              </tr>
+              <tr>
+                <td>missing</td>
+              </tr>
+              <tr>
+                <td>missing</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        A missing ``idx`` in ``GetItemColumn`` would also end in return the
+        ``defaultValue``:
+        
+          >>> class BadIdxColumn(column.GetItemColumn):
+          ...
+          ...     defaultValue = u'missing'
+        
+          >>> firstItem = sampleDictData[0]
+          >>> simpleTable = table.Table(sampleDictData, request)
+          >>> badColumn = column.addColumn(simpleTable, BadIdxColumn, u'bad')
+          >>> badColumn.renderCell(firstItem)
+          u'missing'
+        
+        Tuple/List-ish
+        ...............
+        
+          >>> sampleTupleData = [
+          ...     (50, 'bar'),
+          ...     (42, 'cent'),
+          ...     (7, 'bild'),]
+        
+          >>> class GetTupleColumnTable(table.Table):
+          ...     cssClassSortedOn = None
+          ...
+          ...     def setUpColumns(self):
+          ...         return [
+          ...             column.addColumn(self, column.GetItemColumn, u'name',
+          ...                              header=u'Name',
+          ...                              idx=1, defaultValue='missing'),
+          ...             column.addColumn(self, column.GetItemColumn, u'value',
+          ...                              header=u'Value',
+          ...                              idx=0, defaultValue='missing'),
+          ...             ]
+          ...     @property
+          ...     def values(self):
+          ...         return sampleTupleData
+        
+        Render and update the table:
+        
+          >>> request = TestRequest()
+          >>> getTupleColumnTable = GetTupleColumnTable(sampleTupleData, request)
+          >>> getTupleColumnTable.update()
+          >>> print(getTupleColumnTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>bar</td>
+                <td>50</td>
+              </tr>
+              <tr>
+                <td>bild</td>
+                <td>7</td>
+              </tr>
+              <tr>
+                <td>cent</td>
+                <td>42</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        If we use a non-existing index/key, we do not raise an exception, we will
+        get the default value:
+        
+          >>> class GetTupleColumnTable(table.Table):
+          ...     cssClassSortedOn = None
+          ...
+          ...     def setUpColumns(self):
+          ...         return [
+          ...             column.addColumn(self, column.GetItemColumn, u'name',
+          ...                              idx=42, defaultValue='missing'),
+          ...             ]
+          ...     @property
+          ...     def values(self):
+          ...         return sampleTupleData
+        
+        Render and update the table:
+        
+          >>> request = TestRequest()
+          >>> getTupleColumnTable = GetTupleColumnTable(container, request)
+          >>> getTupleColumnTable.update()
+          >>> print(getTupleColumnTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>missing</td>
+              </tr>
+              <tr>
+                <td>missing</td>
+              </tr>
+              <tr>
+                <td>missing</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        A missing ``idx`` in ``GetItemColumn`` would also end in return the
+        ``defaultValue``:
+        
+          >>> class BadIdxColumn(column.GetItemColumn):
+          ...
+          ...     defaultValue = u'missing'
+        
+          >>> firstItem = sampleTupleData[0]
+          >>> simpleTable = table.Table(sampleTupleData, request)
+          >>> badColumn = column.addColumn(simpleTable, BadIdxColumn, u'bad')
+          >>> badColumn.renderCell(firstItem)
+          u'missing'
+        
+        
+        GetAttrFormatterColumn
+        ----------------------
+        
+        The ``GetAttrFormatterColumn`` column is a get attr column which is able to
+        format the value. Let's use the Dublin Core adapter for our sample:
+        
+          >>> from zope.dublincore.interfaces import IZopeDublinCore
+          >>> class GetCreatedColumn(column.GetAttrFormatterColumn):
+          ...
+          ...     def getValue(self, item):
+          ...         dc = IZopeDublinCore(item, None)
+          ...         return dc.created
+        
+          >>> class GetAttrFormatterColumnTable(table.Table):
+          ...     cssClassSortedOn = None
+          ...
+          ...     def setUpColumns(self):
+          ...         return [
+          ...             column.addColumn(self, GetCreatedColumn, u'created'),
+          ...             ]
+        
+        Render and update the table:
+        
+          >>> request = TestRequest()
+          >>> getAttrFormatterColumnTable = GetAttrFormatterColumnTable(container,
+          ...     request)
+          >>> getAttrFormatterColumnTable.update()
+          >>> print(getAttrFormatterColumnTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>2001 1 1  01:01:01 </td>
+              </tr>
+              <tr>
+                <td>2001 1 1  01:01:01 </td>
+              </tr>
+              <tr>
+                <td>2001 1 1  01:01:01 </td>
+              </tr>
+              <tr>
+                <td>2001 1 1  01:01:01 </td>
+              </tr>
+              <tr>
+                <td>2001 1 1  01:01:01 </td>
+              </tr>
+            </tbody>
+          </table>
+        
+        
+        We can also change the formatter settings in such a column:
+        
+          >>> class LongCreatedColumn(column.GetAttrFormatterColumn):
+          ...
+          ...     formatterCategory = u'dateTime'
+          ...     formatterLength = u'long'
+          ...     formatterCalendar = u'gregorian'
+          ...
+          ...     def getValue(self, item):
+          ...         dc = IZopeDublinCore(item, None)
+          ...         return dc.created
+        
+          >>> class LongFormatterColumnTable(table.Table):
+          ...     cssClassSortedOn = None
+          ...
+          ...     def setUpColumns(self):
+          ...         return [
+          ...             column.addColumn(self, LongCreatedColumn, u'created'),
+          ...             ]
+        
+        Render and update the table:
+        
+          >>> request = TestRequest()
+          >>> longFormatterColumnTable = LongFormatterColumnTable(container,
+          ...     request)
+          >>> longFormatterColumnTable.update()
+          >>> print(longFormatterColumnTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>2001 1 1  01:01:01 +000</td>
+              </tr>
+              <tr>
+                <td>2001 1 1  01:01:01 +000</td>
+              </tr>
+              <tr>
+                <td>2001 1 1  01:01:01 +000</td>
+              </tr>
+              <tr>
+                <td>2001 1 1  01:01:01 +000</td>
+              </tr>
+              <tr>
+                <td>2001 1 1  01:01:01 +000</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        
+        EMailColumn
+        -----------
+        
+        The ``EMailColumn`` column is ``GetAttrColumn`` which is used to
+        display a mailto link. By default in the link content the e-mail
+        address is displayed, too.
+        
+        
+          >>> class EMailColumn(column.EMailColumn):
+          ...
+          ...     attrName = 'email'
+          ...     defaultValue = u'missing'
+        
+          >>> class EMailColumnTable(table.Table):
+          ...     cssClassSortedOn = None
+          ...
+          ...     def setUpColumns(self):
+          ...         return [
+          ...             column.addColumn(self, EMailColumn, u'email'),
+          ...             ]
+        
+        When a cell does not contain an e-mail address, the ``defaultValue``
+        is rendered:
+        
+          >>> request = TestRequest()
+          >>> eMailColumnTable = EMailColumnTable(container, request)
+          >>> eMailColumnTable.update()
+          >>> print(eMailColumnTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>E-Mail</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><a href="mailto:first@example.com">first@example.com</a></td>
+              </tr>
+              <tr>
+                <td><a href="mailto:second@example.com">second@example.com</a></td>
+              </tr>
+              <tr>
+                <td><a href="mailto:third@example.com">third@example.com</a></td>
+              </tr>
+              <tr>
+                <td><a href="mailto:zero@example.com">zero@example.com</a></td>
+              </tr>
+              <tr>
+                <td>missing</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        The link content can be overwriten by setting the ``linkContent`` attribute:
+        
+          >>> class StaticEMailColumn(column.EMailColumn):
+          ...
+          ...     attrName = 'email'
+          ...     defaultValue = u'missing'
+          ...     linkContent = 'Mail me'
+        
+          >>> class StaticEMailColumnTable(table.Table):
+          ...     cssClassSortedOn = None
+          ...
+          ...     def setUpColumns(self):
+          ...         return [
+          ...             column.addColumn(self, StaticEMailColumn, u'mail'),
+          ...             ]
+        
+        Render and update the table:
+        
+          >>> request = TestRequest()
+          >>> staticEMailColumnTable = StaticEMailColumnTable(container, request)
+          >>> staticEMailColumnTable.update()
+          >>> print(staticEMailColumnTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>E-Mail</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><a href="mailto:first@example.com">Mail me</a></td>
+              </tr>
+              <tr>
+                <td><a href="mailto:second@example.com">Mail me</a></td>
+              </tr>
+              <tr>
+                <td><a href="mailto:third@example.com">Mail me</a></td>
+              </tr>
+              <tr>
+                <td><a href="mailto:zero@example.com">Mail me</a></td>
+              </tr>
+              <tr>
+                <td>missing</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        
+        LinkColumn
+        ----------
+        
+        Let's define a table using the LinkColumn. This column allows us to write
+        columns which can point to a page with the item as context:
+        
+          >>> class MyLinkColumns(column.LinkColumn):
+          ...     linkName = 'myLink.html'
+          ...     linkTarget = '_blank'
+          ...     linkCSS = 'myClass'
+        
+          >>> class MyLinkTable(table.Table):
+          ...     cssClassSortedOn = None
+          ...
+          ...     def setUpColumns(self):
+          ...         return [
+          ...             column.addColumn(self, MyLinkColumns, u'link',
+          ...                              weight=1),
+          ...             column.addColumn(self, NumberColumn, name=u'number',
+          ...                              weight=2, header=u'Number')
+          ...             ]
+        
+        Now create, update and render our table:
+        
+          >>> from zope.publisher.browser import TestRequest
+          >>> request = TestRequest()
+          >>> myLinkTable = MyLinkTable(container, request)
+          >>> myLinkTable.__parent__ = container
+          >>> myLinkTable.__name__ = u'myLinkTable.html'
+          >>> myLinkTable.update()
+          >>> print(myLinkTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><a href="http://127.0.0.1/container/first/myLink.html" target="_blank" class="myClass">first</a></td>
+                <td>number: 1</td>
+              </tr>
+              <tr>
+                <td><a href="http://127.0.0.1/container/fourth/myLink.html" target="_blank" class="myClass">fourth</a></td>
+                <td>number: 4</td>
+              </tr>
+              <tr>
+                <td><a href="http://127.0.0.1/container/second/myLink.html" target="_blank" class="myClass">second</a></td>
+                <td>number: 2</td>
+              </tr>
+              <tr>
+                <td><a href="http://127.0.0.1/container/third/myLink.html" target="_blank" class="myClass">third</a></td>
+                <td>number: 3</td>
+              </tr>
+              <tr>
+                <td><a href="http://127.0.0.1/container/zero/myLink.html" target="_blank" class="myClass">zero</a></td>
+                <td>number: 0</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        
+        ContentsLinkColumn
+        ------------------
+        
+        There are some predefined link columns available. This one will generate a
+        ``contents.html`` link for each item:
+        
+          >>> class ContentsLinkTable(table.Table):
+          ...     cssClassSortedOn = None
+          ...
+          ...     def setUpColumns(self):
+          ...         return [
+          ...             column.addColumn(self, column.ContentsLinkColumn, u'link',
+          ...                              weight=1),
+          ...             column.addColumn(self, NumberColumn, name=u'number',
+          ...                              weight=2, header=u'Number')
+          ...             ]
+        
+          >>> contentsLinkTable = ContentsLinkTable(container, request)
+          >>> contentsLinkTable.__parent__ = container
+          >>> contentsLinkTable.__name__ = u'contentsLinkTable.html'
+          >>> contentsLinkTable.update()
+          >>> print(contentsLinkTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><a href="http://127.0.0.1/container/first/contents.html">first</a></td>
+                <td>number: 1</td>
+              </tr>
+              <tr>
+                <td><a href="http://127.0.0.1/container/fourth/contents.html">fourth</a></td>
+                <td>number: 4</td>
+              </tr>
+              <tr>
+                <td><a href="http://127.0.0.1/container/second/contents.html">second</a></td>
+                <td>number: 2</td>
+              </tr>
+              <tr>
+                <td><a href="http://127.0.0.1/container/third/contents.html">third</a></td>
+                <td>number: 3</td>
+              </tr>
+              <tr>
+                <td><a href="http://127.0.0.1/container/zero/contents.html">zero</a></td>
+                <td>number: 0</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        
+        IndexLinkColumn
+        ---------------
+        
+        This one will generate a ``index.html`` link for each item:
+        
+          >>> class IndexLinkTable(table.Table):
+          ...     cssClassSortedOn = None
+          ...
+          ...     def setUpColumns(self):
+          ...         return [
+          ...             column.addColumn(self, column.IndexLinkColumn, u'link',
+          ...                              weight=1),
+          ...             column.addColumn(self, NumberColumn, name=u'number',
+          ...                              weight=2, header=u'Number')
+          ...             ]
+        
+          >>> indexLinkTable = IndexLinkTable(container, request)
+          >>> indexLinkTable.__parent__ = container
+          >>> indexLinkTable.__name__ = u'indexLinkTable.html'
+          >>> indexLinkTable.update()
+          >>> print(indexLinkTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><a href="http://127.0.0.1/container/first/index.html">first</a></td>
+                <td>number: 1</td>
+              </tr>
+              <tr>
+                <td><a href="http://127.0.0.1/container/fourth/index.html">fourth</a></td>
+                <td>number: 4</td>
+              </tr>
+              <tr>
+                <td><a href="http://127.0.0.1/container/second/index.html">second</a></td>
+                <td>number: 2</td>
+              </tr>
+              <tr>
+                <td><a href="http://127.0.0.1/container/third/index.html">third</a></td>
+                <td>number: 3</td>
+              </tr>
+              <tr>
+                <td><a href="http://127.0.0.1/container/zero/index.html">zero</a></td>
+                <td>number: 0</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        
+        EditLinkColumn
+        --------------
+        
+        And this one will generate a ``edit.html`` link for each item:
+        
+          >>> class EditLinkTable(table.Table):
+          ...     cssClassSortedOn = None
+          ...
+          ...     def setUpColumns(self):
+          ...         return [
+          ...             column.addColumn(self, column.EditLinkColumn, u'link',
+          ...                              weight=1),
+          ...             column.addColumn(self, NumberColumn, name=u'number',
+          ...                              weight=2, header=u'Number')
+          ...             ]
+        
+          >>> editLinkTable = EditLinkTable(container, request)
+          >>> editLinkTable.__parent__ = container
+          >>> editLinkTable.__name__ = u'editLinkTable.html'
+          >>> editLinkTable.update()
+          >>> print(editLinkTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><a href="http://127.0.0.1/container/first/edit.html">first</a></td>
+                <td>number: 1</td>
+              </tr>
+              <tr>
+                <td><a href="http://127.0.0.1/container/fourth/edit.html">fourth</a></td>
+                <td>number: 4</td>
+              </tr>
+              <tr>
+                <td><a href="http://127.0.0.1/container/second/edit.html">second</a></td>
+                <td>number: 2</td>
+              </tr>
+              <tr>
+                <td><a href="http://127.0.0.1/container/third/edit.html">third</a></td>
+                <td>number: 3</td>
+              </tr>
+              <tr>
+                <td><a href="http://127.0.0.1/container/zero/edit.html">zero</a></td>
+                <td>number: 0</td>
+              </tr>
+            </tbody>
+          </table>
+        
+        
+        Miscellaneous
+        -------------
+        
+        Make coverage report happy and test different things.
+        
+        Test if the getWeight method returns 0 (zero) on AttributeError:
+        
+          >>> from z3c.table.table import getWeight
+          >>> getWeight(None)
+          0
+        
+        Create a container:
+        
+          >>> from z3c.table.testing import Container
+          >>> container = Container()
+        
+        Try to call a simple table and call renderBatch which should return an empty
+        string:
+        
+          >>> from z3c.table import table
+          >>> from zope.publisher.browser import TestRequest
+          >>> request = TestRequest()
+          >>> simpleTable = table.Table(container, request)
+          >>> simpleTable.renderBatch()
+          u''
+        
+        Try to render an empty table adapting an empty mapping:
+        
+          >>> simpleTable = table.Table({}, request)
+          >>> simpleTable.cssClassSortedOn = None
+          >>> simpleTable.render()
+          u''
+        
+        Since we register an adapter for IColumn on None (IOW on an empty mapping).
+        
+          >>> from zope.component import provideAdapter
+          >>> from z3c.table import column
+          >>> from z3c.table import interfaces
+          >>> provideAdapter(column.NameColumn,
+          ...     (None, None, interfaces.ITable), provides=interfaces.IColumn,
+          ...      name='secondColumn')
+        
+        Initializing rows definitions for the empty table initializes the columns
+        attribute list.
+        
+          >>> simpleTable.columns
+        
+          >>> simpleTable.initColumns()
+          >>> simpleTable.columns
+          [<NameColumn u'secondColumn'>]
+        
+        Rendering the empty table now return the string:
+        
+          >>> print(simpleTable.render())
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+              </tr>
+            </thead>
+            <tbody>
+            </tbody>
+          </table>
+        
+        
+        Let's see if the addColumn raises a ValueError if there is no Column class:
+        
+          >>> column.addColumn(simpleTable, column.Column, u'dummy')
+          <Column u'dummy'>
+        
+          >>> column.addColumn(simpleTable, None, u'dummy')
+          Traceback (most recent call last):
+          ...
+          ValueError: class_ None must implement IColumn.
+        
+        Test if we can set additional kws in addColumn:
+        
+          >>> simpleColumn = column.addColumn(simpleTable, column.Column, u'dummy',
+          ...     foo='foo value', bar=u'something else', counter=99)
+          >>> simpleColumn.foo
+          'foo value'
+        
+          >>> simpleColumn.bar
+          u'something else'
+        
+          >>> simpleColumn.counter
+          99
+        
+        The NoneCell class provides some methods which never get called. But these
+        are defined in the interface. Let's test the default values
+        and make coverage report happy.
+        
+        Let's get an container item first:
+        
+          >>> from z3c.table.testing import Content
+          >>> firstItem = Content('First', 1)
+          >>> noneCellColumn = column.addColumn(simpleTable, column.NoneCell, u'none')
+          >>> noneCellColumn.renderCell(firstItem)
+          u''
+        
+          >>> noneCellColumn.getColspan(firstItem)
+          0
+        
+          >>> noneCellColumn.renderHeadCell()
+          u''
+        
+          >>> noneCellColumn.renderCell(firstItem)
+          u''
+        
+        The default ``Column`` implementation raises an NotImplementedError if we
+        do not override the renderCell method:
+        
+          >>> defaultColumn = column.addColumn(simpleTable, column.Column, u'default')
+          >>> defaultColumn.renderCell(firstItem)
+          Traceback (most recent call last):
+          ...
+          NotImplementedError: Subclass must implement renderCell
+        
+        
+        =======
+        CHANGES
+        =======
+        
+        2.0.0a1 (2013-02-26)
+        --------------------
+        
+        - Added support for Python 3.3, dropped support for Python 2.5 and below.
+        
+        - Got rid of testing dependencies on z3.testing and zope.app.testing.
+        
+        
+        1.0.0 (2012-08-09)
+        ------------------
+        
+        - Added sorting (``cssClassSortedOn`` and ``getCSSSortClass``) CSS options
+        
+        - Added cell highlight (``getCSSHighlightClass``) CSS option
+        
+        - Added ``GetItemColumn`` which gets the value by index/key access.
+        
+        0.9.1 (2011-08-03)
+        ------------------
+        
+        - Fixed SelectedItemColumn.update when just one item was selected
+        
+        
+        0.9.0 (2010-08-09)
+        ------------------
+        
+        - Added ``EMailColumn`` which can be used to display mailto links.
+        
+        - Fixed the default BatchProvider not to lose table sorting query arguments
+          from the generated links; now batching and sorting play with each other
+          nicely.
+        
+        - Split single doctest file (README.txt) into different files
+        
+        
+        0.8.1 (2010-07-31)
+        ------------------
+        
+        - Added translation for the link title in the column header of the
+          sortable table.
+        
+        
+        0.8.0 (2009-12-29)
+        ------------------
+        
+        - Added translation for ``LinkColumn.linkContent``.
+        
+        - Added ``I18nGetAttrColumn`` which translates its content.
+        
+        
+        0.7.0 (2009-12-29)
+        ------------------
+        
+        - Allow to initialze the column definitions without requiring an
+          entire table update.
+        
+        - Fixed tests, so they no longer use ``zope.app.container`` (which was
+          even not declared as test dependency).
+        
+        - Head cell contents are now translated.
+        
+        0.6.1 (2009-02-22)
+        ------------------
+        
+        - Be smart to not ``IPhysicallyLocatable`` objects if we lookup the
+          ``__name__`` value in columns.
+        
+        
+        0.6.0 (2008-11-12)
+        ------------------
+        
+        - Bugfix: Allow to switch the sort order on the header link. This was
+          blocked to descending after the first click
+        
+        - Bugfix: CheckBoxColumn, ensure that we allways use a list for compare
+          selected items. It was possible that if only one item get selected
+          we compared a string. If this string was a sub string of another existing
+          item the other item get selected too.
+        
+        - Moved advanced batching implementation into z3c.batching
+        
+        - Implemented GetAttrFormatterColumn. This column can be used for simple
+          value formatting columns.
+        
+        - Bad typo in columns.py: Renamed ``getLinkConent`` to ``getLinkContent``
+        
+        - Bug: Changed return string in getLinkCSS. It was using css="" instead of
+          class="" for CSS classes. Thanks to Dan for reporting this bugs.
+        
+        - Implemented SelectedItemColumn
+        
+        - Fix CheckBoxColumn, use always the correct selectedItems. Use always real
+          selectedItems form the table
+        
+        - Fix RadioColumn, use always the correct selectedItem from the selectedItems
+          list. Use always the first selectedItems form the tables selectedItems
+        
+        
+        0.5.0 (2008-04-13)
+        ------------------
+        
+        - Initial Release.
+        
+Keywords: zope3 z3c table content provider
+Platform: UNKNOWN
+Classifier: Development Status :: 4 - Beta
+Classifier: Environment :: Web Environment
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: Zope Public License
+Classifier: Programming Language :: Python
+Classifier: Programming Language :: Python :: 2
+Classifier: Programming Language :: Python :: 2.6
+Classifier: Programming Language :: Python :: 2.7
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.3
+Classifier: Natural Language :: English
+Classifier: Operating System :: OS Independent
+Classifier: Topic :: Internet :: WWW/HTTP
+Classifier: Framework :: Zope3
