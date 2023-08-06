@@ -1,0 +1,171 @@
+===================================================================
+Functional test of the import which checks the importer
+product works in new plone by importer back in the content created
+by the export functional test to another location
+===================================================================
+
+by Ed Crewe, ILRT (University of Bristol) 
+June 2009 - import content test for plone 3 
+(see import.txt for same test for current plone 4)
+
+    >>> import os 
+    >>> from shutil import move, rmtree
+    >>> from Products.CMFPlone.utils import getToolByName
+
+Make the implicit test user (portal_owner) a manager
+
+    >>> self.setRoles(['Manager'])
+
+Set up a new folder and populate import context
+===============================================
+
+Add a folder to generate the import content in
+
+    >>> folderid = 'import_folder'
+    >>> doc = portal.invokeFactory("Folder", folderid)
+    >>> folder = getattr(portal, folderid)
+
+Publish it
+
+    >>> wftool = getToolByName(portal, 'portal_workflow')
+    >>> wftool.doActionFor(folder,'publish')
+
+Get this eggs tests profile info
+
+    >>> from Products.GenericSetup import profile_registry
+    >>> profile_id = '%s:%s' % ('ilrt.contentmigrator', 'tests')
+    >>> profile_info = profile_registry.getProfileInfo(profile_id)
+    >>> import_path = os.path.join(profile_info['path'],'structure')
+
+Move the exported content to the tests profile for import
+(this test is dependent on the export test being run first)
+
+    >>> export_path = os.path.join(INSTANCE_HOME,'var','structure')
+    >>> if os.path.exists(import_path):
+    ...     rmtree(import_path)
+    >>> move(export_path,import_path)  
+
+Do the Import
+=============
+
+This assumes the import has run to create the import structure 
+
+    >>> importer = getattr(portal, 'portal_setupcontent')
+
+Check the import reindex at the end option preserves metadata so use 'all'
+Run the import
+
+    >>> importer.editContext(context_id='profile-%s' % profile_id, reindex='all')
+    >>> importer.manage_runImport(root='/%s' % folderid)
+ 
+Check that the import has worked via the test browser
+=====================================================
+
+Start functional test
+---------------------
+
+    >>> from Products.Five.testbrowser import Browser
+    >>> from mechanize._mechanize import LinkNotFoundError
+
+    >>> browser = Browser()
+    >>> browser.handleErrors = True
+    >>> portal_url = portal.absolute_url()
+
+Login as the demo editor user
+-----------------------------
+
+    >>> from Products.PloneTestCase.setup import portal_owner, default_password
+
+We have the login portlet, so let's use that:
+
+    >>> browser.open(portal_url)
+    >>> browser.getControl(name='__ac_name').value = portal_owner
+    >>> browser.getControl(name='__ac_password').value = default_password
+    >>> browser.getControl(name='submit').click()
+
+We check that we get the logged-in message:
+
+    >>> "You are now logged in" in browser.contents
+    True
+
+Lets see if our content has imported into import_folder
+-------------------------------------------------------
+
+Now lets look to see if the test folder has been imported into the import_folder
+
+    >>> testurl = '/'.join([portal_url,folderid,'folder_contents'])
+    >>> testurl
+    'http://nohost/plone/import_folder/folder_contents'
+    >>> browser.open(testurl)
+    >>> 'test_folder' in browser.contents
+    True
+
+
+Check nested folder is there and modified dates are getting passed OK on import
+
+    >>> from datetime import datetime
+    >>> now = datetime.now()
+    >>> folder = portal.import_folder.test_folder.nested
+    >>> folder.modified().year()
+    2005
+
+Lets go to it
+
+    >>> testurl = '/'.join([portal_url,folderid,'test_folder/folder_contents'])
+    >>> browser.open(testurl)
+
+Now lets look to see if the page, file and image are in it
+First the page and its workflow state
+
+    >>> 'ilrt.jpg' in browser.contents
+    True
+    >>> 'test.pdf' in browser.contents
+    True
+
+Next check the image by size to ensure binaries are not empty
+
+    >>> '2.8 kB' in browser.contents
+    True
+    >>> '0 kB' in browser.contents
+    False
+
+Finally open the page
+
+    >>> testurl = '/'.join([portal_url,folderid,'test_folder/test-new-item'])
+    >>> browser.open(testurl)
+
+Check the page metadata
+
+    >>> "Test New Item" in browser.contents
+    True
+    >>> "A dummy page created by the test handler" in browser.contents
+    True
+    >>> "<p>blah blah my content</p>" in browser.contents
+    True
+    >>> "editor" in browser.contents
+    True
+    >>> "ilrt.contentmigrator test" in browser.contents
+    True
+
+Confirm that the lines field is handled properly as a tuple
+
+    >>> testpage = getattr(folder.test_folder, 'test-new-item', None)
+    >>> testpage == None
+    False
+    >>> testpage.Contributors()
+    ('test', 'lines', 'field')
+
+Check the workflow migration by seeing if its pending
+
+    >>> 'class="state-pending navTreeCurrentItem navTreeCurrentNode"' in browser.contents
+    True
+
+Clean up exported content or test will generate content
+-------------------------------------------------------
+
+    >>> rmtree(import_path)
+    >>> os.path.exists(import_path)
+    False
+
+Debug read the log     >>> importer.getLog()
+

@@ -1,0 +1,141 @@
+===================================================================
+Functional test of the google export which checks the exporter
+command line works for google sites
+===================================================================
+
+by Ed Crewe, ILRT (University of Bristol) 
+Feb 2011
+
+(requires plone site test content structure file system folder generated
+by export.txt)
+
+    >>> SOURCE = 'contentmigrator-import-v1'
+    >>> SITE = 'contentmigrator'
+    >>> USER = 'contentmigrator@gmail.com'
+    >>> PW = 'torrag456'
+
+    >>> import os 
+    >>> from shutil import move, rmtree
+    >>> import gdata.sites.client
+    >>> from ilrt.contentmigrator.google.export_content import SFWA
+
+Export the test exported plone content to google
+
+    >>> from ilrt.contentmigrator.exportimport.contentexporter import ContentExporterView
+    >>> exporter = ContentExporterView(portal, {})
+    >>> export_path = exporter.savepath
+    >>> os.path.exists(export_path)
+    True
+
+    >>> client = gdata.sites.client.SitesClient(source=SOURCE, site=SITE)
+    >>> client.ssl = True  
+    >>> token = client.ClientLogin(USER, PW, client.auth_service)
+
+Check we are pointing at the test site
+
+    >>> feed = client.GetSiteFeed()
+    >>> titles = [entry.site_name.text for entry in feed.entry]
+    >>> 'contentmigrator' in titles
+    True
+
+Remove any content in the site
+
+    >>> feed = client.GetContentFeed()
+    >>> for entry in feed.entry:
+    ...     dummy = client.Delete(entry)
+
+Do the Import
+=============
+
+This assumes the export has run to create the import structure 
+Now export the site to a Google site
+
+NB: Use a log class to catch the command line print statements for test checking
+
+    >>> sfwa = SFWA(client, export_path, True)
+    >>> sfwa.export()
+
+Test one of the export log report entries for success
+
+    >>> 'Created attachment. View it at: https://sites.google.com/site/contentmigrator/test_folder/ilrt.jpg' in sfwa.log.out
+    True
+
+Clean up exported content or test will generate content
+-------------------------------------------------------
+
+    >>>	rmtree(export_path)
+    >>> os.path.exists(export_path)
+    False
+ 
+Check that the import has worked via the test browser
+=====================================================
+
+Start functional test
+---------------------
+
+We wont use the Products.Five.testbrowser.Browser mechanize wrapper 
+since this test may want to be run outside of zope/plone and its 
+easier to increase the timeout this way, which is required ...
+
+    >>> import mechanize
+    >>> google_url = 'http://sites.google.com/site/contentmigrator/'
+
+Login as the demo editor user
+-----------------------------
+
+Go to our Google site and check that the imported content is there
+
+    >>> try:
+    ...     response = mechanize.urlopen(google_url, timeout=5000)
+    ... except mechanize.HTTPError:
+    ...     print '%s not found' % google_url
+    >>> homepage = response.read()
+    >>> 'Welcome to Plone' in homepage
+    True
+
+Lets see if our content has imported into import_folder
+-------------------------------------------------------
+
+Now lets look to see if the test folder has been imported into the import_folder
+
+    >>> 'test_folder' in homepage
+    True
+
+Lets go to it
+
+    >>> testurl = '/'.join([google_url,'test_folder'])
+    >>> response = mechanize.urlopen(testurl, timeout=2000)
+    >>> testfolder = response.read()
+
+Now lets look to see if the page, file and image are in it
+First the page and its workflow state
+
+    >>> 'ilrt.jpg' in testfolder
+    True
+    >>> 'test.pdf' in testfolder
+    True
+
+Next check the image by size to ensure binaries are not empty
+
+    >>> '3k' in testfolder
+    True
+    >>> 'Test description' in testfolder
+    True
+
+Finally open the page
+
+    >>> testurl = '/'.join([google_url,'test_folder','test-new-item'])
+    >>> response = mechanize.urlopen(testurl, timeout=2000)
+    >>> testpage = response.read()
+
+Check the page metadata
+
+    >>> "Test New Item" in testpage
+    True
+    >>> "A dummy page created by the test handler" in testpage
+    True
+    >>> "<p>blah blah my content</p>" in testpage
+    True
+
+Debug read the log     >>> sfwa.getLog()
+
