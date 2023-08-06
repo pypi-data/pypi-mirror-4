@@ -1,0 +1,10 @@
+__version__ = "0.4.5"
+__git_commiter_name__ = "root"
+__git_commiter_email__ = "root@guyr-ubuntu.infinidat.com"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '2e68c3f49b7d3df99c8e9ad503c278f0ee3a8faa'
+__git_head_subject__ = 'Finished release v0.4.5.'
+__git_head_message__ = "* release/v0.4.5:\n  TRIVIAL fix tests after new distribute's parse_version change\n  TRIVIAL fixing issues with some packages, e.g. PrettyTable\n  TRIVIAL fixing docopt string\n  empty commit after version v0.4.4"
+__git_dirty_diff__ = ''
