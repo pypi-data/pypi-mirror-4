@@ -1,0 +1,149 @@
+#!/usr/bin/env python
+
+# gen_release_version - take the '.dev' out of the version,
+# make the tag with this version, check it in with new version
+
+import os
+import sys
+import subprocess
+
+print ""
+print "Releasing in ", os.getcwd()
+print ""
+
+log_message = 'making release'
+
+format_width=20
+
+if os.path.exists('.svn') :
+    # define commit_trunk(log) and make_tag(log, tag) for whatever
+    # configuration management system we are using.
+
+    _svn_url_base = None
+    def _svn_get_url_base() :
+        p = subprocess.Popen('svn info | grep ^URL: ', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout, stderr = p.communicate()
+        if p.returncode < 0 :
+            print "unable to get svn url - svn info returned exit status %d"%p.returncode
+            sys.exit(1)
+
+        url = stdout.split('URL:')[1].strip()
+        print "%-*s %s" % ( format_width, "svn checkout",url )
+        if '/trunk' in url :
+            url = url.split('/trunk')[0]
+        elif '/branches/' in url :
+            url = url.split('/branches/')[0]
+        elif '/tags/' in url :
+            url = url.split('/tags/')[0]
+        else :
+            print "bad svn url?",url
+            sys.exit(1)
+        global _svn_url_base
+        _svn_url_base = url
+
+    _svn_get_url_base()
+    print "%-*s %s" % ( format_width, "svn url base is", _svn_url_base )
+
+    def make_tag( log, tag ) :
+        # delete the tag, in case it is already there.  Hide the error message.  Ignore return codes.
+        p = subprocess.Popen('svn del -m"repeating release" %s/tags/%s'% ( _svn_url_base, tag ),  shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout, stderr = p.communicate()
+        p = subprocess.Popen('svn copy -m"%s" . %s/tags/%s' % (log, _svn_url_base, tag), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE )
+        stdout, stderr = p.communicate()
+        if p.returncode != 0 :
+            print "svn copy returned error %d"%p.returncode
+            print stdout
+            print stderr
+            sys.exit(1)
+
+    def commit_trunk( log ) :
+        p = subprocess.Popen('svn commit -m"%s"' % log, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE )
+        stdout, stderr = p.communicate()
+        if p.returncode != 0 :
+            print "svn copy returned error %d"%p.returncode
+            print stdout
+            print stderr
+            sys.exit(1)
+
+    def print_tag_checkout( tag ) :
+        print "svn checkout %s/tags/%s"%( _svn_url_base, tag )
+
+
+else :
+    print "no configuration management recognized"
+    print "do you need to write one?"
+    sys.exit(1)
+
+
+
+# read the setup.cfg, get the version= line
+import ConfigParser
+c = ConfigParser.RawConfigParser()
+c.read('setup.cfg')
+
+version = c.get('metadata','version')
+print "%-*s %s" % ( format_width, "config version", version )
+
+# trim off .dev and show the user a proposed version number
+version = version.split('.dev')[0]
+print "%-*s %s" % ( format_width, "proposed release", version )
+
+# allow the user to specify a different version number if they want
+print "enter a different version number or press enter:"
+s = sys.stdin.readline()
+s = s.strip()
+if len(s) > 0 :
+    old_version = [ int(x) for x in version.split('.') ]
+    new_version = [ int(x) for x in s      .split('.') ]
+
+    version = '.'.join( [ str(x) for x in new_version ] )
+    print "%-*s %s" % ( format_width, "new version number", s )
+
+    if not new_version > old_version :
+        print "Error: version ran backwards"
+        sys.exit(1)
+
+
+# update the setup.cfg with the new version number
+print "%-*s %s" % ( format_width, "using version", version )
+
+c.set('metadata','version',version)
+c.write(open('setup.cfg','w'))
+
+# create the release tag (with the release version number) in the
+# revision control software
+
+tag = 'release_%s' % version
+make_tag( log_message, tag )
+
+## make "next" version number for trunk; this is the next available
+## version number, but we may choose something higher by the time of
+## the next release
+
+# add 0.0.1 to version
+l = version.split('.')
+if len(l) <= 2 :
+    l.append('1')
+else :
+    l[-1] = str(int(l[-1]) + 1)
+
+# add .dev to version
+l.append('dev')
+
+# make a string of the version
+new_version = '.'.join(l)
+
+# update the setup.cfg
+print "%-*s %s" % ( format_width, "new trunk version", new_version )
+c.set('metadata','version',new_version)
+c.write(open('setup.cfg','w'))
+
+# commit it to the trunk
+commit_trunk( log_message )
+
+#
+print ""
+print "The trunk is updated with a new version number."
+print "The tag is ready to use for a release."
+print ""
+print_tag_checkout(tag)

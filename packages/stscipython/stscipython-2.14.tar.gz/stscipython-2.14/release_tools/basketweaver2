@@ -1,0 +1,412 @@
+#!/usr/bin/env python
+
+"""
+This file is from the basketweaver-0.1.3-r0 distribution at
+http://code.google.com/p/basket-weaver/ .  It was basketweaver/makeindex.py
+
+Here is the original doc string:
+
+'''
+From Chris McDonough:
+
+If it's not labeled otherwise and it comes from us, it's released under this license... http://repoze.org/license.html (BSD-like)...
+
+'''
+
+Here are notes added at STScI:
+
+The license was not included in the basketweaver distribution.  The
+text of the license at that URL on 2013-01-09 is:
+
+    License
+
+    A copyright notice accompanies this license document that
+    identifies the copyright holders.
+
+    Redistribution and use in source and binary forms, with or
+    without modification, are permitted provided that the following
+    conditions are met:
+
+	Redistributions in source code must retain the accompanying
+	copyright notice, this list of conditions, and the following
+	disclaimer.  Redistributions in binary form must reproduce
+	the accompanying copyright notice, this list of conditions,
+	and the following disclaimer in the documentation and/or
+	other materials provided with the distribution.  Names of
+	the copyright holders must not be used to endorse or promote
+	products derived from this software without prior written
+	permission from the copyright holders.  If any files are
+	modified, you must cause the modified files to carry prominent
+	notices stating that you changed the files and the date of
+	any change.
+
+    Disclaimer
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS''
+    AND ANY EXPRESSED OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+    LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+    FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+    COPYRIGHT HOLDERS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+    SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+    NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+    LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+    CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+    STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+    ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+[ n.b.  The statement in the license that "A copyright notice
+accompanies this license document that identifies the copyright
+holders" is incorrect.  The basketweaver-0.1.3-r0 distribution does
+not contain a copyright notice.  The subversion repository at 
+http://code.google.com/p/basket-weaver/source/list shows it was
+initially created in 2008 by "percious17" and updated in 2009 by
+"tao.takashi".  Mark S. ]
+
+
+Modified at the Science Software Branch of the Space Telescope
+Science Institute, 2012-01-09 and possibly on subsequent occasions:
+
+- store packages in subdirectory .data/ instead of the root of the
+pypi web server
+
+- Create the index in current directory, not under index/.  (So the
+user does not have to add "/index/" to the directory name you are
+using.)
+
+- Add extensive comments describing what is going on in this code.
+
+- better exception handling
+
+How to use
+==========
+
+On your web server, you have a directory that contains your package
+index.  In that directory, create a subdirectory named ".data/" that
+contains all the sdist and egg files that you want to distribute.
+(Do not try to distribute bdists - they don't work.)
+
+    cd htdocs/my/pypi
+    mkdir -p .data
+    cp /somewhere/some_python_package/dist/* .data/
+    basketweaver2
+
+To download from your pypi:
+
+    easy_install --index-url=http://your-server/my/pypi/
+
+    pip install --index-url http://your-server/my/pypi/ packagename
+
+    Or you can specify the index-url in two places in
+    ~/.pydistutils.cfg or %HOME%\pydistutils.cfg :
+
+        ; Yes, specify it twice to make sure everything can find it
+        [global]
+        index-url = http://your-server/my/pypi/
+        no-find-links = true
+
+        [easy-install]
+        index-url = http://your-server/my/pypi/
+        no-find-links = true
+
+    pip also has ~/.pip/pip.conf or %HOME%\pip\pip.ini
+
+        [global]
+        index-url = http://your-server/my/pypi/
+
+    To specify a location to install with pip, use
+    --install-option=--prefix=~/py
+
+    To specify a location to install with easy_install, use
+    --prefix=~/py
+
+    Both pip and easy_install recognize --user ; it is similar to
+    --prefix ~/.local
+
+"""
+
+# version is the *next* version to be released, with .dev at the end if it is not final
+__version__ = '1.0.dev'
+
+import os
+import shutil
+import subprocess
+import sys
+import tarfile
+import zipfile
+import tempfile
+import glob
+
+#####
+#####
+#
+# These classes open an archive file of some kind.
+#   .names() returns a list of files that are in the archive
+#   .lines(filename) returns the content of a file that is in the archive
+#   .extract is not used
+#   .extractAll(dir) extracts all the files from the archive into a temp directory
+#   .close is not used (we just leave everything for the garbage collector)
+#
+
+class TarArchive:
+    def __init__(self, filename):
+        self.filename = filename
+	mode = "r"
+	if filename.endswith('.bz2'):
+	    mode = "r:bz2"
+	elif filename.endswith('.gz') or filename.endswith('.tgz'):
+	    mode = "r:gz"
+        self.tgz = tarfile.TarFile.open(filename, mode)
+
+    def names(self):
+        return self.tgz.getnames()
+
+    def lines(self, name):
+        return self.tgz.extractfile(name).readlines()
+
+    def extract(self, name, tempdir):
+        return self.tgz.extract(name, tempdir)
+
+    def extractall(self, tempdir):
+        os.system('cd %s && tar xzf %s' % (tempdir,
+                                           os.path.abspath(self.filename)))
+
+    def close(self):
+        return self.tgz.close()
+
+class ZipArchive:
+    def __init__(self, filename):
+        self.filename = filename
+        self.zipf = zipfile.ZipFile(filename, 'r')
+
+    def names(self):
+        return self.zipf.namelist()
+
+    def lines(self, name):
+        return self.zipf.read(name).split('\n')
+
+    def extract(self, name, tempdir):
+        data = self.zipf.read(name)
+        fn = name.split(os.sep)[-1]
+        fn = os.path.join(tempdir, fn)
+        f = open(fn, 'wb')
+        f.write(data)
+
+    def extractall(self, tempdir):
+        os.system('cd %s && unzip %s' % (tempdir,
+                                         os.path.abspath(self.filename)))
+
+    def close(self):
+        return self.zipf.close()
+
+#####
+#####
+#
+# Here we will recognize a file and get the package name and version number out of it.
+#
+
+def _extractNameVersion(filename, tempdir):
+
+    print 'Parsing:', filename
+
+    archive = None
+
+    # We're going to extract the file
+    if filename.endswith('.tar') or filename.endswith('.tar.gz') or filename.endswith('.tgz') or filename.endswith('.tar.bz2'):
+        archive = TarArchive(filename)
+    elif filename.endswith('.egg') or filename.endswith('.zip'):
+        archive = ZipArchive(filename)
+    if archive is None:
+        raise Exception("Do not recognize file %s"%archive)
+
+    # Look for PKG-INFO in the archive.  If it is there, use it for
+    # the version information.
+    for name in archive.names():
+        if len(name.split('/'))==2  and name.endswith('PKG-INFO'):
+            # When we see PKG-INFO, we know we have the information
+	        # -- we just have to get it.
+
+            project, version = None, None
+
+            # Read the file out of the archive as a list of lines.
+            lines = archive.lines(name)
+
+            # Look for the fields we care about.
+            for line in lines:
+                key, value = line.split(':', 1)
+
+                if key == 'Name':
+                    print filename, value
+                    project = value.strip()
+
+                elif key == 'Version':
+                    version = value.strip()
+
+                if project is not None and version is not None:
+                    return project, version
+
+    # If we get here, we either never saw PKG-INFO or we did not
+    # see the name/version information in the file.  Implement
+    # a fallback.
+
+    # This does not happen in the STScI packages that are based on d2to1.
+
+    # Extract the entire archive, find the directory that was in it
+    archive.extractall(tempdir)
+    dirs = os.listdir(tempdir)
+    dir = os.path.join(tempdir, dirs[0])
+    if not os.path.isdir(dir):
+        dir = tempdir
+
+    # cd to that directory and run setup.py to ask for name/version.
+    # (I doubt this works on Windows, but I don't really care.)
+    command = ('cd %s && %s setup.py --name --version'
+               % (dir, sys.executable))
+    popen = subprocess.Popen(command,
+                             stdout=subprocess.PIPE,
+                             shell=True,
+                             )
+    output = popen.communicate()[0]
+    return output.splitlines()[:2]
+
+#####
+#####
+
+# An index.html for the .data directory.  pypi clients don't need
+# this, but I find it convenient
+def htmlindex(directory) :
+
+    # these images exist on our apache server.  You can put whatever
+    # else you want here.
+    dirtype = '<img src="/icons/folder.gif" alt="[DIR]">'
+    filetype = '<img src="/icons/text.gif" alt="[TXT]">'
+
+    # remember what directory we came from, so we can go back when done.
+    back = os.getcwd()
+
+    # cd into the directory we are indexing
+    os.chdir(directory)
+
+    # create the index, write a header
+    f = open("index.html","w")
+    f.write('''
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+<head>
+<meta http-equiv="Content-type" content="text/html;charset=UTF-8"> 
+<title>a package index</title>
+</head>
+<body >
+''')
+
+    f.write('<table>\n')
+
+    # loop across files (glob is alphabetic)
+    for x in glob.glob('*') :
+        if x.startswith('.'):
+            continue
+        if '<' in x :   # messing with us?
+            continue
+        if os.path.isdir(x) :
+            typ = dirtype
+        elif os.path.isfile(x) :
+            typ = filetype
+        else :
+            continue
+        f.write("  <tr><td>%s</td><td><a href='%s'>%s</a></td></tr>\n"%(type,x,x))
+
+    f.write('</table>\n')
+
+    f.write('''
+</body>
+</html>
+''')
+
+    os.chdir(back)
+
+#####
+#####
+
+def main():
+
+    # projects is really an index of all the downloadable sdists
+    # or eggs that are discovered.  The index is the name of the
+    # project and the value is a list of (version_number, filename)
+    projects = {}
+
+    # You should run this program in the root of your package index.
+    # Put every downloadable thing in subdirectory data/.
+    for arg in glob.glob('.data/*') :
+        if ( arg.endswith('.shtml') or arg.endswith('.html') 
+            or arg.endswith('.txt') ) : 
+                # is an index or readme or something like that
+                continue
+        try:
+            # for each file we find, pick the name and version out
+	        # of the distribution
+            tempdir = tempfile.mkdtemp()
+            project, revision = _extractNameVersion(arg, tempdir)
+            projects.setdefault(project, []).append((revision, arg))
+            shutil.rmtree(tempdir)
+        except Exception as e:
+            print "Yow! Error handling %s: %s"%( s, str(e) )
+
+    # Make a sorted list of all the packages
+    items = projects.items()
+    items.sort()
+
+    # The main index is index.html
+    top = open('index.html', 'w')
+    top.writelines(['<html>\n',
+                    '<body>\n',
+                    '<h1>Package Index</h1>\n',
+                    '<ul>\n'])
+
+    # package will be a package name
+    # files will be a list of (version_number, filename)
+    for package, files in items:
+
+        # for the user to watch our progress
+        print 'Project: %s' % package
+
+        # There is a directory for each package.
+        dirname = package
+        if not os.path.exists(dirname):
+            os.makedirs(dirname)
+
+        # List it in the index
+        top.write('<li><a href="%s/index.html">%s</a>\n' % (package, package))
+
+        # Create an index in the package directory.
+        sub = open('%s/index.html' % package, 'w')
+        sub.writelines(['<html>\n',
+                        '<body>\n',
+                        '<h1>%s Distributions</h1>\n' % package,
+                        '<ul>\n'])
+
+        # one line for each version
+        for revision, archive in files:
+            print '  -> %s, %s' % (revision, archive)
+            sub.write('<li><a href="../%s">%s</a>\n' % (archive, archive))
+
+        # end of index in the package directory
+        sub.writelines(['</ul>\n',
+                        '</body>\n',
+                        '</html>\n'])
+
+    # end of top-level index
+    top.writelines(['</ul>\n',
+                    '</body>\n',
+                    '</html>\n'])
+    top.close()
+
+    htmlindex('.data')
+
+#####
+#####
+
+if __name__ == '__main__':
+    os.chdir(sys.argv[1])
+    main()
+
