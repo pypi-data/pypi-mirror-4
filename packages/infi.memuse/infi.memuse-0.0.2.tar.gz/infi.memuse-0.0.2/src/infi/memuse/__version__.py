@@ -1,0 +1,10 @@
+__version__ = "0.0.2"
+__git_commiter_name__ = "root"
+__git_commiter_email__ = "root@guyr-ubuntu.infinidat.com"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = 'a499580046e479a45422f033e6b8090030014deb'
+__git_head_subject__ = 'Finished release v0.0.2.'
+__git_head_message__ = '* release/v0.0.2:\n  TRIVIAL update python version in recipe\n  empty commit after version v0.0.1'
+__git_dirty_diff__ = ''
