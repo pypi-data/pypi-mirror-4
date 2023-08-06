@@ -1,0 +1,238 @@
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en"
+      xmlns:tal="http://xml.zope.org/namespaces/tal"
+      xmlns:metal="http://xml.zope.org/namespaces/metal"
+      xmlns:i18n="http://xml.zope.org/namespaces/i18n"
+      lang="en"
+      metal:use-macro="here/main_template/macros/master"
+      i18n:domain="plone">
+
+<body>
+
+  <div metal:fill-slot="content-core"  tal:define="showall python:request.get('showall', False)">
+    <metal:block define-macro="content-core"
+                 tal:define="kssClassesView context/@@kss_field_decorator_view;
+                             getKssClasses nocall:kssClassesView/getKssClassesInlineEditable;
+                             templateId template/getId">
+
+	<!-- a class="showallButton" href="#" tal:attributes="href python:'%s?showall=true'%here.absolute_url()" tal:condition="not: showall">All events</a>
+	<a class="showallButton" href="#" tal:attributes="href python:here.absolute_url()" tal:condition="showall">Only documented events</a -->
+	
+	<div class="pageWrapper listing">
+        <div metal:define-macro="text-field-view"
+             id="parent-fieldname-text" class="stx"
+             tal:define="kss_class python:getKssClasses('text',
+                         templateId=templateId, macro='text-field-view');
+                         has_text exists:context/aq_explicit/getText;
+                         text python:has_text and here.getText() or ''"
+             tal:condition="text"
+             tal:attributes="class python:context.Format() in ('text/structured', 'text/x-rst', ) and 'stx' + kss_class or 'plain' + kss_class">
+            <div metal:define-slot="inside" tal:replace="structure text">The body</div>
+        </div>
+	</div>
+	
+	<a name="today"></a>
+	<h2 class="divider" ><span tal:content="python: 'Today %s'%view.getCurrentTime().strftime('%A %d %B %Y')">Today Monday 23 November 2012</span></h2>
+	
+	<div class="tileColumns">
+	    <tal:results define="b_start python:request.get('b_start', 0);
+				 batch python:view.resultsToday(only_documented=not showall);
+				 site_properties context/portal_properties/site_properties;
+				 use_view_action site_properties/typesUseViewActionInListings|python:();
+				 isAnon context/@@plone_portal_state/anonymous;
+				 normalizeString nocall: context/plone_utils/normalizeString;
+				 toLocalizedTime nocall: context/@@plone/toLocalizedTime;
+				 show_about python:not isAnon or site_properties.allowAnonymousViewAbout;
+				 navigation_root_url context/@@plone_portal_state/navigation_root_url;
+				 pas_member context/@@pas_member;
+				 substitute view/substituteWithMessage;">
+	    
+	    <div class="pageWrapper listing">
+		  <tal:subs tal:condition="python: substitute != u''" tal:replace="structure substitute">
+		  </tal:subs>
+	    </div>
+	    
+	    <tal:listing condition="python: substitute == u'' and batch">
+		    <tal:entry tal:repeat="item batch">
+		    <tal:block tal:define="item_id item/getId;
+					   item_description item/Description;
+					   item_type item/Type;
+					   item_url python:item_type == 'Media Event' and '%s'%item.getURL() or item.getURL();
+					   item_modified item/ModificationDate;
+					   item_created item/CreationDate;
+					   item_icon item/getIcon;
+					   item_wf_state_class python:'state-' + normalizeString(item.review_state);
+					   item_creator item/Creator;
+					   item_start python:(item.start or item.StartDate) if item_type == 'Media Event' else None;
+					   item_end python:(item.end) if item_type == 'Media Event' else None;
+					   item_modified item/ModificationDate;
+					   odd repeat/item/odd;">
+			<div class="visualClear" tal:omit-tag="odd"></div>
+			<div tal:define="tileclass python:item.hasMedia and 'tileItem' or 'tileItem no-media';" tal:attributes="class python: tileclass + (odd and ' odd' or ' even')">
+    
+			    <a class="imagelink" tal:condition="item/hasMedia" href="" tal:attributes="href  item_url"><tal:image replace="structure python:view.getLeadMediaTag(item, scale='fixwidth')"></tal:image></a>
+			    
+			    <div class="res-info">
+				<h2 class="summary"  tal:attributes="class python: 'summary %s'%item_wf_state_class">
+				    <a href="#"
+				       tal:attributes="href python:item_type in use_view_action and item_url+'/view' or item_url;"
+				       tal:content="item/Title">
+					Item Title
+				    </a>
+				    <span class="addthis_toolbox addthis_default_style"
+			tal:attributes="addthis:url python:(item.portal_type == 'File' or item.portal_type == 'Image') and item_url + '/view' or item_url;
+				        addthis:title item/Title;
+				        addthis:description python:item_description is not None and item_description or view.trimText(item.getObject().text, 200, strip=True);">
+					  <a class="addthis_counter addthis_button" addthis:ui_click="true" tal:attributes="addthis:url python:(item.portal_type == 'File' or item.portal_type == 'Image') and item_url + '/view' or item_url;">
+					  </a>
+				    </span>
+				</h2>
+				
+				<div id="eventBooking" tal:condition="python: item.portal_type == 'Event' or item.portal_type == 'Media Event'">  
+				    <p class="dates" tal:replace="structure python: view.getFormattedEventDate(item.getObject())">
+					  Thursday 14 February 2013, 7.30 to 9.30pm
+				    </p>
+				    <p class="booking" tal:condition="python: item.getObject().getBooking() and not view.isEventPast(item.getObject())">
+					  <span class="price" tal:condition="python: item.getObject().getPrice() != ''" tal:content="python: item.getObject().getPrice()">Free</span> <span class="arrow" tal:condition="python: item.getObject().getLink() != ''">&rarr;</span> <a href="" class="bookLink" tal:condition="python: item.getObject().getLink() != ''" tal:attributes="href python:view.getEventBookingLink(item.getObject())">Book</a>
+				    </p>
+			        </div>
+			    
+				<div class="description">
+				    <span tal:condition="python:item.Description != '' " tal:replace="python:view.trimText(item.Description, 200, strip=False)"></span>
+				    <tal:bodyfallback condition="python:item.Description == ''">
+					<span tal:condition="python: getattr(item.getObject(), 'text', False)" tal:replace="python:view.trimText(item.getObject().text, 200, strip=True)"></span>
+				    </tal:bodyfallback>
+				</div>
+			    </div>
+			    
+			    <form tal:condition="python:view.isBuyable(item.getObject())" action="" tal:attributes="action python: '%s/@@getpaid-cart-add'%item.getURL()" method="post">
+					<input type="hidden" value="True" name="add_item">
+					<input type="hidden" value="1" name="quantity">
+					<input type="submit" value="Add to Cart">
+			    </form>
+			    <div class="visualClear"></div>
+			</div>			
+		    </tal:block>
+		    </tal:entry>
+		<div class="visualClear"></div>
+		<!-- NO BATCH HERE SO NO PAGING div metal:use-macro="context/batch_macros/macros/navigation" / -->
+    
+	    </tal:listing>
+	    <metal:empty metal:define-slot="no_items_in_listing">
+		<p tal:condition="python: substitute == u'' and not batch"
+		   tal:replace="structure python:view.getNoEventMessage()">
+		    There are no events happening today.
+		</p>
+	    </metal:empty>
+	    
+	    <a class="managePortletsFallback"
+		tal:condition="view/showManageButton"
+		tal:define="portal context/@@plone_portal_state/portal;"
+		tal:attributes="href string:${portal/absolute_url}/manage_weekday_messages">
+		Manage weekday messages
+	   </a>
+    
+	    </tal:results>
+	</div>
+	
+	<a name="forthcoming"></a>
+	<h2 class="divider"><span>More forthcoming events</span></h2>
+	
+	
+	<div class="tileColumns threecol">
+	    <tal:results define="b_start python:request.get('b_start', 0);
+				 batch python:view.resultsFuture(only_documented=not showall);
+				 site_properties context/portal_properties/site_properties;
+				 use_view_action site_properties/typesUseViewActionInListings|python:();
+				 isAnon context/@@plone_portal_state/anonymous;
+				 normalizeString nocall: context/plone_utils/normalizeString;
+				 toLocalizedTime nocall: context/@@plone/toLocalizedTime;
+				 show_about python:not isAnon or site_properties.allowAnonymousViewAbout;
+				 navigation_root_url context/@@plone_portal_state/navigation_root_url;
+				 pas_member context/@@pas_member;">
+	    <tal:listing condition="batch">
+    
+		    <tal:entry tal:repeat="item batch">
+		    <tal:block tal:define="item_id item/getId;
+					   item_description item/Description;
+					   item_type item/Type;
+					   item_url python:item_type == 'Media Event' and '%s'%item.getURL() or item.getURL();
+					   item_modified item/ModificationDate;
+					   item_created item/CreationDate;
+					   item_icon item/getIcon;
+					   item_wf_state_class python:'state-' + normalizeString(item.review_state);
+					   item_creator item/Creator;
+					   item_start python:(item.start or item.StartDate) if item_type == 'Media Event' else None;
+					   item_end python:(item.end) if item_type == 'Media Event' else None;
+					   item_modified item/ModificationDate;
+					   odd repeat/item/odd;">
+			
+			<!--div class="visualClear" tal:omit-tag="odd"></div-->
+			<div tal:define="tileclass python:item.hasMedia and 'tileItem' or 'tileItem no-media';" tal:attributes="class python: tileclass + (odd and ' odd' or ' even')">
+    
+			    <a class="imagelink" tal:condition="item/hasMedia" href="" tal:attributes="href  item_url"><tal:image replace="structure python:view.getLeadMediaTag(item, scale='fixwidth')"></tal:image></a>
+			    
+			    <div class="res-info">
+				<h2 class="summary"  tal:attributes="class python: 'summary %s'%item_wf_state_class">
+				    <a href="#"
+				       tal:attributes="href python:item_type in use_view_action and item_url+'/view' or item_url;"
+				       tal:content="item/Title">
+					Item Title
+				    </a>
+				    <span class="addthis_toolbox addthis_default_style"
+			tal:attributes="addthis:url python:(item.portal_type == 'File' or item.portal_type == 'Image') and item_url + '/view' or item_url;
+				        addthis:title item/Title;
+				        addthis:description python:item_description is not None and item_description or view.trimText(item.getObject().text, 200, strip=True);">
+					  <a class="addthis_counter addthis_button" addthis:ui_click="true" tal:attributes="addthis:url python:(item.portal_type == 'File' or item.portal_type == 'Image') and item_url + '/view' or item_url;">
+					  </a>
+				    </span>
+				</h2>
+				
+				<div id="eventBooking" tal:condition="python: item.portal_type == 'Event' or item.portal_type == 'Media Event'">  
+				    <p class="dates" tal:replace="structure python: view.getFormattedEventDate(item.getObject())">
+					  Thursday 14 February 2013, 7.30 to 9.30pm
+				    </p>
+				    <p class="booking" tal:condition="python: item.getObject().getBooking() and not view.isEventPast(item.getObject())">
+					  <span class="price" tal:condition="python: item.getObject().getPrice() != ''" tal:content="python: item.getObject().getPrice()">Free</span> <span class="arrow" tal:condition="python: item.getObject().getLink() != ''">&rarr;</span> <a href="" class="bookLink" tal:condition="python: item.getObject().getLink() != ''" tal:attributes="href python:view.getEventBookingLink(item.getObject())">Book</a>
+				    </p>
+			        </div>
+			    
+				<div class="description">
+				    <span tal:condition="python:item.Description != '' " tal:replace="python:view.trimText(item.Description, 200, strip=False)"></span>
+				    <tal:bodyfallback condition="python:item.Description == ''">
+					<span tal:condition="python: getattr(item.getObject(), 'text', False)" tal:replace="python:view.trimText(item.getObject().text, 200, strip=True)"></span>
+				    </tal:bodyfallback>
+				</div>
+			    </div>
+			    
+			    <form tal:condition="python:view.isBuyable(item.getObject())" action="" tal:attributes="action python: '%s/@@getpaid-cart-add'%item.getURL()" method="post">
+					<input type="hidden" value="True" name="add_item">
+					<input type="hidden" value="1" name="quantity">
+					<input type="submit" value="Add to Cart">
+			    </form>
+			    <div class="visualClear"></div>
+			</div>
+		    </tal:block>
+		    </tal:entry>
+		<div class="visualClear"></div>
+		<!-- NO BATCH HERE SO NO PAGING div metal:use-macro="context/batch_macros/macros/navigation" / -->
+    
+	    </tal:listing>
+	    <metal:empty metal:define-slot="no_items_in_listing">
+		<p class="discreet"
+		   tal:condition="not: batch">
+		    There are no forthcoming events.
+		</p>
+	    </metal:empty>
+    
+	    </tal:results>
+	</div>
+		<script type="text/javascript">
+	    var addthis_config = {"data_track_clickback":true};
+	    var addthis_share = {templates: { twitter: '{{title}}: {{url}}' }}
+	</script>
+        <script type="text/javascript" src="http://s7.addthis.com/js/250/addthis_widget.js#username=intk"></script>
+    </metal:block>
+  </div>
+
+</body>
+</html>
