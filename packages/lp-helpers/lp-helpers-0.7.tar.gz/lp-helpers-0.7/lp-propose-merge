@@ -1,0 +1,75 @@
+#!/usr/bin/python
+
+import os
+import sys
+
+from argparse import ArgumentParser
+from launchpadlib.launchpad import Launchpad
+from subprocess import check_call, check_output, CalledProcessError
+from tempfile import NamedTemporaryFile
+
+
+def main():
+    parser = ArgumentParser("A script for proposing merges in Launchpad.")
+    parser.add_argument("--target", "-t",
+                        help="The target to merge into.")
+    parser.add_argument("--withhold","-w",
+                        action='store_true',
+                        help="Don't ask for a review now, just create the MR")
+    args = parser.parse_args()
+
+    lp = Launchpad.login_with(sys.argv[0], 'production')
+
+    try:
+        lp_user = check_output(['bzr','launchpad-login']).strip()
+    except CalledProcessError:
+        return 1
+
+    try:
+        parent_branch = check_output('bzr info | grep "parent branch"',
+                                     shell=True)
+    except CalledProcessError:
+        return 1
+
+    target = args.target
+    if not args.target:
+        target = parent_branch.strip().split('bazaar.launchpad.net/')[-1]
+
+    lp_project = target.split('/')[1]
+
+    if '+branch' in target:
+        target = target.split('/')[1]
+
+    lp_nick = check_output(['bzr','nick']).strip()
+
+    branch_url = 'lp:~' + '/'.join([lp_user, lp_project, lp_nick])
+
+    try:
+        check_call(['bzr','push',branch_url])
+    except:
+        print("Problem pushing branch.")
+
+    merge_branch = lp.branches.getByUrl(url=branch_url)
+
+    target_branch = lp.branches.getByUrl(url='lp:' + target)
+
+    editor = os.environ.get('EDITOR','nano')
+    tempfile = NamedTemporaryFile(delete=False)
+    try:
+        check_call([editor,tempfile.name])
+    except OSError:
+        print("Failed to open text editor")
+
+    description = tempfile.read()
+    tempfile.close()
+
+    merge_request = merge_branch.createMergeProposal(
+        target_branch=target_branch,
+        initial_comment=description,
+        needs_review=not(args.withhold))
+    print(merge_request.web_link)
+
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
