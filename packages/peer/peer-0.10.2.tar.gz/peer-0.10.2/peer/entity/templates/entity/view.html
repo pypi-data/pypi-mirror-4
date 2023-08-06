@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+
+{% load i18n account entity_renderers %}
+
+{% block extralinks %}
+<link href="{% url changes_feed entity.id %}" rel="alternate" type="application/rss+xml" title="{% trans "Changes feed" %}" />
+{% endblock %}
+
+{% block extracss %}
+<link type="text/css" href="{{ STATIC_URL }}css/flags.css" rel="Stylesheet" />
+<link type="text/css" href="{% url get_pygments_css %}" rel="Stylesheet" />
+{% endblock %}
+
+{% block content %}
+{% include "entity/menu.html" %}
+<section class="mainContent">
+
+  <hgroup>
+    <h1>{% trans "Entity details" %}</h1>
+    <h2>{{ entity }}</h2>
+  </hgroup>
+
+  {% if entity.has_metadata %}
+  <a class="button right" href="{% url get_latest_metadata entity.id %}">{% trans "Get latest version of the metadata" %}</a>
+  {% endif %}
+
+  {% if entity.owner %}
+  <p>{% trans "Owned by" %} {% safefullname entity.owner %}</p>
+  {% endif %}
+
+  {% with entity.delegates.all as delegates %}
+  {% if delegates %}
+  <p>{% trans "People that can edit it" %}:
+    {% for delegate in delegates %}
+      {% safefullname delegate %}{% if not forloop.last %}, {% endif %}
+    {% endfor %}
+  </p>
+  {% endif %}
+  {% endwith %}
+  <p>{% trans "This entity belongs to the domain" %} <a href="http://{{ entity.domain }}">{{ entity.domain }}</a></p>
+
+  {% if entity.has_metadata %}
+    <dl>
+      {% if entity.entityid %}
+      <dt class="ui-icon ui-icon-comment" title="{% trans "EntityID" %}">{% trans "EntityID" %}</dt>
+      <dd>{{ entity.entityid }}</dd>
+      {% endif %}
+
+      {% if entity.valid_until %}
+      <dt class="ui-icon ui-icon-calendar" title="{% trans "Valid until" %}">{% trans "Valid until" %}</dt>
+      <dd>{% if entity.is_expired %}<strong class="expired">{{ entity.valid_until }} ({% trans "Expired!" %})</strong>{% else %}{{ entity.valid_until }}{% endif %}</dd>
+      {% endif %}
+
+      {% if entity.logos %}
+      <dt class="ui-icon ui-icon-image" title="{% trans "Logo" %}">{% trans "Logo" %}</dt>
+      <dd>
+        <table>
+          <tbody>
+          {% for l10n_logo in entity.logos %}
+          <tr>
+            <td><span class="flag {{ l10n_logo.lang }}" title="{{ l10n_logo.lang }}"></span></td>
+            <td>
+              <a href="{{ l10n_logo.location }}">
+                <img src="{{ l10n_logo.location }}" width="{{ l10n_logo.width }}" height="{{ l10n_logo.height }}" />
+              </a>
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </dd>
+      {% endif %}
+
+      {% if entity.endpoints %}
+      <dt class="ui-icon ui-icon-link" title="{% trans "Endpoints" %}">{% trans "Endpoints" %}</dt>
+      <dd>
+        <table>
+          <tbody>
+          {% for endpoint in entity.endpoints %}
+          <tr>
+            <td><a href="{{ endpoint.Location }}">{{ endpoint.Location }}</a></td>
+            <td>({{ endpoint.Type }})</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </dd>
+      {% endif %}
+
+      {% if entity.contacts %}
+      <dt class="ui-icon ui-icon-person" title="{% trans "Contacts" %}">{% trans "Contacts" %}</dt>
+      <dd>
+        <table>
+          <tbody>
+          {% for contact in entity.contacts %}
+          <tr>
+            <td>{{ contact.GivenName }} {{ contact.SurName }}</td>
+            <td>({{ contact.type }} {% trans "contact type" %})</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </dd>
+      {% endif %}
+
+      {% if entity.organization %}
+      <dt class="ui-icon ui-icon-suitcase" title="{% trans "Organization" %} {{ l10n_org.lang }}">{% trans "Organization" %} {{ l10n_org.lang }}</dt>
+      <dd>
+        <table>
+          <tbody>
+          {% for l10n_org in entity.organization %}
+          <tr>
+            {% if l10n_org.URL %}
+            <td><a href="{{ l10n_org.URL }}">{{ l10n_org.displayName }}</a></td>
+            <td><span class="flag {{ l10n_org.lang }}" title="{{ l10n_org.lang }}"></span></td>
+            {% else %}
+            <td>{{ l10n_org.displayName }}</td>
+            <td><span class="flag {{ l10n_org.lang }}" title="{{ l10n_org.lang }}"></span></td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </dd>
+      {% endif %}
+
+      {% if entity.certificates %}
+      <dt class="ui-icon ui-icon-key" title="{% trans "Certificates" %}">{% trans "Certificates" %}</dt>
+      <dd>
+        <table>
+          <tbody>
+          {% for certificate in entity.certificates %}
+          <tr>
+            <td><pre>{{ certificate.text|letterwrap:64 }}</pre></td>
+            <td>{% trans "Used for" %} {{ certificate.use }}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </dd>
+      {% endif %}
+
+      <dt class="ui-icon ui-icon-signal-diag" title="{% trans "Changes feed" %}">{% trans "Changes feed" %}</dt>
+      <dd><a href="{% url changes_feed entity.id %}">{% trans "Changes feed" %}</a></dd>
+    </dl>
+
+    {% if entity.geolocationhint %}
+    <div class="map"></div>
+    {% endif %}
+
+    <div class="history">
+      <h2 class="clear"><span class="left ui-icon ui-icon-triangle-1-e"></span><a href="#" id="show-history">Show history</a></h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Rev</th>
+            <th>Id</th>
+            <th>Diff</th>
+            <th>Date</th>
+            <th class="authorColumn">Author</th>
+            <th class="logMessageColumn">Log message</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for rev in revs %}
+          <tr class="{% cycle "odd" "even" %}">
+              <td>{{ forloop.revcounter }}</td>
+            <td>
+              <a class="rev-link"
+                  href="{% url get_revision entity.id,rev.versionid %}"
+                  title="{% trans "Revision" %} {{ rev.versionid }}">
+                   @{{ rev.versionid|slice:"-5:" }}
+              </a>
+            </td>
+            {% if rev.previous %}
+            <td>
+              <a class="diff-link"
+                  href="{% url get_diff  entity.id,rev.previous,rev.versionid %}"
+                  title="{% trans "Diff from rev" %} {{ rev.previous }} {% trans " to rev" %} {{ rev.versionid }}">
+                   Prev diff
+              </a>
+            </td>
+            {% else %}
+            <td> - </td>
+            {% endif %}
+            <td>{{ rev.date }}</td>
+            <td>{{ rev.author }}</td>
+            <td>{{ rev.message }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+  {% else %}
+    <div>{% trans "This entity has no associated metadata yet." %}</div>
+  {% endif %}
+
+  <div id="metadata-contents"></div>
+
+</section>
+{% endblock %}
+
+{% block extrajs %}
+  {% if entity.has_metadata %}
+  <script type="text/javascript" src="{{ STATIC_URL }}js/jquery.entitymd.js"></script>
+  {% if entity.geolocationhint %}
+  <script type="text/javascript" src="http://maps.google.com/maps/api/js?sensor=true"></script>
+  {% endif %}
+
+  <script type="text/javascript">
+  (function($) {
+    $(document).ready(function () {
+        $('a.rev-link').click(
+            $.fn.entitymd.get_metadata
+        );
+        $('a.diff-link').click(
+            $.fn.entitymd.get_metadata
+        );
+        $('#show-history').toggle(
+            function () {
+                $(this).text('Hide history')
+                       .prev()
+                       .removeClass('ui-icon-triangle-1-e')
+                       .addClass('ui-icon-triangle-1-s');
+                $('.history table').show();
+            },
+            function () {
+                $(this).text('Show history')
+                       .prev()
+                       .removeClass('ui-icon-triangle-1-s')
+                       .addClass('ui-icon-triangle-1-e');
+                $('.history table').hide();
+            }
+        );
+        $('.history table').hide();
+
+        {% if entity.geolocationhint %}
+        var latlng = new google.maps.LatLng({{ entity.geolocationhint.latitude }}, {{ entity.geolocationhint.longitude }});
+        var map = new google.maps.Map($('.map').get(0), {
+            zoom: 6,
+            center: latlng,
+            mapTypeId: google.maps.MapTypeId.ROADMAP
+        });
+        var mapmarker = new google.maps.Marker({
+            position: latlng,
+            title: '{{ entity.geolocationhint.latitude }}, {{ entity.geolocationhint.longitude }}',
+            map: map
+        });
+        {% endif %}
+    });
+  })(jQuery);
+  </script>
+  {% endif %}
+{% endblock %}
