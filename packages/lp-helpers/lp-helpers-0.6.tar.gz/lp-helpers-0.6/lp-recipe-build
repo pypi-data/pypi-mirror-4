@@ -1,0 +1,55 @@
+#!/usr/bin/python
+import sys
+
+from launchpadlib.launchpad import Launchpad
+from argparse import ArgumentParser
+
+def main():
+    parser = ArgumentParser('Invoke a recipe build on specified branch')
+    parser.add_argument('branch',
+                        help="Unique name of the branch, "
+                             "with ~owner/project/branch format")
+    parser.add_argument('--recipe', '-r',
+                        help="Recipe name to build with. If there is only one "
+                             "then that will be used by default, if not then "
+                             "this must be specified.")
+    args = parser.parse_args()
+
+    lp = Launchpad.login_with(sys.argv[0], 'production')
+    branch = lp.branches.getByUniqueName(unique_name=args.branch)
+    if not branch:
+        parser.error("{branch} was not found in Launchpad.".format(branch=args.branch))
+
+    if branch.recipes.total_size == 0:
+        parser.error("{branch} does not have any recipes.".format(branch=args.branch))
+    elif branch.recipes.total_size > 1:
+        all_recipe_names = [recipe.name for recipe in branch.recipes]
+        if not args.recipe:
+            parser.error("I don't know which recipe from "
+                         "{branch} you want to use, specify "
+                         "one of '{recipes}' using --recipe".format(branch=args.branch,
+                                                                    recipes=', '.join(all_recipe_names)))
+        for recipe in branch.recipes:
+            if recipe.name == args.recipe:
+                builds = recipe.performDailyBuild()
+                if builds:
+                    for build in builds:
+                        import pdb; pdb.set_trace()
+                        series = lp.load(build['distro_series_link'])
+                        print("Build started for {series} at: {build_link}".format(build_link=build['web_link'],
+                                                                                   series=series.name.title()))
+                else:
+                    print("Build was not started, probably no recent changes.")
+    else:
+        builds = branch.recipes[0].performDailyBuild()
+        if builds:
+            for build in builds:
+                import pdb; pdb.set_trace()
+                series = lp.load(build['distro_series_link'])
+                print("Build started for {series} at: {build_link}".format(build_link=build['web_link'],
+                                                                           series=series.name.title()))
+        else:
+            print("Build was not started, probably no recent changes.")
+
+if __name__ == "__main__":
+    sys.exit(main())
