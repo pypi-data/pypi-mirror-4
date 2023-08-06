@@ -1,0 +1,89 @@
+==============
+Orieux toolbox
+==============
+
+The Orieux toolbox (``otb``) provides various utilities function I
+used in my scientific numerical computation projects. Feel free to use
+them as you want. Any comments and contributions are welcome. You
+might find it useful for Fourier transform manipulation. Typical usage
+looks like this::
+
+    #!/usr/bin/env python
+
+    from otb import uft
+    uft.urfft2(image)
+
+Info
+====
+
+* Author: François Orieux
+* Contact: orieux at iap dot fr
+* Project homepage: http://bitbucket.org/forieux/otb
+* Downloads page: https://bitbucket.org/forieux/otb/downloads
+
+Contents
+========
+
+uft.py
+    Many function around unitary Fourier transform and convolution.
+
+utils.py
+    Small utilities like index manipulation small linear algebra
+    utils.
+
+plotutils.py
+    Plotting function.
+
+physics.py
+    Formula, constants or unit conversion.
+
+tifffile.py
+    Not mine, the author is Christoph Gohlke
+    http://www.lfd.uci.edu/~gohlke/. Is use a lot this module so it's
+    here for my convenience.
+
+Requirements
+============
+
+* Numpy version >= 1.4.1
+* matplotlib version >= 1.1.0
+* anfft : optional, for fftw use
+* scipy : optional
+ 
+Installation
+============
+
+The ``pip`` version::
+
+    pip install otb
+
+If you have not ``pip``, download the archive, decompress it and to
+install in your user path, run in a command line::
+
+    python setup.py install --user
+
+or for the system path, run as root::
+
+    python setup.py install
+
+Development
+===========
+
+This package follow the Semantic Versionning convention
+http://semver.org/. To get the development version you can clone the
+mercurial repository available here http://bitbucket.org/forieux/otb
+
+The ongoing development is erratic and actually follow my needs.
+
+License
+=======
+
+``otb`` is free software distributed under the MIT license, see
+LICENSE.txt for details.
+
+References
+----------
+.. [1] B. R. Hunt "A matrix theory proof of the discrete convolution
+       theorem", IEEE Trans. on Audio and Electroacoustics,
+       vol. au-19, no. 4, pp. 285-288, dec. 1971
+
