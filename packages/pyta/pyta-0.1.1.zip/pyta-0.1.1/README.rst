@@ -1,0 +1,64 @@
+======================================
+Pyta: Inner Method Dispatch for Python
+======================================
+
+Pyta = Python + Beta
+
+Inspired by: http://www.cs.utah.edu/plt/publications/oopsla04-gff.pdf
+
+
+Usage
+=====
+
+Inner dispatch is used to guarantee pre- and post-conditions without
+using auxiliary methods. An external dispatch results in the lowest method
+that calls ``inner`` being called. An ``inner(cls, self)`` call calls the
+next highest method that has an ``inner`` call, or the highest method if
+there is no higher ``inner`` method. ``super`` works the same as before,
+but take care not to cause an infinite loop.
+
+Full example::
+
+    from pyta import inner, BetaMetaclass
+    
+    class A(object):
+        def foo(self):
+            print "world!"
+    
+    class B(A): # Can inherit from regular classes
+        # The lowest class in the hierarchy that uses `inner` needs the metaclass
+        __metaclass__ = BetaMetaclass
+        
+        def foo(self):
+            inner(B, self).foo() # Calls C.foo
+            super(B, self).foo() # Calls A.foo
+    
+    class C(B):
+        def foo(self):
+            print "Hello, "
+    
+    obj = C()
+    obj.foo() # External dispatch; calls B.foo
+
+Caveats
+=======
+
+Because using ``inner`` in a superclass completely changes which method
+an external dispatch resolves to (it's no longer the most-overriding method)
+the metaclass is required to inspect the source of the methods and sprinkle
+some magic to make it all work.
+
+In order for everything to work properly, you *must* call ``inner(cls, self)``
+*lexically*. In other words, it won't work if you do this::
+
+    bar = inner
+    bar(cls, self).foo()
+
+Or this::
+
+    from pyta import inner as bar
+    bar(cls, self).foo()
+
+Currently, the implementation doesn't distinguish between strings vs. actual method
+calls, so if your method contains a string like ``"text inner( moretext"``, it'll
+break everything.
