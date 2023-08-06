@@ -1,0 +1,110 @@
+#!/usr/bin/python2.6
+#
+# Copyright (c) 2011 Adam Tauno Williams <awilliam@whitemice.org>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+#
+import getopt, sys, os, pprint
+from coils.core  import *
+from coils.core.omphalos import Render as Omphalos_Render
+
+
+
+def usage():
+    print """
+        Retrieve and display the Omphalos representation of an entity.
+        --help          Display this message.
+        --objectid=     The objectId of the entity to be represented.
+        --list-plugins  List related content plugins
+        --useragent=    Specify a user-agent string.
+        --add-bundle=   Additional modules to be loaded upon initialization.
+        --ban-bundle=   Prevent named modules from being loaded.
+    """
+    return
+
+def main(argv):
+    
+    # Process command line arguements
+    if (len(argv) == 0):
+        usage()
+        sys.exit(2)
+    try:
+        opts, args = getopt.getopt(argv,
+                                   "hi:a:u:x:p",
+                                  [ "help", "objectid=", "useragent=",
+                                    "add-bundle=", "ban-bundle=",
+                                    "list-plugins" ])
+
+    except getopt.GetoptError, e:
+        print e
+        usage()
+        sys.exit(2)
+
+    add_modules = [ ]
+    ban_modules = [ ] 
+    object_id   = 10000
+    list_plugins = False
+    user_agent_string = None
+    
+    for opt, arg in opts:
+        if opt in ("-h", "--help"):
+            usage()
+            sys.exit(0)
+        elif (opt in ('-i', '--objectid')):
+            object_id = int(arg)
+        elif (opt in ('-u', '--useragent')):
+            user_agent_string = arg
+        elif opt in ("-a", "--add-bundle"):
+            add_modules.append(arg)
+        elif opt in ("-x", "--ban-bundle"):
+            ban_modules.append(arg)
+        elif opt in ("-p", "--list-plugins"):
+            list_plugins = True           
+            
+    # Initialize COILs
+    initialize_COILS( { 'log_file': '{0}/coils.log'.format(os.getenv('HOME')),
+                        'extra_modules':  add_modules,
+                        'banned_modules': ban_modules } )
+
+    ctx = AdministrativeContext( { 'connection': { 'user_agent': user_agent_string } } )
+    entity = ctx.type_manager.get_entity(object_id)
+    
+    # Provide a list of the plugins
+    if list_plugins:
+        plugins = BundleManager.get_content_plugins(entity.__entityName__, ctx)
+        if plugins:
+            print('Plugins:')
+            for plugin in plugins:
+                print('  {0}'.format(plugin))
+        else:
+            print('Plugins: none')
+        print('')
+    
+    # Retrieve and render the entity
+    if not entity:
+        print('{0} entity with objectId#{1} count not be retrieved.'.format(kind, object_id))
+        sys.exit(1)
+    result = Omphalos_Render.Result(entity, 65535, ctx)
+    pprint.pprint(result)
+
+    sys.exit(0)
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
+
