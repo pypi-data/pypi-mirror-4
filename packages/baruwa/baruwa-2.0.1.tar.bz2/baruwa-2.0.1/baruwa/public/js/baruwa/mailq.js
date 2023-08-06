@@ -1,0 +1,1 @@
+var $,exports;$=jQuery;exports=this;exports.setitems_url=setitems_url;$(document).ready(function(){$('#mailqnumitemstop, #mailqnumitemsbottom').change(function(){var n;n=$(this).val();return location.href=""+exports.setitems_url+"?n="+n;});return $('#allchecker').click(function(){$('.selector').attr('checked',this.checked);return 1;});});
