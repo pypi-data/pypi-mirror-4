@@ -1,0 +1,245 @@
+{% load i18n l10n %}
+
+
+
+{% get_current_language as LANGUAGE_CODE %}
+
+
+<div id="{{view_name}}_div_highcharts" class="highcharts_container"> </div>
+
+<script type="text/javascript" lang="text/javascript">
+    id = '{{view_name}}_div_highcharts';  // Highchart container
+    title = '{{title}}';   //  Chart title
+    xAxis = {% autoescape off %} {{xAxis}} {% endautoescape %}
+    yAxis = {% autoescape off %} {{yAxis}} {% endautoescape %}
+    series = {% autoescape off %} {{series}} {% endautoescape %}
+    position = '{{position}}' // Legend position
+    tooltip_formatter = ''
+    var chart_{{view_name}} = drawGraph(id,title,xAxis,yAxis,series,position,tooltip_formatter); // Function in utils.js
+
+
+function drawGraph(id, title, xAxis, v_yAxis, series, position, tooltip_formatter) {
+	// console.log('drawGraph',series)
+
+	if (position == 'top') {
+		align = "top";
+		position_x = 0;
+		position_y = 30;
+	}
+	else {
+		align = "bottom";
+		position_x = 0;
+		position_y = 0;
+	}
+
+	var chart_{{view_name}};
+
+
+	$(document).ready(function() {
+
+		Highcharts.setOptions({
+			global: {
+				useUTC: false
+			},
+			
+			colors: [
+					'#FF0000']
+		});
+		chart_{{view_name}} = new Highcharts.Chart({
+			chart: {
+				renderTo: id,
+				marginRight: 130,
+				marginBottom: 70,
+				zoomType: 'xy',
+			},
+			title: {
+				text: title,
+				x: -20 //center
+			},
+			subtitle: {
+				text: "",
+				x: -20
+			},
+			xAxis: {
+				// categories: xAxis // values x axis
+				minPadding: 0.05,
+				maxPadding: 0.05,
+				type: 'datetime',
+				dateTimeLabelFormats: {
+				    day: '%e of %b',
+				    minute: '%H:%M',
+				}
+			},
+
+			yAxis: [{ // Primary yAxis
+				title: {
+					text: v_yAxis[0].name,
+					style: {color: paletteColour(0,4)}
+				},
+				labels: {
+					formatter: function() {return this.value +v_yAxis[0].nameData;},
+					style: {color: paletteColour(0,4)}
+				},
+				opposite: true
+	
+			}, { // Secondary yAxis
+				gridLineWidth: 0,
+				title: {
+					text: v_yAxis[1].name,
+					style: {color: paletteColour(1,1)}
+				},
+				labels: {
+					formatter: function() {return this.value +v_yAxis[1].nameData;},
+					style: {color: paletteColour(1,1)}
+				}   
+			}, { // Tertiary yAxis
+				gridLineWidth: 0,
+				title: {
+					text: v_yAxis[2].name,
+					style: {color: paletteColour(2,1)}
+				},
+				labels: {
+					formatter: function() {return this.value + v_yAxis[2].nameData;},
+					style: {color: paletteColour(2,1)}
+				},
+				opposite: true
+			}],
+			/*
+			plotOptions: {
+				series: {
+				 color: '#6495ED'
+				}
+			},*/
+
+			tooltip: {
+				formatter: function() {
+					// Comprobar si se recibe parametro tooltip_formatter
+					// si no:
+					if (tooltip_formatter.length == 0)
+						return '<b>'+ this.series.name +'</b>  <br/>'
+									+ this.y.toFixed(2) +" "+ yAxis[this.series.options.yAxis].nameData + '<br/>'
+									+ Highcharts.dateFormat('%b %d %H:%M', this.x)+ ' <br/>' ;
+					else
+						return '<b>' + this.series.name +'</b>  <br/>'
+							+ tooltip_formatter +'<br/>'
+							+ this.y.toFixed(2) +" "+ yAxis[this.series.options.yAxis].nameData + '<br/>'
+							+ Highcharts.dateFormat('%b %d %H:%M', this.x)+ ' <br/>' ;
+
+					// Si se recibe
+					//llamada a la función recibida como parámetro
+
+
+				}// by default
+			},
+			// scrollbar: {
+   //      		enabled: true
+   //  		},
+			legend: {
+				align: 'center',
+				verticalAlign: align,
+				x: position_x,
+				y: position_y,
+				borderWidth: 2
+			},// by default position legend
+			series: series//y axis   
+		});
+	});
+
+	// console.log(series)
+	return chart_{{view_name}};
+}
+
+    function get_chart(view)
+    {
+    	if (view == 'asr_acd')
+    		return chart_asr_acd
+    	else if (view == 'historic_channel_usage')
+    		return chart_historic_channel_usage
+    	else
+    		console.log('ERROR')
+    }
+
+	// reloadHighchartsParam
+	function reloadHighchartsParam(view,highcharts_url,param)
+	{
+		do
+		{
+			param = param.replace(view+'_','')
+
+		}while(param.indexOf(view+'_')>0)
+
+		$("#"+ view+"_control_panel").block({  
+				    message:  "<h1><img   src='/static/img/cube_loading.gif' width='50px' height='50px'/> Please Wait...</h1>", 
+				     css: { border: '5px solid gray', } 
+				    //css: {background:'gray'}
+		});
+
+		$.ajax({
+			url: highcharts_url+'?'+param,
+			method: 'GET',
+			dataType: 'json',
+			success: function(response) {
+				title = response['title']
+				if (title != 'Too much data')
+				{	
+					chart = get_chart(view);
+					chart.setTitle({text: title});
+
+					v_series=response['series']
+					updateChart(v_series);
+
+				}
+				else
+				{
+					createMessagesLocal(view+'_messages','Too much data,please select a filter or select a smaller date range','error',3000);
+				}
+
+			},
+			complete:function(){
+				reloadAfterHigcharts()
+				// chart = get_chart(view);
+				// chart.redraw();
+				$("#"+view+"_control_panel").unblock();
+			}
+		});
+	}
+
+	
+
+	function updateChart(series)
+	{
+		var ch_l = chart.series.length;
+		for(i=0;i<ch_l;i++){
+			chart.series[0].remove(false);
+
+		}
+		for(i=0;i<series.length;i++){
+			chart.addSeries(series[i]);
+		}
+	}
+
+
+	function reloadAfterHigcharts()
+	{
+
+
+	}
+
+	function paletteColour(id_yAxis, num_data) {
+
+		blue = ['#4682B4','#4169E1','#6495ED','#B0C4DE','#7B68EE','#6A5ACD','#483D8B','#191970','#000080'] ;// palette blue
+		red = ['#AA4643','#FF0900','#650502','#E9967A','#FFA07A','#FF7F50','#FF6347','#FF8C00','#FFA500'] ;// palette red
+		green = ['#3CB371','#7CFC00','#006400','#008000','#228B22','#32CD32','#00FF00','#7FFF00','#7CFC00'] ;// palette green
+		gray = ['#DCDCDC','#D3D3D3','#C0C0C0','#A9A9A9','#808080','#696969','#708090','#778899','#000000'] ;// palette gray
+
+		if (id_yAxis== 0)
+			return String(gray[num_data]);
+		else if(id_yAxis== 1)
+			return String(red[num_data]);
+		else
+			return String(blue[num_data]);    
+
+	}
+
+
+</script>
