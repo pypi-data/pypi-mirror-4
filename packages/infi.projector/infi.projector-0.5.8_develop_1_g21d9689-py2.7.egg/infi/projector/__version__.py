@@ -1,0 +1,10 @@
+__version__ = "0.5.8-develop-1-g21d9689"
+__git_commiter_name__ = "Arnon Yaari"
+__git_commiter_email__ = "arnony@infinidat.com"
+__git_branch__ = 'develop'
+__git_remote_tracking_branch__ = 'origin/develop'
+__git_remote_url__ = 'git@gitserver:/host/infi-projector.git'
+__git_head_hash__ = '21d968905f4788ced2383e4ec622461d38378d96'
+__git_head_subject__ = 'Unfreezing dependencies'
+__git_head_message__ = ''
+__git_dirty_diff__ = ''
