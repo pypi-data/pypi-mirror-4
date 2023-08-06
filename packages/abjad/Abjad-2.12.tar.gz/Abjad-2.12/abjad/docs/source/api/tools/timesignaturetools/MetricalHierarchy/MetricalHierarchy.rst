@@ -1,0 +1,76 @@
+timesignaturetools.MetricalHierarchy
+====================================
+
+.. abjad-lineage:: abjad.tools.timesignaturetools.MetricalHierarchy.MetricalHierarchy.MetricalHierarchy
+
+.. autoclass:: abjad.tools.timesignaturetools.MetricalHierarchy.MetricalHierarchy.MetricalHierarchy
+   :noindex:
+
+Read-only properties
+--------------------
+
+.. autoattribute:: abjad.tools.timesignaturetools.MetricalHierarchy.MetricalHierarchy.MetricalHierarchy.decrease_durations_monotonically
+   :noindex:
+
+.. autoattribute:: abjad.tools.timesignaturetools.MetricalHierarchy.MetricalHierarchy.MetricalHierarchy.denominator
+   :noindex:
+
+.. autoattribute:: abjad.tools.timesignaturetools.MetricalHierarchy.MetricalHierarchy.MetricalHierarchy.depthwise_offset_inventory
+   :noindex:
+
+.. autoattribute:: abjad.tools.timesignaturetools.MetricalHierarchy.MetricalHierarchy.MetricalHierarchy.graphviz_format
+   :noindex:
+
+.. autoattribute:: abjad.tools.timesignaturetools.MetricalHierarchy.MetricalHierarchy.MetricalHierarchy.implied_time_signature
+   :noindex:
+
+.. autoattribute:: abjad.tools.timesignaturetools.MetricalHierarchy.MetricalHierarchy.MetricalHierarchy.numerator
+   :noindex:
+
+.. autoattribute:: abjad.tools.timesignaturetools.MetricalHierarchy.MetricalHierarchy.MetricalHierarchy.preprolated_duration
+   :noindex:
+
+.. autoattribute:: abjad.tools.timesignaturetools.MetricalHierarchy.MetricalHierarchy.MetricalHierarchy.pretty_rtm_format
+   :noindex:
+
+.. autoattribute:: abjad.tools.timesignaturetools.MetricalHierarchy.MetricalHierarchy.MetricalHierarchy.root_node
+   :noindex:
+
+.. autoattribute:: abjad.tools.timesignaturetools.MetricalHierarchy.MetricalHierarchy.MetricalHierarchy.rtm_format
+   :noindex:
+
+.. autoattribute:: abjad.tools.timesignaturetools.MetricalHierarchy.MetricalHierarchy.MetricalHierarchy.storage_format
+   :noindex:
+
+Methods
+-------
+
+.. automethod:: abjad.tools.timesignaturetools.MetricalHierarchy.MetricalHierarchy.MetricalHierarchy.generate_offset_kernel_to_denominator
+   :noindex:
+
+Special methods
+---------------
+
+.. automethod:: abjad.tools.timesignaturetools.MetricalHierarchy.MetricalHierarchy.MetricalHierarchy.__eq__
+   :noindex:
+
+.. automethod:: abjad.tools.timesignaturetools.MetricalHierarchy.MetricalHierarchy.MetricalHierarchy.__ge__
+   :noindex:
+
+.. automethod:: abjad.tools.timesignaturetools.MetricalHierarchy.MetricalHierarchy.MetricalHierarchy.__gt__
+   :noindex:
+
+.. automethod:: abjad.tools.timesignaturetools.MetricalHierarchy.MetricalHierarchy.MetricalHierarchy.__iter__
+   :noindex:
+
+.. automethod:: abjad.tools.timesignaturetools.MetricalHierarchy.MetricalHierarchy.MetricalHierarchy.__le__
+   :noindex:
+
+.. automethod:: abjad.tools.timesignaturetools.MetricalHierarchy.MetricalHierarchy.MetricalHierarchy.__lt__
+   :noindex:
+
+.. automethod:: abjad.tools.timesignaturetools.MetricalHierarchy.MetricalHierarchy.MetricalHierarchy.__ne__
+   :noindex:
+
+.. automethod:: abjad.tools.timesignaturetools.MetricalHierarchy.MetricalHierarchy.MetricalHierarchy.__repr__
+   :noindex:
