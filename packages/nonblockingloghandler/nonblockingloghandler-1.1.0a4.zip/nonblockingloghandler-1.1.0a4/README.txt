@@ -1,0 +1,66 @@
+Nonblocking Log Handler
+-----------------------
+
+Provides a NonblockingLogHandler class consistent with the Python logging
+    subsystem.
+
+    This handler acts as a proxy for the another log handler that may be slow
+    to execute: e.g. the SMTPHandler, SocketHandler, SysLogHandler - especially
+    when they are talking to remote servers.
+
+    If you have a real-time system (i.e. one where a late response is a wrong
+    response) and you are sending log messages via email, http, syslog, etc.,
+    you should consider using this module to protect against unexpected delays.
+
+    It is intended to be a drop-in replacement (see provisos below) for your
+    proxied handler. Unlike the proxied handler, this handler which returns
+    quickly, and executes the actually logging in the background, in a separate
+    thread.
+
+    Provisos:
+
+    * If you pass an objects to the logging functions, be aware that their
+      __str__() functions should be fast. I/O bound str() calls are outside the
+      scope of this module.
+
+      Execution of str() functions on message parameters and string formatting
+      is done immediately, in the calling thread. This is to guarantee both
+      the thread-safety of the logged objects and also that the log shows the
+      object's values at the time of the call, not the time of the emit.
+
+    * If you subclass from Formatter, note that it will not have the user
+      parameters from the logging call passed to it. It will only receive the
+      resulting message string formatted according to the client's wishes. It
+      can still format dates, threadnames, levels, etc.
+
+    * If you subclass from Filter, be aware that they should be fast. I/O-bound
+      filters are outside of the scope of this module.
+
+    * Clients should not directly call format() or emit() on the
+      NonblockingLogHandler class. Consider them private.
+
+    * Once the NonblockingLogHandler handler is initialised, any further calls
+      to setLevel(), addFilter and removeFilter() made on the delegated handler
+      are ignored by the proxy handler. Conversely, the delegated handler is
+      not informed of calls made on the NonblockingLogHandler instance.
+
+      Best practice would be to only update the NonblockingLogHandler handler,
+      and not use the values stored in the delegated handler.
+      
+    * If the close() method is called on the NonblockingLogHandler handler,
+      there is no need to call close() on the delegated handler; it will be
+      called when the delegated handler is no longer required.
+
+    Example usage:
+        nonblocking_email_handler = nonblockingloghandler.NonblockingLogHandler(
+                logging.SMTPHandler(
+                    "localhost", "logging_system@example.com",
+                    "admin@example.com", "Log message")
+                )
+        db_logger = logging.getLogger("database")
+        database_logger.addHandler(nonblocking_email_handler)
+
+        # This operation will return immediately, before email is sent.
+        db_logger.critical("Database corrupted") 
+
+        nonblocking_email_handler.close()
