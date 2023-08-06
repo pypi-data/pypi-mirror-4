@@ -1,0 +1,227 @@
+::
+
+     _          _       _     _                               
+     \\        (_)     | |   | |                              
+      \\   _ __ _  __ _| |__ | |_ __ _ _ __ _ __ _____      __
+       \\ | '__| |/ _` | '_ \| __/ _` | '__| '__/ _ \ \ /\ / /
+        \\| |  | | (_| | | | | || (_| | |  | | | (_) \ V  V / 
+         \\_|  |_|\__, |_| |_|\__\__,_|_|  |_|  \___/ \_/\_/  
+                  __/ |                                      
+                 |___/                                       
+
+==========================
+
+https://github.com/kennknowles/python-rightarrow
+
+|Build status|
+
+This library provides a language for concise higher-order annotations
+for Python programs, inspired by the syntax for higher-order contracts
+and types in advanced languages. Functionality akin to contract
+checking, type checking, and type inference is a work-in-progress.
+
+This project has a “duck-typed” status: Whatever you can use it for, it
+is ready for :-)
+
+Here is a more concrete list of implemented and intended features:
+
+-  *yes* - Definition of a the language.
+-  *yes* - Parsing and printing.
+-  *yes* - Run-time monitoring of adherence for monomorphic annotations.
+-  *upcoming* - Monitoring of adherence for polymorphic annotations.
+-  *upcoming* - Generation of constraints between annotations in a
+   program.
+-  *upcoming* - Best-effort inference of suitable annotations.
+-  *upcoming* - More precise annotations to support full higher-order
+   design-by-contract.
+
+The Annotations
+---------------
+
+This language is built from the following concepts:
+
+-  Named types: ``int``, ``long``, ``float``, ``complex``, ``str``,
+   ``unicode``, ``file``, ``YourClassNameHere``, …
+-  Lists: ``[int]``, ``[[long]]``, …
+-  Tuples: ``(int, long)``, ``(float, (int, Regex))``, …
+-  Dictionaries: ``{string: float}``, ``{ (str, str) : [complex] }``, …
+-  Unions: ``int|long|float``, ``str|file``, …
+-  “Anything goes”: ``??``
+-  Functions, after which this library is named :-)
+
+   -  ``str -> int``
+   -  ``(int) -> int``
+   -  ``(int, int) -> int``
+   -  ``( (int, int) ) -> int``
+   -  ``( str|file ) -> SomeClass``
+   -  ``(int, *[str]) -> [(str, int)]``
+   -  ``(int, *[int], **{int: str}) -> str``
+
+-  Objects: ``object(self_type, field1: int, field2: str, ...)``
+-  Polymorphic types (where ``~a``, ``~b``, ``~c`` range over any other
+   type. Syntax subject to change; no preference really)
+
+   -  ``~a -> ~a``
+   -  ``[~a] -> [~a]``
+   -  ``( (~a, ~b) ) -> ~a``
+
+Run-time checking
+-----------------
+
+The module ``typelanguage.enforce`` contains functions for using these
+annotations as run-time monitors.
+
+Applied directly:
+
+::
+
+    >>> check('{string: int}', {"hello" : "there"})
+
+Wrapping a function to protect it from funky input is more interesting.
+For example, putting better error checking on Python’s
+``unicode``/``str`` interactions (at least in Python 2)
+
+::
+
+    >>> '\xa3'.encode('utf-8')
+    ...
+    UnicodeDecodeError: 'ascii' codec can't decode byte 0xa3 in position 0: ordinal not in range(128)
+
+    >>> @guard('unicode -> str')
+    ... def safe_encode(s):
+    ...    return s.encode('utf-8')
+
+    >>> safe_encode(u'hello')
+    'hello'
+    >>> safe_encode('\xa3')
+    TypeError: Type check failed: ? does not have type unicode
+
+If you are familiar with notions of “blame” for higher-order contracts,
+pull-requests welcome :-)
+
+Inferring Annotations
+---------------------
+
+Inference is a work-in-progress, definitely planned, and almost
+certainly will always be “best effort” only. It works like so:
+
+1. By traversing the code, we can discover a bunch of constraints
+   between different missing annotations.
+2. Some of these constraints are going to be very easy to solve, so we
+   can just propagate the results.
+3. Some of these constraints are not going to be practical to try to
+   solve, so we can just drop them or insert some enforcement code if we
+   like.
+
+More to explore
+---------------
+
+There are many other projects that check contracts or types for Python
+in some way. They are all different, many are prototypes or research
+projects, and none seem to serve the need that motivates this library.
+Still, check them out!
+
+-  `PEP 316 <http://www.python.org/dev/peps/pep-0316/>`__ (deferred)
+-  `RPython <http://doc.pypy.org/en/latest/translation.html>`__ and
+   `PyPy <http://pypy.org/>`__ (compilation-oriented)
+-  `pySonar <http://yinwang0.wordpress.com/2010/09/12/pysonar/>`__ and
+   `mini-pysonar <https://github.com/yinwang0/mini-pysonar>`__ (way
+   cool)
+-  `Pyntch <http://www.unixuser.org/~euske/python/pyntch/index.html>`__
+-  `typechecker <https://github.com/shomah4a/typechecker>`__
+-  `pycontract <http://www.wayforward.net/pycontract/>`__
+-  `python-dbc <http://code.google.com/p/python-dbc/>`__ and `one
+   pyDBC <http://www.nongnu.org/pydbc/>`__ and `another
+   pydbc <https://github.com/cadrian/pydbc>`__ and `yet another
+   pyDBC <https://github.com/Ceasar/pyDbC>`__
+-  `python-type-inference <http://code.google.com/p/python-type-inference/wiki/Resources>`__
+   (no code, but has a great list of papers and even more tools)
+
+And there are cool things happening in other dynamic languages!
+
+-  `Contracts in
+   Racket <http://docs.racket-lang.org/guide/contracts.html>`__ and
+   `Typed Racket <http://docs.racket-lang.org/ts-guide/>`__
+-  `Typescript <http://www.typescriptlang.org/>`__ aka `a slightly
+   gradually-typed
+   Javascript <http://siek.blogspot.com/2012/10/is-typescript-gradually-typed-part-1.html>`__
+   and `Javascript++ <http://jspp.javascript.am/>`__ (sort of
+   gradually-typed Javascript) and
+   `javascript-contracts <https://github.com/brownplt/javascript-contracts>`__
+   and `cerny <http://www.cerny-online.com/cerny.js/>`__
+-  `Este <https://github.com/Steida/este>`__ (statically-typed
+   coffeescript) and
+   `Uberscript <https://github.com/jstrachan/coffee-script/blob/master/TypeAnnotations.md>`__
+   (gradually-typed coffeescript) and
+   `contracts.coffee <http://disnetdev.com/contracts.coffee/>`__
+-  `Contracts.ruby <https://github.com/egonSchiele/contracts.ruby>`__
+
+And this library draw inspiration from such a huge amount of academic
+work it cannot possibly all be mentioned, but special thanks to these
+research efforts
+
+-  Higher-order contracts (too numerous to mention them all!):
+-  `Contracts for higher-order
+   functions <http://www.eecs.northwestern.edu/~robby/pubs/papers/ho-contracts-icfp2002.pdf>`__
+   by Robert Bruce Findler & Matthias Felleisen.
+-  `Relationally-parametric polymorphic
+   contracts <http://cs.brown.edu/~sk/Publications/Papers/Published/gmfk-rel-par-poly-cont/paper.pdf>`__
+   by Arjun Guha, Jacob Matthews, Robert Bruce Findler, and Shriram
+   Krishnamurthi. DLS 2007.
+
+-  Gradual typing:
+-  `Gradual typing for functional
+   languages <http://ecee.colorado.edu/~siek/pubs/pubs/2006/siek06_gradual.pdf>`__
+   by Jeremy Siek & Walid Taha. 2006
+-  `Gradual Typing for
+   Objects <http://ecee.colorado.edu/~siek/gradual-obj.pdf>`__ by Jeremy
+   Siek and Walid Taha. ECOOP 2007.
+-  `Gradual typing with unification based
+   inference <http://ecee.colorado.edu/~siek/dls08igtlc.pdf>`__ by
+   Jeremy Siek and Manish Vachharajani. DLS 2008.
+-  `Blame for
+   all <http://homepages.inf.ed.ac.uk/wadler/papers/blame-for-all/blame-for-all.pdf>`__
+   by Amal Ahmed, Robert Bruce Findler, Jacob Matthews, and Philip
+   Wadler. STOP 2009.
+-  `The ins and outs of of gradual type
+   inference <http://www.cs.umd.edu/~avik/papers/iogti.pdf>`__ by Aseem
+   Rastogi, Avik Chaudhuri, and Basil Hosmer. POPL 2012.
+-  `Always available static and dynamic
+   feedback <http://homes.cs.washington.edu/~mernst/pubs/ductile-icse2011.pdf>`__
+   by Michael Bayne, Richard Cook, and Michael D. Ernst. ICSE 2011.
+
+-  Hybrid Type Checking (full disclosure; I did some of this work):
+-  `Hybrid type
+   checking <http://users.soe.ucsc.edu/~cormac/papers/toplas09.pdf>`__
+   by Kenneth Knowles & Cormac Flanagan 2006/2010;
+-  `Type reconstruction for general refinement
+   types <http://users.soe.ucsc.edu/~cormac/papers/esop07.pdf>`__ by
+   Kenneth Knowles & Cormac Flanagan, 2007.
+
+Contributors
+------------
+
+-  `Kenn Knowles <https://github.com/kennknowles>`__
+   (`@kennknowles <https://twitter.com/KennKnowles>`__)
+
+Copyright and License
+---------------------
+
+Copyright 2012- Kenneth Knowles
+
+Licensed under the Apache License, Version 2.0 (the “License”); you may
+not use this file except in compliance with the License. You may obtain
+a copy of the License at
+
+::
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an “AS IS” BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+.. |Build status| image:: https://travis-ci.org/kennknowles/python-rightarrow.png
+   :target: https://travis-ci.org/kennknowles/python-rightarrow
