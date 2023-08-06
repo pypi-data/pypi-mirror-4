@@ -1,0 +1,133 @@
+#!/usr/bin/python2.6
+# Copyright (c) 2009, 2010 Adam Tauno Williams <awilliam@whitemice.org>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+#
+from coils.core  import *
+import time, getopt, sys, pprint, traceback, logging
+
+def usage():
+    print """
+        Run an OpenGroupware COILS Logic command with specified parameters.
+        --help          Display this message.
+        --user=         Authentication name
+        --password=     Authentication password
+        --command=      Logic command to execute.
+        --parameters=   Parameters for command.
+        --token=        Authentication token
+        --quite         Supporess Output
+    """
+    return
+
+def main(argv):
+    # Process command line arguements
+    if (len(argv) == 0):
+        usage()
+        sys.exit(2)
+    log = logging.getLogger('run-command')
+    command = None
+    parameters = None
+    options = { }
+    metadata = { }
+    metadata['authentication'] = { }
+    metadata['authentication']['mechanism'] = 'anonymous'
+    do_output = True
+    try:
+        opts, args = getopt.getopt(argv,
+                                   "hu:s:c:p:t:o:d",
+                                  ["help", "user=", "password=", "command=",
+                                   "parameters=", "token=", "orm-options=",
+                                   "quite"])
+    except getopt.GetoptError, e:
+        print e
+        usage()
+        sys.exit(2)
+    for opt, arg in opts:
+        if opt in ("-h", "--help"):
+            usage()
+            sys.exit(0)
+        elif opt in ("-c", "--command"):
+            command = arg
+        elif opt in ("-p", "--parameters"):
+            try:
+                parameters = dict(map(lambda x: x.split("="), arg.split(",")))
+            except Exception, e:
+                print 'Unable to parse provided parameters'
+                print e
+                sys.exit(2)
+        elif opt in ("-u", "--user"):
+            metadata['authentication']['login'] = arg
+        elif opt in ("-s", "--password"):
+           if (metadata['authentication']['mechanism'] == 'TOKEN'):
+                print 'Token alread specified, ignoring password'
+           else:
+                metadata['authentication']['mechanism'] = 'PLAIN'
+                metadata['authentication']['secret'] = arg
+        elif opt in ("-t", "--token"):
+            if (metadata['authentication']['mechanism'] == 'PLAIN'):
+                print 'Password alread specified, ignoring token'
+            else:
+                metadata['authentication']['mechanism'] = 'TOKEN'
+                metadata['authentication']['token'] = arg
+        elif opt in ("-o", "--orm-options"):
+            options['orm'] = dict(map(lambda x: x.split("="), arg.split(",")))
+        elif opt in ("--quite"):
+            do_output = False
+
+    # Initialize COILs
+    initialize_COILS(options)
+    if (metadata['authentication']['mechanism'] == 'anonymous'):
+        ctx = AnonymousContext(metadata)
+    else:
+        try:
+            ctx = AuthenticatedContext(metadata)
+        except Exception, e:
+            print e
+            traceback.print_exc(file=sys.stderr)
+            print 'Authentication failure'
+            sys.exit(1)
+    #Run Command
+    try:
+        if (parameters is None):
+            result = ctx.run_command(command)
+        else:
+            result = ctx.run_command(command, **parameters)
+    except Exception, e:
+        print 'Requested command failed with exception.'
+        print repr(e)
+        traceback.print_exc(file=sys.stderr)
+        sys.exit(1)
+    #Display Ouput
+    if (do_output):
+        if (result is None):
+            print 'Requested command executed but produced no result'
+            sys.exit(0)
+        else:
+            #print 'Result of command execution is %s' % repr(result)
+            if (isinstance(result, list)):
+                for x in result:
+                    print x
+                    print
+            else:
+                print result
+    sys.exit(0)
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
+
