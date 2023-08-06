@@ -1,0 +1,238 @@
+{#
+    Copyright 2013 Brian Mearns
+
+    This file is part of templ.
+
+    templ is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Affero General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    templ is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Affero General Public License for more details.
+
+    You should have received a copy of the GNU Affero General Public License
+    along with templ.  If not, see <http://www.gnu.org/licenses/>.
+}{
+}{v {:
+
+    {set htmlesc {lambda {:
+        {strrep > &gt;
+            {strrep < &lt; 
+                {strrep & &amp; {@ 0 {$ :argv}}}
+            }
+        }
+    }}}
+
+
+{$ html {macro
+    "Wraps content in HTML."
+
+    {' :pageTitle :headList :contentList }
+    
+    %We're building up an expression that will be evaluated.
+    % That expression will be a List, so we're building a list.
+    %First thing in the list is the tag. In this case, we start
+    % by defining a new scope to put our local functions in.
+    {poe {::
+
+        %Now define our Local Executables as elements of the list.
+        {set em {macro
+            "Generates emphasized text."
+            {' }
+            {poe {glue <em> {implode " " {ete {esc-list {$ :argv }}}} </em>}}
+        }}
+
+        {set code {macro
+            "Generates text formatted to look like an inline code snippet."
+            {nil}
+            {poe {glue <tt> {implode " " {ete {esc-list {$ :argv }}}} </tt>}}
+        }}
+
+        {set b {macro
+            "Generates bold text."
+            {' :text}
+            {poe {glue <b> {implode " " {ete {esc-list {$ :argv }}}} </b>}}
+        }}
+
+        {set p {macro
+            {' :textList }
+            {poe {glue <p> {implode "" {ete {$ :textList }}} </p>}}
+        }}
+
+        {set ul {macro
+            {' :list }
+            {poe {glue "
+        <ul>
+            " 
+            {implode "
+            " {gen :item {ete {$ :list }} {glue <li> {$ :item} </li> }}}
+            "
+        </ul>
+"
+            }}
+        }}
+
+        {set pre {lambda
+            {::
+                {let :options :content :class}
+                {$ :options {nil}}
+                {$ :content ""}
+                {$ :class ""}
+
+                {if
+                    {== 1 {len {$ :argv}}} {:
+                        {$ :content {@ 0 {$ :argv}}}
+                    }
+
+                    {== 2 {len {$ :argv}}} {:
+                        {$ :options {@ 0 {$ :argv}}}
+                        {$ :content {@ 1 {$ :argv}}}
+
+                        %Check and parse options.
+                        {if                         
+                            {not {is-list {$ :options}}}
+                            {error "Invalid options, expected a list."}
+                        }
+                        {if
+                            {hasf :syntax {$ :options}}
+                            {$ :class {glue " class='pre-" {getf :syntax {$ :options}} "'"}}
+                        }
+                    }
+
+                    %else
+                    {error {glue "Incorrect number of arguments to pre: expected one or two, not " {len {$ :argv}}}}
+                }
+
+                {if
+                    {not {is-str {$ :content}}}
+                    {error {glue "Invalid content, expected a String, not a " {type {$ :content}}}}
+                }
+
+
+                {glue "<pre" {$ :class} ">" {$ :content} "</pre>" }
+            }
+        }}
+
+        {set link {macro
+            {if 
+                {== 1 {len {$ :argv}}} {poe {::
+                    {$ :href {ete {@ 0 {$ :argv}}}}
+                    {glue "<a href='" {htmlesc {$ :href}} "'>" {$ :href} "</a>"}
+                }}
+
+                {== 2 {len {$ :argv}}} {poe {::
+                    {$ :text {ete {@ 0 {$ :argv}}}}
+                    {$ :href {ete {@ 1 {$ :argv}}}}
+                    {glue "<a href='" {htmlesc {$ :href}} "'>" {$ :text} "</a>"}
+                }}
+
+                {error
+                    "Incorrect number of arguments for link. Expected exactly 1 or 2."
+                }
+            }
+        }}
+
+        {$ :html-depth 1}
+        {$ :html-section-number {' 0 }}
+        {$ :html-sections {' }}
+
+        {set section {macro
+            {' :title :bodylist}
+            {:
+                %Increment the section number
+                {$ :html-section-number
+                    {append 
+                        {+ 1 {@ -1 {$ :html-section-number }}}
+                        {slice 0 -1 {$ :html-section-number }}
+                    }
+                }
+
+                {$ :html-sections {append {' {$ :html-section-number} {$ :title}} {$ :html-sections} }}
+
+                {$ :new-html-section-number
+                    {append 0 {$ :html-section-number }}
+                }
+
+                %The macro-subst.
+                {poe {::
+                    % Copy the html values into this new scope, and adjust appropriately.
+                    {let :html-depth :html-section-number }
+                    {$ :html-depth {ete {+ 1 {$ :html-depth}}}}
+                    {$ :html-section-number {ete {insert ' {$ :new-html-section-number }}}}
+
+                    {glue
+                        "<a id='section-" {ete {implode _ {$ :html-section-number}}} "'></a>" {\n}
+                        <h {ete {+ 1 {$ :html-depth }}} >
+                            "<span class='section-number'>" {ete {implode . {$ :html-section-number }}}:"</span> "
+                            {ete {$ :title}}
+                        </h {ete {+ 1 {$ :html-depth }}} >
+                        {implode "" {ete {$ :bodylist}} }
+                    }
+                }}
+            }
+        }}
+
+        %Evaluate this now, so we get all the sections and stuff. Generate macro
+        % subst to assign it (evaluated) to :htmlBodyContent.
+        {$ :htmlBodyContent {implode {ete {$ :contentList}}}}
+
+        {glue 
+            {implode 
+<<<<html>
+    <head>
+        <title> >>>
+            }
+            
+            {ete {$ :pageTitle}}
+
+            {implode
+    <<< </title>
+        {implode {ete {$ :headList}}}
+    </head>
+    <body>
+        <a id='__TOP__' />
+
+        <h1>{ete {$ :pageTitle}}</h1>
+        
+        <a id='__TOC__' />
+        <h2 id='__contents__'>Contents</h2>
+>>>     
+            }
+
+            {ul
+                {gen 
+                    :section
+                    {$ :html-sections}
+                    {:
+                        {unpack {' :section-number :section-title } {$ :section }}
+                        {$ :section-label {implode _ {$ :section-number } }}
+                        {$ :section-number {implode . {$ :section-number } }}
+
+                        {glue
+                            "<a href='#section-"
+                            {$ :section-label }
+                            "'>"
+                            {$ :section-number }
+                            " "
+                            {$ :section-title }
+                            "</a>"
+                        }
+                    }
+                }
+            }
+
+            {$ :htmlBodyContent }
+            {implode <<<
+    </body>
+</html>
+>>>
+            }
+        }
+
+        %end html macro body.
+    }}
+
+}}}}

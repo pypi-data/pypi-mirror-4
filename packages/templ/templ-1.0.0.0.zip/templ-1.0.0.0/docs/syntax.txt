@@ -1,0 +1,137 @@
+For clarity, the following uses a variation of the EBNF. Specifically, instead of using
+curly braces '{ symbol }' to indicate 0 or more occurrences, we will use a star 'symbol*'
+for this purpose, akin to common use in regular expressions. Additionally, we will simply
+use whitespace instead of command ',' to indicate concatenation, and we will not use the
+termination symbol ';' at the end of an equation. To continue equations across multiple
+lines, all subsequent lines will start with whitespace. The equation ends when a line starts
+with non-whitspace, or contains only whitespace. You can probably figure this all out
+for yourself.
+
+TEMPLATE        =   STMT+
+STMT            =   AWLGT | ESTMT
+AWLGT           =   ">>>"                                       (* You may be familiar with this symbol as the "a whole lot
+                                                                    greater than" symbol. *)
+ETMT            =   TEXT | LIST
+TEXT            =   TCHAR TCHAR*
+TCHAR           =   PTCHAR | '\{' | '\' PTCHAR                  (* The next several rules define what can appear in the ordinary
+                        | '\' EOI | RANGLES                         text portion of the template. Special characters at this point
+PTCHAR          =   ( CHAR - XTCHAR )                               in the parsing are the slash, the left curly brace, and the
+XTCHAR          =   '\' | '{' | '>'                                 right angle bracket. Left curly brace can be included if it's
+                                                                    escaped by a slash. Slash can only appear on it's own. The right
+                                                                    angle bracket character can appear in single or double, but not
+                                                                    in triple. *)
+
+EOI             =   ? end of input stream ?
+CHAR            =   ? any character ?
+LIST            =   '{' WIZ* '}'
+WIZ             =   (WS WS*) | EXPR | COMMENT                   (* Lists are made of whitespace, expressions, and comments. *)
+WS              =   ? any whitespace character ?
+EXPR            =   SYMBOL | LIST | EMBEDTEMPLATE
+SYMBOL          =   NAME+
+NAME            =   SCHAR | LITERAL
+SCHAR           =   ( CHAR - XSCHAR ) | ANGLES | '\'            (* symbols can't include whitespace, and can't used the reserved
+                                                                    characters " or % (used for string literals and comments,
+                                                                    respectively), and can't include the list delimiters { or }.
+                                                                    They also can't use triple angle brackets. *)
+
+XSCHAR          =   WS | XTCHAR | '"' | '%' | '<' | '>'         (* Characters tha can't be used in symbols (more or less). *)
+ANGLES          =   LANGLES | RANGLES
+LANGLES         =   ('<' XLANGLE) | ('<<' XLANGLE)              (* A single or double left angle-bracket, but not a triple. *)
+RANGLES         =   ('>' XRANGLE) | ('>>' XRANGLE)              (* as LANGLES, but with right angle brackets instead. *)
+XLANGLE         =   ( SCHAR - '<' )                             (* anything other than the left tangle brackter character. *)
+XRANGLE         =   ( SCHAR - '>' )                             (* anything other than the right tangle brackter character. *)
+LITERAL         =   STRLITERAL                                  (* there is only one type of literal, a string literal. *)
+STRLITERAL      =   '"' DQCHAR* '"'                             (* A string literal is a double quoted string. Note that there is no
+                                                                    single quoted string. *)
+DQCHAR          =   ( CHAR - XDQCHAR ) | '\' CHAR               (* double-quoted string can contain anything except a slash and a double
+                                                                    quote char, or absolutely anything if it's preceeded with a slash. *)
+
+XDQCHAR         =   '"' | '\'                                   (* Characters that can't be included in a double-quoted string. *)
+EMBEDTEMPLATE   =   '<<<' ETEMPLATE '>>>'                       (* An embedded template is almost exactly like
+ETEMPLATE       =   ESTMT*                                          a top level template, except that it can't contain three
+                                                                    right angle brackets in a row. *)
+
+COMMENT         =   '%' LCHAR*                                  (* Comments begin with % and end with the first end of line (or end of input) *)
+LCHAR           =   ( CHAR - EOL )                              (* A "line" character, meaning a character that doesn't end a line.*)
+EOL             =   ? any end of line character sequence ?
+
+
+Processing occurs one STMT at a time. Procesing of each STMT is done in two phases: parsing and evaluation.
+For TEXT elements, the parser collects the longest TEXT it can get. For AWLGT and LIST elements, there
+is only one possible length of element (i.e., they are unambiguosly terminated). In this case, the parser
+simply collects one such element.
+
+LIST elements describe the construction of a List object. A List object is an ordered sequence of values
+(symbols, literals, and other lists). Whitespace (WS) and COMMENTS are not included in the List object,
+they are essentially ignored by the parser except that they are used as punctuators to separate the
+different EXPRs in the LIST.  In constructing this List object, the parser does not do any evaluation of
+the elements within the LIST, it simply builds up a List object, possibly containing nested List objects,
+as described by the LIST syntax.
+
+Embedded templates (EMBEDTEMPLATE) are syntactic sugar to make it easier to produce very large Strings. When
+an embedded template is encountered during parsing, it is parsed into it's components ESTMTs until
+the terminating AWLGT (">>>") is encoutnered. This parsing is done *without* evaluation of the ESTMTs,
+unlike the top level parser which evaluates each STMT as it is parsed. List objects are still built up
+from all LIST statements encountered in the embedded template just like the parser does at the top level,
+but they are not evaluated, and TEXT elements are not written to the output stream. Instead, all of the
+ESTMTs in the embedded template are packed into a List object, in the order in which they appear, and
+the parser provides this List object as the value of the ESTMT. In other words, the corresponding List
+object takes the place of the ETEMPLATE in the parent LIST.  Note that since resolution of ETEMPLATEs
+is doen by the parser, nested ETEMPLATEs are likewise resolved to List objects are part of this process,
+but still are not evaluated.
+
+For evaluation, top level TEXT and AWLGT elements are simply written directly to the output stream. For
+LIST elements, the LIST is evaluated as an EXPR. If the results of this evaluation is a String, then it
+is written to the output stream. If it is a Null object, evaluation is done and nothing is written to
+the output stream.  Otherwise, it is an error: top level expressions must evaluate to Strings or Nulls.
+
+For evaluation of EXPRs, SYMBOLs are "self-evaluating", meaning they evaluate to a String object
+equal to the textual content of the SYMBOL. Notice that a LITERAL is not an alternative to a SYMBOL,
+it is part of a SYMBOL. In otherwords, literals and non-literals can co-exist in a symbol, for instance
+FOO"BAR"BAZ. Literals and non literals are just two different ways of describing strings, with literals
+being used to include characters that non-literals cannot include (for instance, a double-quote character,
+a curly brace character, or whitespace characters). Thus, the symbol FOO"BAR"BAZ evaluated to the String
+FOOBARBAZ, of length 9.
+
+On a light note, it would probably be more appropriate to refer to non-LITERAL SYMBOLs as literal,
+because they describe literally the resulting symbol, where as actual LITERALs are interpretted to produce the
+resulting symbol. But it would probably confuse a lot of verteran programmers if a quoted string was not the
+thing referred to as a "literal".
+
+LIST type EXPRs are evaluated as follows. If there are no element in the list, then it evaluates to a Null
+value. Otherwise, the first element in the list is evaluated (as an EXPR) to produce the TAG.
+
+The TAG is then _resolved_ to an executable. If the TAG is already an Executable, then it is self-resolving,
+meaning the result of resolving is simply itself. If the TAG is a String, then it is resolved by looking
+it up in the stack. If a String TAG does not exist in the stack, it is an error. If the value associated
+with a String TAG in the stack is not an Executable, it is an error. If the TAG is neither a String nor
+an Executable, it is an error.
+
+Once the TAG is resolved, it is _executed_, using all subsequent elements of the list as the arguments to
+the executable.
+
+There are three types of executables: functions, operators, and macros. Functions are the simplest:
+all arguments are first evaluated in full, in order from left to right (lowest to highest index). The
+results of these evaluations are then used as the arguments passed into the function, in the corresponding
+order. This is what you would typically expect from other programming languages.
+
+Operators and macros are special: in both cases the arguments are NOT evaluated before being passed to
+the executable. Thus, even though an element of the List may itself be a List which would normally be
+evaluated as an expression (i.e., if it was the argument for a function), for an operator or macro,
+the argument is the list itself. Operators are built into the processor and can evaluate individual
+arguments on their own. This is necessary for simple implementation of familiar control structures like
+loops and conditionals. Operators evaluate to values just like functions do.
+
+Like operators, macros receive their arguments unevaluated. However, unlike macros, operators do not
+evaluate their arguments on their own (in general**). In fact, macros may be defined outside of the
+processor, including in the TEMPLATE itself, so they have no ability to evaluate their arguments. Instead,
+macros return their own expressions, which the processor then evaluates in the normal way. The result
+of this subsequent evaluation is the result of the macro.
+
+** Some macros are defined for convenience in the processor and can trigger evaluation. This is done for
+performance reasons: the macros could just as well be done in the conventional way without evaluating
+their arguments, it just might take a little longer.
+
+
+ vim: set tw=110:
+

@@ -1,0 +1,205 @@
+{#
+    Copyright 2013 Brian Mearns
+
+    This file is part of templ.
+
+    templ is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Affero General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    templ is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Affero General Public License for more details.
+
+    You should have received a copy of the GNU Affero General Public License
+    along with templ.  If not, see <http://www.gnu.org/licenses/>.
+}{
+}{v {:
+
+{$ doc {macro
+    "Wraps content in reStructured text"
+
+    {' :pageTitle :contentList }
+    
+    %We're building up an expression that will be evaluated.
+    % That expression will be a List, so we're building a list.
+    %First thing in the list is the tag. In this case, we start
+    % by defining a new scope to put our local functions in.
+    {poe {::
+
+        %Now define our Local Executables as elements of the list.
+        {set em {macro
+            "Generates emphasized text."
+            {' :text }
+            {poe {wrap "\\ " {wrap * {implode " " {ete {esc-list {$ :argv }}}} }}}
+        }}
+
+        {set code {macro
+            "Generates text formatted to look like an inline code snippet."
+            {' :text }
+            {poe {wrap "\\ " {wrap `` {implode " " {ete {esc-list {$ :argv }}}} }}}
+        }}
+
+        {set b {macro
+            "Generates bold text."
+            {' :text }
+            {poe {wrap "\\ " {wrap ** {implode " " {ete {esc-list {$ :argv }}}} }}}
+        }}
+
+        {set p {macro
+            {' :textList }
+            {poe {wrap {glue {eol} {eol}} {implode "" {ete {$ :textList }}} }}
+        }}
+
+        {set ul {macro
+            {' :list }
+            {poe
+                {glue {eol} {eol}
+                    {implode {eol}
+                        {gen
+                            :item {ete {$ :list }}
+                            {glue "- " {strrep {eol} " " {$ :item}}}
+                        }
+                    }
+                }
+            }
+        }}
+
+        {set pre {lambda
+            {::
+                {let :options :content :class}
+                {$ :options {nil}}
+                {$ :content ""}
+
+                {if
+                    {== 1 {len {$ :argv}}} {:
+                        {$ :content {@ 0 {$ :argv}}}
+                    }
+
+                    {== 2 {len {$ :argv}}} {:
+                        {$ :options {@ 0 {$ :argv}}}
+                        {$ :content {@ 1 {$ :argv}}}
+
+                        %Check and parse options.
+                        {if                         
+                            {not {is-list {$ :options}}}
+                            {error "Invalid options, expected a list."}
+                        }
+                    }
+
+                    %else
+                    {error {glue "Incorrect number of arguments to pre: expected one or two, not " {len {$ :argv}}}}
+                }
+
+                {if
+                    {not {is-str {$ :content}}}
+                    {error {glue "Invalid content, expected a String, not a " {type {$ :content}}}}
+                }
+
+
+                {glue {eol} {eol} "::" {eol} {eol} "    " {strrep {eol} {glue {eol} "    "} {$ :content}}}
+            }
+        }}
+
+        {set link {macro
+            {if 
+                {== 1 {len {$ :argv}}} {poe {::
+                    {$ :href {ete {@ 0 {$ :argv}}}}
+                    {glue "`" {$ :href} " <" {$ :href} ">`_" }
+                }}
+
+                {== 2 {len {$ :argv}}} {poe {::
+                    {$ :text {ete {@ 0 {$ :argv}}}}
+                    {$ :href {ete {@ 1 {$ :argv}}}}
+                    {glue "`" {$ :text} " <" {$ :href} ">`_" }
+                }}
+
+                {error
+                    "Incorrect number of arguments for link. Expected exactly 1 or 2."
+                }
+            }
+        }}
+
+        {$ :rest-sect-lines {' = - ~ ` : ' "\"" ~ ^ _ * + # < > }}
+        {$ :rest-depth 0}
+        {$ :rest-section-number {' 0 }}
+        {$ :rest-sections {' }}
+
+        {set section {macro
+            {' :title :bodylist}
+            {:
+                %Increment the section number
+                {$ :rest-section-number
+                    {append 
+                        {+ 1 {@ -1 {$ :rest-section-number }}}
+                        {slice 0 -1 {$ :rest-section-number }}
+                    }
+                }
+
+                {$ :rest-sections {append {' {$ :rest-section-number} {$ :title}} {$ :rest-sections} }}
+
+                {$ :new-rest-section-number
+                    {append 0 {$ :rest-section-number }}
+                }
+
+                %The macro-subst.
+                {poe {::
+                    % Now copy the rest values into this new scope, and adjust appropriately.
+                    {let :rest-depth :rest-section-number }
+                    {$ :rest-depth {ete {+ 1 {$ :rest-depth}}}}
+                    {$ :rest-section-number {ete {insert ' {$ :new-rest-section-number }}}}
+
+                    {let :title-line}
+                    {$ :title-line {glue {ete {implode "." {$ :rest-section-number}}} ": " {ete {$ :title}}}}
+
+                    %FIXME: Check the depth.
+                    {let :line-char :line }
+                    {$ :line-char {@ {$ :rest-depth} {$ :rest-sect-lines}}}
+                    {$ :line {implode {gen i {range {strlen {$ :title-line}}} {$ :line-char}}}}
+
+
+                    {glue
+                        {eol} {eol}
+                        ".. _Section-" {ete {implode "." {$ :rest-section-number}}} ":"
+                        {eol} {eol}
+                        {$ :title-line}
+                        {eol}
+                        {$ :line}
+                        {implode "" {ete {$ :bodylist}} }
+                    }
+                }}
+            }
+        }}
+
+        %Evaluate this now, so we get all the sections and stuff. Generate macro
+        % subst to assign it (evaluated) to :htmlBodyContent.
+        {$ :bodyContent {implode {ete {$ :contentList}}}}
+
+        {$ :tline {implode {gen i {range {strlen {ete {$ :pageTitle}}}} "="}}}
+
+        % FIXME: Add TOC
+        % FIXME: Add copyright notice? Add a new "comment" macro, and then add the copyright as a comment, in the bodyContent when
+        % invoking the reST macro.
+        {glue 
+            {eol} {$ :tline} {eol} {ete {$ :pageTitle}} {eol} {$ :tline} {eol} {eol}
+"
+.. contents:: Contents
+    :depth: 2
+"
+            {$ :bodyContent }
+
+            {section "Complete Contents" {'
+"
+.. contents::
+    :depth: 10
+"
+            }}
+
+        }
+
+        %end reST macro body.
+    }}
+
+}}}}
