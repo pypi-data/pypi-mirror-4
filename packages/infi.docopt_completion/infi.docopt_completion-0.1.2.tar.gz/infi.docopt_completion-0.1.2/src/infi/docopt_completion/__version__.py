@@ -1,0 +1,10 @@
+__version__ = "0.1.2"
+__git_commiter_name__ = "root"
+__git_commiter_email__ = "root@guyr-ubuntu.infinidat.com"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '467547a1d60ae0b74e77404f81b9770f018fb753'
+__git_head_subject__ = 'Finished release v0.1.2.'
+__git_head_message__ = "* release/v0.1.2:\n  allow passing utility path with '/'-separators\n  adapt to docopt 0.6.1 interface\n  support more paths in /usr/share\n  update readme\n  print a more informative output when completion paths are not found\n  add option to manually output bash or zsh completion files, in local directory instead of in completion path\n  Support Zsh with completion path at /usr/share\n  empty commit after version v0.1.1"
+__git_dirty_diff__ = ''
