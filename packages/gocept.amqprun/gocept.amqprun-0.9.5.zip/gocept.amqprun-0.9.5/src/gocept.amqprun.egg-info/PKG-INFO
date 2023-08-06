@@ -1,0 +1,556 @@
+Metadata-Version: 1.1
+Name: gocept.amqprun
+Version: 0.9.5
+Summary: gocept.amqprun helps you writing and running AMQP consumers, and sending AMQP
+messages. It currently only supports AMQP 0-8 and integrates with the Zope Tool
+Kit (ZTK) so you can use adapters, utilities and all the buzz.
+
+Home-page: https://code.gocept.com/hg/public/gocept.amqprun
+Author: gocept <cz at gocept dot com>
+Author-email: cz@gocept.com
+License: ZPL
+Description: ==============
+        gocept.amqprun
+        ==============
+        
+        gocept.amqprun helps you writing and running AMQP consumers, and sending AMQP
+        messages. It currently only supports AMQP 0-8 and integrates with the Zope Tool
+        Kit (ZTK) so you can use adapters, utilities and all the buzz.
+        
+        .. contents:: :depth: 1
+        
+        
+        Basic concepts and terms
+        ========================
+        
+        * A *message handler* is a function which is bound with a routing key to
+          exactly one queue. It is called for each message on that queue, and may
+          return a list of messages as a result.
+        
+        * The result messages of one handled message are sent in one transaction
+          together with the ACK of the handled message.
+        
+        * When an exception is raised during message processing, the transaction is
+          aborted. (The received message would be NACKed if RabbitMQ was supporting
+          it.)
+        
+        * A message handler handles exactly one message at a time. Multiple messages
+          can be processed at the same time using threads. Those threads are called
+          *workers*.
+        
+        
+        Things you don't need to take care of
+        =====================================
+        
+        * Threading of multiple workers
+        
+        * Socket handling and locking for communicating with the AMQP broker
+        
+        * Transaction handling
+        
+        * Message ids
+        
+          * Each outgoing message gets an email-like message id.
+        
+          * The correlation id of each outgoing message is set to the message id of
+            the incoming message.
+        
+          * Each outgoing message gets a custom references header which is set to the
+            incoming message's reference header plus the incoming message's message
+            id.
+        
+        
+        Getting started: receiving messages
+        ===================================
+        
+        To get started, define a function which does the work. In this example, we log
+        the message body and send a message. The ``declare`` decorator takes two
+        arguments, the queue name and the routing key (you can also pass in a list to
+        bind the function to multiple routing keys). The ``declare`` decorator also
+        supports an optional ``arguments`` argument that is a dictionary to be passed
+        to the AMQP queue_declare call to, e.g., support mirrored queues on RabbitMQ.
+        The optional argument ``principal`` specifies to wrap the handler call into a
+        zope.security interaction using the given principal id (you need the
+        ``[security]`` extra to use this integration functionality).
+        
+        ::
+        
+            import logging
+            import gocept.amqprun.handler
+            import gocept.amqprun.message
+        
+            log = logging.getLogger(__name__)
+        
+            @gocept.amqprun.handler.declare('test.queue', 'test.routing')
+            def log_message_body(message):
+                log.info(message.body)
+                msg = gocept.amqprun.message.Message(
+                    header=dict(content_type='text/plain'),
+                    body=u'Thank you for your message.',
+                    routing_key='test.thank.messages')
+                return [msg]
+        
+        
+        The handler function needs to be registered as a named utility. With ZCML this
+        looks like this [#grok]_::
+        
+            <configure xmlns="http://namespaces.zope.org/zope">
+              <include package="gocept.amqprun" />
+              <utility component="path.to.package.log_message_body" name="basic" />
+            </configure>
+        
+        To set up a server, it's recommended to create a buildout. The following
+        buildout creates a config file for gocept.amqprun as well as a ZCML file for
+        the component configuration and uses ZDaemon to daemonize the process::
+        
+            [buildout]
+            parts =
+                    config
+                    zcml
+                    app
+                    server
+        
+            [deployment]
+            name = queue
+            recipe = gocept.recipe.deploymentsandbox
+            root = ${buildout:directory}
+        
+            [config]
+            recipe = lovely.recipe:mkfile
+            path = ${deployment:etc-directory}/queue.conf
+        
+            amqp-hostname = localhost
+            amqp-username = guest
+            amqp-password = guest
+            amqp-virtualhost = /
+        
+            eventlog =
+                <eventlog>
+                  level DEBUG
+                  <logfile>
+                    formatter zope.exceptions.log.Formatter
+                    path STDOUT
+                  </logfile>
+                </eventlog>
+            amqp-server =
+                <amqp-server>
+                  hostname ${:amqp-hostname}
+                  username ${:amqp-username}
+                  password ${:amqp-password}
+                  virtual_host ${:amqp-virtualhost}
+                </amqp-server>
+        
+            content =
+                ${:eventlog}
+                ${:amqp-server}
+                <worker>
+                  amount 10
+                  component-configuration ${zcml:path}
+                </worker>
+                <settings>
+                  your.custom.settings here
+                </settings>
+        
+            [zcml]
+            recipe = lovely.recipe:mkfile
+            path = ${deployment:etc-directory}/queue.zcml
+            content =
+                <configure xmlns="http://namespaces.zope.org/zope">
+                  <include package="gocept.amqprun" />
+                  <include package="your.package" />
+                </configure>
+        
+            [app]
+            recipe = zc.recipe.egg:script
+            eggs =
+               gocept.amqprun
+               your.package
+               zope.exceptions
+            arguments = '${config:path}'
+            scripts = server=app
+        
+            [server]
+            recipe = zc.zdaemonrecipe
+            deployment = deployment
+            program = ${buildout:bin-directory}/app
+        
+        
+        .. [#grok] It's likely that there will be a special ZCML statement and/or grok
+           support to make registering of handlers easier.
+        
+        
+        Sending messages
+        ================
+        
+        If all you want to do is send messages, you don't have to register any
+        handlers, but can use ``gocept.amqprun.server.Server.send()`` directly. While
+        the handlers usually run in their own process, started by the ``server``
+        entrypoint (as described above), if you're just sending messages, you can also
+        skip the extra process and run the ``gocept.amqprun.server.Server`` in your
+        original process, in its own thread. Here is some example code to do that::
+        
+            def start_server(**kw):
+                parameters = gocept.amqprun.connection.Parameters(**kw)
+                server = gocept.amqprun.server.Server(parameters)
+                server_thread = threading.Thread(target=server.start)
+                server_thread.daemon = True
+                server_thread.start()
+                import time
+                time.sleep(0.1)
+                return server
+        
+        (When you're using the ZCA, you'll probably want to register the ``Server`` as
+        a utility at that point, too, so clients can access it to send messages
+        easily.)
+        
+        
+        Settings
+        ========
+        
+        For application-specific settings gocept.amqprun makes the ``<settings>``
+        section from the configuration available via an ``ISettings`` utility::
+        
+            settings = zope.component.getUtility(
+                gocept.amqprun.interfaces.ISettings)
+            settings.get('your.settings.key')
+        
+        
+        Limitations
+        ===========
+        
+        * Currently all messages are sent and received through the `amq.topic`
+          exchange. Other exchanges are not supported at the moment.
+        
+        
+        Interfacing with the file system
+        ================================
+        
+        Writing
+        -------
+        
+        gocept.amqprun provides a quick way to set up a handler that writes incoming
+        messages as individual files to a given directory, using the
+        ``<amqp:writefiles>`` ZCML directive. You need the `writefiles` extra to
+        enable this directive::
+        
+            <configure xmlns="http://namespaces.zope.org/zope"
+                       xmlns:amqp="http://namespaces.gocept.com/amqp">
+        
+              <include package="gocept.amqprun" file="meta.zcml" />
+        
+              <amqp:writefiles
+                routing_key="test.data"
+                queue_name="test.queue"
+                directory="/path/to/output-directory"
+                />
+            </configure>
+        
+        All messages with routing key 'test.data' would then be written to
+        'output-directory', two files per message, one containing the body and the
+        other containing the headers (in ``zope.xmlpickle`` format).
+        (Note that in the buildout example above, you would need to put the writefiles
+        directive into the ``[zcml]`` section, not the ``[config]`` section.)
+        
+        You can specify multiple routing keys separated by spaces::
+        
+            <amqp:writefiles
+              routing_key="test.foo test.bar"
+              queue_name="test.queue"
+              directory="/path/to/output-directory"
+              />
+        
+        You can configure the way files are named with the ``pattern`` parameter, for
+        example::
+        
+            <amqp:writefiles
+              routing_key="test.data"
+              queue_name="test.queue"
+              directory="/path/to/output-directory"
+              pattern="${routing_key}/${date}/${msgid}-${unique}.xml"
+              />
+        
+        ``pattern`` performs a ``string.Template`` substitution. The following
+        variables are available:
+        
+          :date: The date the message arrived, formatted ``%Y-%m-%d``
+          :msgid: The value of the message-id header
+          :routing_key: The routing key of the message
+          :unique: A token that guarantees the filename will be unique in its directory
+        
+        The default value for ``pattern`` is ``${routing_key}-${unique}``.
+        
+        To support zc.buildout, ``{variable}`` is accepted as an alternative syntax to
+        ``${variable}``. (zc.buildout uses ``${}`` for its own substitutions, but
+        unfortunately does not support escaping them.)
+        
+        If ``pattern`` contains slashes, intermediate directories will be created below
+        ``directory``, so in the example, messages would be stored like this::
+        
+            /path/to/output-directory/example.route/2011-04-07/asdf998-1234098791.xml
+        
+        Just like the ``declare`` decorator, the ``<amqp:writefiles>`` ZCML directive
+        also supports an optional ``arguments`` parameter that is passed to the AMQP
+        ``queue_declare`` call to, e.g., support RabbitMQ mirrored queues::
+        
+            <amqp:writefiles
+              routing_key="test.foo test.bar"
+              queue_name="test.queue"
+              directory="/path/to/output-directory"
+              arguments="
+              x-ha-policy = all
+              "
+              />
+        
+        Reading
+        -------
+        
+        You can also set up a thread to read files from a directory and publish them
+        onto the queue, using the ``<amqp:readfiles>`` ZCML directive (the filename
+        will be transmitted in the ``X-Filename`` header). You need the `readfiles`
+        extra to enable this directive::
+        
+            <configure xmlns="http://namespaces.zope.org/zope"
+                       xmlns:amqp="http://namespaces.gocept.com/amqp">
+        
+              <include package="gocept.amqprun" file="meta.zcml" />
+        
+              <amqp:readfiles
+                directory="/path/to/input-directory"
+                routing_key="test.data"
+                />
+            </configure>
+        
+        The input-directory is expected to be a Maildir, i.e. files to be read should
+        appear in ``input-directory/new` which will be polled every second. After the
+        files have been published to the given routing key, they will be moved to
+        ``input-directory/cur``.
+        
+        
+        Development
+        ===========
+        
+        You can set the AMQP server parameters for running the tests via environment
+        variables:
+        
+        :AMQP_HOSTNAME:
+            default: localhost
+        
+        :AMQP_USERNAME:
+            default: guest
+        
+        :AMQP_PASSWORD:
+            default: guest
+        
+        :AMQP_VIRTUALHOST:
+            default: /
+        
+        The source code is available in the mercurial repository at
+        https://code.gocept.com/hg/public/gocept.amqprun
+        
+        Please report any bugs you find at
+        https://projects.gocept.com/projects/projects/gocept-amqprun/issues
+        
+        .. vim: set ft=rst:
+        
+        
+        CHANGES
+        =======
+        
+        0.9.5 (2013-04-16)
+        ------------------
+        
+        - Refactor Session / DataManager responsibilities (#9988).
+        
+        
+        0.9.4 (2012-09-07)
+        ------------------
+        
+        - Fix IDataManager implementation: abort() may be called multiple times,
+          regardless of transaction outcome. Only release the channel refcount once.
+        
+        
+        0.9.3 (2012-09-07)
+        ------------------
+        
+        - Improve logging of IDataManager.
+        
+        
+        0.9.2 (2012-09-07)
+        ------------------
+        
+        - Improve logging of IChannelManager.acquire/release.
+        
+        
+        0.9.1 (2012-09-06)
+        ------------------
+        
+        - Fix IDataManager implementation: tpc_abort() may also be called without a
+          prior tpc_begin() (happens for errors in savepoints, for example).
+        - Fix method signature of Connection.close().
+        
+        
+        0.9 (2012-08-31)
+        ----------------
+        
+        - Introduce optional integration with zope.security: handlers can declare a
+          principal id with which an interaction will be created.
+        - Use a separate channel for sending messages that are not a response to a
+          received message.
+        - Introduce SETTINGS_LAYER for tests relying on ISettings.
+        
+        
+        0.8 (2012-04-04)
+        ----------------
+        
+        - Fix race condition that caused messages to be acknowledged on a different
+          channel than they were received on (#10635).
+        
+        - Fix race condition that caused attempts at sending messages before the
+          server was started properly (#10620).
+        
+        
+        0.7 (2012-03-22)
+        ----------------
+        
+        - Fix race condition between getting the current channel in the DataManager and
+          switching the current channel in the Server (#10521).
+        - Make AMQP server configurable for tests (#9232).
+        
+        
+        0.6.1 (2012-02-23)
+        ------------------
+        
+        - Fixed bug in creating references header when parent message has no references
+          (#10478).
+        
+        
+        0.6 (2012-02-22)
+        ----------------
+        
+        Features
+        ~~~~~~~~
+        
+        - Changed FileStoreReader from its own process to a thread that uses
+          gocep.amqprun for sending (previously it used amqplib). Introduced
+          ``amqp:readfiles`` ZCML directive. (#10177)
+        
+        - Changed `filestore` extra to `readfiles` extra.
+        
+        - Transmit filename as ``X-Filename`` header from ``amqp:readfiles``.
+        
+        - Introduced ``ISender`` utility.
+        
+        Bugs
+        ~~~~
+        
+        - Fixed bug with acknowledging messages that was introduced in 0.5 (#10030).
+        
+        Internal
+        ~~~~~~~~
+        
+        - Changed API for MainTestCase from ``create_reader`` to ``start_server``.
+        
+        
+        0.5.1 (2012-01-09)
+        ------------------
+        
+        - Bugfix to support unicode arguments for queue declaration as pika
+          only supports bytestrings here.
+        - Bugfix to make ``arguments`` parameter of ``amqp:writefiles`` work (#10115).
+        
+        
+        0.5 (2011-12-08)
+        ----------------
+        
+        General
+        ~~~~~~~
+        
+        - Added `writefiles` extra to make ZCML directive ``amqp:writefiles`` optional.
+        
+        - Added `filestore` extra to make ``gocept.amqprun.filestore`` optional.
+        
+        - Moved declaration of ``amqp:writefiles`` from ``configure.zcml`` to
+          ``meta.zcml``.
+        
+        
+        Features
+        ~~~~~~~~
+        
+        - Renamed ``gocept.amqprun.server.MessageReader`` into
+          ``gocept.amqprun.server.Server`` and added a ``send`` method so it can
+          initiate sending of messages.
+        
+        - Add support for arguments for queue_declare e.g to support x-ha-policy
+          headers for RabbitMQ mirrored queue deployments (#10036).
+        
+        
+        Internal
+        ~~~~~~~~
+        
+        - Internal API change in ``server.AMQPDataManager.__init__``: the `message`
+          parameter is now optional, so it was moved to the end of the list of
+          arguments.
+        
+        - Use plone.testing for layer infrastructure.
+        
+        
+        0.4.2 (2011-08-23)
+        ------------------
+        
+        - Add helper methods for dealing with header files to FileWriter (for #9443).
+        
+        
+        0.4.1 (2011-08-22)
+        ------------------
+        
+        - Log Message-ID.
+        
+        
+        0.4 (2011-07-25)
+        ----------------
+        
+        - The message id of outgoing messages is set.
+        - The correlation id of outgoing messages is set to the incoming message's
+          message id (if set).
+        - A custom header ``references`` is set to the incoming message's reference
+          header + the incomming message's message id (like `References` in RFC5322).
+        - Fixed broken tests.
+        - Allow upper case in settings keys.
+        - Extend AMQP server configuration for FileStoreReader to include credentials
+          and virtual host.
+        - Allow specifying multiple routing keys (#9326).
+        - Allow specifying a filename/path pattern (#9327).
+        - The FileWriter stores the headers in addition to the body (#9328).
+        - FileWriter sends IMessageStored event (#9335).
+        
+        
+        0.3 (2011-02-05)
+        ----------------
+        
+        - Renamed decorator from ``handle`` to ``declare``.
+        - Added helper method ``wait_for_response`` to MainTestCase.
+        - Added an IProcessStarting event which is sent during startup.
+        - Added the <amqp:writefiles/> directive that sets up a handler that writes
+          incoming messages into files.
+        - Added handling of <logger> directives
+        
+        
+        0.2 (2010-09-14)
+        ----------------
+        
+        - Added a decorator ``gocept.amqprun.handler.handle(queue_name, routing_key)``.
+        
+        
+        0.1 (2010-08-13)
+        ----------------
+        
+        - first release.
+        
+Platform: UNKNOWN
+Classifier: Development Status :: 4 - Beta
+Classifier: Framework :: Zope3
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: Zope Public License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python
+Classifier: Topic :: Software Development
