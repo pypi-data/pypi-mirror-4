@@ -1,0 +1,98 @@
+#!/usr/bin/python
+# Copyright (c) 2013
+#  Adam Tauno Williams <awilliam@whitemice.org>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+#
+
+from coils.core  import *
+import getopt, sys, os, time
+from pprint import pprint
+
+def usage():
+    print """
+    --help          Print this message.
+    --disable       Request the workflow manager not start new processes
+    --enable        Request the workflow manager resume.
+    --scan          Request the workflor manager check for queued jobs.
+    """
+    return
+
+def main(argv):
+
+    def callback(uuid, source, target, data):
+        return True
+
+    timeout = 100
+    operation = None
+
+    # Process command line arguements
+    if (len(argv) == 0):
+        usage()
+        sys.exit(2)
+    try:
+        opts, args = getopt.getopt( argv,
+                                    "h:i:tecdlp",
+                                    [ 'help',
+                                      'disable',
+                                      'enable',
+                                      'scan',  ] )
+    except getopt.GetoptError, e:
+        print e
+        usage()
+        sys.exit(2)
+    for opt, arg in opts:
+        if opt in ("-h", "--help"):
+            usage()
+            sys.exit(0)
+        elif (opt in ('--disable')):
+            operation = 'disable'
+        elif (opt in ('--enable')):
+            operation = 'enable'
+        elif (opt in ('--scan')):
+            operation = 'scan'
+
+    # Initialize COILs
+    initialize_COILS( {'log_file': '{0}/coils.log'.format( os.getenv( 'HOME' ) ) } )
+    broker = Broker( )
+    broker.subscribe('coils-workflow-control.{0}'.format( os.getpid( ) ), None )
+    ctx = AnonymousContext( broker=broker )
+
+    result = 1
+    if operation == 'disable':
+        print( 'Requesting workflow manager hold new processes' )
+        ctx.send(None, 'coils.workflow.manager/disabled', { }, callback=callback)
+        result = 0
+    elif operation == 'enable':
+        print( 'Requesting workflow manager resume processing' )
+        ctx.send(None, 'coils.workflow.manager/enable', { }, callback=callback)
+        result = 0
+    elif operation == 'scan':
+        print( 'Requesting workflow manager resume processing' )
+        ctx.send(None, 'coils.workflow.manager/checkqueue', { }, callback=callback)
+        result = 0
+    else:
+        print( 'Unknown operation requested' )
+
+    ctx.close( )
+    broker.close( )
+    sys.exit( result )
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

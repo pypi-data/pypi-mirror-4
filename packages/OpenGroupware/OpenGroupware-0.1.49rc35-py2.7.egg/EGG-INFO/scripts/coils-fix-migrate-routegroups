@@ -1,0 +1,158 @@
+#!/usr/bin/python
+#
+# Copyright (c) 2013
+#  Adam Tauno Williams <awilliam@whitemice.org>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+#
+from sqlalchemy  import and_
+from coils.core  import *
+import getopt, sys, os
+
+def usage():
+    print """
+    --help      Display this helpful messages
+    --execute   Execute the fix.
+    --commit    Commit changes.
+    """
+    return
+
+def main(argv):
+
+
+    # Process command line arguements
+    if (len(argv) == 0):
+        usage()
+        sys.exit(2)
+    try:
+        opts, args = getopt.getopt(argv,
+                                   "hec",
+                                  ["help", "execute", "commit"])
+    except getopt.GetoptError, e:
+        print(e)
+        usage()
+        sys.exit(2)
+
+    enable_fix = False
+    commit_changes = False
+    for opt, arg in opts:
+        if opt in ("-h", "--help"):
+            usage()
+            sys.exit(0)
+        elif opt in ("-e", "--execute"):
+            enable_fix = True
+        elif opt in ("-c", "--commit"):
+            commit_changes = True
+
+    if not enable_fix:
+        print('Execution of fix not requested, see the --execute option.')
+        sys.exit(0)
+
+    # Initialize COILs
+    initialize_COILS( { 'log_file': '{0}/coils.log'.format( os.getenv( 'HOME' ) ) } )
+
+
+    ctx = AdministrativeContext( )
+
+    db = ctx.db_session( )
+
+    routes = db.query( Route ).all( )
+
+    route_groups  = { }
+    noroutegroup  = [ ]
+    singletons    = [ ]
+    nonsingletons = [ ]
+
+    # Gather data to migrate
+
+    for route in routes:
+
+        # Singleton
+        singleton = False
+        prop = ctx.property_manager.get_property( route, 'http://www.opengroupware.us/oie', 'singleton' )
+        if prop:
+            value = str( prop.get_value( ) )
+            if value.upper( ) == 'YES':
+                singleton = True
+        if singleton:
+            singletons.append( route.object_id )
+            print( 'OGo#{0} "{1}" is a singleton'.format( route.object_id, route.name ) )
+        else:
+            nonsingletons.append( route.object_id )
+            print( 'OGo#{0} "{1}" is not a singleton'.format( route.object_id, route.name ) )
+
+        # RouteGroup
+        prop = ctx.property_manager.get_property( route, 'http://www.opengroupware.us/oie', 'routeGroup' )
+        if prop:
+            value = str( prop.get_value( ) )
+            if value in route_groups:
+                route_groups[ value ].append( route.object_id )
+            else:
+                route_groups[ value ] = [ route.object_id ]
+        else:
+            noroutegroup.append( route.object_id )
+
+    # Sync Singletons
+
+    if singletons:
+        db.query( Route ).\
+            filter( Route.object_id.in_( singletons ) ).\
+            with_lockmode( 'update' ).\
+            update( { Route.is_singleton : 1 }, 
+                    synchronize_session=False )
+        print( '{0} routes flagged as singletons.'.format( len( singletons ) ) )
+
+    if nonsingletons:
+        db.query( Route ).\
+            filter( Route.object_id.in_( nonsingletons ) ).\
+            with_lockmode( 'update' ).\
+            update( { Route.is_singleton : 0 }, 
+                    synchronize_session=False )
+        print( 'Singleton flag removed from {0} routes.'.format( len( nonsingletons ) ) )
+        
+    # Route Groups
+    
+    for groupname, routeids in route_groups.items( ):
+        group = ctx.r_c( 'routegroup::get', name=groupname )
+        if not group:
+            group = ctx.r_c( 'routegroup::new', values={ 'name': groupname } )
+            print( 'Created OGo#{0} "{1}"'.format( group.object_id, groupname ) )
+        db.query( Route ).\
+            filter( Route.object_id.in_( routeids ) ).\
+            with_lockmode( 'update' ).\
+            update( { Route.group_id : group.object_id }, 
+                    synchronize_session=False )
+        print( 'Assigned {0} routes to OGo#{1} "{2}"'.\
+            format( len( routeids ), group.object_id, groupname ) )
+
+    db.query( Route ).\
+        filter( Route.object_id.in_( noroutegroup ) ).\
+        with_lockmode( 'update' ).\
+        update( { Route.group_id : None }, 
+                  synchronize_session=False )
+    print( '{0} routes assigned to no group'.format( len( noroutegroup ) ) )
+
+    # Commit
+
+    ctx.commit( )
+    
+    print( 'Complete' )
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
