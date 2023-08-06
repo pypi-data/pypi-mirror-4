@@ -1,0 +1,452 @@
+Metadata-Version: 1.1
+Name: z3c.macro
+Version: 2.0.0a1
+Summary: Simpler definition of ZPT macros.
+Home-page: http://pypi.python.org/pypi/z3c.macro
+Author: Roger Ineichen and the Zope Community
+Author-email: zope-dev@zope.org
+License: ZPL 2.1
+Description: This package provides an adapter and a TALES expression for a more explicit and
+        more flexible macro handling using the adapter registry for macros.
+        
+        
+        Detailed Documentation
+        ======================
+        
+        
+        =====
+        Macro
+        =====
+        
+        This package provides a adapter and a TALES expression for a expliciter and
+        flexibler macro handling using the adapter registry for macros.
+        
+        We start with creating a content object that is used as a view context later:
+        
+          >>> import zope.interface
+          >>> import zope.component
+          >>> from zope.publisher.interfaces.browser import IBrowserView
+          >>> from zope.publisher.interfaces.browser import IDefaultBrowserLayer
+          >>> @zope.interface.implementer(zope.interface.Interface)
+          ... class Content(object):
+          ...     pass
+        
+          >>> content = Content()
+        
+        We also create a temp dir for sample templates which we define later for
+        testing:
+        
+          >>> import os, tempfile
+          >>> temp_dir = tempfile.mkdtemp()
+        
+        
+        Macro Template
+        --------------
+        
+        We define a macro template as a adapter providing IMacroTemplate:
+        
+          >>> path = os.path.join(temp_dir, 'navigation.pt')
+          >>> with open(path, 'w') as file:
+          ...     _ = file.write('''
+          ... <metal:block define-macro="navigation">
+          ...   <div tal:content="title">---</div>
+          ... </metal:block>
+          ... ''')
+        
+        Let's define the macro factory
+        
+          >>> from z3c.macro import interfaces
+          >>> from z3c.macro import zcml
+          >>> navigationMacro = zcml.MacroFactory(path, 'navigation', 'text/html')
+        
+        and register them as adapter:
+        
+          >>> zope.component.provideAdapter(
+          ...     navigationMacro,
+          ...     (zope.interface.Interface, IBrowserView, IDefaultBrowserLayer),
+          ...     interfaces.IMacroTemplate,
+          ...     name='navigation')
+        
+        
+        The TALES ``macro`` Expression
+        ------------------------------
+        
+        The ``macro`` expression will look up the name of the macro, call a adapter
+        providing IMacroTemplate and uses them or fills a slot if defined in the
+        ``macro`` expression.
+        
+        Let's create a page template using the ``navigation`` macros:
+        
+          >>> path = os.path.join(temp_dir, 'first.pt')
+          >>> with open(path, 'w') as file:
+          ...     _ = file.write('''
+          ... <html>
+          ...   <body>
+          ...     <h1>First Page</h1>
+          ...     <div class="navi">
+          ...       <tal:block define="title string:My Navigation">
+          ...         <metal:block use-macro="macro:navigation" />
+          ...       </tal:block>
+          ...     </div>
+          ...     <div class="content">
+          ...       Content here
+          ...     </div>
+          ...   </body>
+          ... </html>
+          ... ''')
+        
+        As you can see, we used the ``macro`` expression to simply look up a macro
+        called navigation whihc get inserted and replaces the HTML content at this
+        place.
+        
+        Let's now create a view using this page template:
+        
+          >>> from zope.publisher.browser import BrowserView
+          >>> class simple(BrowserView):
+          ...     def __getitem__(self, name):
+          ...         return self.index.macros[name]
+          ...
+          ...     def __call__(self, **kwargs):
+          ...         return self.index(**kwargs)
+        
+          >>> from zope.browserpage.viewpagetemplatefile import ViewPageTemplateFile
+          >>> def SimpleViewClass(path, name=u''):
+          ...     return type(
+          ...         "SimpleViewClass", (simple,),
+          ...         {'index': ViewPageTemplateFile(path), '__name__': name})
+        
+          >>> FirstPage = SimpleViewClass(path, name='first.html')
+        
+          >>> zope.component.provideAdapter(
+          ...     FirstPage,
+          ...     (zope.interface.Interface, IDefaultBrowserLayer),
+          ...     zope.interface.Interface,
+          ...     name='first.html')
+        
+        Finally we look up the view and render it:
+        
+          >>> from zope.publisher.browser import TestRequest
+          >>> request = TestRequest()
+        
+          >>> view = zope.component.getMultiAdapter((content, request),
+          ...                                       name='first.html')
+          >>> print(view().strip())
+          <html>
+            <body>
+              <h1>First Page</h1>
+              <div class="navi">
+                <div>My Navigation</div>
+              </div>
+              <div class="content">
+                Content here
+              </div>
+            </body>
+          </html>
+        
+        
+        Slot
+        ----
+        
+        We can also define a macro slot and fill it with given content:
+        
+          >>> path = os.path.join(temp_dir, 'addons.pt')
+          >>> with open(path, 'w') as file:
+          ...     _ = file.write('''
+          ... <metal:block define-macro="addons">
+          ...   Content before header
+          ...   <metal:block define-slot="header">
+          ...     <div>My Header</div>
+          ...   </metal:block>
+          ...   Content after header
+          ... </metal:block>
+          ... ''')
+        
+        Let's define the macro factory
+        
+          >>> addonsMacro = zcml.MacroFactory(path, 'addons', 'text/html')
+        
+        and register them as adapter:
+        
+          >>> zope.component.provideAdapter(
+          ...     addonsMacro,
+          ...     (zope.interface.Interface, IBrowserView, IDefaultBrowserLayer),
+          ...     interfaces.IMacroTemplate,
+          ...     name='addons')
+        
+        Let's create a page template using the ``addons`` macros:
+        
+          >>> path = os.path.join(temp_dir, 'second.pt')
+          >>> with open(path, 'w') as file:
+          ...     _ = file.write('''
+          ... <html>
+          ...   <body>
+          ...     <h1>Second Page</h1>
+          ...     <div class="header">
+          ...       <metal:block use-macro="macro:addons">
+          ...         This line get ignored
+          ...         <metal:block fill-slot="header">
+          ...           Header comes from here
+          ...         </metal:block>
+          ...         This line get ignored
+          ...       </metal:block>
+          ...     </div>
+          ...   </body>
+          ... </html>
+          ... ''')
+        
+        Let's now create a view using this page template:
+        
+          >>> SecondPage = SimpleViewClass(path, name='second.html')
+        
+          >>> zope.component.provideAdapter(
+          ...     SecondPage,
+          ...     (zope.interface.Interface, IDefaultBrowserLayer),
+          ...     zope.interface.Interface,
+          ...     name='second.html')
+        
+        Finally we look up the view and render it:
+        
+          >>> view = zope.component.getMultiAdapter((content, request),
+          ...                                       name='second.html')
+          >>> print(view().strip())
+          <html>
+            <body>
+              <h1>Second Page</h1>
+              <div class="header">
+          <BLANKLINE>
+            Content before header
+          <BLANKLINE>
+                    Header comes from here
+          <BLANKLINE>
+            Content after header
+              </div>
+            </body>
+          </html>
+        
+        
+        Cleanup
+        -------
+        
+          >>> import shutil
+          >>> shutil.rmtree(temp_dir)
+        
+        
+        
+        ===============
+        macro directive
+        ===============
+        
+        A macro directive can be used for register macros. Take a look at the
+        README.txt which explains the macro TALES expression.
+        
+          >>> import sys
+          >>> from zope.configuration import xmlconfig
+          >>> import z3c.template
+          >>> context = xmlconfig.file('meta.zcml', z3c.macro)
+        
+        First define a template which defines a macro:
+        
+          >>> import os, tempfile
+          >>> temp_dir = tempfile.mkdtemp()
+          >>> file_path = os.path.join(temp_dir, 'file.pt')
+          >>> with open(file_path, 'w') as file:
+          ...     _ = file.write('''
+          ... <html>
+          ...   <head>
+          ...     <metal:block define-macro="title">
+          ...        <title>Pagelet skin</title>
+          ...     </metal:block>
+          ...   </head>
+          ...   <body>
+          ...     <div>content</div>
+          ...   </body>
+          ... </html>
+          ... ''')
+        
+        and register the macro provider within the ``z3c:macroProvider`` directive:
+        
+          >>> context = xmlconfig.string("""
+          ... <configure
+          ...     xmlns:z3c="http://namespaces.zope.org/z3c">
+          ...   <z3c:macro
+          ...       template="%s"
+          ...       name="title"
+          ...       />
+          ... </configure>
+          ... """ % file_path, context=context)
+        
+        We need a content object...
+        
+          >>> import zope.interface
+          >>> @zope.interface.implementer(zope.interface.Interface)
+          ... class Content(object):
+          ...     pass
+          >>> content = Content()
+        
+        and we need a view...
+        
+          >>> import zope.interface
+          >>> import zope.component
+          >>> from zope.publisher.browser import BrowserPage
+          >>> class View(BrowserPage):
+          ...     def __init__(self, context, request):
+          ...         self.context = context
+          ...         self.request = request
+        
+        and we need a request:
+          >>> from zope.publisher.browser import TestRequest
+          >>> request = TestRequest()
+        
+        Check if we get the macro template:
+        
+          >>> from z3c.macro import interfaces
+          >>> view = View(content, request)
+        
+          >>> macro = zope.component.queryMultiAdapter((content, view, request),
+          ...     interface=interfaces.IMacroTemplate, name='title')
+        
+          >>> macro is not None
+          True
+        
+          >>> import os, tempfile
+          >>> temp_dir = tempfile.mkdtemp()
+          >>> test_path = os.path.join(temp_dir, 'test.pt')
+          >>> with open(test_path, 'w') as file:
+          ...     _ = file.write('''
+          ... <html>
+          ...   <body>
+          ...     <metal:macro use-macro="options/macro" />
+          ...   </body>
+          ... </html>
+          ... ''')
+        
+          >>> from zope.browserpage.viewpagetemplatefile import BoundPageTemplate
+          >>> from zope.browserpage.viewpagetemplatefile import ViewPageTemplateFile
+          >>> template = ViewPageTemplateFile(test_path)
+          >>> print(BoundPageTemplate(template, view)(macro=macro))
+          <html>
+            <body>
+              <title>Pagelet skin</title>
+            </body>
+          </html>
+        
+        
+        =======
+        CHANGES
+        =======
+        
+        2.0.0a1 (2013-02-25)
+        --------------------
+        
+        - Added support for Python 3.3.
+        
+        - Replaced deprecated ``zope.interface.implements`` usage with equivalent
+          ``zope.interface.implementer`` decorator.
+        
+        - Dropped support for Python 2.4 and 2.5.
+        
+        
+        1.4.2 (2012-02-15)
+        ------------------
+        
+        - Remove hooks to use ViewPageTemplateFile from z3c.pt because this breaks when
+          z3c.pt is available, but z3c.ptcompat is not included. As recommended by notes
+          in 1.4.0 release.
+        
+        
+        1.4.1 (2011-11-15)
+        ------------------
+        
+        - bugfix, missing comma in setup install_requires list
+        
+        
+        1.4.0 (2011-10-29)
+        ------------------
+        
+        - Moved z3c.pt include to extras_require chameleon. This makes the package
+          independent from chameleon and friends and allows to include this
+          dependencies in your own project.
+        
+        - Upgrade to chameleon 2.0 template engine and use the newest z3c.pt and
+          z3c.ptcompat packages adjusted to work with chameleon 2.0.
+        
+          See the notes from the z3c.ptcompat package:
+        
+          Update z3c.ptcompat implementation to use component-based template engine
+          configuration, plugging directly into the Zope Toolkit framework.
+        
+          The z3c.ptcompat package no longer provides template classes, or ZCML
+          directives; you should import directly from the ZTK codebase.
+        
+          Note that the ``PREFER_Z3C_PT`` environment option has been
+          rendered obsolete; instead, this is now managed via component
+          configuration.
+        
+          Also note that the chameleon CHAMELEON_CACHE environment value changed from
+          True/False to a path. Skip this property if you don't like to use a cache.
+          None or False defined in buildout environment section doesn't work. At least
+          with chameleon <= 2.5.4
+        
+          Attention: You need to include the configure.zcml file from z3c.ptcompat
+          for enable the z3c.pt template engine. The configure.zcml will plugin the
+          template engine. Also remove any custom built hooks which will import
+          z3c.ptcompat in your tests or other places.
+        
+        
+        1.3.0 (2010-07-05)
+        ------------------
+        
+        - Tests now require ``zope.browserpage >= 3.12`` instead of
+          ``zope.app.pagetemplate`` as the expression type registration has
+          been moved there recently.
+        
+        - No longer using deprecated ``zope.testing.doctestunit`` but built-in
+          ``doctest`` instead.
+        
+        
+        1.2.1 (2009-03-07)
+        ------------------
+        
+        - Presence of ``z3c.pt`` is not sufficient to register macro-utility,
+          ``chameleon.zpt`` is required otherwise the factory for the utility
+          is not defined.
+        
+        
+        1.2.0 (2009-03-07)
+        ------------------
+        
+        - Allow use of ``z3c.pt`` using ``z3c.ptcompat`` compatibility layer.
+        
+        - Change package's mailing list address to zope-dev at zope.org.
+        
+        
+        1.1.0 (2007-11-01)
+        ------------------
+        
+        - Update package info data.
+        
+        - Add z3c namespace package declaration.
+        
+        
+        1.0.0 (2007-09-30)
+        ------------------
+        
+        - Initial release.
+        
+Keywords: zope3 macro pagetemplate zpt
+Platform: UNKNOWN
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Environment :: Web Environment
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: Zope Public License
+Classifier: Programming Language :: Python
+Classifier: Programming Language :: Python :: 2
+Classifier: Programming Language :: Python :: 2.6
+Classifier: Programming Language :: Python :: 2.7
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.3
+Classifier: Programming Language :: Python :: Implementation :: CPython
+Classifier: Natural Language :: English
+Classifier: Operating System :: OS Independent
+Classifier: Topic :: Internet :: WWW/HTTP
+Classifier: Framework :: Zope3
