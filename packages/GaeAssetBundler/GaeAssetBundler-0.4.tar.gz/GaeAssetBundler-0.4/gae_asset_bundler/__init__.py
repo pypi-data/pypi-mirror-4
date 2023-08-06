@@ -1,0 +1,1 @@
+from gae_asset_bundler import AssetCompressor
