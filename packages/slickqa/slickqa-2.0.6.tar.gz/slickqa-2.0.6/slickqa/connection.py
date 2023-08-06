@@ -1,0 +1,212 @@
+"""
+slick.py is a library for talking to slick (http://code.google.com/p/slickqa).
+
+Copyright 2013 AccessData Group, LLC.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+"""
+__author__ = 'Jason Corbett'
+
+
+import requests
+from urllib.parse import urlencode
+import logging
+import types
+
+from .micromodels import Model
+from .data import *
+from . import queries
+
+
+json_content = {'Content-Type': 'application/json'}
+STREAM_CONTENT = {'Content-Type': 'application/octet-stream'}
+GET = 'GET'
+POST = 'POST'
+PUT = 'PUT'
+DELETE = 'DELETE'
+
+class FindOneModeEnum(object):
+    """
+
+    """
+    FIRST = 1
+    LAST = 2
+
+    def __getattr__(self, name):
+        if name in FindOneModeEnum.__dict__:
+            return FindOneModeEnum.__dict__[name]
+        raise AttributeError
+
+
+FindOneMode = FindOneModeEnum()
+
+class AttributeDict(dict):
+    __getattr__ = dict.__getitem__
+    __setattr__ = dict.__setitem__
+
+def obj_hook_attr_dict(dct):
+    return AttributeDict(dct)
+
+class SlickApiPart(object):
+    """A class representing part of the slick api"""
+
+    def __init__(self, model, parentPart):
+        self.model = model
+        if hasattr(model, 'URLPART'):
+            self.name = model.URLPART
+        else:
+            self.name = model.__name__.lower() + "s"
+
+        self.logger = logging.getLogger(name=self.get_name())
+        self.parent = parentPart
+        self.data = None
+
+    def get_name(self):
+        return self.parent.get_name() + "." + self.name
+
+
+    def find(self, query=None, **kwargs):
+        """
+        You can pass in the appropriate model object from the queries module,
+        or a dictionary with the keys and values for the query,
+        or a set of key=value parameters.
+        """
+        url = self.getUrl()
+        if query is not None:
+            if isinstance(query, queries.SlickQuery):
+                url = url + "?" + urlencode(query.to_dict())
+            elif isinstance(query, dict):
+                url = url + "?" + urlencode(query)
+        elif len(kwargs) > 0:
+            url = url + "?" + urlencode(kwargs)
+
+        # hopefully when we discover what problems exist in slick to require this, we can take the loop out
+        r = None
+        for retry in range(3):
+            try:
+                self.logger.debug("Making request to slick at url %s", url)
+                r = requests.get(url)
+                self.logger.debug("Request returned status code %d", r.status_code)
+                if r.status_code is 200:
+                    retval = []
+                    objects = r.json()
+                    for dct in objects:
+                        retval.append(self.model.from_dict(dct))
+                    return retval
+                else:
+                    self.logger.debug("Body of what slick returned: %s", r.raw)
+            except BaseException as error:
+                self.logger.warn("Received exception while connecting to slick at %s: %s", url, str(error))
+        raise SlickCommunicationError("Tried 3 times to request data from slick at url %s without a successful status code.", url)
+
+
+
+    query = find
+
+    def findOne(self, query=None, mode=FindOneMode.FIRST, **kwargs):
+        """
+        Perform a find, with the same options present, but only return a maximum of one result.  If find returns
+        an empty array, then None is returned.
+
+        If there are multiple results from find, the one returned depends on the mode parameter.  If mode is
+        FindOneMode.FIRST, then the first result is returned.  If the mode is FindOneMode.LAST, then the last is
+        returned.  If the mode is FindOneMode.ERROR, then a SlickCommunicationError is raised.
+        """
+        results = self.find(query, **kwargs)
+        if len(results) is 0:
+            return None
+        elif len(results) is 1 or mode == FindOneMode.FIRST:
+            return results[0]
+        elif mode == FindOneMode.LAST:
+            return results[-1]
+
+    def get(self):
+        """Get the specified object from slick.  You specify which one you want by providing the id as a parameter to
+        the parent object.  Example:
+        slick.projects("4fd8cd95e4b0ee7ba54b9885").get()
+        """
+
+    def update(self):
+        """Update the specified object from slick.  You specify the object as a parameter, using the parent object as
+        a function.  Example:
+        proj = slick.projects.findByName("foo")
+        ... update proj here
+        slick.projects(proj).update()
+        """
+
+    put = update
+
+    def create(self):
+        """Create the specified object (perform a POST to the api).  You specify the object as a parameter, using
+        the parent object as a function.  Example:
+        proj = slick.projects.findByName("foo")
+        ... update proj here
+        slick.projects(proj).update()
+        """
+
+    post = create
+
+    def remove(self):
+        """Remove or delete the specified object from slick.  You specify which one you want by providing the id as
+        a parameter to the parent object, using it as a function.  Example:
+        slick.projects("4fd8cd95e4b0ee7ba54b9885").remove()
+        """
+
+    delete = remove
+
+    #def findOrCreate(self):
+
+
+    def getUrl(self):
+        url = self.parent.getUrl() + "/" + self.name
+        if self.data is not None:
+            if isinstance(self.data, Model) and hasattr(self.data, 'id'):
+                url = url +  "/" + self.data.id
+            else:
+                url = url +  "/" + str(self.data)
+            self.data = None
+        return url
+
+    def __call__(self, *args, **kwargs):
+        if len(args) > 0:
+            self.data = args[0]
+        return self
+
+class SlickCommunicationError(Exception):
+    pass
+
+class SlickConnection(object):
+    """Slick Connection contains the information on how to connect to slick."""
+    logger = logging.getLogger("slick.SlickConnection")
+
+    def __init__(self, baseUrl):
+        """Create a new connection to slick, providing the base url under which to contact slick."""
+        if baseUrl is None or not isinstance(baseUrl, str):
+            SlickConnection.logger.error("Base URL provided to slick connection is not a string.")
+            raise SlickCommunicationError
+
+        if baseUrl.endswith("/"):
+            self.baseUrl = baseUrl + "api"
+        else:
+            self.baseUrl = baseUrl + "/api"
+        self.configurations = SlickApiPart(Configuration, self)
+
+    def getUrl(self):
+        """This method is used by the slick api parts to get the base url."""
+        return self.baseUrl
+
+    def get_name(self):
+        return "slick"
+
+
+
