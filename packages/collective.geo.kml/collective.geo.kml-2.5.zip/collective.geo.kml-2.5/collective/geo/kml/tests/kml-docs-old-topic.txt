@@ -1,0 +1,108 @@
+Check topic results
+    >>> portal = layer['portal']
+    >>> folder = portal['folder']
+    >>> topic = folder['topic']
+    >>> doc = portal['folder']['doc']
+
+    >>> brain = [b for b in topic.queryCatalog() if b.id == 'doc'][0]
+    >>> brain.zgeo_geometry['type']
+    'Point'
+    >>> brain.zgeo_geometry['coordinates']
+    (-105, 40)
+
+Set the dates for the content so they are consistent and can be tested
+
+    >>> import DateTime
+    >>> testDate = DateTime.DateTime(
+    ...   '2010/01/01 09:00:00.000 ' + DateTime.DateTime().timezone())
+    >>> doc.setCreationDate(testDate)
+    >>> doc.setEffectiveDate(testDate)
+    >>> doc.setModificationDate(testDate)
+    >>> doc.indexObject()
+
+Test the KML document view of the topic
+
+    >>> from plone.testing.z2 import Browser
+    >>> from plone.app.testing import TEST_USER_NAME
+    >>> from plone.app.testing import TEST_USER_PASSWORD
+    >>> browser = Browser(layer['app'])
+    >>> browser.addHeader('Authorization',
+    ...                   'Basic %s:%s' % (TEST_USER_NAME, TEST_USER_PASSWORD))
+    >>> browser.open("%s/@@kml-document" % topic.absolute_url())
+
+    >>> print browser.contents
+    <?xml version="1.0" encoding="utf-8"?>
+    <kml xmlns="http://www.opengis.net/kml/2.2" xmlns:atom="http://www.w3.org/2005/Atom">
+    ...
+            <Style id="defaultStyle">
+              <IconStyle>
+                <scale>0.7</scale>
+               <Icon>
+                <href>http://nohost/plone/img/marker.png</href>
+               </Icon>
+               <hotSpot x="0.5" y="0" xunits="fraction" yunits="fraction"/>
+              </IconStyle>
+              <LineStyle>
+               <color>3c0000ff</color>
+               <width>2.0</width>
+              </LineStyle>
+              <PolyStyle>
+                <color>3c0000ff</color>
+              </PolyStyle>
+            </Style>
+    ...
+      <Placemark>
+        <name>Test document</name>
+        <atom:author>
+           <atom:name>test_user_1_</atom:name>
+        </atom:author>
+        <atom:link href="http://nohost/plone/folder/doc"/>
+    ...
+            <p>A test document</p>
+    ...
+                    <p class="placemark-url">
+                        <a href="http://nohost/plone/folder/doc">See the original resource</a>
+                    </p>
+    ...
+            <styleUrl>#defaultStyle</styleUrl>
+    ...
+          <coordinates>-105.000000,40.000000,0.0</coordinates>
+    ...
+      </Placemark>
+    ...
+    </kml>
+    <BLANKLINE>
+
+When result of a topic includes a content without geographical data
+it won't be displayed in the kml-document.
+See: zgeo.kml.browser.Placemark.coords_kml
+
+Add a new document without geo-referencing it
+    >>> from plone.app.testing import setRoles
+    >>> from plone.app.testing import TEST_USER_ID
+    >>> setRoles(portal, TEST_USER_ID, ['Manager'])
+    >>> oid = folder.invokeFactory(
+    ...     'Document', 'doc-1', title='Other Document',
+    ...     description='A new test document')
+
+create a new topic
+    >>> oid = folder.invokeFactory('Topic', 'topic-1', title='Test 2')
+    >>> topic = folder[oid]
+    >>> c = topic.addCriterion('portal_type', 'ATSimpleStringCriterion')
+    >>> c.setValue('Document')
+
+    >>> import transaction
+    >>> transaction.commit()
+
+    >>> browser.open("%s/@@kml-document" % topic.absolute_url())
+    >>> import lxml
+    >>> kml = lxml.etree.fromstring(browser.contents)
+    >>> placemarks = kml.xpath('//kml:Placemark',
+    ...     namespaces={'kml': "http://www.opengis.net/kml/2.2"})
+    >>> len(placemarks)
+    1
+
+    >>> coordinates = placemarks[0].xpath('//kml:Point/kml:coordinates',
+    ...     namespaces={'kml': "http://www.opengis.net/kml/2.2"})[0]
+    >>> coordinates.text
+    '-105.000000,40.000000,0.0'
