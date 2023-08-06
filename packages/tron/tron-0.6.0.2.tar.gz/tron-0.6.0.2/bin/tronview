@@ -1,0 +1,144 @@
+#!/usr/bin/env python
+import os
+import optparse
+import sys
+
+import tron
+from tron import commands
+from tron.commands import display, ExitCode
+from tron.commands.client import Client, get_object_type_from_identifier
+from tron.commands.client import TronObjectType
+
+
+def parse_options():
+    parser = optparse.OptionParser(
+        "usage: %prog [options] [<job | job run | action>]",
+        version="%%prog %s" % tron.__version__)
+    parser.add_option("--verbose", "-v", action="count", dest="verbose",
+                      help="Verbose logging", default=0)
+    parser.add_option("--numshown", "-n", type="int", dest="num_displays",
+                      help="Max number of jobs/job-runs shown", default=10)
+    parser.add_option("--server", action="store", dest="server",
+                      help="Server URL to connect to", default=None)
+    parser.add_option("--hide-preface", "-z", action="store_false",
+                      dest="display_preface", help="Don't display preface",
+                      default=True)
+    parser.add_option("--color", "-c", action="store_true",
+                      dest="display_color", help="Display in color",
+                      default=None)
+    parser.add_option("--nocolor", action="store_false",
+                      dest="display_color", help="Display without color",
+                      default=None)
+    parser.add_option("--stdout", "-o", action="count", dest="stdout",
+                      help="Solely displays stdout", default=0)
+    parser.add_option("--stderr", "-e", action="count", dest="stderr",
+                      help="Solely displays stderr", default=0)
+    parser.add_option("--warn", "-w", action="count", dest="warn",
+                      help="Solely displays warnings and errors", default=0)
+    parser.add_option("--events", action="store_true", dest="show_events",
+                      help="Show events for the specified entity",
+                      default=False)
+    parser.add_option("--save", "-s", action="store_true", dest="save_config",
+                      help="Save options used on this job for next time.",
+                      default=False)
+
+    (options, args) = parser.parse_args(sys.argv)
+    return options, args[1:]
+
+
+def console_height():
+    if not sys.stdout.isatty():
+        return 40
+    return int(os.popen('stty size', 'r').read().split()[0])
+
+def display_events(data):
+    return display.DisplayEvents().format(data)
+
+def view_all(options, client):
+    """Retreive jobs and services and display them."""
+    if options.show_events:
+        return display_events(client.events())
+
+    return "".join([
+        display.DisplayServices().format(client.services()),
+        '\n',
+        display.DisplayJobs(options).format(client.jobs())
+    ])
+
+
+def view_job(options, job_id, client):
+    """Retrieve details of the specified job and display"""
+    if options.show_events:
+        return display_events(client.object_events(job_id.url))
+
+    job_content = client.job(job_id.url)
+    return display.format_job_details(job_content, options)
+
+
+def view_job_run(options, job_run_id, client):
+    if options.show_events:
+        return display_events(client.object_events(job_run_id.url))
+
+    actions = client.job_runs(job_run_id.url)
+    display_action = display.DisplayActionRuns(options)
+    return display_action.format(actions)
+
+
+def view_action_run(options, act_run_id, client):
+    content = client.action(act_run_id.url)
+    return display.format_action_run_details(content)
+
+
+def view_service(options, service_id, client):
+    """Retrieve details of the specified service and display"""
+    if options.show_events:
+        return display_events(client.object_events(service_id.url))
+
+    service_content = client.service(service_id.url)
+    return display.format_service_details(service_content)
+
+
+obj_type_to_view_map = {
+    TronObjectType.job:         view_job,
+    TronObjectType.job_run:     view_job_run,
+    TronObjectType.action_run:  view_action_run,
+    TronObjectType.service:     view_service,
+}
+
+def get_view_output(name, options):
+    client      = Client(options)
+    url_index   = client.index()
+    tron_id     = get_object_type_from_identifier(url_index, name)
+
+    if tron_id.type not in obj_type_to_view_map:
+        return
+    return obj_type_to_view_map[tron_id.type](options, tron_id, client)
+
+
+def main():
+    """run tronview"""
+    options, args = parse_options()
+    commands.setup_logging(options)
+    commands.load_config(options)
+
+    display.Color.enabled = options.display_color
+    client = Client(options)
+    client.status()
+
+    if not args:
+        output = view_all(options, client)
+    else:
+        output = get_view_output(args[0], options)
+
+    if not output:
+        print >>sys.stderr, "Unrecognized identifier: %s" % args[0]
+        sys.exit(ExitCode.fail)
+
+    if sys.stdout.isatty() and len(output.split('\n')) > console_height():
+        display.view_with_less(output, options.display_color)
+    else:
+        print output
+
+
+if __name__ == '__main__':
+    main()
