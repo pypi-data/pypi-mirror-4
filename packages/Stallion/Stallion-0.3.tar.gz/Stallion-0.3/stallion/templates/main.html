@@ -1,0 +1,204 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+        "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8">
+  <title>Stallion, package manager for Python</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/redmond/jquery-ui-1.8.16.custom.css') }}">
+  <script type="text/javascript" src="{{ url_for('static', filename='jquery-1.7.1.min.js') }}"></script>
+  <script type="text/javascript" src="{{ url_for('static', filename='jquery-ui-1.8.16.custom.min.js') }}"></script>
+  <script type="text/javascript" src="{{ url_for('static', filename='ajax-queue.js') }}"></script>
+  <script type="text/javascript" src="{{ url_for('static', filename='bootstrap.min.js') }}"></script>
+
+  <link rel="stylesheet" href="{{ url_for('static', filename='bootstrap.min.css') }}">
+  <link href="{{ url_for('static', filename='extra.css') }}" rel="stylesheet">
+  <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
+
+  {% block head %}{% endblock %}
+
+  <script type="text/javascript">
+
+	// This is going to bind the events ajaxStart and ajaxStop into the
+	// global ajax progress animation on the left of the topbar navigation
+    $(document).ready(function() {
+
+		$("#ajax_load").bind("ajaxStart", function(){
+			$(this).show();
+		}).bind("ajaxStop", function(){
+			$(this).hide();
+		});
+
+		$('#progressbar').progressbar();
+		$('#topbar').dropdown();
+    });
+
+	// Sets the value of the progress bar
+	function set_progress_bar_value(prog_value)
+	{
+		$('#progressbar').progressbar({value: prog_value});
+	}
+
+	// Main function to check all updates, it is going to send multiple
+	// ajax requests to a queue
+	function check_all_updates()
+	{
+		set_progress_bar_value(0);
+
+		$("#check_updates").fadeIn("slow");
+	
+		$('img[id^=img]').each(function(current_distr) {
+			var dist_id = "#" + $(this).prop("id");
+			var dist_key = $(this).attr("pname");
+
+			$.ajaxQueue({
+				url: '/pypi/check_update/' + dist_key,
+				dataType: "json",
+				cache: false,
+				beforeSend: function(a,b) { 
+					$(dist_id).attr("src", "{{ url_for('static', filename='loader.gif') }}");
+					$(dist_id).parent().animate({"padding-left": "+=12px"}, "fast");
+				},
+				success: function(data) {
+
+					var prog_value = $("#progressbar").progressbar("option", "value");
+
+					if((current_distr+1) >= {{ distributions|length }})
+						$("#check_updates").fadeOut("slow");
+
+					prog_value = prog_value + 100.0/{{ distributions|length }};
+
+					set_progress_bar_value(prog_value);
+
+					if(data.has_update) {
+						$(dist_id).attr("src", 
+										"{{ url_for('static', filename='down-arrow.png') }}")
+										.stop(true,true).hide().fadeIn();
+					} else {
+						$(dist_id).attr("src", 
+										"{{ url_for('static', filename='box-icon.png') }}")
+										.stop(true,true).hide().fadeIn();
+					}
+
+					$(dist_id).parent().animate({"padding-left": "-=12px"}, "fast");
+
+				}
+			}); // ajax
+		}); // each img
+	}
+</script>
+
+  {% block js %}{% endblock %}
+</head>
+
+<body>
+	<div class="navbar navbar-fixed-top">
+		<div class="navbar-inner">
+			<div class="container">
+				<a class="brand" href="{{ url_for('index') }}">
+					<img src="{{ url_for('static', filename='stallion_icon.png') }}" class="midicon"> Stallion
+				</a>
+
+				<ul class="nav">
+					<li class="{{ menu_home }}"><a href="{{ url_for('index') }}">Home</a></li>
+
+					<li class="dropdown" data-dropdown="dropdown" >
+						<a href="#" class="dropdown-toggle" data-toggle="dropdown">PyPI Repository</a>
+						<ul class="dropdown-menu">
+							<li><a href="javascript:check_all_updates();">Check all updates</a></li>
+						</ul>
+					</li>
+					<li class="{{ menu_about }}"><a href="{{ url_for('about') }}">About</a></li>
+				</ul>
+
+				<ul class="nav secondary-nav">
+				<li><a href="#"><span id="ajax_load" class="progress-span">
+				<img src="{{ url_for('static', filename='ajax-global.gif') }}" />
+				</span></a></li>
+				</ul>
+
+			</div>
+		</div>
+	</div>
+
+	<div class="container-fluid">
+		<div class="row-fluid">
+
+			<div class="span3">
+
+				<div class="page-header">
+				<h2>Packages</h2>
+				</div>
+
+				<div id="check_updates" class="progress-div">
+						Checking for updates... <br />
+						<div id="progressbar" style="width: 200px; height: 19px;"></div>
+						<br />
+				</div>
+
+
+				<ul class="unstyled">
+				{% for dist_item in distributions|sort(attribute="project_name") %}
+
+					{% if dist_item.key|lower in pypi_update_cache %}
+						{% set img_src = url_for('static', filename='down-arrow.png') %}
+					{% else %}
+						{% set img_src = url_for('static', filename='box-icon.png') %}
+					{% endif %}
+
+					<li>
+						<a href="{{ url_for('distribution', dist_name=dist_item.key) }}">
+							<img id="img_{{ dist_item.key|lower|replace('.','-') }}" src="{{ img_src }}"
+							class="midicon" pname="{{ dist_item.project_name }}"/>
+
+						{% if dist and dist.key == dist_item.key %}
+							{{ dist_item.project_name }} {{ dist_item.version }} <img src="{{ url_for('static', filename='left-arrow.png') }}" class="midicon" />
+						{% else %}
+							{{ dist_item.project_name }} {{ dist_item.version }}
+						{% endif %}
+
+						</a>
+
+					</li>
+
+				{% endfor %}
+				</ul>
+			</div> <!-- span3 -->
+
+			<div class="span9">
+				<div class="page-header">
+					<h1>Stallion<small> A Package Manager for Python</small></h1>
+				</div>
+
+				<ul class="breadcrumb">
+					{% for path in breadpath %}
+						{% if loop.last %}
+							<li class="active">{{ path.title }}</li>
+						{% else %}
+							<li><a href="{{ path.href }}">{{ path.title }}</a><span class="divider">/</span></li>
+						{% endif %}
+					{% endfor %}
+				</ul>
+				<div class="page-header">
+				<h2>{% block section_title %}{% endblock %}</h2>
+				</div>
+				{% block content %}{% endblock %}
+
+			</div> <!-- span9 -->
+
+		</div> <!-- row -->
+
+		<hr>
+
+	    <footer class="footer">
+	        <p>
+			Created by <em>Christian S. Perone</em> 2011 <a href="http://twitter.com/tarantulae" target="_blank">@tarantulae</a>, <a href="http://pyevolve.sourceforge.net/wordpress" target="_blank">Pyevolve Blog</a>.<br />
+
+			  Code licensed under the <a href="http://www.apache.org/licenses/LICENSE-2.0" target="_blank">
+			  Apache License v2.0</a>.
+	        </p>
+	    </footer>
+
+	</div> <!-- container -->
+
+</body>
+</html>
