@@ -1,0 +1,10 @@
+__version__ = "0.5.9"
+__git_commiter_name__ = "root"
+__git_commiter_email__ = "root@guyr-ubuntu.infinidat.com"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '746f52443f861f8f0cdef52f932c6c7e08a47592'
+__git_head_subject__ = 'Finished release v0.5.9.'
+__git_head_message__ = '* release/v0.5.9:\n  Freezing dependencies\n  HOSTDEV-659 adapting to changes in pkg_resources.parse_version\n  TRIVIAL fix tests on Windows\n  Unfreezing dependencies\n  empty commit after version v0.5.8'
+__git_dirty_diff__ = ''
