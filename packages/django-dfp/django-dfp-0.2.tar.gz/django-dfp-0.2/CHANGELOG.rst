@@ -1,0 +1,20 @@
+Changelog
+=========
+
+0.2
+---
+#. Async script loading has been re-added.
+#. Deprecate the `dfp_header` tag and replace with `dfp_footer`. DFP will now work across all browsers.
+
+0.1.2
+-----
+#. Remove async script loading since it does not work.
+
+0.1.1
+-----
+#. Allow variables to be passed as arguments to the template tag.
+
+0.1
+---
+#. First release. 
+
