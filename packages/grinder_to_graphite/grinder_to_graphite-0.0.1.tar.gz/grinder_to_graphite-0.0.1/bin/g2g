@@ -1,0 +1,104 @@
+#!/usr/bin/env python
+
+# Copyright (C) 2011-2013, Travis Bear
+# All rights reserved.
+#
+# This file is part of Graphite Log Feeder.
+#
+# Graphite Log Feeder is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# Graphite Log Feeder is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with Graphite Log Feeder; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+
+
+import datetime
+from optparse import OptionParser
+import sys
+from glf import engine
+from glf import config_param as param
+from glf import glf_config
+from glf.logtype.grinder import data_reader
+
+EXAMPLE_CONFIG_FILE="g2g.example.conf"
+
+def usage():
+    print """
+    usage:  g2g [options] config_file
+    
+    options include:
+        -d, --data-file:
+                path to the log file to ingest.  Overrides the
+                'log_file' setting in the config file.
+                            
+        -e, --example-config-file:
+                Creates an example config file named %s.
+                You can modify this file to suit your own needs.
+        
+        -m, --mapping-file:
+                path to the mapping file to use.  Overrides the
+                'mapping_file' setting in the config file.
+                            
+        -s, --set-config:
+                Sets a default config file.  Once this is done,
+                specifying a config file on the command line is
+                optional.
+                
+    config_file:
+            path to the file with the graphite_log_feeder settings.
+            If you don't have a config file, run 
+            'graphite_log_feeder -e' to get one.
+    """ %EXAMPLE_CONFIG_FILE
+    sys.exit(1)
+
+
+
+def main():
+    parser = OptionParser()
+    parser.add_option("-m", "--mapping_file",
+                      dest="mapping_file",
+                      help="Grinder out* file with tx name/num mapings",
+                      metavar="FILE")
+    parser.add_option("-e", "--example-config-file", action="store_true", dest="example")
+    parser.add_option("-s", "--set-config-file", dest="default_config", help="Set default config file")
+    parser.add_option("-d", "--data-file",
+                      dest="data_file",
+                      help="grinder data file",
+                      metavar="FILE")
+    (options, args) = parser.parse_args()
+    if options.example:
+        glf_config.create_example_config_file(EXAMPLE_CONFIG_FILE)
+        return
+    if options.default_config:
+        print "Setting default config to %s" %options.default_config
+        glf_config.set_default_config(options.default_config)
+        return
+    config = glf_config.get_config(args)
+    if not config:
+        usage()
+    if options.data_file:
+        config.set("data", "log_file", options.data_file) 
+    if options.mapping_file:
+        config.set("grinder", "grinder_mapping_file", options.mapping_file)
+    print "Ingesting log file '%s'.  Forwarding data to graphite host at '%s'" % (
+        config.get(param.DATA_SECTION, param.LOG_FILE),
+        config.get(param.GRAPHITE_SECTION, param.CARBON_HOST))
+    line_reader = data_reader.LineReader(config)
+    times = engine.ingest_log (line_reader, config)
+    print "Log ingestion complete.  Log data begins at: %d (%s), Log data ends at: %d (%s)" % (
+        times[0],
+        datetime.datetime.fromtimestamp(times[0]),
+        times[1],
+        datetime.datetime.fromtimestamp(times[1]))
+
+
+if __name__ == "__main__":
+    main()

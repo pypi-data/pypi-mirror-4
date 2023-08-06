@@ -1,0 +1,83 @@
+#!/usr/bin/env python
+
+# Copyright (C) 2011-2013, Travis Bear
+# All rights reserved.
+#
+# This file is part of Graphite Log Feeder.
+#
+# Graphite Log Feeder is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# Graphite Log Feeder is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with Graphite Log Feeder; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+
+import sys
+try:
+    import logster
+except ImportError:
+    print "You must install Logster before you can send live Grinder data to Graphite."
+    print "See https://github.com/etsy/logster."
+    sys.exit(1)
+    
+import time
+from glf import config_param as param
+from glf import glf_config
+import os
+import socket
+
+
+def usage():
+    print """
+    usage:  lg2g config_file
+                            
+    config_file:
+        path to the file with the graphite_log_feeder settings.
+        
+        If you don't have a config file, you can generate one
+        by running 'g2g -e'
+    """
+    sys.exit(1)
+
+
+    
+def main():
+    if len(sys.argv) < 2:
+        usage()
+    config_file = sys.argv[1]
+    config =  glf_config.get_config([config_file])
+    print "Forwarding log file '%s' every %s seconds to %s" % (
+        config.get(param.DATA_SECTION, param.LOG_FILE),
+        config.get(param.GRAPHITE_SECTION, param.CARBON_INTERVAL_SECONDS),
+        config.get(param.GRAPHITE_SECTION, param.CARBON_HOST))
+    sleep_time=float(config.get(param.GRAPHITE_SECTION, param.CARBON_INTERVAL_SECONDS))
+    while True:
+        command = """logster \
+         --state-dir=%s \
+         --output=graphite \
+         --graphite-host=%s:%s \
+         --metric-prefix=%s.%s \
+         --parser-options="%s" \
+         glf.realtime.parser.GrinderLogster \
+         %s""" %(
+              glf_config.DOTDIR,
+              config.get(param.GRAPHITE_SECTION, param.CARBON_HOST),
+              config.get(param.GRAPHITE_SECTION, param.CARBON_PORT), 
+              config.get(param.GRAPHITE_SECTION, param.CARBON_PREFIX),
+              socket.gethostname(),
+              config_file,
+              config.get(param.DATA_SECTION, param.LOG_FILE))
+        #print"\n%s\n" %command
+        os.system(command)
+        time.sleep(sleep_time)        
+
+    
+if __name__ == "__main__":
+    main()
