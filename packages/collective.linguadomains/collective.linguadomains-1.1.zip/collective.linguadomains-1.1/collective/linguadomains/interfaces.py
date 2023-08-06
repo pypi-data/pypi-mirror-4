@@ -1,0 +1,2 @@
+from collective.linguadomains.controlpanel import ISettingsSchema
+from collective.linguadomains.controller import ILinguaDomainsManager
