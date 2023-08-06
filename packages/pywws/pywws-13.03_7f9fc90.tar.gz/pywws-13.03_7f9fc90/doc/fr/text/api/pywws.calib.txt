@@ -1,0 +1,108 @@
+
+pywws.calib
+***********
+
+
+Calibre les données brutes de la station météo
+==============================================
+
+Ce module permet d'ajuster les données brutes de la station météo dans
+le cadre de l'étape de 'traitement' (voir *pywws.Process* ). Par
+exemple, si vous avez installé un entonnoir pour doubler votre zone de
+collecte du pluviomètre, vous pouvez écrire une routine de calibration
+pour doubler la valeur de pluie.
+
+The default calibration does two things:
+   1. Générer pression atmosphérique relative.
+
+   2. Retirer les valeurs invalides de direction du vent.
+
+Toute calibration utilisateur que vous écrivez doit également faire
+ceci.
+
+
+Écrire votre module de calibration
+----------------------------------
+
+Tout d'abord, décider où vous voulez garder votre module. Comme vos
+gabarits texte et graphe, il est préférable de le garder séparé du
+code pywws, de sorte qu'il n'est pas affecté par les mises à jour de
+pywws. Je suggère la création d'un répertoire "modules" au même
+endroit que votre répertoire "templates".
+
+Créez un fichier texte dans votre répertoire "modules", par exemple,
+"Calib.py" et copiez-y le texte suivant:
+
+   class Calib(object):
+       def __init__(self, params):
+           self.pressure_offset = eval(params.get('fixed', 'pressure offset'))
+       def calib(self, raw):
+           result = dict(raw)
+           # sanitise data
+           if result['wind_dir'] is not None and result['wind_dir'] >= 16:
+               result['wind_dir'] = None
+           # calculate relative pressure
+           result['rel_pressure'] = raw['abs_pressure'] + self.pressure_offset
+           return result
+
+La classe "Calib" a deux méthodes. "Calib.__init__()" est le
+constructeur et est un bon endroit pour mettre toutes les constantes
+nécessaires. :py: meth:*Calib.calib* génère un ensemble unique de
+données 'calibrées' à partir d'un seul ensemble de données 'brutes'.
+Il y a quelques règles à suivre lors de l'écriture de cette méthode:
+
+   * Assurez-vous d'inclure la ligne "result = dict(raw)", qui permet
+     de copier toutes les données brutes à votre résultat, au début.
+
+   * Ne modifiez pas les données brutes.
+
+   * Assurez-vous que vous définissez "result['rel_pressure']".
+
+   * N'oubliez pas de retourner ("return") le résultat à la fin.
+
+Lorsque vous avez fini d'écrire votre module de calibration vous
+pouvez demander à pywws de l'utiliser en mettant son emplacement dans
+votre fichier "weather.ini". Il va dans les sections "[paths]", comme
+le montre l'exemple ci-dessous:
+
+   [paths]
+   work = /tmp/weather
+   templates = /home/jim/weather/templates/
+   graph_templates = /home/jim/weather/graph_templates/
+   user_calib = /home/jim/weather/modules/usercalib
+
+Notez que la valeur de "user_calib" ne doit pas inclure le ".py" à la
+fin du nom de fichier.
+
+-[ Classes ]-
+
++------------+--------------------------------------------------------------------------------------------+
+| "Calib"(pa | Classe qui implémente la calibration par défaut ou la calibration par l'utilisateur.       |
++------------+--------------------------------------------------------------------------------------------+
+| "DefaultCa | Classe de calibration par défaut                                                           |
++------------+--------------------------------------------------------------------------------------------+
+
+class class pywws.calib.DefaultCalib(params)
+
+   Classe de calibration par défaut
+
+   Cette classe définit la pression relative, en utilisant un décalage
+   de pression lues à partir de la station météorologique, et
+   'normalise' la valeur de la direction du vent. C'est la calibration
+   strictement minimale nécessaire.
+
+   calib(raw)
+
+class class pywws.calib.Calib(params)
+
+   Classe qui implémente la calibration par défaut ou la calibration
+   par l'utilisateur.
+
+   D'autres modules pywws utilisent cette méthode pour créer un objet
+   de calibration. Le constructeur crée soit un objet de calibration
+   par défaut ou un objet de calibration utilisateur, en fonction de
+   la valeur "user_calib" dans la section "[paths]" du paramètre
+   "params". Il adopte alors la méthode de calibration de l'objet :py:
+   meth:*calib* comme sien.
+
+   calibrator = None

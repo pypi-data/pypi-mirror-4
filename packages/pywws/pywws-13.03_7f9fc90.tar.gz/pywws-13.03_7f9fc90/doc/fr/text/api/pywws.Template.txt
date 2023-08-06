@@ -1,0 +1,205 @@
+
+pywws.Template
+**************
+
+
+Introduction
+============
+
+C'est probablement le module le plus difficile à utiliser dans le
+logiciel de collecte de la station météo. Il génère des fichiers de
+texte basé sur un fichier "modèle"  ainsi que les données brutes,
+horaires, quotidiennes et mensuelles de la station météo. Le
+traitement de gabarits va au-delà de la simple substitution des
+valeurs pour inclure des boucles, des sauts vers l'avant ou vers
+l'arrière dans les données, le traitement des données et de
+substitution des valeurs manquantes.
+
+Un fichier gabarit peut être n'importe quel type de fichier texte
+(texte brut, xml, html, etc) dans lequel des "instructions de
+traitement" ont été ajoutées. Ces instructions de traitement sont
+délimitées par le caractère dièse ('#'). Ils ne sont pas affichés,
+mais provoquent autre chose: soit une valeur de données est insérée ou
+un nombre limité d'actions sont exécutées.
+
+Avant d'écrire vos propres fichiers gabarits, il pourrait être utile
+d'examiner quelques-uns des exemples dans le répertoire
+example_templates.
+
+
+Instructions de traitement
+==========================
+
+   * "##": affiche un seul caractère '#'.
+
+   * "#! comment text#": a comment, no output generated.
+
+   * "#monthly#": affiche le sommaire des données "mensuelles".
+     L'indice est réinintialisé à la plus récente valeur
+
+   * "#daily#": affiche le sommaire des données "quotidiennes".
+     L'indice est réinintialisé à la plus récente valeur
+
+   * "#hourly#": affiche le sommaire des données "horaires". L'indice
+     est réinintialisé à la plus récente valeur.
+
+   * "#raw#":  affiche les données "brutes". L'indice est réinitialisé
+     à la plus récente valeur.
+
+   * "#timezone name#": converti  toute les valeurs de temps en zone
+     de temps "name" avant affichage. Les valeurs permises sont "utc"
+     ou "local".
+
+   * "#roundtime expr#": met l'arrondissement du temps en fonction ou
+     hors fonction, selon "expr". Lorsque l'arrondissement du temps
+     est en fonction, 30 secondes est ajouté à chaque valeur de temps
+     utilisée. Ceci est utile lorsque vous affichez seulement en
+     heures et minutes, exemple avec un format "%H:%M", et que vous
+     souhaitez qu'une valeur comme 10:23:58 apparaisse ainsi "10:24".
+     Pour la valeur de expr, utiliser ""True"" ou ""False"".
+
+   * "#jump count#": saute "count" valeurs. L'indice des données est
+     ajusté par "count" heures ou jours. Des valeures négatives saute
+     en arrière dans le temps.
+
+     Dans une boucle, c'est une bonne idée de mettre des sauts à la
+     fin, juste avant l'instruction "#endloop". La boucle peut alors
+     se terminer proprement si elle a épuisé toutes les données.
+
+   * "#goto date-time#": aller à "date-time". L'indice des données est
+     ajusté à l'enregistrement immédiatement après "date-time". Ceci
+     peut être en temps UTC ou dans votre zone de temps local, selon
+     la configuration de "timezone", et doit exactement correspondre
+     au format de date ISO, par exemple ""2010-11-01 12:00:00"" est
+     midi le 1er Novembre 2010.
+
+     Des parties de "date-time" peuvent être remplacées par le
+     caractère de formatage % comme dans strftime pour spécifier
+     l'indice courant de la bouche. Par exemple, ""%Y-%m-01 12:00:00""
+     est midi le 1er de ce mois.
+
+   * "#loop count#": démarre une boucle qui se répétera "count" fois.
+     "count" doit être égale à 1 ou plus.
+
+   * "#endloop#": termine une boucle démarrée par "#loop count# ``. Le
+     traitement du gabarit reviendra à la ligne contenant
+     l'instruction ``#loop count#". Ne pas essayer d'imbriquer des
+     boucles.
+
+   * "#key fmt_string  no_value_string conversion#": affiche une
+     valeur de données. "key" est la clé de données, par exemple
+     "temp_out" pour la température extérieure. "fmt_string" est une
+     chaîne de formatage comme  printf (en fait, l'opérateur % de
+     Python), sauf pour les valeurs datetime, quand il est entré dans
+     la méthode "datetime strftime() ``. ``no_value_string" est
+     affiché au lieu de "fmt_string" lorsque la valeur de la donnée
+     est absente, par exemple si la station a perdu contact avec la
+     sonde de température extérieure. "conversion ` est une expression
+     Python pour convertir les données, par exemple, pour convertir la
+     vitesse du vent de m/s en mph, vous pouvez utiliser `` "x * 3,6 /
+     1.609344"".
+
+     Toutes ces valeurs doivent entre guillemets "si elles contiennent
+     des espaces ou d'autres caractères potentiellement difficiles.
+     Tout sauf "key" sont facultatifs, mais notez que si vous voulez
+     spécifier une conversion, vous devez également spécifier
+     "fmt_string" et "no_value_string".
+
+   * "#calc expression fmt_string no_value_string conversion": affiche
+     une valeur calculée à partir d'un ou plusieurs éléments de
+     données. "expression" représente toute expression Python valide,
+     par exemple, ""Dew_point(data['temp_out'], data['hum_out'])""
+     pour calculer le point de rosée à l'extérieur. "fmt_string",
+     "no_value_string" et "conversion" sont comme décrit ci-dessus.
+     Notez qu'il est probablement plus efficace d'intégrer toute
+     conversion dans l'expression.
+
+
+Exemple
+=======
+
+Voici un extrait qui montre un exemple de l'utilisation de base et
+avancé des caractéristiques du gabarit. Il fait partie du fichier
+modèle 6hrs.txt, ce qui génère un tableau HTML de 7 relevés horaires
+(qui devrait s'étendre sur 6 heures).
+
+   #hourly#
+   #jump -6#
+   #loop 7#
+     <tr>
+       <td>#idx "%Y/%m/%d" "" "[None, x][x.hour == 0 or loop_count == 7]"#</td>
+       <td>#idx "%H%M %Z"#</td>
+       <td>#temp_out "%.1f °C"#</td>
+       <td>#hum_out "%d%%"#</td>
+       <td>#wind_dir "%s" "-" "wind_dir_text[x]"#</td>
+       <td>#wind_ave "%.0f mph" "" "x * 3.6 / 1.609344"#</td>
+       <td>#wind_gust "%.0f mph" "" "x * 3.6 / 1.609344"#</td>
+       <td>#rain "%0.1f mm"#</td>
+       <td>#rel_pressure "%.0f hPa"#, #pressure_trend "%s" "" "pressure_trend_text(x)"#</td>
+     </tr>
+   #jump 1#
+   #endloop#
+
+Les trois premières lignes de cet extrait, exécutent ce qui suit:
+sélectionne les données horaires, revient en arrière de 6 heures,
+commence une boucle avec un nombre de 7. Un saut d'une heure apparaît
+juste avant la fin du segment répété. Comme ce dernier saut (d'une
+heure) se produit à chaque tour de la boucle, une séquence de 7
+lectures de données sera affichée. La dernière ligne marque la fin de
+la boucle - tout ce qui est entre les lignes "#loop 7#" et "#endloop#"
+est affiché 7 fois.
+
+Les instructions "#temp_out ...#", "#hum_out ...#", "#rain ... #" et
+"#rel_pressure ...#" affichent les données de base. Elles utilisent
+chacune un format de donnée "fmt_string" pour formater les données de
+façon appropriée. Les instructions``#wind_ave ...#`` et "#wind_gust
+...#" montrent comment utiliser une expression de conversion pour
+convertir m/s en mph.
+
+Les instructions "#wind_dir ... #" et "#pressure_trend ... #"
+affichent l'utilisation du tableau "wind_dir_text" et la fonction
+"pressure_trend_text" pour convertir des valeurs numériques en texte
+Anglais .
+
+Enfin nous arrivons aux valeurs de datetime. L'instruction "#idx
+"%H%M"#" affiche simplement l'heure (au format HHMM) de l'indice de
+donnée. L'instruction "#idx "%Y/%m/%d" "" "[None, x] [x.hour == 0 or
+loop_count == 7]"#" est un peu plus compliquée. Elle affiche la date,
+mais seulement sur la première ligne ou si la date a changée. Elle le
+fait en indexant le tableau "[None, x]" avec une expression booléenne
+vraie quand "loop_count" est égal à 7 (c'est à dire sur le premier
+passage dans la boucle) ou "x.hour" est zéro (c'est la première heure
+de la journée).
+
+
+API détaillé
+============
+
+Create text data file based on a template
+
+   usage: python RunModule.py Template [options] data_dir template_file output_file
+   options are:
+    --help    display this help
+   data_dir is the root directory of the weather data
+   template_file is the template text source file
+   output_file is the name of the text file to be created
+
+-[ Fonctions ]-
+
++------------+--------------------------------------------------------------------------------------------+
++------------+--------------------------------------------------------------------------------------------+
+
+-[ Classes ]-
+
++------------+--------------------------------------------------------------------------------------------+
++------------+--------------------------------------------------------------------------------------------+
+
+class class pywws.Template.Template(params, calib_data, hourly_data, daily_data, monthly_data, use_locale=True)
+
+   process(live_data, template_file)
+
+   make_text(template_file, live_data=None)
+
+   make_file(template_file, output_file, live_data=None)
+
+pywws.Template.main(argv=None)

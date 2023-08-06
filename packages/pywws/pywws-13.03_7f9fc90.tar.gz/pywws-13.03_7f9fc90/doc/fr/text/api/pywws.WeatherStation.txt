@@ -1,0 +1,231 @@
+
+pywws.WeatherStation
+********************
+
+Obtient les données des stations météorologiques WH1080/WH3080 et
+compatibles.
+
+Dérivé de wwsr.c par Michael Pendec (michael.pendec@gmail.com),
+wwsrdump.c par Svend Skafte (svend@skafte.net), modifié par Dave
+Wells, et d'autres sources.
+
+
+Introduction
+============
+
+C'est le module qui parle à l'unité de base de la station météo. Je
+n'ai pas beaucoup de compréhension de l'USB, donc j'ai copié beaucoup
+du programme C wwsr de Michael Pendec.
+
+La mémoire de la station météorologique comporte deux parties: un
+"bloc fixe" de 256 octets et une mémoire tampon circulaire de 65280
+octets. Comme chaque lecture météo prend 16 octets, la station peut
+stocker 4080 lectures, ou 14 jours de lectures intervalle de 5
+minutes. (Les stations de type 3080 stockent 20 octets par la lecture,
+pour un maximum de 3264 lectures) Comme les données sont lues en bloc
+de 32 octets, mais chaque lecture météorologique est de 16 ou 20
+octets, un petit cache est utilisé pour réduire le trafic USB. Le
+comportement de mise en cache mémoire peut être contourné avec le
+paramètre "unbuffered" de "get_data" et "get_raw_data".
+
+Le décodage des données est contrôlé par les dictionnaires statiques
+"reading_format",  "lo_fix_format", "fixed_format". Les clés sont les
+noms des éléments de données et les valeurs peuvent être un tulpe
+"(décalage, type, multiplicateur) `` ou un autre dictionnaire. Ainsi,
+par exemple, l'entrée du dictionnaire ``reading_format" "'rain' : (13,
+'us', 0.3)" signifie que la valeur de 'rain' est un entier court non
+signé (deux octets),  à 13 octets à partir du début du bloc, et
+devrait être multiplié par 0,3 à obtenir une valeur utile.
+
+L'utilisation de dictionnaires imbriqués dans le dictionnaire
+"fixed_format" permet de décoder des sous-ensembles de données utiles
+. Par exemple, pour décoder le bloc entier "get_fixed_block" celui-ci
+est appelée sans paramètres:
+
+   ws = WeatherStation.weather_station()
+   print ws.get_fixed_block()
+
+Pour obtenir la température extérieure minimale stockées,
+"get_fixed_block" est appelée avec une séquence de clés:
+
+   ws = WeatherStation.weather_station()
+   print ws.get_fixed_block(['min', 'temp_out', 'val'])
+
+Souvent, il n'est pas nécessaire de lire et décoder l'ensemble du bloc
+fixe, comme ses 64 premiers octets contiennent les données les plus
+utiles: l'intervalle entre les lectures enregistrées, l'adresse du
+tampon où la lecture en cours est mémorisée, ainsi que la date et
+l'heure courante. La méthode "get_lo_fix_block" offre un accès facile
+à ces données.
+
+Pour d'autres exemples de l'utilisation du module WeatherStation, voir
+le programme TestWeatherStation.
+
+
+API détaillé
+============
+
+-[ Fonctions ]-
+
++------------+--------------------------------------------------------------------------------------------+
+| "apparent_ | Calcule la température apparente (sensation réelle), en utilisant la formule de            |
++------------+--------------------------------------------------------------------------------------------+
+| "dew_point | Calcule le point de rosée, en utilisant la formule de                                      |
++------------+--------------------------------------------------------------------------------------------+
+| "get_wind_ | Retourne un tableau pour convertir un entier représentant la direction du vent, en une     |
+| dir_text"( | chaîne de caractères.                                                                      |
++------------+--------------------------------------------------------------------------------------------+
+| "pressure_ | Converti la tendance de la pression en une chaîne, telle qu'elle est utilisée par le UK    |
+| trend_text | met                                                                                        |
++------------+--------------------------------------------------------------------------------------------+
+| "wind_chil | Calcule le refroidissement éolien, en utilisant la formule de                              |
++------------+--------------------------------------------------------------------------------------------+
+
+-[ Classes ]-
+
++------------+--------------------------------------------------------------------------------------------+
+| "CUSBDrive | Interface de bas niveau de la station météo via USB.                                       |
++------------+--------------------------------------------------------------------------------------------+
+| "weather_s | Classe qui représente la station météo pour le programme utilisateur.                      |
++------------+--------------------------------------------------------------------------------------------+
+
+pywws.WeatherStation.dew_point(temp, hum)
+
+   Calcule le point de rosée, en utilisant la formule provenant de
+   http://en.wikipedia.org/wiki/Dew_point.
+
+pywws.WeatherStation.wind_chill(temp, wind)
+
+   Calcule le refroidissement éolien, en utilisant la formule
+   provenant de http://en.wikipedia.org/wiki/wind_chill
+
+pywws.WeatherStation.apparent_temp(temp, rh, wind)
+
+   Calcule la température apparente (sensation réelle), en utilisant
+   la formule provenant de http://www.bom.gov.au/info/thermal_stress/
+
+pywws.WeatherStation.get_wind_dir_text()
+
+   Retourne un tableau pour convertir un entier représentant la
+   direction du vent, en une chaîne de caractères.
+
+pywws.WeatherStation.pressure_trend_text(trend)
+
+   Converti la tendance de la pression en une chaîne, telle
+   qu'utilisée par le UK Met Office.
+
+class class pywws.WeatherStation.CUSBDrive(library)
+
+   Interface de bas niveau de la station météo via USB.
+
+   Vaguement calqué sur une classe C + + obtenue à partir http://site.
+   ambientweatherstore.com/easyweather/ws_1080_2080_protocol.zip. Je
+   n'en sais pas la provenance, mais il semble que cela pourrait
+   provenir du fabricant.
+
+   EndMark = 32
+
+   ReadCommand = 161
+
+   WriteCommand = 160
+
+   WriteCommandWord = 162
+
+   read_block(address)
+
+      Lit 32 octets à partir de la station météo.
+
+      Si la lecture échoue pour une raison quelconque, "None" est
+      retourné.
+
+      Paramètres:
+         **address** (*int*) -- address to read from.
+
+      Retourne:
+         the data from the weather station.
+
+      Type retourné:
+         list(int)
+
+   write_byte(address, data)
+
+      Écrire un seul octet à la station météo.
+
+      Paramètres:
+         * **address** (*int*) -- address to write to.
+
+         * **data** (*int*) -- the value to write.
+
+      Retourne:
+         success status.
+
+      Type retourné:
+         bool
+
+class class pywws.WeatherStation.weather_station(ws_type='1080', library='auto', params=None)
+
+   Classe qui représente la station météo pour le programme
+   utilisateur.
+
+   Connecte à la station météo et prépare à lire les données.
+
+   avoid = 3.0
+
+   min_pause = 0.5
+
+   live_data(logged_only=False)
+
+   inc_ptr(ptr)
+
+      Retourne le pointeur de données suivant du tampon circulaire .
+
+   dec_ptr(ptr)
+
+      Obtient le pointeur de donnée du tampon circulaire précédent.
+
+   get_raw_data(ptr, unbuffered=False)
+
+      Obtient les données brutes à partir d'un tampon circulaire.
+
+      Si 'unbuffered' est faux, une valeur mise en cache, obtenu
+      précédemment, peut être retourné.
+
+   get_data(ptr, unbuffered=False)
+
+      Obtenir les données décodées à partir du tampon circulaire.
+
+      Si 'unbuffered' est faux, une valeur mise en cache, obtenu
+      précédemment, peut être retourné.
+
+   current_pos()
+
+      Obtenir l'emplacement du tampon circulaire lorsque les données
+      actuelles sont en cours d'écriture.
+
+   get_raw_fixed_block(unbuffered=False)
+
+      Obtenir le "bloc fixe" brut des paramètres et des données
+      MIN/MAX.
+
+   get_fixed_block(keys=[], unbuffered=False)
+
+      Obtient le "bloc fixe" décodé des paramètres et des données
+      MIN/MAX.
+
+      Un sous-ensemble du bloc complet pouvant être sélectionné par
+      clés.
+
+   write_data(data)
+
+      Écrit un ensemble d'octets unique vers la station météo. Les
+      données doivent être un tableau de (ptr, valeur) paires.
+
+   reading_format = {'3080': {'status': (15, 'pb', None), 'hum_out': (4, 'ub', None), 'wind_gust': (10, 'wg', 0.1), 'uv': (19, 'ub', None), 'wind_ave': (9, 'wa', 0.1), 'rain': (13, 'us', 0.3), 'temp_in': (2, 'ss', 0.1), 'illuminance': (16, 'u3', 0.1), 'abs_pressure': (7, 'us', 0.1), 'delay': (0, 'ub', None), 'hum_in': (1, 'ub', None), 'temp_out': (5, 'ss', 0.1), 'wind_dir': (12, 'ub', None)}, '1080': {'status': (15, 'pb', None), 'wind_ave': (9, 'wa', 0.1), 'rain': (13, 'us', 0.3), 'hum_in': (1, 'ub', None), 'temp_out': (5, 'ss', 0.1), 'wind_dir': (12, 'ub', None), 'hum_out': (4, 'ub', None), 'wind_gust': (10, 'wg', 0.1), 'temp_in': (2, 'ss', 0.1), 'delay': (0, 'ub', None), 'abs_pressure': (7, 'us', 0.1)}}
+
+   lo_fix_format = {'alarm_1': (21, 'bf', ('bit0', 'time', 'wind_dir', 'bit3', 'hum_in_lo', 'hum_in_hi', 'hum_out_lo', 'hum_out_hi')), 'alarm_3': (23, 'bf', ('temp_in_lo', 'temp_in_hi', 'temp_out_lo', 'temp_out_hi', 'wind_chill_lo', 'wind_chill_hi', 'dew_point_lo', 'dew_point_hi')), 'alarm_2': (22, 'bf', ('wind_ave', 'wind_gust', 'rain_hour', 'rain_day', 'pressure_abs_lo', 'pressure_abs_hi', 'pressure_rel_lo', 'pressure_rel_hi')), 'data_changed': (26, 'ub', None), 'settings_1': (17, 'bf', ('temp_in_F', 'temp_out_F', 'rain_in', 'bit3', 'bit4', 'pressure_hPa', 'pressure_inHg', 'pressure_mmHg')), 'settings_2': (18, 'bf', ('wind_mps', 'wind_kmph', 'wind_knot', 'wind_mph', 'wind_bft', 'bit5', 'bit6', 'bit7')), 'read_period': (16, 'ub', None), 'unknown_01': (25, 'pb', None), 'timezone': (24, 'sb', None), 'data_count': (27, 'us', None), 'current_pos': (30, 'us', None), 'display_2': (20, 'bf', ('temp_out_temp', 'temp_out_chill', 'temp_out_dew', 'rain_hour', 'rain_day', 'rain_week', 'rain_month', 'rain_total')), 'display_3': (29, 'bf', ('illuminance_fc', 'bit1', 'bit2', 'bit3', 'bit4', 'bit5', 'bit6', 'bit7')), 'display_1': (19, 'bf', ('pressure_rel', 'wind_gust', 'clock_12hr', 'date_mdy', 'time_scale_24', 'show_year', 'show_day_name', 'alarm_time'))}
+
+   fixed_format = {'alarm_1': (21, 'bf', ('bit0', 'time', 'wind_dir', 'bit3', 'hum_in_lo', 'hum_in_hi', 'hum_out_lo', 'hum_out_hi')), 'alarm_3': (23, 'bf', ('temp_in_lo', 'temp_in_hi', 'temp_out_lo', 'temp_out_hi', 'wind_chill_lo', 'wind_chill_hi', 'dew_point_lo', 'dew_point_hi')), 'alarm_2': (22, 'bf', ('wind_ave', 'wind_gust', 'rain_hour', 'rain_day', 'pressure_abs_lo', 'pressure_abs_hi', 'pressure_rel_lo', 'pressure_rel_hi')), 'data_changed': (26, 'ub', None), 'max': {'windchill': {'date': (181, 'dt', None), 'val': (110, 'ss', 0.1)}, 'dewpoint': {'date': (191, 'dt', None), 'val': (114, 'ss', 0.1)}, 'wind_ave': {'date': (221, 'dt', None), 'val': (126, 'us', 0.1)}, 'rain': {'week': {'date': (241, 'dt', None), 'val': (134, 'us', 0.3)}, 'total': {'date': (251, 'dt', None), 'val': (138, 'us', 0.3)}, 'day': {'date': (236, 'dt', None), 'val': (132, 'us', 0.3)}, 'hour': {'date': (231, 'dt', None), 'val': (130, 'us', 0.3)}, 'month': {'date': (246, 'dt', None), 'val': (136, 'us', 0.3)}}, 'rel_pressure': {'date': (211, 'dt', None), 'val': (122, 'us', 0.1)}, 'hum_in': {'date': (141, 'dt', None), 'val': (98, 'ub', None)}, 'temp_out': {'date': (171, 'dt', None), 'val': (106, 'ss', 0.1)}, 'hum_out': {'date': (151, 'dt', None), 'val': (100, 'ub', None)}, 'wind_gust': {'date': (226, 'dt', None), 'val': (128, 'us', 0.1)}, 'uv': {'val': (93, 'ub', None)}, 'temp_in': {'date': (161, 'dt', None), 'val': (102, 'ss', 0.1)}, 'illuminance': {'val': (94, 'u3', 0.1)}, 'abs_pressure': {'date': (201, 'dt', None), 'val': (118, 'us', 0.1)}}, 'settings_1': (17, 'bf', ('temp_in_F', 'temp_out_F', 'rain_in', 'bit3', 'bit4', 'pressure_hPa', 'pressure_inHg', 'pressure_mmHg')), 'settings_2': (18, 'bf', ('wind_mps', 'wind_kmph', 'wind_knot', 'wind_mph', 'wind_bft', 'bit5', 'bit6', 'bit7')), 'read_period': (16, 'ub', None), 'rel_pressure': (32, 'us', 0.1), 'unknown_01': (25, 'pb', None), 'unknown_18': (97, 'pb', None), 'timezone': (24, 'sb', None), 'display_1': (19, 'bf', ('pressure_rel', 'wind_gust', 'clock_12hr', 'date_mdy', 'time_scale_24', 'show_year', 'show_day_name', 'alarm_time')), 'date_time': (43, 'dt', None), 'data_count': (27, 'us', None), 'min': {'hum_out': {'date': (156, 'dt', None), 'val': (101, 'ub', None)}, 'dewpoint': {'date': (196, 'dt', None), 'val': (116, 'ss', 0.1)}, 'abs_pressure': {'date': (206, 'dt', None), 'val': (120, 'us', 0.1)}, 'windchill': {'date': (186, 'dt', None), 'val': (112, 'ss', 0.1)}, 'hum_in': {'date': (146, 'dt', None), 'val': (99, 'ub', None)}, 'temp_out': {'date': (176, 'dt', None), 'val': (108, 'ss', 0.1)}, 'rel_pressure': {'date': (216, 'dt', None), 'val': (124, 'us', 0.1)}, 'temp_in': {'date': (166, 'dt', None), 'val': (104, 'ss', 0.1)}}, 'display_2': (20, 'bf', ('temp_out_temp', 'temp_out_chill', 'temp_out_dew', 'rain_hour', 'rain_day', 'rain_week', 'rain_month', 'rain_total')), 'display_3': (29, 'bf', ('illuminance_fc', 'bit1', 'bit2', 'bit3', 'bit4', 'bit5', 'bit6', 'bit7')), 'alarm': {'windchill': {'lo': (62, 'ss', 0.1), 'hi': (60, 'ss', 0.1)}, 'dewpoint': {'lo': (66, 'ss', 0.1), 'hi': (64, 'ss', 0.1)}, 'wind_ave': {'ms': (77, 'ub', 0.1), 'bft': (76, 'ub', None)}, 'rain': {'day': (85, 'us', 0.3), 'hour': (83, 'us', 0.3)}, 'rel_pressure': {'lo': (74, 'us', 0.1), 'hi': (72, 'us', 0.1)}, 'hum_in': {'lo': (49, 'ub', None), 'hi': (48, 'ub', None)}, 'temp_out': {'lo': (58, 'ss', 0.1), 'hi': (56, 'ss', 0.1)}, 'wind_dir': (82, 'ub', None), 'hum_out': {'lo': (55, 'ub', None), 'hi': (54, 'ub', None)}, 'wind_gust': {'ms': (80, 'ub', 0.1), 'bft': (79, 'ub', None)}, 'uv': (92, 'ub', None), 'temp_in': {'lo': (52, 'ss', 0.1), 'hi': (50, 'ss', 0.1)}, 'illuminance': (89, 'u3', 0.1), 'abs_pressure': {'lo': (70, 'us', 0.1), 'hi': (68, 'us', 0.1)}, 'time': (87, 'tt', None)}, 'current_pos': (30, 'us', None), 'lux_wm2_coeff': (36, 'us', 0.1), 'abs_pressure': (34, 'us', 0.1)}
+
+   data_start = 256
+
+   reading_len = {'3080': 20, '1080': 16}
