@@ -1,0 +1,335 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>coaster.views &mdash; coaster 0.3.7 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/flasky.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '0.3.7',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <link rel="top" title="coaster 0.3.7 documentation" href="../../index.html" />
+    <link rel="up" title="coaster" href="../coaster.html" />
+   
+  
+  <link media="only screen and (max-device-width: 480px)" href="../../_static/small_flask.css" type= "text/css" rel="stylesheet" />
+
+  </head>
+  <body>
+  
+  
+
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">coaster 0.3.7 documentation</a> &raquo;</li>
+          <li><a href="../index.html" >Module code</a> &raquo;</li>
+          <li><a href="../coaster.html" accesskey="U">coaster</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for coaster.views</h1><div class="highlight"><pre>
+<span class="c"># -*- coding: utf-8 -*-</span>
+
+<span class="kn">from</span> <span class="nn">__future__</span> <span class="kn">import</span> <span class="n">absolute_import</span>
+<span class="kn">from</span> <span class="nn">functools</span> <span class="kn">import</span> <span class="n">wraps</span>
+<span class="kn">import</span> <span class="nn">urlparse</span>
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">from</span> <span class="nn">flask</span> <span class="kn">import</span> <span class="n">session</span> <span class="k">as</span> <span class="n">request_session</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">url_for</span><span class="p">,</span> <span class="n">json</span><span class="p">,</span> <span class="n">Response</span><span class="p">,</span> <span class="n">redirect</span><span class="p">,</span> <span class="n">abort</span><span class="p">,</span> <span class="n">g</span>
+<span class="kn">from</span> <span class="nn">werkzeug.routing</span> <span class="kn">import</span> <span class="n">BuildError</span>
+<span class="kn">from</span> <span class="nn">sqlalchemy.orm.exc</span> <span class="kn">import</span> <span class="n">NoResultFound</span>
+
+<span class="n">__jsoncallback_re</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&#39;^[a-z$_][0-9a-z$_]*$&#39;</span><span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">I</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">__index_url</span><span class="p">():</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">url_for</span><span class="p">(</span><span class="s">&#39;index&#39;</span><span class="p">)</span>
+    <span class="k">except</span> <span class="n">BuildError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s">&#39;/&#39;</span>
+
+
+<span class="k">def</span> <span class="nf">__clean_external_url</span><span class="p">(</span><span class="n">url</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">url</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;http:&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">url</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;https:&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">url</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;//&#39;</span><span class="p">):</span>
+        <span class="c"># Do the domains and ports match?</span>
+        <span class="n">pnext</span> <span class="o">=</span> <span class="n">urlparse</span><span class="o">.</span><span class="n">urlsplit</span><span class="p">(</span><span class="n">url</span><span class="p">)</span>
+        <span class="n">preq</span> <span class="o">=</span> <span class="n">urlparse</span><span class="o">.</span><span class="n">urlsplit</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">url</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">pnext</span><span class="o">.</span><span class="n">hostname</span> <span class="o">!=</span> <span class="n">preq</span><span class="o">.</span><span class="n">hostname</span> <span class="ow">or</span> <span class="n">pnext</span><span class="o">.</span><span class="n">port</span> <span class="o">!=</span> <span class="n">preq</span><span class="o">.</span><span class="n">port</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s">&#39;&#39;</span>
+    <span class="k">return</span> <span class="n">url</span>
+
+
+<span class="c">#TODO: This needs tests</span>
+<div class="viewcode-block" id="get_current_url"><a class="viewcode-back" href="../../views.html#coaster.views.get_current_url">[docs]</a><span class="k">def</span> <span class="nf">get_current_url</span><span class="p">():</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Return the current URL including the query string as a relative path.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">url</span> <span class="o">=</span> <span class="n">url_for</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">endpoint</span><span class="p">,</span> <span class="o">**</span><span class="n">request</span><span class="o">.</span><span class="n">view_args</span><span class="p">)</span>
+    <span class="n">query</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;QUERY_STRING&#39;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">query</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">url</span> <span class="o">+</span> <span class="s">&#39;?&#39;</span> <span class="o">+</span> <span class="n">query</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">url</span>
+
+</div>
+<span class="n">__marker</span> <span class="o">=</span> <span class="p">[]</span>
+
+
+<span class="c">#TODO: This needs tests</span>
+<div class="viewcode-block" id="get_next_url"><a class="viewcode-back" href="../../views.html#coaster.views.get_next_url">[docs]</a><span class="k">def</span> <span class="nf">get_next_url</span><span class="p">(</span><span class="n">referrer</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">external</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">session</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="n">__marker</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Get the next URL to redirect to. Don&#39;t return external URLs unless</span>
+<span class="sd">    explicitly asked for. This is to protect the site from being an unwitting</span>
+<span class="sd">    redirector to external URLs.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">session</span><span class="p">:</span>
+        <span class="n">next_url</span> <span class="o">=</span> <span class="n">request_session</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s">&#39;next&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span> <span class="ow">or</span> <span class="n">request</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;next&#39;</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">next_url</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;next&#39;</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">next_url</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">external</span><span class="p">:</span>
+        <span class="n">next_url</span> <span class="o">=</span> <span class="n">__clean_external_url</span><span class="p">(</span><span class="n">next_url</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">next_url</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">next_url</span>
+
+    <span class="k">if</span> <span class="n">default</span> <span class="ow">is</span> <span class="n">__marker</span><span class="p">:</span>
+        <span class="n">usedefault</span> <span class="o">=</span> <span class="bp">False</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">usedefault</span> <span class="o">=</span> <span class="bp">True</span>
+
+    <span class="k">if</span> <span class="n">referrer</span> <span class="ow">and</span> <span class="n">request</span><span class="o">.</span><span class="n">referrer</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">external</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">request</span><span class="o">.</span><span class="n">referrer</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">__clean_external_url</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">referrer</span><span class="p">)</span> <span class="ow">or</span> <span class="p">(</span><span class="n">default</span> <span class="k">if</span> <span class="n">usedefault</span> <span class="k">else</span> <span class="n">__index_url</span><span class="p">())</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">default</span> <span class="k">if</span> <span class="n">usedefault</span> <span class="k">else</span> <span class="n">__index_url</span><span class="p">())</span>
+
+
+<span class="c">#TODO: This needs tests</span></div>
+<div class="viewcode-block" id="jsonp"><a class="viewcode-back" href="../../views.html#coaster.views.jsonp">[docs]</a><span class="k">def</span> <span class="nf">jsonp</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Returns a JSON response with a callback wrapper, if asked for.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="nb">dict</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">),</span>
+        <span class="n">indent</span><span class="o">=</span><span class="bp">None</span> <span class="k">if</span> <span class="n">request</span><span class="o">.</span><span class="n">is_xhr</span> <span class="k">else</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="n">callback</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;callback&#39;</span><span class="p">,</span> <span class="n">request</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;jsonp&#39;</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">callback</span> <span class="ow">and</span> <span class="n">__jsoncallback_re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">callback</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="s">u&#39;</span><span class="si">%s</span><span class="s">(&#39;</span> <span class="o">%</span> <span class="n">callback</span> <span class="o">+</span> <span class="n">data</span> <span class="o">+</span> <span class="s">u&#39;);&#39;</span>
+        <span class="n">mimetype</span> <span class="o">=</span> <span class="s">&#39;application/javascript&#39;</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">mimetype</span> <span class="o">=</span> <span class="s">&#39;application/json&#39;</span>
+    <span class="k">return</span> <span class="n">Response</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">mimetype</span><span class="o">=</span><span class="n">mimetype</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="requestargs"><a class="viewcode-back" href="../../views.html#coaster.views.requestargs">[docs]</a><span class="k">def</span> <span class="nf">requestargs</span><span class="p">(</span><span class="o">*</span><span class="nb">vars</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Decorator that loads parameters from request.args if not specified in the function&#39;s keyword arguments.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">inner</span><span class="p">(</span><span class="n">f</span><span class="p">):</span>
+        <span class="nd">@wraps</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+        <span class="k">def</span> <span class="nf">decorated_function</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">arg</span> <span class="ow">in</span> <span class="nb">vars</span><span class="p">:</span>
+                <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">arg</span><span class="p">,</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)):</span>
+                    <span class="n">name</span> <span class="o">=</span> <span class="n">arg</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+                    <span class="n">filt</span> <span class="o">=</span> <span class="n">arg</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+                    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">arg</span><span class="p">)</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+                        <span class="n">has_default</span> <span class="o">=</span> <span class="bp">True</span>
+                        <span class="n">default</span> <span class="o">=</span> <span class="n">arg</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="n">has_default</span> <span class="o">=</span> <span class="bp">False</span>
+                        <span class="n">default</span> <span class="o">=</span> <span class="bp">None</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">name</span> <span class="o">=</span> <span class="n">arg</span>
+                    <span class="n">filt</span> <span class="o">=</span> <span class="bp">None</span>
+                    <span class="n">has_default</span> <span class="o">=</span> <span class="bp">False</span>
+                    <span class="n">default</span> <span class="o">=</span> <span class="bp">None</span>
+
+                <span class="k">if</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">kw</span><span class="p">:</span>
+                    <span class="k">print</span> <span class="n">name</span>
+                    <span class="k">if</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">request</span><span class="o">.</span><span class="n">args</span><span class="p">:</span>
+                        <span class="k">if</span> <span class="n">has_default</span><span class="p">:</span>
+                            <span class="n">kw</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">default</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">abort</span><span class="p">(</span><span class="mi">400</span><span class="p">)</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="k">if</span> <span class="n">filt</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                            <span class="n">kw</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">args</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">kw</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">filt</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">args</span><span class="p">[</span><span class="n">name</span><span class="p">])</span>
+            <span class="k">return</span> <span class="n">f</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">decorated_function</span>
+    <span class="k">return</span> <span class="n">inner</span>
+
+</div>
+<div class="viewcode-block" id="load_model"><a class="viewcode-back" href="../../views.html#coaster.views.load_model">[docs]</a><span class="k">def</span> <span class="nf">load_model</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">attributes</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">parameter</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+        <span class="n">workflow</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">kwargs</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">permission</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Decorator to load a model given a parameter. load_model recognizes</span>
+<span class="sd">    queries to url_name of BaseIdNameMixin instances and will automatically</span>
+<span class="sd">    load the model. TODO: This should be handled by the model, not here.</span>
+
+<span class="sd">    If workflow is True, workflow() for the last time in the chain is called and the</span>
+<span class="sd">    resulting workflow object is passed instead of any of the requested parameters.</span>
+
+<span class="sd">    If kwargs is True, the request parameters are passed as a &#39;kwargs&#39; parameter.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">load_models</span><span class="p">((</span><span class="n">model</span><span class="p">,</span> <span class="n">attributes</span><span class="p">,</span> <span class="n">parameter</span><span class="p">),</span>
+        <span class="n">workflow</span><span class="o">=</span><span class="n">workflow</span><span class="p">,</span> <span class="n">kwargs</span><span class="o">=</span><span class="n">kwargs</span><span class="p">,</span> <span class="n">permission</span><span class="o">=</span><span class="n">permission</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="load_models"><a class="viewcode-back" href="../../views.html#coaster.views.load_models">[docs]</a><span class="k">def</span> <span class="nf">load_models</span><span class="p">(</span><span class="o">*</span><span class="n">chain</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Decorator to load a chain of models from the given parameters. load_models</span>
+<span class="sd">    recognizes queries to url_name of BaseIdNameMixin and BaseScopedIdNameMixin</span>
+<span class="sd">    instances and will automatically load the model. TODO: This should be</span>
+<span class="sd">    handled by the model, not here.</span>
+
+<span class="sd">    If workflow is True, workflow() for the last time in the chain is called and the</span>
+<span class="sd">    resulting workflow object is passed instead of any of the requested parameters.</span>
+
+<span class="sd">    If kwargs is True, the request parameters are passed as a &#39;kwargs&#39; parameter.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">inner</span><span class="p">(</span><span class="n">f</span><span class="p">):</span>
+        <span class="nd">@wraps</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+        <span class="k">def</span> <span class="nf">decorated_function</span><span class="p">(</span><span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+            <span class="n">permissions</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="n">permission_required</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;permission&#39;</span><span class="p">)</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="k">for</span> <span class="n">model</span><span class="p">,</span> <span class="n">attributes</span><span class="p">,</span> <span class="n">parameter</span> <span class="ow">in</span> <span class="n">chain</span><span class="p">:</span>
+                <span class="n">query</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">query</span>
+                <span class="n">url_check</span> <span class="o">=</span> <span class="bp">False</span>
+                <span class="n">url_key</span> <span class="o">=</span> <span class="n">url_name</span> <span class="o">=</span> <span class="bp">None</span>
+                <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">attributes</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                    <span class="k">if</span> <span class="n">k</span> <span class="o">==</span> <span class="s">&#39;url_name&#39;</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="s">&#39;url_id_attr&#39;</span><span class="p">):</span>
+                        <span class="n">url_key</span> <span class="o">=</span> <span class="n">v</span>
+                        <span class="n">url_name</span> <span class="o">=</span> <span class="n">kw</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">url_key</span><span class="p">)</span>
+                        <span class="n">parts</span> <span class="o">=</span> <span class="n">url_name</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;-&#39;</span><span class="p">)</span>
+                        <span class="k">try</span><span class="p">:</span>
+                            <span class="k">if</span> <span class="n">request</span><span class="o">.</span><span class="n">method</span> <span class="o">==</span> <span class="s">&#39;GET&#39;</span><span class="p">:</span>
+                                <span class="n">url_check</span> <span class="o">=</span> <span class="bp">True</span>
+                        <span class="k">except</span> <span class="ne">RuntimeError</span><span class="p">:</span>
+                            <span class="c"># We&#39;re not in a Flask request context, so there&#39;s no point</span>
+                            <span class="c"># trying to redirect to a correct URL</span>
+                            <span class="k">pass</span>
+                        <span class="k">try</span><span class="p">:</span>
+                            <span class="n">url_id</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">parts</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+                        <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+                            <span class="n">abort</span><span class="p">(</span><span class="mi">404</span><span class="p">)</span>
+                        <span class="n">query</span> <span class="o">=</span> <span class="n">query</span><span class="o">.</span><span class="n">filter_by</span><span class="p">(</span><span class="o">**</span><span class="p">{</span><span class="n">model</span><span class="o">.</span><span class="n">url_id_attr</span><span class="p">:</span> <span class="n">url_id</span><span class="p">})</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="k">if</span> <span class="nb">callable</span><span class="p">(</span><span class="n">v</span><span class="p">):</span>
+                            <span class="n">query</span> <span class="o">=</span> <span class="n">query</span><span class="o">.</span><span class="n">filter_by</span><span class="p">(</span><span class="o">**</span><span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">v</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">kw</span><span class="p">)})</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="k">if</span> <span class="s">&#39;.&#39;</span> <span class="ow">in</span> <span class="n">v</span><span class="p">:</span>
+                                <span class="n">first</span><span class="p">,</span> <span class="n">attrs</span> <span class="o">=</span> <span class="n">v</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+                                <span class="n">val</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">first</span><span class="p">)</span>
+                                <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="n">attrs</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">):</span>
+                                    <span class="n">val</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">val</span><span class="p">,</span> <span class="n">attr</span><span class="p">)</span>
+                            <span class="k">else</span><span class="p">:</span>
+                                <span class="n">val</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">kw</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">v</span><span class="p">))</span>
+                            <span class="n">query</span> <span class="o">=</span> <span class="n">query</span><span class="o">.</span><span class="n">filter_by</span><span class="p">(</span><span class="o">**</span><span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">val</span><span class="p">})</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">item</span> <span class="o">=</span> <span class="n">query</span><span class="o">.</span><span class="n">one</span><span class="p">()</span>
+                <span class="k">except</span> <span class="n">NoResultFound</span><span class="p">:</span>
+                    <span class="n">abort</span><span class="p">(</span><span class="mi">404</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">permission_required</span><span class="p">:</span>
+                    <span class="n">permissions</span> <span class="o">=</span> <span class="n">item</span><span class="o">.</span><span class="n">permissions</span><span class="p">(</span><span class="n">g</span><span class="o">.</span><span class="n">user</span><span class="p">,</span> <span class="n">inherited</span><span class="o">=</span><span class="n">permissions</span><span class="p">)</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">g</span><span class="o">.</span><span class="n">permissions</span> <span class="o">=</span> <span class="n">permissions</span>
+                <span class="k">except</span> <span class="ne">RuntimeError</span><span class="p">:</span>
+                    <span class="k">pass</span>
+                <span class="k">if</span> <span class="n">url_check</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">item</span><span class="o">.</span><span class="n">url_name</span> <span class="o">!=</span> <span class="n">url_name</span><span class="p">:</span>
+                        <span class="c"># The url_name doesn&#39;t match.</span>
+                        <span class="c"># Redirect browser to same page with correct url_name.</span>
+                        <span class="n">view_args</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">view_args</span><span class="p">)</span>
+                        <span class="n">view_args</span><span class="p">[</span><span class="n">url_key</span><span class="p">]</span> <span class="o">=</span> <span class="n">item</span><span class="o">.</span><span class="n">url_name</span>
+                        <span class="k">return</span> <span class="n">redirect</span><span class="p">(</span><span class="n">url_for</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">endpoint</span><span class="p">,</span> <span class="o">**</span><span class="n">view_args</span><span class="p">),</span> <span class="n">code</span><span class="o">=</span><span class="mi">302</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">parameter</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;g.&#39;</span><span class="p">):</span>
+                    <span class="n">parameter</span> <span class="o">=</span> <span class="n">parameter</span><span class="p">[</span><span class="mi">2</span><span class="p">:]</span>
+                    <span class="nb">setattr</span><span class="p">(</span><span class="n">g</span><span class="p">,</span> <span class="n">parameter</span><span class="p">,</span> <span class="n">item</span><span class="p">)</span>
+                <span class="n">result</span><span class="p">[</span><span class="n">parameter</span><span class="p">]</span> <span class="o">=</span> <span class="n">item</span>
+            <span class="k">if</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;workflow&#39;</span><span class="p">):</span>
+                <span class="c"># Get workflow for the last item in the chain</span>
+                <span class="n">wf</span> <span class="o">=</span> <span class="n">item</span><span class="o">.</span><span class="n">workflow</span><span class="p">()</span>
+                <span class="k">if</span> <span class="n">permission_required</span> <span class="ow">and</span> <span class="n">permission_required</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">permissions</span><span class="p">:</span>
+                    <span class="n">abort</span><span class="p">(</span><span class="mi">403</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;kwargs&#39;</span><span class="p">):</span>
+                    <span class="k">return</span> <span class="n">f</span><span class="p">(</span><span class="n">wf</span><span class="p">,</span> <span class="n">kwargs</span><span class="o">=</span><span class="n">kw</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="k">return</span> <span class="n">f</span><span class="p">(</span><span class="n">wf</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">permission_required</span> <span class="ow">and</span> <span class="n">permission_required</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">permissions</span><span class="p">:</span>
+                    <span class="n">abort</span><span class="p">(</span><span class="mi">403</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;kwargs&#39;</span><span class="p">):</span>
+                    <span class="k">return</span> <span class="n">f</span><span class="p">(</span><span class="n">kwargs</span><span class="o">=</span><span class="n">kw</span><span class="p">,</span> <span class="o">**</span><span class="n">result</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="k">return</span> <span class="n">f</span><span class="p">(</span><span class="o">**</span><span class="n">result</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">decorated_function</span>
+    <span class="k">return</span> <span class="n">inner</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper"><h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Module code</a><ul>
+  <li><a href="../coaster.html">coaster</a><ul>
+  </ul></li>
+  </ul></li>
+  </ul></li>
+</ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+  <div class="footer">
+    &copy; Copyright 2012, HasGeek.
+    Created using <a href="http://sphinx.pocoo.org/">Sphinx</a>.
+  </div>
+  
+  </body>
+</html>
