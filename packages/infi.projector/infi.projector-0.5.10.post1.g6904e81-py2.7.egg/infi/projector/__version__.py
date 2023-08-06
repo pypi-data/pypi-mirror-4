@@ -1,0 +1,10 @@
+__version__ = "0.5.10.post1.g6904e81"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = 'develop'
+__git_remote_tracking_branch__ = 'origin/develop'
+__git_remote_url__ = 'git@infinigit.infinidat.com:/host/projector.git'
+__git_head_hash__ = '6904e8140af5f387e4d12cd35cba16554cb92f92'
+__git_head_subject__ = 'Unfreezing dependencies'
+__git_head_message__ = ''
+__git_dirty_diff__ = ''
