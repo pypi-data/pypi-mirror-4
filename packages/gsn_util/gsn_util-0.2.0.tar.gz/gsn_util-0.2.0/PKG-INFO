@@ -1,0 +1,275 @@
+Metadata-Version: 1.0
+Name: gsn_util
+Version: 0.2.0
+Summary: Toolbox of general-purpose python code.
+Home-page: http://pypi.python.org/pypi/gsn_util/
+Author: Greg Novak
+Author-email: greg.novak@gmail.com
+License: MIT (X11) License
+Description: ========
+        gsn_util         
+        ========
+        
+        Like many programmers, I have developed a toolbox of utilities that I
+        like to have close at hand.  
+        
+        For more information:
+        http://pypi.python.org/pypi/gsn_util/
+        
+        For the source code:
+        http://launchpad.net/gsn-util
+        
+        Installation
+        ============
+        
+        You can use *any* of the following standard incantations:
+        
+        *  pip gsn_util
+        *  easy_install gsn_util
+        *  python setup.py install 
+        
+        If you want to install in your home directory, you can add the --user
+        flag to any of the above.
+        
+        Usage
+        =====
+        
+        There are many tidbits in this file.  Most are self explanatory, some
+        I think are rather clever, others lifted from other sources (always
+        with credits in the docstring).  If a bit of code doesn't say "this
+        is from ..." in the docstring, then I wrote it myself.
+        
+        A few of the highlights:
+        
+        * def memoize(f)
+        
+          For any function f, return a caching version of f.  Thus if the
+          function is called more than once with the same arguments, all calls
+          (except for the first one) return the cached result instantly
+        
+          >>> long_running_function(1.1) # takes a long time
+          >>> f = memoize(log_running_function)
+          >>> f(2.2)  # takes a long time, too
+          >>> f(3.3)  # Also takes a long time
+          >>> f(2.2)  # Instantaneous (using the previously cached result)
+        
+        * def forkify(f)
+        
+          Return a function that forks and calls f in separate process.
+        
+          I found this useful for long-running Python processes that handle a
+          lot of data and eventually run out of memory.  In spite of my best
+          efforts at making sure no dangling references were hanging around,
+          the most robust solution was to just fork and let the operating
+          system handle de-allocation.
+        
+          So if memory_intensive_function() uses a lot of memory but
+          produces small results, then this will prevent out-of-memory
+          problems:
+        
+          >>> f = forkify(memory_intensive_function)
+          >>> [f(ii) for ii in huge_list]
+        
+          Exceptions raised in the child process are caught and re-raised in
+          the parent process.
+        
+        * class SnooperMixin(object):
+        
+          Snoop on how an object is being used.
+        
+          Suppose you pass an object into some function and want to know
+          what properties of your object the function is using/depending on.
+          Normally you do this:
+        
+          >>> obj = SomeObject() 
+          >>> opaque_function(obj)
+          
+          Instead you do the following.  Note that there's no body to the
+          definition of SnoopedObject.
+        
+          >>> class SnoopedObject(SnooperMixin, SomeObject): pass
+          >>> obj = SnoopedObject()
+          >>> opaque_function(obj)
+          >>> obj.snoop
+          set(['readlines', 'next'])
+        
+          So you know that opaque_function accessed/used the methods/data
+          called readlines and next.
+        
+          This knowledge, of course, exposes the implementation details of
+          opaque_function() and you probably shouldn't write code that
+          depends on those details...  On the other hand, such knowledge can
+          be very illuminating.
+        
+          The name Mixin comes from the old CLOS (Common Lisp Object System)
+          notion of an object that's not itself a fully specified, useful
+          object, but is something that's added to other objects to given
+          them specific functionality.  
+        
+        * class DotDict(dict) 
+        
+          Behaves like a dictionary, but allows dot access to read attributes.
+            
+          I use this as a container when I want the container to behave
+          exactly like a dictionary, but get tired of typing foo['bar'] and
+          want to just type foo.bar instead.
+        
+          Specifically, I use it to hold data from simulation snapshots.  If
+          my simulation has a field called "density", I'm sure not going to
+          type sim['density'] every time I want to do anything.  This object
+          allows me to refer to it as sim.density instead.
+        
+          >>> foo = DotDict()
+          >>> foo.density = read_from_file()
+          >>> plot(foo.density)
+        
+          Accessing fields like a dict also works:
+        
+          >>> for kk in foo.keys(): ensure_no_nans(foo[kk])
+        
+          "But that's not very object oriented, you should define a
+          SimulationData object that has density as an attribute," you may
+          say.  Well.... that's what I've done.  I want the SimulationData
+          object to have the same things that dict objects have, the keys()
+          function, for example.  As long as you don't have a simulation data
+          field that conflicts with the name of one of the dict methods, this
+          causes no problem.
+        
+        * List manipulation, including: 
+        
+          - ``def cross_set(*sets):``
+        
+            Given lists, generate all possibilities with the first element
+            chosen from the first list, the second element chosen from the
+            second, etc.  Note that this handles an arbitrary number of sets
+            from which to draw.
+            
+            >>> cross_set([1], [2,3]) 
+            [[1,2], [1,3]]
+        
+          - def combinations(lst, n):
+        
+            Generate all combinations of n items of lst
+            
+            >>> combinations([1,2,3], 2)
+            [[1,2], [1,3], [2,3]]
+        
+        * Dict manipulation, including: 
+        
+          - def map_dict_tree(f, d):
+        
+            Map an arbitrarily nested dict of dicts of dicts...  The
+            recursion stops when a non-dict value is encountered.
+            
+            >>> obj = dict(a=1, b=dict(c=2, d=dict(e=3, f=4)))
+            >>> obj
+            {'a': 1, 'b': {'c': 2, 'd': {'e': 3, 'f': 4}}}
+            >>> map_dict_tree(lambda x: x+2, obj)
+            {'a': 3, 'b': {'c': 4, 'd': {'e': 5, 'f': 6}}}
+            
+        * Convenient keyword argument list manipulation:
+        
+          - ``def given(*args):``
+        
+            Return True if all of the arguments are not None.  
+        
+            Intended for use in argument lists where you can reasonably
+            specify different combinations of parameters.  Then you can write::
+        
+              def foo(a=None, b=None, c=None):
+                  if given(a,b): 
+                      do something
+                  elif given(a,c): 
+                      do something else
+        
+        
+          - ``def pop_keys(d, *names):``
+        
+            Pull some keywords from dict d if they exist.
+            
+            I use this to help with argument processing when I have lots of
+            keyword arguments floating around.  The typical use is something like::
+        
+              def foo(**kw):
+                  kw1 = pop_keys('args', 'for', 'bar')
+                  bar(**kw1)
+                  other_function(**kw)  # kw doesn't contain the popped keywords anymore
+                
+            Thus neither bar() nor other_function() get keyword arguments that
+            they don't expect.  In addition, if the caller *doesn't* specify
+            an argument, it doesn't show up in the arg list for the calls to
+            bar or other_function, so that the default values are used.
+        
+          - ``def dict_union(*ds, **kw):``
+        
+            Combine several dicts and keywords into one dict.  I use this
+            for argument processing where I want to set defaults in several
+            places, sometimes overriding values.  The common case is something
+            like::
+            
+              values = dictUntion(global_defaults, local_defaults, key1=val1,
+                                  key2=val2)
+        
+            where global_defaults and local_defaults are dicts where
+            local_defaults overrides global_defaults, and key1 and key2
+            override anything in either of the values.
+        
+        * Composition of function predicates:
+        
+          - ``def f_or(*fs)``
+          - ``def f_and(*fs)``
+          - ``def f_not(f)``
+        
+          The idea is to compose functions using logical operators to make
+          compound predicates.  Ie, you have functions blue(obj) and
+          green(obj) that return True or False depending on whether the object
+          is blue or green.  You can write::
+        
+            blue_or_green = f_or(blue, green)
+            if blue_or_green(obj): 
+                do something
+        
+        * Concise syntax for pickling objects:
+         
+          Pickling is great, but I do a lot of interactive data analysis, so I
+          want syntax for object persistence that's one line and as few
+          characters as possible.
+        
+          >>> can([1,2,3], 'file.dat')
+          >>> obj = uncan('file.dat')
+        
+        * ``def timer(f, *a, **kw):``
+        
+          Provide reasonably reliable time estimates for a function.
+        
+          Runs the function once.  If the run time is less than timer_tmin,
+          run the function timer_factor more times.  Repeat until timer_tmin
+          is surpassed.  If timer_verbose, print what's going on to stdout.
+        
+          >>> square = lambda x: x**2
+          >>> timer(f, 5, timer_tmin=2.0, timer_factor=3, timer_verbose=True)
+        
+        * def import_graph(with_system=True, out_file=sys.stdout,
+                            excludes=None, exclude_regexps=None)
+            
+          Construct a graph of which python modules import which others,
+          suitable for consumption by graphviz (http://www.graphviz.org).  
+        
+          This just works on python files in the current directory.  It's
+          intended to be helpful if you want to reduce dependencies among
+          python files in the current directory.
+        
+          >>> import_graph(out_file='imports.dot')
+          # At the Unix shell prompt: 
+          [novak@thalia ~]$ dot -Tpng imports.dot > imports.png
+        
+        License
+        =======
+        
+        The code is released under the MIT license, so you should be able to
+        do whatever you want with it.  
+        
+        If you incorporate this code into a larger project, I would appreciate
+        it if you send me a note at greg.novak@gmail.com
+        
+Platform: UNKNOWN
