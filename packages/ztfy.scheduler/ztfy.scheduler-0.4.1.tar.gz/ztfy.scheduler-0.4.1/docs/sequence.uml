@@ -1,0 +1,104 @@
+
+Tasks scheduler
+===============
+
+A tasks scheduler is made of:
+
+ - a ZODB, which stores tasks definition.
+
+ - a ZMQ process, which handles the real scheduler. The scheduler is feeded
+   by a ZODB jobs store, which reads tasks definition from ZODB and inits
+   matching jobs. The ZMQ process can be queried throught messages to get the
+   list of running jobs.
+
+ - tasks definition is handled throught common forms; when a task is created,
+   modified or deleted, the ZMQ process is notified and the matching job is
+   re-scheduled.
+
+ - each job is running in it's own dedicated thread, and is identified by it's
+   matching task internal ID.
+
+
+ZMQ process messages
+====================
+
+Each message has a matching method in ZMQ process messages handler:
+
+ - [ 'get_jobs', ]: get list of running jobs
+
+ - [ 'add_job', { 'zeo': {},
+                  'path': '/...' } ]: add new job
+
+ - [ 'update_job', { 'zeo': {},
+                     'path': '/...' } ]: update given job
+
+ - [ 'remove_job', { 'zeo': {},
+                     'path': '/...' } ]: remove given job
+
+
+Sequence diagram
+================
+
+@startuml
+
+group Application start
+
+	[-> ServerProcess: << database opened >>
+	ServerProcess -> ZMQProcess: start()
+	activate ZMQProcess
+	ServerProcess <-- ZMQProcess: << OK >>
+	ZMQProcess -> Scheduler: start()
+	activate Scheduler
+
+	Scheduler -> ZODB: load_tasks()
+	activate Task
+	Scheduler <-- ZODB: << tasks list >>
+	Scheduler -> Job: schedule()
+	activate Job
+	Scheduler <-- Job: << OK >>
+
+	ZMQProcess <-- Scheduler: << OK >>
+
+end
+
+
+group Add task
+
+	actor Request
+	activate Request
+
+	Request -> Task: add()
+	Request <-- Task: << OK >>
+	Request -> ZODB: commit()
+	Request <-- ZODB: << OK >>
+
+	Request -> ZMQProcess: send_message('reset_task',...)
+	ZMQProcess -> Scheduler: unschedule_job()
+	ZMQProcess <-- Scheduler: << OK >>
+	ZMQProcess -> Scheduler: schedule_job()
+	ZMQProcess <-- Scheduler: << OK >>
+
+	Request <-- ZMQProcess: << OK >>
+
+end
+
+
+group Scheduled job
+
+	Scheduler -> Job: start()
+
+	Job -> Task: __call__()
+	Task -> ZODB: connect()
+	Task <-- ZODB: << OK >>
+	Task -> Task: run()
+	Task -> Task: storeReport()
+	Task -> Task: sendReport()
+	Task -> ZODB: commit()
+	Task <-- ZODB: << OK >>
+	Job <-- Task: << OK >>
+
+	Scheduler <-- Job: << job.getNextRun() >>
+
+end
+
+@enduml
