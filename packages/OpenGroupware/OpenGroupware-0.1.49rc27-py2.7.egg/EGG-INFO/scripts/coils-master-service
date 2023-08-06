@@ -1,0 +1,177 @@
+#!/usr/bin/python
+# Copyright (c) 2009, 2010, 2011, 2012 Adam Tauno Williams <awilliam@whitemice.org>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+#
+import getopt, sys, os, socket
+from coils.foundation import change_to_backend_usergroup, ServerDefaultsManager
+from coils.foundation.utility import get_server_root
+from coils.core       import MasterService, initialize_COILS, BundleManager
+from coils.net        import HTTPService, SMTPService
+
+def usage():
+    print """
+        Start OpenGroupware Coils service components
+        --help            Display this message.
+        --store=          Set the BLOB store root; defaults to "/var/lib/opengroupware.org"
+        --group=          Set the group to run services as; defaults to "skyrix"
+        --user=           Set the user to run services as; defaults to "ogo".
+        --do-not-start=   Name a component that should not be managed, regardless of configuration.
+    """
+    return
+
+def main(argv):
+
+
+    def load_components(hostname, banned_components, silent=True):
+
+        sd = ServerDefaultsManager()
+        
+        host_index = sd.get_default_value('CoilsServiceHostIndex', fallback={ })
+        
+        service_list = [ ]
+        
+        if host_index:
+            if not silent:
+                print( 'Host/Service index configured.' )
+            service_list = [ name for name in  host_index.get( hostname, [ ] ) ]
+            default_run = False
+        else:
+            if not silent:
+                print( 'No Host/Service index configured, starting all services' )
+            service_list = [ name for name in BundleManager.list_services() ]
+            default_run = True
+        
+        # coils.master utself is a service but must never manage itself
+        service_list = [ name for name in service_list if name != 'coils.master' ]
+        
+        if default_run:
+            service_list.append( 'coils.http' )
+            service_list.append( 'coils.smtpd' ) 
+
+        service_list = [ name for name in service_list if name not in banned_components ]
+
+        return service_list
+
+
+    silent=False
+    username   = 'ogo'
+    groupname  = 'skyrix'
+    storeroot  = None
+    changeuser = True
+    add_modules = [ ]
+    ban_modules = [ ]
+    do_not_start = [ ]
+
+    try:
+        opts, args = getopt.getopt(argv, "hag:u:s:i:x:d:q",
+                                         [ "help",
+                                           "quiet", 
+                                           "asuser", 
+                                           "user=", 
+                                           "group=",
+                                           "store=", 
+                                           "do-not-start=",
+                                           "add-bundle=", 
+                                           "ban-bundle="])
+    except getopt.GetoptError, e:
+        print e
+        usage()
+        sys.exit(2)
+    else:
+        for opt, arg in opts:
+            if opt in ("-h", "--help"):
+                usage()
+                sys.exit(0)
+            elif opt in ("-a", "--asuser"):
+                changeuser = False
+            elif opt in ("-q", "--quiet"):
+                silent = True                
+            elif opt in ("-u", "--user"):
+                username = arg
+            elif opt in ("-g", "--group"):
+                groupname = arg
+            elif opt in ("-s", "--store"):
+                storeroot = arg
+            elif opt in ("-i", "--add-bundle"):
+                add_modules.append(arg)
+            elif opt in ("-x", "--ban-bundle"):
+                ban_modules.append(arg)
+            elif opt in ("-d", "--do-not-start"):
+                do_not_start.append(arg)                
+
+    if (changeuser):
+        change_to_backend_usergroup(username, groupname)
+       
+    # Extra modules to add can also be specified in the environment
+    env_add_modules = os.getenv( 'COILS_EXTRA_MODULES' )
+    if env_add_modules:
+        for module_name in env_add_modules.split( ',' ):
+            add_modules.append( module_name.strip( ) )
+    
+    # Modules to ban can also be specified in the environment        
+    env_ban_modules = os.getenv( 'COILS_BANNED_MODULES' )
+    if env_ban_modules:
+        for module_name in env_ban_modules.split( ',' ):
+            ban_modules.append( module_name.strip( ) ) 
+            
+            
+    # Services to ban can also be specified in the environment    
+    env_ban_services = os.getenv( 'COILS_BANNED_SERVICES' )
+    if env_ban_services:
+        for service_name in env_ban_services.split( ',' ):
+            do_not_start.append( service_name.strip( ) )             
+
+    initialize_COILS( { 'store_root':     storeroot,
+                        'extra_modules':  add_modules,
+                        'banned_modules': ban_modules } )
+
+    master = MasterService( )
+    
+    # Allow the hostname to be overriden via the environment
+    hostname = os.getenv( 'COILS_HOSTNAME' )
+    if not hostname:
+        hostname   = socket.gethostname( )
+        
+    components = load_components( hostname, do_not_start, silent=silent )
+
+    for component in components:
+        if component == 'coils.http':
+            master.append_service('coils.http', HTTPService())
+            if not silent:
+                print('Registering component "coils.http"')
+        elif component == 'coils.smtpd':
+            if not silent:
+                print('Registering component "coils.smtpd"')
+            master.append_service('coils.smtpd', SMTPService())
+        else:
+            service = BundleManager.get_service(component)
+            if service:
+                if not silent:
+                    print('Registering component "{0}"'.format(component))
+                master.append_service(component, service)
+
+    master.start()
+    if not silent: print('Starting....')
+    master.run()
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main( sys.argv[ 1: ] )
