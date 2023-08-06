@@ -1,0 +1,485 @@
+<html>
+<head>
+<link rel="stylesheet" href="ridl.css" />
+<link rel="stylesheet" href="flyscript.css" />
+<title>FlyScript Documentation</title>
+</head>
+
+<body>
+<div class="header">
+<a href="http://www.riverbed.com"><img src="rb-logo.png" align="left"></a>
+<div>
+<p class="headerleft">FlyScript Documentation</p>
+<p class="headerright"> Version 0.5.2
+ - last updated Mar 19, 2013 at 07:03 AM</p>
+
+</div>
+
+</div>
+
+<div class="navbar">
+
+<div class="links" markdown="1">
+
+<p><span class="toctitle">Quick Links:</span></p>
+<ul>
+<li><a href="index.html">Home</a></li>
+<li><a href="tutorials.html">Tutorials</a></li>
+<li>Modules<ul>
+<li><a href="common.html"><code>rvbd.common</code></a></li>
+<li><a href="shark.html"><code>rvbd.shark</code></a></li>
+<li><a href="profiler.html"><code>rvbd.profiler</code></a></li>
+</ul>
+</li>
+<li><a href="rest_apis.html">REST APIs</a></li>
+<li><a href="glossary.html">Glossary</a></li>
+</ul>
+</div>
+
+<div class="toc"><span class="toctitle">On this page:</span><ul>
+<li><a href="#profiler-tutorial">Profiler Tutorial</a><ul>
+<li><a href="#profiler-overview">Profiler Overview</a></li>
+<li><a href="#profiler-objects">Profiler Objects</a></li>
+<li><a href="#profiler-startup">Profiler Startup</a></li>
+<li><a href="#generating-reports">Generating Reports</a></li>
+<li><a href="#reporting-columns">Reporting Columns</a></li>
+<li><a href="#extending-the-example">Extending the Example</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+
+<div class="content">
+
+<h1 id="profiler-tutorial">Profiler Tutorial</h1>
+<p>This tutorial will walk through the main components of the FlyScript 
+interfaces for <a href="glossary.html#profiler">Cascade Profiler</a>.  As with the 
+<a href="tutorial.md">Shark Tutorial</a> this discussion will assume a basic understanding
+of the Python programming language.</p>
+<p>The tutorial has been organized so you can follow it sequentially.  Throughout
+the examples, you will be expected to fill in details specific to your
+environment.  These will be called out using a dollar sign <code>$&lt;name&gt;</code> -- for
+example <code>$sharkhost</code> indicates you should fill in the host name or IP address
+of a Shark appliance.</p>
+<p>Whenever you see <code>&gt;&gt;&gt;</code>, this indicates an interactive session using the Python
+shell.  The command that you are expected to type follows the <code>&gt;&gt;&gt;</code>.  The
+result of the command follows.  Any lines with a <code>#</code> are just comments to
+describe what is happening.  In many cases the exact output will depend on your
+environment, so it may not match precisely what you see in this tutorial.</p>
+<h2 id="profiler-overview">Profiler Overview</h2>
+<p>Cascade Profiler provides centralized reporting and analysis of the data
+collected by other Cascade appliances (i.e., Gateway, Sensor, and Shark) and
+Steelhead products on a single user interface.  Through the FlyScript
+interfaces, this wealth of data becomes more easily accessible.</p>
+<h2 id="profiler-objects">Profiler Objects</h2>
+<p>Profiler is made of up two primary objects,
+<a href="profiler.html#profilerobjects"><code>Profiler</code></a>, and
+<a href="profiler.html#reportobjects"><code>Report</code></a>.  <code>Profiler</code> provides the primary
+interface to the appliance, handling initialization, setup, and communication
+via REST API calls.  The <code>Report</code> object talks through <code>Profiler</code> to create new
+reports and pull data from existing reports.  In most cases though, your
+scripts will use a more helpful object tailored to the desired report, such as
+a <code>TrafficSummaryReport</code> or a <code>TrafficOverallTimeSeriesReport</code>.  We'll cover
+those shortly.</p>
+<p>Outside of handling all the communication back and forth, <code>Profiler</code> also
+handles all of the different report columns that could be desired.  It provides
+a helpful interface to offer up available columns by report type, and ensures
+that any chosen columns are in fact appropriate.  </p>
+<p>With that brief overview, let's get started.</p>
+<h2 id="profiler-startup">Profiler Startup</h2>
+<p>As with any Python code, the first step is to import the module(s)
+we intend to use.
+The FlyScript code for working with Profiler appliances resides in a
+module called <code>rvbd.profiler</code>.
+The main class in this module is <a href="profiler.html#profilerobjects"><code>Profiler</code></a>.
+This object represents a connection to a Profiler appliance.</p>
+<p>To start, start python from the shell or command line:</p>
+<div class="codehilite"><pre><span class="go">$ python</span>
+<span class="go">Python 2.7.3 (default, Apr 19 2012, 00:55:09) </span>
+<span class="go">[GCC 4.2.1 (Based on Apple Inc. build 5658) (LLVM build 2335.15.00)] on darwin</span>
+<span class="go">Type &quot;help&quot;, &quot;copyright&quot;, &quot;credits&quot; or &quot;license&quot; for more information.</span>
+<span class="go">&gt;&gt;&gt;</span>
+</pre></div>
+
+
+<p>Once in the python shell, let's create a Profiler object:</p>
+<div class="codehilite"><pre><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span> <span class="nn">rvbd.profiler</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span> <span class="nn">rvbd.common.service</span> <span class="kn">import</span> <span class="n">UserAuth</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">p</span> <span class="o">=</span> <span class="n">rvbd</span><span class="o">.</span><span class="n">profiler</span><span class="o">.</span><span class="n">Profiler</span><span class="p">(</span><span class="s">&#39;$hostname&#39;</span><span class="p">,</span> <span class="n">auth</span><span class="o">=</span><span class="n">UserAuth</span><span class="p">(</span><span class="s">&#39;$username&#39;</span><span class="p">,</span> <span class="s">&#39;$password&#39;</span><span class="p">))</span>
+</pre></div>
+
+
+<p>The first argument is the hostname or IP address of the Profiler appliance.  The
+second argument is a named parameter and identifies the authentication method
+to use -- in this case, simple username/password is used.  OAuth 2.0 is supported as well, but
+we will focus on basic authentication for this tutorial.</p>
+<p>As soon as the Profiler object is created, a connection is established to the appliance,
+ the authentication credentials are validated, and heirarchy of available columns is loaded. 
+ If the username and password are not correct, you will immediately see an exception.  Also,
+if this is the first time initializing a <code>Profiler</code> object, there will be a short delay
+while all of the columns are fetched from the appliance and cached locally.</p>
+<p>The <code>p</code> object is the basis for all communication with the Profiler appliance.
+We can get some basic version information by simply looking at the 'version' attrubute:</p>
+<div class="codehilite"><pre><span class="gp">&gt;&gt;&gt; </span><span class="k">print</span> <span class="n">p</span><span class="o">.</span><span class="n">version</span>
+<span class="go">&#39;10.1 (release 20130204_1200)&#39;</span>
+</pre></div>
+
+
+<p>Before moving on, exit the python interactive shell:</p>
+<div class="codehilite"><pre><span class="gp">&gt;&gt;&gt; </span><span class="p">[</span><span class="n">Ctrl</span><span class="o">-</span><span class="n">D</span><span class="p">]</span>
+<span class="go">$</span>
+</pre></div>
+
+
+<h2 id="generating-reports">Generating Reports</h2>
+<p>Reports are the mechanisim to extract all the myriad of data from <code>Profiler</code> into
+any format desired.  We will create a short script that provides a command-line interface
+to generate reports on the fly.</p>
+<p>Create a new file in a working directory of your choice, call it <code>myreport.py</code>,
+and insert the following lines:</p>
+<div class="codehilite"><pre><span class="kn">import</span> <span class="nn">rvbd.profiler</span>
+
+<span class="kn">from</span> <span class="nn">rvbd.common.service</span> <span class="kn">import</span> <span class="n">UserAuth</span>
+<span class="kn">from</span> <span class="nn">rvbd.profiler.filters</span> <span class="kn">import</span> <span class="n">TimeFilter</span>
+<span class="kn">from</span> <span class="nn">rvbd.profiler.report</span> <span class="kn">import</span> <span class="n">TrafficSummaryReport</span>
+
+<span class="kn">import</span> <span class="nn">pprint</span>
+
+<span class="c"># connection information</span>
+<span class="n">username</span> <span class="o">=</span> <span class="s">&#39;$username&#39;</span>
+<span class="n">password</span> <span class="o">=</span> <span class="s">&#39;$password&#39;</span>
+<span class="n">auth</span> <span class="o">=</span> <span class="n">UserAuth</span><span class="p">(</span><span class="n">username</span><span class="p">,</span> <span class="n">password</span><span class="p">)</span>
+<span class="n">host</span> <span class="o">=</span> <span class="s">&#39;$profiler_host&#39;</span>
+
+<span class="c"># create a new profiler instance</span>
+<span class="n">p</span> <span class="o">=</span> <span class="n">rvbd</span><span class="o">.</span><span class="n">profiler</span><span class="o">.</span><span class="n">Profiler</span><span class="p">(</span><span class="n">host</span><span class="p">,</span> <span class="n">auth</span><span class="o">=</span><span class="n">auth</span><span class="p">)</span>
+
+<span class="c"># setup basic info for our report</span>
+<span class="n">columns</span> <span class="o">=</span> <span class="p">[</span><span class="n">p</span><span class="o">.</span><span class="n">columns</span><span class="o">.</span><span class="n">key</span><span class="o">.</span><span class="n">host_ip</span><span class="p">,</span>
+           <span class="n">p</span><span class="o">.</span><span class="n">columns</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">avg_bytes</span><span class="p">,</span>
+           <span class="n">p</span><span class="o">.</span><span class="n">columns</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">network_rtt</span><span class="p">]</span>
+<span class="n">sort_column</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">columns</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">avg_bytes</span>
+<span class="n">timefilter</span> <span class="o">=</span> <span class="n">TimeFilter</span><span class="o">.</span><span class="n">parse_range</span><span class="p">(</span><span class="s">&quot;last 5 m&quot;</span><span class="p">)</span>
+
+<span class="c"># initialize a new report, and run it</span>
+<span class="n">report</span> <span class="o">=</span> <span class="n">TrafficSummaryReport</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
+<span class="n">report</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="s">&#39;hos&#39;</span><span class="p">,</span> <span class="n">columns</span><span class="p">,</span> <span class="n">timefilter</span><span class="o">=</span><span class="n">timefilter</span><span class="p">,</span> <span class="n">sort_col</span><span class="o">=</span><span class="n">sort_column</span><span class="p">)</span>
+
+<span class="c"># grab the data, and legend (it should be what we passed in for most cases)</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">report</span><span class="o">.</span><span class="n">get_data</span><span class="p">()</span>
+<span class="n">legend</span> <span class="o">=</span> <span class="n">report</span><span class="o">.</span><span class="n">get_legend</span><span class="p">()</span>
+
+<span class="c"># once we have what we need, delete the report from the profiler</span>
+<span class="n">report</span><span class="o">.</span><span class="n">delete</span><span class="p">()</span>
+
+<span class="c"># print out the top ten hosts!</span>
+<span class="n">pprint</span><span class="o">.</span><span class="n">pprint</span><span class="p">(</span><span class="n">data</span><span class="p">[:</span><span class="mi">10</span><span class="p">])</span>
+</pre></div>
+
+
+<p>Be sure to fill in appropriate values for <code>$profiler_host</code>, <code>$username</code> and <code>$password</code>.
+Run this script as follows and you should see something like the following:</p>
+<div class="codehilite"><pre>$ python myreport.py
+[[&#39;10.100.6.12&#39;, 1733552.81667, &#39;&#39;],
+ [&#39;10.99.18.154&#39;, 1027017.35, 0.124],
+ [&#39;10.100.5.12&#39;, 814550.3, &#39;&#39;],
+ [&#39;10.100.5.13&#39;, 707320.527778, &#39;&#39;],
+ [&#39;10.100.6.14&#39;, 691441.777778, &#39;&#39;],
+ [&#39;10.100.6.10&#39;, 525593.25, &#39;&#39;],
+ [&#39;10.100.120.108&#39;, 455330.638889, &#39;&#39;],
+ [&#39;10.100.5.11&#39;, 443483.577778, &#39;&#39;],
+ [&#39;10.100.6.11&#39;, 385050.85, &#39;&#39;],
+ [&#39;10.100.201.33&#39;, 371349.105556, 0.046]]
+</pre></div>
+
+
+<p>We've created our first report!  Let's take a closer look at what we just did.  </p>
+<div class="codehilite"><pre><span class="kn">import</span> <span class="nn">rvbd.profiler</span>
+
+<span class="kn">from</span> <span class="nn">rvbd.common.service</span> <span class="kn">import</span> <span class="n">UserAuth</span>
+<span class="kn">from</span> <span class="nn">rvbd.profiler.filters</span> <span class="kn">import</span> <span class="n">TimeFilter</span>
+<span class="kn">from</span> <span class="nn">rvbd.profiler.report</span> <span class="kn">import</span> <span class="n">TrafficSummaryReport</span>
+
+<span class="kn">import</span> <span class="nn">pprint</span>
+</pre></div>
+
+
+<p>These first few lines import our FlyScript modules and prepare them for use in
+the rest of the script.  Common convention has custom modules (like Flyscript)
+at the top, and built-in, or library modules at the bottom, such as pprint.</p>
+<div class="codehilite"><pre><span class="c"># connection information</span>
+<span class="n">username</span> <span class="o">=</span> <span class="s">&#39;$username&#39;</span>
+<span class="n">password</span> <span class="o">=</span> <span class="s">&#39;$password&#39;</span>
+<span class="n">auth</span> <span class="o">=</span> <span class="n">UserAuth</span><span class="p">(</span><span class="n">username</span><span class="p">,</span> <span class="n">password</span><span class="p">)</span>
+<span class="n">host</span> <span class="o">=</span> <span class="s">&#39;$profiler_host&#39;</span>
+</pre></div>
+
+
+<p>These are our login credentials.  We have them hard-coded into the script for 
+an example here, but we will show how to have these supplied on the command line
+shortly.</p>
+<div class="codehilite"><pre><span class="c"># create a new profiler instance</span>
+<span class="n">p</span> <span class="o">=</span> <span class="n">rvbd</span><span class="o">.</span><span class="n">profiler</span><span class="o">.</span><span class="n">Profiler</span><span class="p">(</span><span class="n">host</span><span class="p">,</span> <span class="n">auth</span><span class="o">=</span><span class="n">auth</span><span class="p">)</span>
+
+<span class="c"># setup basic info for our report</span>
+<span class="n">columns</span> <span class="o">=</span> <span class="p">[</span><span class="n">p</span><span class="o">.</span><span class="n">columns</span><span class="o">.</span><span class="n">key</span><span class="o">.</span><span class="n">host_ip</span><span class="p">,</span>
+           <span class="n">p</span><span class="o">.</span><span class="n">columns</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">avg_bytes</span><span class="p">,</span>
+           <span class="n">p</span><span class="o">.</span><span class="n">columns</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">network_rtt</span><span class="p">]</span>
+<span class="n">sort_column</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">columns</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">avg_bytes</span>
+<span class="n">timefilter</span> <span class="o">=</span> <span class="n">TimeFilter</span><span class="o">.</span><span class="n">parse_range</span><span class="p">(</span><span class="s">&quot;last 5 m&quot;</span><span class="p">)</span>
+
+<span class="c"># initialize a new report, and run it</span>
+<span class="n">report</span> <span class="o">=</span> <span class="n">TrafficSummaryReport</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
+<span class="n">report</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="s">&#39;hos&#39;</span><span class="p">,</span> <span class="n">columns</span><span class="p">,</span> <span class="n">timefilter</span><span class="o">=</span><span class="n">timefilter</span><span class="p">,</span> <span class="n">sort_col</span><span class="o">=</span><span class="n">sort_column</span><span class="p">)</span>
+</pre></div>
+
+
+<p>Now things get interesting.  After initializing a new profiler instance,
+we define some of the settings we want to use in our report.<br />
+<code>columns</code> is a list of column types we want to use in our report
+    <code>sort_column</code> indicates which column profiler should use to sort on
+    <code>timefilter</code> provides a time range for what time period the report should
+        be limited to</p>
+<p>Next, a new report instance is created, and the variables we just defined are
+used to generate a report.</p>
+<div class="codehilite"><pre><span class="c"># grab the data, and legend (it should be what we passed in for most cases)</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">report</span><span class="o">.</span><span class="n">get_data</span><span class="p">()</span>
+<span class="n">legend</span> <span class="o">=</span> <span class="n">report</span><span class="o">.</span><span class="n">get_legend</span><span class="p">()</span>
+
+<span class="c"># once we have what we need, delete the report from the profiler</span>
+<span class="n">report</span><span class="o">.</span><span class="n">delete</span><span class="p">()</span>
+
+<span class="c"># print out the top ten hosts!</span>
+<span class="n">pprint</span><span class="o">.</span><span class="n">pprint</span><span class="p">(</span><span class="n">data</span><span class="p">[:</span><span class="mi">10</span><span class="p">])</span>
+</pre></div>
+
+
+<p>Here, the comments pretty well walk through what is happening.  Deleting
+reports helps keep things tidy, but doesn't cause harm if they are left around.
+After a period of time the appliance will cleanup any leftover reports after 24
+hours.</p>
+<p>Finally, since we included a column to sort on in our report request, we can
+just limit the output to the first ten items to get the top ten.</p>
+<h2 id="reporting-columns">Reporting Columns</h2>
+<p>We chose only a small subset of the available columns for our example script.
+We could include any columns applicable for this report type.  To help identify
+which columns are available, we could start up a python console and try some of
+the commands we showed in the <a href="profiler_columns.html">A Note About Columns</a>
+section, or we could use one of the provided example scripts called
+<code>profiler_columns.py</code>.</p>
+<p>Let's try using the example script and then we can enhance our example a bit 
+more.</p>
+<p>The example script should have been installed in one of your local <code>bin</code>
+directories.  Try the following command to see if its on your path:</p>
+<div class="codehilite"><pre>$ where profiler_columns.py
+</pre></div>
+
+
+<p>If that doesn't return a path, then you will need to add the directory it 
+has been installed to to your shell's system path.</p>
+<p>Now that you are setup, let's find some columns.</p>
+<p>In our example, we glossed over the specific realm, centricity, and groupby that
+was selected.  For a TrafficSummaryReport, those three items could be as follows:</p>
+<div class="codehilite"><pre>|--------------+-------------------------------------------------------------|
+| `realm`      |  `traffic_summary`                                          |
+| `centricity` |  `hos`, `int`                                               |
+| `groupby`    |  any type except `time_host_user`, our example used `host`  |
+|--------------+-------------------------------------------------------------|
+</pre></div>
+
+
+<p>Enter the following:</p>
+<div class="codehilite"><pre>$ profiler_columns.py -h
+Usage: profiler_columns.py PROFILER_HOSTNAME &lt;options&gt;
+
+Options:
+  -h, --help            show this help message and exit
+
+[...text continues...]
+</pre></div>
+
+
+<p>And you will see all of the available options to the script.  One thing you
+will see are options for host, username, and password.  Where we had
+those hardcoded in our example, now we pass them as options to the script.</p>
+<div class="codehilite"><pre>$ profiler_columns.py $hostname -u $username -p $password
+</pre></div>
+
+
+<p>This will just execute and print nothing out if it was able to successfully
+connect.  Now, let's add our triplet information:</p>
+<div class="codehilite"><pre>$ profiler_columns.py $hostname -u $username -p $password -r traffic_summary
+  -c hos -g host --list-columns
+
+Key Columns        Label                  ID     
+-------------------------------------------------
+group_name         Group                  23     
+[...text continues...]
+
+Value Columns                    Label                               ID     
+----------------------------------------------------------------------------
+avg_bytes                        Avg Bytes/s                         33     
+avg_bytes_app                    Avg App Bytes/s                     504    
+[...text continues...]
+</pre></div>
+
+
+<p>The available key and value columns will be presented.  If additional columns were 
+desired for your report, select from this list.</p>
+<p>We have chosen <code>host</code> as our groupby option, but to get a full list of what is available,
+use the '--list-groupbys' option:</p>
+<div class="codehilite"><pre>$ profiler_columns.py $hostname -u $username -p $password --list-groupbys
+
+GroupBy                      Id     
+------------------------------------
+host_pair                    hop    
+ip_mac_pair                  ipp    
+port_group                   pgr    
+[...text continues...]
+</pre></div>
+
+
+<p>Note that the correct value to pass in the profiler_columns.py script is the
+groupby name, not the Id.</p>
+<p>Once you have found the set of columns you are interested in, you will now have
+a means of including them in your report request.  The following syntax would
+be one way to reference them:</p>
+<div class="codehilite"><pre><span class="n">columns</span> <span class="o">=</span> <span class="p">[</span><span class="n">p</span><span class="o">.</span><span class="n">columns</span><span class="o">.</span><span class="n">key</span><span class="o">.</span><span class="n">host_ip</span><span class="p">,</span>
+           <span class="n">p</span><span class="o">.</span><span class="n">columns</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">avg_bytes</span><span class="p">,</span>
+           <span class="n">p</span><span class="o">.</span><span class="n">columns</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">network_rtt</span><span class="p">]</span>
+</pre></div>
+
+
+<p>Assuming <code>p</code> is a profiler instance, this would be one format to create
+a list of key and value columns.  Keys are named <code>p.columns.key.&lt;colname&gt;</code> and
+values are named <code>p.columns.value.&lt;colname&gt;</code>.</p>
+<p>Additional discussion on columns can be found <a href="profiler_columns.html">here</a>.</p>
+<h2 id="extending-the-example">Extending the Example</h2>
+<p>As a last item to help get started with your own scripts, we will extend our example
+with two helpful features: command-line options and table outputs.</p>
+<p>Rather than show how to update your existing example script, we will post the new
+script below, then walk through key differences that add the features we are looking for.</p>
+<div class="codehilite"><pre><span class="c">#!/usr/bin/env python</span>
+
+<span class="kn">from</span> <span class="nn">rvbd.profiler.filters</span> <span class="kn">import</span> <span class="n">TimeFilter</span>
+<span class="kn">from</span> <span class="nn">rvbd.profiler.report</span> <span class="kn">import</span> <span class="n">TrafficSummaryReport</span>
+<span class="kn">from</span> <span class="nn">rvbd.profiler.app</span> <span class="kn">import</span> <span class="n">ProfilerApp</span>
+<span class="kn">from</span> <span class="nn">rvbd.common.utils</span> <span class="kn">import</span> <span class="n">Formatter</span>
+
+<span class="kn">import</span> <span class="nn">optparse</span>
+
+<span class="k">class</span> <span class="nc">ExampleApp</span><span class="p">(</span><span class="n">ProfilerApp</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="nf">add_options</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parser</span><span class="p">):</span>
+        <span class="n">group</span> <span class="o">=</span> <span class="n">optparse</span><span class="o">.</span><span class="n">OptionGroup</span><span class="p">(</span><span class="n">parser</span><span class="p">,</span> <span class="s">&quot;Example Options&quot;</span><span class="p">)</span>
+        <span class="n">group</span><span class="o">.</span><span class="n">add_option</span><span class="p">(</span><span class="s">&#39;-r&#39;</span><span class="p">,</span> <span class="s">&#39;--timerange&#39;</span><span class="p">,</span> <span class="n">dest</span><span class="o">=</span><span class="s">&#39;timerange&#39;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                         <span class="n">help</span><span class="o">=</span><span class="s">&#39;Time range to limit report to, e.g. &quot;last 5 m&quot;&#39;</span><span class="p">)</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">add_option_group</span><span class="p">(</span><span class="n">group</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">main</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">p</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">profiler</span>
+
+        <span class="n">report</span> <span class="o">=</span> <span class="n">TrafficSummaryReport</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
+
+        <span class="n">columns</span> <span class="o">=</span> <span class="p">[</span><span class="n">p</span><span class="o">.</span><span class="n">columns</span><span class="o">.</span><span class="n">key</span><span class="o">.</span><span class="n">host_ip</span><span class="p">,</span>
+                   <span class="n">p</span><span class="o">.</span><span class="n">columns</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">avg_bytes</span><span class="p">,</span>
+                   <span class="n">p</span><span class="o">.</span><span class="n">columns</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">network_rtt</span><span class="p">]</span>
+        <span class="n">sort_column</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">columns</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">avg_bytes</span>
+
+        <span class="n">timefilter</span> <span class="o">=</span> <span class="n">TimeFilter</span><span class="o">.</span><span class="n">parse_range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">timerange</span><span class="p">)</span>
+
+        <span class="n">report</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="s">&#39;hos&#39;</span><span class="p">,</span> <span class="n">columns</span><span class="p">,</span> <span class="n">timefilter</span><span class="o">=</span><span class="n">timefilter</span><span class="p">,</span> <span class="n">sort_col</span><span class="o">=</span><span class="n">sort_column</span><span class="p">)</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">report</span><span class="o">.</span><span class="n">get_data</span><span class="p">()</span>
+        <span class="n">legend</span> <span class="o">=</span> <span class="n">report</span><span class="o">.</span><span class="n">get_legend</span><span class="p">()</span>
+        <span class="n">report</span><span class="o">.</span><span class="n">delete</span><span class="p">()</span>
+
+        <span class="n">header</span> <span class="o">=</span> <span class="p">[</span><span class="n">c</span><span class="o">.</span><span class="n">key</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">columns</span><span class="p">]</span>
+        <span class="n">Formatter</span><span class="o">.</span><span class="n">print_table</span><span class="p">(</span><span class="n">data</span><span class="p">[:</span><span class="mi">10</span><span class="p">],</span> <span class="n">header</span><span class="p">)</span>
+
+<span class="n">ExampleReport</span><span class="p">()</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+</pre></div>
+
+
+<p>Copy that code into a new file, and run it, you will find the same base set of 
+options used for profiler_columns.py are now included in this script.  Primarily,
+<code>hostname</code>, <code>username</code>, <code>password</code> are now all items to be passed to the script.</p>
+<p>We also get a nicely formatted table, too!</p>
+<p>First we needed to import some new items:</p>
+<div class="codehilite"><pre><span class="c">#!/usr/bin/env python</span>
+
+<span class="kn">from</span> <span class="nn">rvbd.profiler.filters</span> <span class="kn">import</span> <span class="n">TimeFilter</span>
+<span class="kn">from</span> <span class="nn">rvbd.profiler.report</span> <span class="kn">import</span> <span class="n">TrafficSummaryReport</span>
+<span class="kn">from</span> <span class="nn">rvbd.profiler.app</span> <span class="kn">import</span> <span class="n">ProfilerApp</span>
+<span class="kn">from</span> <span class="nn">rvbd.common.utils</span> <span class="kn">import</span> <span class="n">Formatter</span>
+
+<span class="kn">import</span> <span class="nn">optparse</span>
+</pre></div>
+
+
+<p>That bit at the top is called a shebang, it tells the system that it should
+execute this script using the program after the '#!'.  We are also importing
+<code>ProfilerApp</code> and <code>Formatter</code> classes to help with our new updates.  The
+built-in library <code>optparse</code> is used to parse command-line options.</p>
+<div class="codehilite"><pre><span class="k">class</span> <span class="nc">ExampleApp</span><span class="p">(</span><span class="n">ProfilerApp</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="nf">add_options</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parser</span><span class="p">):</span>
+        <span class="n">group</span> <span class="o">=</span> <span class="n">optparse</span><span class="o">.</span><span class="n">OptionGroup</span><span class="p">(</span><span class="n">parser</span><span class="p">,</span> <span class="s">&quot;Example Options&quot;</span><span class="p">)</span>
+        <span class="n">group</span><span class="o">.</span><span class="n">add_option</span><span class="p">(</span><span class="s">&#39;-r&#39;</span><span class="p">,</span> <span class="s">&#39;--timerange&#39;</span><span class="p">,</span> <span class="n">dest</span><span class="o">=</span><span class="s">&#39;timerange&#39;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                         <span class="n">help</span><span class="o">=</span><span class="s">&#39;Time range to limit report to, e.g. &quot;last 5 m&quot;&#39;</span><span class="p">)</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">add_option_group</span><span class="p">(</span><span class="n">group</span><span class="p">)</span>
+</pre></div>
+
+
+<p>This section begins the definition of a new class, which inherits from the
+class ProfilerApp.  This is some of the magic of object-oriented programming,
+a lot of functionality is defined as part of ProfilerApp, including the 
+basics of authentication, and setting up a profiler instance, and we get all 
+of that for <em>free</em>, just by inheriting from it.  In fact, we go beyond that,
+and <em>extend</em> its functionality by defining the function <code>add_options</code>.  Here,
+we add a new option to pass in a timerange on the commandline.  </p>
+<div class="codehilite"><pre>    <span class="k">def</span> <span class="nf">main</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">p</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">profiler</span>
+
+        <span class="n">report</span> <span class="o">=</span> <span class="n">TrafficSummaryReport</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
+
+        <span class="n">columns</span> <span class="o">=</span> <span class="p">[</span><span class="n">p</span><span class="o">.</span><span class="n">columns</span><span class="o">.</span><span class="n">key</span><span class="o">.</span><span class="n">host_ip</span><span class="p">,</span>
+                   <span class="n">p</span><span class="o">.</span><span class="n">columns</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">avg_bytes</span><span class="p">,</span>
+                   <span class="n">p</span><span class="o">.</span><span class="n">columns</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">network_rtt</span><span class="p">]</span>
+        <span class="n">sort_column</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">columns</span><span class="o">.</span><span class="n">value</span><span class="o">.</span><span class="n">avg_bytes</span>
+
+        <span class="n">timefilter</span> <span class="o">=</span> <span class="n">TimeFilter</span><span class="o">.</span><span class="n">parse_range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">timerange</span><span class="p">)</span>
+
+        <span class="n">report</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="s">&#39;hos&#39;</span><span class="p">,</span> <span class="n">columns</span><span class="p">,</span> <span class="n">timefilter</span><span class="o">=</span><span class="n">timefilter</span><span class="p">,</span> <span class="n">sort_col</span><span class="o">=</span><span class="n">sort_column</span><span class="p">)</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">report</span><span class="o">.</span><span class="n">get_data</span><span class="p">()</span>
+        <span class="n">legend</span> <span class="o">=</span> <span class="n">report</span><span class="o">.</span><span class="n">get_legend</span><span class="p">()</span>
+        <span class="n">report</span><span class="o">.</span><span class="n">delete</span><span class="p">()</span>
+
+        <span class="n">header</span> <span class="o">=</span> <span class="p">[</span><span class="n">c</span><span class="o">.</span><span class="n">key</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">columns</span><span class="p">]</span>
+        <span class="n">Formatter</span><span class="o">.</span><span class="n">print_table</span><span class="p">(</span><span class="n">data</span><span class="p">[:</span><span class="mi">10</span><span class="p">],</span> <span class="n">header</span><span class="p">)</span>
+
+<span class="n">ExampleReport</span><span class="p">()</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+</pre></div>
+
+
+<p>This is the main part of the script, and remains mostly unchanged from our previous
+version.  Rather than create the profiler instance directly, that is now being
+done for us as part of ProfilerApp.  We just need to reference it as shown.</p>
+<p>The timefilter option is now being pulled from the command-line,
+<code>self.options.timerange</code>, so we have one additional item that can be varied
+from run to run.</p>
+<p>Next, we have to run some small magic to pull out the key information from each
+of the column objects.  The expression in the brackets for the header
+assignment is called a <a href="http://docs.python.org/2/tutorial/datastructures.html#list-comprehensions">list
+comprehension</a>.
+Think of it like a condensed for-loop.  Once we have a header, we pass that along
+with our data to the <code>Formatter.print_table</code> function, and that will print out 
+our data nicely formatted into columns.</p>
+<p>The last line calls the main run-loop as defined in the ProfilerApp class, 
+and the rest should function as before.</p>
+</div>
+
+<div class="footer">
+Copyright &copy; 2013 Riverbed Technology
+</div></body>
+</html>
