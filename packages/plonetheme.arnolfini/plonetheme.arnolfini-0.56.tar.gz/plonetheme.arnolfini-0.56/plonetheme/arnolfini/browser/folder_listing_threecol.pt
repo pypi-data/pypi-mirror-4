@@ -1,0 +1,152 @@
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en"
+      xmlns:tal="http://xml.zope.org/namespaces/tal"
+      xmlns:metal="http://xml.zope.org/namespaces/metal"
+      xmlns:i18n="http://xml.zope.org/namespaces/i18n"
+      lang="en"
+      metal:use-macro="here/main_template/macros/master"
+      i18n:domain="plone">
+
+<body>
+
+  <!-- div metal:fill-slot="content-core"  tal:define="showall python:request.get('showall', False)" -->
+  <div metal:fill-slot="content-core"  tal:define="showall python:True"> 
+    <metal:block define-macro="content-core"
+                 tal:define="kssClassesView context/@@kss_field_decorator_view;
+                             getKssClasses nocall:kssClassesView/getKssClassesInlineEditable;
+                             templateId template/getId">
+
+	<!-- a class="showallButton" href="#" tal:attributes="href python:'%s?showall=true'%here.absolute_url()" tal:condition="not: showall">All events</a>
+	<a class="showallButton" href="#" tal:attributes="href python:here.absolute_url()" tal:condition="showall">Only documented events</a -->
+	
+	<div class="pageWrapper listing">
+	    
+        <a href="download_zip" tal:condition="python: context.portal_type == 'Press Kit' and len(context.items()) > 0">Download all as zip</a>
+	    
+        <div metal:define-macro="text-field-view"
+             id="parent-fieldname-text" class="stx"
+             tal:define="kss_class python:getKssClasses('text',
+                         templateId=templateId, macro='text-field-view');
+                         has_text exists:context/aq_explicit/getText;
+                         text python:has_text and here.getText() or ''"
+             tal:condition="text"
+             tal:attributes="class python:context.Format() in ('text/structured', 'text/x-rst', ) and 'stx' + kss_class or 'plain' + kss_class">
+            <div metal:define-slot="inside" tal:replace="structure text">The body</div>
+        </div>
+	</div>
+	
+	<div class="tileColumns threecol">
+	    <metal:listingmacro define-macro="listing">
+	    <tal:results define="b_start python:request.get('b_start', 0);
+				 batch python:view.results(b_start=b_start, pagesize=30, only_documented=not showall);
+				 site_properties context/portal_properties/site_properties;
+				 use_view_action site_properties/typesUseViewActionInListings|python:();
+				 isAnon context/@@plone_portal_state/anonymous;
+				 normalizeString nocall: context/plone_utils/normalizeString;
+				 toLocalizedTime nocall: context/@@plone/toLocalizedTime;
+				 show_about python:not isAnon or site_properties.allowAnonymousViewAbout;
+				 navigation_root_url context/@@plone_portal_state/navigation_root_url;
+				 pas_member context/@@pas_member;">
+	    <tal:listing condition="batch">
+    
+		<metal:block metal:define-slot="entries">
+		    <tal:entry tal:repeat="item batch" metal:define-macro="entries">
+		    <tal:block tal:define="item_id item/getId;
+					   item_description item/Description;
+					   item_type item/Type;
+					   item_url python:item_type == 'Media Event' and '%s'%item.getURL() or item.getURL();
+					   item_modified item/ModificationDate;
+					   item_created item/CreationDate;
+					   item_icon item/getIcon;
+					   item_wf_state_class python:'state-' + normalizeString(item.review_state);
+					   item_creator item/Creator;
+					   item_start python:(item.start or item.StartDate) if item_type == 'Media Event' else None;
+					   item_end python:(item.end) if item_type == 'Media Event' else None;
+					   item_modified item/ModificationDate;
+					   odd repeat/item/odd;
+					   item_link python: (item_type == 'Press Kit' and not view.checkPermission(item, 'Add portal content')) and item_url + '/download_zip' or (item_type in use_view_action and item_url+'/view' or item_url);">
+			<metal:block define-slot="entry">
+			<div metal:define-macro="listitem"
+			    tal:define="tileclass python:(item.hasMedia or item.portal_type == 'Image') and 'tileItem' or 'tileItem no-media';"
+			    tal:attributes="class python: tileclass + (odd and ' odd' or ' even')">
+    
+			    <a class="imagelink" tal:condition="python: item.hasMedia or item.portal_type == 'Image'" href="" tal:attributes="href  item_link"><tal:image replace="structure python:view.getLeadMediaTag(item, scale='fixwidth')"></tal:image></a>
+			    
+			    <div class="res-info">
+				<h2 class="summary" tal:attributes="class python: 'summary %s'%item_wf_state_class">
+				    <a href="#"
+				       tal:attributes="href item_link;"
+				       tal:content="python:item_type != 'Press Kit' and item.Title or item.Title + ' (Download)'">
+					Item Title
+				    </a>
+				    <span class="addthis_toolbox addthis_default_style"
+			tal:attributes="addthis:url item_url;
+				        addthis:title item/Title;
+				        addthis:description python:item_description is not None and item_description or (getattr(item.getObject(), 'text', False) and view.trimText(item.getObject().text, 200, strip=True) or '');">
+					  <a class="addthis_counter addthis_button" addthis:ui_click="true" tal:attributes="addthis:url python:(item.portal_type == 'File' or item.portal_type == 'Image') and item_url + '/view' or item_url;">
+					  </a>
+				    </span>
+				</h2>
+				
+				<div class="effectiveDate" tal:condition="python: item.portal_type == 'Press Kit' and item.getObject().getEffectiveDate() is not None">
+			        <span tal:content="python:item.getObject().getEffectiveDate().strftime('%A %d %B %Y')" tal:omit-tag="">Thursday 10 January</span>
+			       </div>
+				
+				<div id="eventBooking" tal:condition="python: item.portal_type == 'Event' or item.portal_type == 'Media Event'">  
+				    <p class="dates" tal:replace="structure python: view.getFormattedEventDate(item.getObject())">
+					  Thursday 14 February 2013, 7.30 to 9.30pm
+				    </p>
+				    <p class="booking" tal:condition="python:not item.getObject().getBooking() and not view.isEventPast(item.getObject())">
+					  <span class="price">Free</span>
+				    </p>
+				    <p class="booking" tal:condition="python: item.getObject().getBooking() and not view.isEventPast(item.getObject())">
+					  <span class="price" tal:condition="python: item.getObject().getPrice() != ''" tal:content="python: item.getObject().getPrice()">Free</span> <span class="arrow" tal:condition="python: item.getObject().getLink() != ''">&rarr;</span> <a href="" class="bookLink" tal:condition="python: item.getObject().getLink() != ''" tal:attributes="href python:view.getEventBookingLink(item.getObject())">Book</a>
+				    </p>
+				  
+			      </div>
+			    
+				<div class="description">
+				    <span tal:condition="python:item.Description != '' " tal:replace="python:item.Description"></span>
+				<tal:bodyfallback condition="python:item.Description == '' and item_type != 'Image' and item_type != 'File' and item_type != 'Folder' and item_type != 'Press Kit'">
+					<span tal:condition="python: getattr(item.getObject(), 'text', False)" tal:replace="python:view.trimText(item.getObject().text, 200, strip=True)"></span>
+				    </tal:bodyfallback>
+				</div>
+			    </div>
+			    
+			    <form tal:condition="python:view.isBuyable(item.getObject())" action="" tal:attributes="action python: '%s/@@getpaid-cart-add'%item.getURL()" method="post">
+					<input type="hidden" value="True" name="add_item">
+					<input type="hidden" value="1" name="quantity">
+					<input type="submit" value="Add to Cart">
+			    </form>
+			</div>
+			
+    
+			
+		    </metal:block>
+		    </tal:block>
+		    </tal:entry>
+		</metal:block>
+		<div class="visualClear"></div>
+		<div metal:use-macro="context/batch_macros/macros/navigation" />
+    
+	    </tal:listing>
+	    <metal:empty metal:define-slot="no_items_in_listing">
+		<p class="discreet"
+		   tal:condition="not: batch">
+		    There is currently no content in this section.
+		</p>
+	    </metal:empty>
+    
+	    </tal:results>
+	    </metal:listingmacro>
+
+	</div>
+      <script type="text/javascript">
+	    var addthis_config = {"data_track_clickback":true};
+	    var addthis_share = {templates: { twitter: '{{title}}: {{url}}' }}
+	</script>
+        <script type="text/javascript" src="http://s7.addthis.com/js/250/addthis_widget.js#username=intk"></script>
+    </metal:block>
+  </div>
+
+</body>
+</html>
