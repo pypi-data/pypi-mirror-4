@@ -1,0 +1,89 @@
+#!/usr/bin/env python
+
+import os
+import commands
+from argparse import ArgumentParser
+
+import radiru
+import radiko
+
+class Config: 
+	def __init__(self, args):
+		self.args = args	
+
+		self.duration_sec = 60 * args.duration + 30
+		
+		self.P("\n--**-- %s --**--" % commands.getoutput("date -u"))
+		
+		date = commands.getoutput("TZ=JST-9 date +'%Y-%m-%d-%H-%M'")
+		
+		self.filename = "/".join( [args.directory, "%s-%s.m4a" % (args.prefix, date)] ) 
+		self.P(self.filename)
+		
+	def P(self, msg):
+		LOGFILE = "/tmp/radikorec.log"
+		f = open(LOGFILE, "a")
+		f.write(str(msg) + "\n")
+		f.close
+		
+		if self.args.debug:
+			print(msg)
+			
+	def R(self, command, debug=True):
+		if debug:
+			self.P(command)	
+			
+		if not self.args.dry_run:
+			return os.system(command)
+
+if __name__ == '__main__':
+	parser = ArgumentParser(description="A Simple Radiko/Radiru Recorder")
+	
+	parser.add_argument('--duration', type=int, default=1, help="time(min) to record. default(1)")
+	parser.add_argument('--prefix', default='RADIKOREC', help="filename prefix. default(RADIKOREC)")
+	parser.add_argument('--rtmpbin', default='rtmpdump', help="The path for rtmpdump binary >= 2.4. default(rtmpdump)")
+	parser.add_argument('--channel', default='RN1', help="default(RN1)")
+	parser.add_argument('--directory', default='/tmp', help="output directory. default(/tmp)")
+	parser.add_argument('--debug', action='store_true', default=False, help="print messages on console.")
+	parser.add_argument('--dry-run', action='store_true', default=False, help="don't actually execute")
+	
+	args = parser.parse_args()
+	
+	config = Config(args)
+	config.P(args)
+
+	# make m4a file
+	command1 = None
+	if radiru.CHANNEL_MAP.has_key(args.channel):
+		config.P("use RADIRU")
+		command1 = radiru.getCommand1(config)
+	else:		
+		config.P("use RADIKO")
+		command1 = radiko.getCommand1(config)
+		
+	if command1 is None:
+		config.P("ERROR channel not valid")
+		exit(1)
+		
+	repeat = 0		
+	while repeat < 10:
+		r = config.R(command1)
+		if r is not 0:
+			config.P("ERROR command1 %d" % r)
+			repeat += 1
+		else:		
+			break
+		
+	if repeat is 10:
+		config.P("ERROR all command1 retries failed")
+		exit(1)
+	
+	# fix the file
+	config.R("mv %s %s.raw" % (config.filename, config.filename))
+
+	command2 = "ffmpeg -i %s.raw -acodec copy %s".strip() % (config.filename, config.filename)
+	r = config.R(command2)
+	if r is not 0:
+		config.P("ERROR command2 %d" % r)
+	
+	config.R("rm %s.raw" % config.filename)
