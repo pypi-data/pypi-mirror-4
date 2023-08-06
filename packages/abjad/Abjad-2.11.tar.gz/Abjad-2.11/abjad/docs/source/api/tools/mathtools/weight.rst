@@ -1,0 +1,5 @@
+mathtools.weight
+================
+
+.. autofunction:: abjad.tools.mathtools.weight.weight
+   :noindex:

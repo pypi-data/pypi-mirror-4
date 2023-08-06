@@ -1,0 +1,5 @@
+iotools.redo
+============
+
+.. autofunction:: abjad.tools.iotools.redo.redo
+   :noindex:
