@@ -1,0 +1,68 @@
+0.2.14
+------
+
+* Added BSD license
+* Moved static path to /_baseframe to avoid namespace clashes with /<profile>
+* Many stylesheet changes; JS lib defaults
+* DateTimeField is now timezone aware
+* Switched from chosen.js to select2.js
+* Added documentation
+* Switched default font from Lato to Open Sans
+* Added JS for timezone detection
+* Added many optional JS assets
+* Added root block to baseframe.html that can be overriden by templates
+* Upgraded to FontAwesome 3.0 with many new icons
+* Switched to Google Closure JS minifier for better compression than JSMin
+* Semantically versioned assets, with unversioned assets moved into deprecated.py
+
+0.2.13
+------
+
+* Incompatible API change for RichTextField to allow setting any TinyMCE option.
+
+0.2.12
+------
+
+* Optional baseframe.sqlalchemy provides a Flask-SQLALchemy SQLAlchemy() object
+  for use by blueprint-based apps
+
+0.2.11
+------
+
+* Toastr messages can now be included via a JS include in the footer to
+   prevent them from showing again on back/front navigation
+
+0.2.10
+------
+
+* New logo and header blocks in the layout
+
+0.2.9
+-----
+
+* Giving up on having a perfect typographic grid. It's not possible on the web
+* New <span class="icon-*"> for use in menus with long lines that may wrap
+
+0.2.8
+-----
+
+* Added optional mousetrap js for keyboard control
+* Added optional toastr js for floating notifications
+
+0.2.7
+-----
+
+* Minor style tweaks
+* Modernizr build with more features
+* Limit automatic tab selection to .nav-tabs-auto
+
+0.2.6
+-----
+
+* linkify and rel=nofollow on links are now optional in RichTextField
+* Many changes since 0.1. See git commit history for details
+  
+0.1
+---
+
+* First version
