@@ -1,0 +1,134 @@
+eea.google.analytics
+====================
+This package provides the browser interface to register with Google Analytics
+and defines two storage models: Analytics and AnalyticsReport. Also it provides
+a utility to easily access low level api.Connection and another one to parse
+Google response XML.
+
+Connection utility
+------------------
+
+    >>> from zope.component import getUtility
+    >>> from eea.google.analytics.interfaces import IGoogleAnalyticsConnection
+    >>> utility = getUtility(IGoogleAnalyticsConnection)
+    >>> google = utility(token='SINGLE_SESSION_TOKEN')
+
+With a single session token you will be able to make only one request
+
+    >>> google.status
+    (200, 'OK')
+
+Second request will give you a 403 Not authorized error
+
+    >>> google.status
+    (403, 'GoogleError: HTTP Error 403: Invalid AuthSub token.')
+
+That's why you have to exchange it for a multi-session one.
+
+    >>> google.token = 'SINGLE_SESSION_TOKEN'
+    >>> google.token2session()
+    'GOOD_TOKEN'
+
+Now you can make multiple calls:
+
+    >>> google.status
+    (200, 'OK')
+    >>> google.status
+    (200, 'OK')
+
+XML Parser utility
+------------------
+
+    >>> from eea.google.analytics.interfaces import IXMLParser
+    >>> parser = getUtility(IXMLParser)
+    >>> xml = self.loadfile('data/analytics.xml').read()
+    >>> items = parser(xml)
+    >>> dimensions, metrics = items.next()
+    >>> dimensions
+    {u'ga:pagePath': u'/data/ga-downloads/6BTID0682R'}
+    >>> metrics
+    {u'ga:pageviews': u'2'}
+
+Analytics
+---------
+This package provides a storage model to persist multi-session token and it's
+also a container for Analytics reports. It also provides a browser interface
+to manage analytics connection.
+
+
+Let's initialize analytics connection
+
+    >>> from zope.component import getMultiAdapter
+    >>> from Products.CMFCore.utils import getToolByName
+    >>> tool = getToolByName(portal, 'portal_google')
+    >>> request = tool.REQUEST
+
+    >>> init_analytics = getMultiAdapter((tool, request), name=u'add_analytics.html')
+    >>> init_analytics()
+    'Connection added'
+
+    >>> analytics = tool._getOb('analytics')
+    >>> analytics
+    <Analytics at /plone/portal_google/analytics>
+
+    >>> view = getMultiAdapter((analytics, request), name=u'index_html')
+    >>> status_error = view.status_error
+    >>> status_error.get('status')
+    404
+    >>> status_error.get('error')
+    'Not initialized'
+
+Let's register with Google
+
+    >>> register = getMultiAdapter((analytics, request), name=u'register')
+    >>> register(token='SINGLE_SESSION_TOKEN')
+    'Successfully registered with Google.'
+
+This also exchanged SINGLE_SESSION_TOKEN with a multi session one
+
+    >>> analytics.token
+    'GOOD_TOKEN'
+
+    >>> view.status_error.get('status')
+    200
+    >>> view.status_error.get('error')
+    'OK'
+
+Analytics Report
+----------------
+A storage model to persist custom Google Analytics queries.
+
+    >>> add_report = getMultiAdapter((analytics, request), name=u'add_report')
+    >>> data = {
+    ...     'title': 'Custom report',
+    ...     'table': 'ga:TABLE_ID',
+    ...     'metrics': 'ga:pageviews',
+    ...     'dimensions': 'ga:pagePath',
+    ...     'start_date': '2009-01-01',
+    ...     'end_date': '2010-01-01',
+    ...     'filters': 'ga:pageviews=@paths-filter',
+    ...     'sort': '-ga:pageviews',
+    ...     'start_index': 1,
+    ...     'max_results': 5,
+    ... }
+    >>> _ = add_report.createAndAdd(data)
+    >>> report = analytics._getOb('custom-report')
+
+Now let's view our report
+
+    >>> report_view = getMultiAdapter((report, request), name=u'index.xml')
+    >>> print report_view()
+    <?xml version='1.0' encoding='UTF-8'?>
+    ...
+    <entry>
+    ...
+    </entry>
+    ...
+
+Remove report
+
+    >>> remove = getMultiAdapter((analytics, request), name=u'remove')
+    >>> remove(id='some-report')
+    'Invalid id: some-report'
+    >>> remove(id='custom-report')
+    'Object deleted'
