@@ -1,0 +1,41 @@
+Changelog
+---------
+
+Here you can see the full list of changes between each SQLAlchemy-Utils release.
+
+
+0.6.0 (2013-03-26)
+^^^^^^^^^^^^^^^^^^
+
+- Extended PhoneNumber class from python-phonenumbers library
+
+
+0.5.0 (2013-03-20)
+^^^^^^^^^^^^^^^^^^
+
+- Added PhoneNumberType type decorator
+
+
+0.4.0 (2013-03-01)
+^^^^^^^^^^^^^^^^^^
+
+- Renamed SmartList to InstrumentedList
+- Added instrumented_list decorator
+
+
+0.3.0 (2013-03-01)
+^^^^^^^^^^^^^^^^^^
+
+- Added new collection class SmartList
+
+
+0.2.0 (2013-03-01)
+^^^^^^^^^^^^^^^^^^
+
+- Added new function defer_except()
+
+
+0.1.0 (2013-01-12)
+^^^^^^^^^^^^^^^^^^
+
+- Initial public release
