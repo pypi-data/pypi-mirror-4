@@ -1,0 +1,525 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>pydna.assembly &mdash; pydna  documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <link rel="shortcut icon" href="../../_static/favicon.ico"/>
+    <link rel="top" title="pydna  documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="../../np-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">pydna  documentation</a> &raquo;</li>
+          <li><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for pydna.assembly</h1><div class="highlight"><pre>
+<span class="c">#!/usr/bin/env python</span>
+<span class="c"># -*- coding: utf-8 -*-</span>
+<span class="sd">&#39;&#39;&#39;Provides functions for assembly of sequences by homologous recombination.</span>
+<span class="sd">Given a list of sequences (Dseqrecords), all sequences will be analyzed for</span>
+<span class="sd">overlapping regions of DNA (common substrings).</span>
+
+<span class="sd">The assembly algorithm is based on forming a network where each</span>
+<span class="sd">overlapping sequence forms a node and intervening sequences form edges.</span>
+
+<span class="sd">Then all possible linear or circular assemblies will be returned in the</span>
+<span class="sd">order of their length.</span>
+
+
+<span class="sd">&#39;&#39;&#39;</span>
+
+<span class="kn">import</span> <span class="nn">networkx</span> <span class="kn">as</span> <span class="nn">nx</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">operator</span>
+<span class="kn">import</span> <span class="nn">Bio.SeqIO</span>
+<span class="kn">import</span> <span class="nn">itertools</span>
+<span class="kn">import</span> <span class="nn">copy</span>
+
+<span class="kn">from</span> <span class="nn">Bio.Seq</span>                 <span class="kn">import</span> <span class="n">Seq</span>
+<span class="kn">from</span> <span class="nn">Bio.Seq</span>                 <span class="kn">import</span> <span class="n">reverse_complement</span> <span class="k">as</span> <span class="n">rc</span>
+<span class="kn">from</span> <span class="nn">Bio.SeqUtils.CheckSum</span>   <span class="kn">import</span> <span class="n">seguid</span>
+
+<span class="kn">from</span> <span class="nn">findsubstrings_suffix_arrays_python</span>        <span class="kn">import</span> <span class="n">common_sub_strings</span>
+<span class="c">#from find_sub_strings         import common_sub_strings</span>
+<span class="kn">from</span> <span class="nn">Bio.Alphabet.IUPAC</span>      <span class="kn">import</span> <span class="n">ambiguous_dna</span>
+<span class="kn">from</span> <span class="nn">Bio.SeqFeature</span>          <span class="kn">import</span> <span class="n">SeqFeature</span><span class="p">,</span> <span class="n">FeatureLocation</span><span class="p">,</span> <span class="n">ExactPosition</span>
+<span class="kn">from</span> <span class="nn">pydna._simple_paths7</span>    <span class="kn">import</span> <span class="n">all_circular_paths_edges</span>
+<span class="kn">from</span> <span class="nn">pydna._simple_paths8</span>    <span class="kn">import</span> <span class="n">all_simple_paths_edges</span>
+<span class="kn">from</span> <span class="nn">pydna.dsdna</span>             <span class="kn">import</span> <span class="n">Dseqrecord</span>
+
+
+<div class="viewcode-block" id="circular_assembly"><a class="viewcode-back" href="../../pydna.html#pydna.assembly.circular_assembly">[docs]</a><span class="k">def</span> <span class="nf">circular_assembly</span><span class="p">(</span><span class="n">form_rec_list</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">25</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;Accepts a list of Dseqrecords and tries to assemble them into a</span>
+<span class="sd">    circular assembly by homologous recombination based on shared</span>
+<span class="sd">    regions of homology with a minimum length given by limit.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+
+<span class="sd">    form_rec_list : list</span>
+<span class="sd">        a list of Dseqrecord objects.</span>
+
+<span class="sd">    limit : int, optional</span>
+<span class="sd">        limit is set to 25 by default.</span>
+
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    frecs, cp : tuple</span>
+<span class="sd">        frecs are the same Dseqrecords as given as arguments, but with the</span>
+<span class="sd">        regions of homology added to the features.</span>
+
+<span class="sd">        cp is a list of Dseqrecords representing the circular products</span>
+<span class="sd">        sorted by length (long -&gt; short).</span>
+
+<span class="sd">    &#39;&#39;&#39;</span>
+
+    <span class="n">frecs</span><span class="p">,</span> <span class="n">G</span> <span class="o">=</span> <span class="n">_make_graph</span><span class="p">(</span><span class="n">form_rec_list</span><span class="p">,</span> <span class="n">limit</span><span class="p">)</span>
+    <span class="n">G</span><span class="o">.</span><span class="n">remove_nodes_from</span><span class="p">((</span><span class="s">&#39;5&#39;</span><span class="p">,</span><span class="s">&#39;3&#39;</span><span class="p">))</span>
+
+    <span class="k">for</span> <span class="n">cycle</span> <span class="ow">in</span> <span class="n">nx</span><span class="o">.</span><span class="n">simple_cycles</span><span class="p">(</span><span class="n">G</span><span class="p">)[</span><span class="mi">1</span><span class="p">:]:</span>
+        <span class="n">circular_paths</span> <span class="o">=</span> <span class="p">[(</span><span class="n">cycle</span><span class="o">+</span><span class="n">cycle</span><span class="p">[</span><span class="mi">1</span><span class="p">:])[</span><span class="n">n</span><span class="p">:</span><span class="nb">len</span><span class="p">(</span><span class="n">cycle</span><span class="p">)</span><span class="o">+</span><span class="n">n</span><span class="p">]</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">cycle</span><span class="p">)</span><span class="o">-</span><span class="mi">1</span><span class="p">)]</span>
+        <span class="k">for</span> <span class="n">circular_path</span> <span class="ow">in</span> <span class="n">circular_paths</span><span class="p">:</span>
+            <span class="n">keynode</span> <span class="o">=</span> <span class="n">circular_path</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">x</span><span class="o">=</span><span class="p">[</span><span class="n">G</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="mi">0</span><span class="p">][</span><span class="s">&#39;sek&#39;</span><span class="p">]</span> <span class="k">for</span> <span class="n">u</span><span class="p">,</span><span class="n">v</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">circular_path</span><span class="p">,</span> <span class="n">circular_path</span><span class="p">[</span><span class="mi">1</span><span class="p">:])]</span> <span class="c">#collect edges around cycle</span>
+            <span class="n">y</span><span class="o">=</span><span class="p">[</span><span class="n">G</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">node</span><span class="p">][</span><span class="s">&#39;sek&#39;</span><span class="p">]</span> <span class="k">for</span> <span class="n">node</span> <span class="ow">in</span> <span class="n">circular_path</span><span class="p">]</span>                      <span class="c">#collect nodes around cycle</span>
+            <span class="n">sm</span> <span class="o">=</span> <span class="nb">reduce</span><span class="p">(</span><span class="k">lambda</span> <span class="n">x</span><span class="p">,</span><span class="n">y</span><span class="p">:</span><span class="n">x</span><span class="o">+</span><span class="n">y</span><span class="p">,</span> <span class="p">[</span><span class="n">s</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="n">itertools</span><span class="o">.</span><span class="n">chain</span><span class="o">.</span><span class="n">from_iterable</span><span class="p">(</span><span class="n">itertools</span><span class="o">.</span><span class="n">izip_longest</span><span class="p">(</span><span class="n">y</span><span class="p">,</span><span class="n">x</span><span class="p">)))[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]])</span>
+            <span class="n">incoming</span> <span class="o">=</span> <span class="p">[(</span><span class="n">n</span><span class="p">,</span> <span class="n">keynode</span><span class="p">)</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">G</span><span class="o">.</span><span class="n">predecessors</span><span class="p">(</span><span class="n">keynode</span><span class="p">)</span> <span class="k">if</span> <span class="n">n</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">circular_path</span><span class="p">]</span>
+            <span class="n">outgoing</span> <span class="o">=</span> <span class="p">[(</span><span class="n">keynode</span><span class="p">,</span> <span class="n">n</span><span class="p">)</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">G</span><span class="o">.</span><span class="n">successors</span><span class="p">(</span><span class="n">keynode</span><span class="p">)</span> <span class="k">if</span> <span class="n">n</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">circular_path</span><span class="p">]</span>
+            <span class="n">new_node</span> <span class="o">=</span> <span class="n">seguid</span><span class="p">(</span><span class="n">sm</span><span class="o">.</span><span class="n">seq</span><span class="p">)</span>
+            <span class="n">G</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="n">new_node</span><span class="p">,</span> <span class="n">sek</span><span class="o">=</span><span class="n">sm</span><span class="p">)</span>
+            <span class="n">G</span><span class="o">.</span><span class="n">add_edges_from</span><span class="p">(</span> <span class="p">[(</span><span class="n">p</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">new_node</span><span class="p">,</span> <span class="p">{</span><span class="s">&#39;sek&#39;</span> <span class="p">:</span> <span class="n">G</span><span class="p">[</span><span class="n">p</span><span class="p">[</span><span class="mi">0</span><span class="p">]][</span><span class="n">p</span><span class="p">[</span><span class="mi">1</span><span class="p">]][</span><span class="mi">0</span><span class="p">][</span><span class="s">&#39;sek&#39;</span><span class="p">]</span> <span class="p">})</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">incoming</span><span class="p">]</span> <span class="p">)</span>
+            <span class="n">G</span><span class="o">.</span><span class="n">add_edges_from</span><span class="p">(</span> <span class="p">[(</span><span class="n">new_node</span><span class="p">,</span> <span class="n">p</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="p">{</span><span class="s">&#39;sek&#39;</span> <span class="p">:</span> <span class="n">G</span><span class="p">[</span><span class="n">p</span><span class="p">[</span><span class="mi">0</span><span class="p">]][</span><span class="n">p</span><span class="p">[</span><span class="mi">1</span><span class="p">]][</span><span class="mi">0</span><span class="p">][</span><span class="s">&#39;sek&#39;</span><span class="p">]</span> <span class="p">})</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">outgoing</span><span class="p">]</span> <span class="p">)</span>
+
+    <span class="n">circular_products</span><span class="o">=</span><span class="p">[]</span>
+    <span class="n">unique_lengths</span><span class="o">=</span><span class="nb">set</span><span class="p">()</span>
+
+    <span class="k">for</span> <span class="n">path</span> <span class="ow">in</span> <span class="n">all_circular_paths_edges</span><span class="p">(</span><span class="n">G</span><span class="p">):</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">Dseqrecord</span><span class="p">(</span><span class="s">&quot;&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">first_node</span><span class="p">,</span> <span class="n">second_node</span><span class="p">,</span> <span class="n">edgedict</span> <span class="ow">in</span> <span class="n">path</span><span class="p">:</span>
+            <span class="n">e</span><span class="o">=</span><span class="n">edgedict</span><span class="p">[</span><span class="s">&#39;sek&#39;</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">seq</span><span class="o">.</span><span class="n">watson</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">e</span><span class="o">.</span><span class="n">seq</span><span class="o">.</span><span class="n">watson</span><span class="p">)</span><span class="o">*</span><span class="s">&quot;-&quot;</span><span class="p">:</span>
+                <span class="n">result</span><span class="o">+=</span><span class="n">G</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">second_node</span><span class="p">][</span><span class="s">&#39;sek&#39;</span><span class="p">][</span><span class="nb">len</span><span class="p">(</span><span class="n">e</span><span class="p">):]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">result</span><span class="o">+=</span><span class="n">e</span>
+                <span class="n">result</span><span class="o">+=</span><span class="n">G</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">second_node</span><span class="p">][</span><span class="s">&#39;sek&#39;</span><span class="p">]</span>
+
+        <span class="n">circular_products</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Dseqrecord</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">circular</span> <span class="o">=</span> <span class="bp">True</span><span class="p">))</span>
+        <span class="n">unique_lengths</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">result</span><span class="p">))</span>
+
+    <span class="n">unique_circular_products</span><span class="o">=</span><span class="n">circular_products</span><span class="p">[:]</span>
+
+    <span class="k">for</span> <span class="n">le</span> <span class="ow">in</span> <span class="n">unique_lengths</span><span class="p">:</span>
+        <span class="n">lst</span> <span class="o">=</span> <span class="p">[</span><span class="n">se</span> <span class="k">for</span> <span class="n">se</span> <span class="ow">in</span> <span class="n">circular_products</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">se</span><span class="p">)</span><span class="o">==</span><span class="n">le</span><span class="p">]</span>
+        <span class="n">a</span> <span class="o">=</span> <span class="n">lst</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">lst</span><span class="p">:</span>
+            <span class="k">if</span> <span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">seq</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">in</span> <span class="nb">str</span><span class="p">(</span><span class="n">b</span><span class="o">.</span><span class="n">seq</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">*</span><span class="mi">2</span>
+                <span class="ow">or</span>
+                <span class="nb">str</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">seq</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">in</span> <span class="nb">str</span><span class="p">(</span><span class="n">b</span><span class="o">.</span><span class="n">seq</span><span class="o">.</span><span class="n">reverse_complement</span><span class="p">())</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">*</span><span class="mi">2</span> <span class="p">):</span>
+                <span class="n">unique_circular_products</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">b</span><span class="p">)</span>
+
+    <span class="n">unique_circular_products</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="nb">len</span><span class="p">,</span> <span class="n">reverse</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">cp</span> <span class="ow">in</span> <span class="n">unique_circular_products</span><span class="p">:</span>
+        <span class="n">length</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">cp</span><span class="p">)</span>
+        <span class="n">cp</span><span class="o">.</span><span class="n">description</span> <span class="o">=</span> <span class="s">&quot;circular assembly product {}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">length</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="n">cp</span><span class="o">.</span><span class="n">linear</span><span class="o">==</span><span class="bp">False</span>
+        <span class="n">cp2</span> <span class="o">=</span> <span class="n">Dseqrecord</span><span class="p">(</span><span class="n">cp</span><span class="p">,</span> <span class="n">linear</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span> <span class="o">+</span> <span class="n">Dseqrecord</span><span class="p">(</span><span class="n">cp</span><span class="p">,</span> <span class="n">linear</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+        <span class="n">osf</span> <span class="o">=</span> <span class="p">[</span><span class="n">feature</span> <span class="k">for</span> <span class="n">feature</span> <span class="ow">in</span> <span class="n">cp</span><span class="o">.</span><span class="n">features</span> <span class="k">if</span> <span class="s">&quot;from_left&quot;</span> <span class="ow">in</span> <span class="n">feature</span><span class="o">.</span><span class="n">qualifiers</span><span class="p">]</span>
+        <span class="n">cp</span><span class="o">.</span><span class="n">features</span> <span class="o">=</span> <span class="p">[</span><span class="n">feature</span> <span class="k">for</span> <span class="n">feature</span> <span class="ow">in</span> <span class="n">cp</span><span class="o">.</span><span class="n">features</span> <span class="k">if</span> <span class="ow">not</span> <span class="s">&quot;from_left&quot;</span> <span class="ow">in</span> <span class="n">feature</span><span class="o">.</span><span class="n">qualifiers</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">feature</span> <span class="ow">in</span> <span class="n">osf</span><span class="p">:</span>
+            <span class="n">seq</span> <span class="o">=</span> <span class="n">feature</span><span class="o">.</span><span class="n">qualifiers</span><span class="p">[</span><span class="s">&quot;from_left&quot;</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">feature</span><span class="o">.</span><span class="n">strand</span> <span class="o">==</span> <span class="mi">1</span> <span class="ow">and</span> <span class="nb">str</span><span class="p">(</span><span class="n">seq</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">==</span><span class="nb">str</span><span class="p">(</span><span class="n">cp2</span><span class="p">[</span><span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="p">:</span><span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="o">+</span><span class="nb">len</span><span class="p">(</span><span class="n">seq</span><span class="p">)]</span><span class="o">.</span><span class="n">seq</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
+                <span class="n">begin</span> <span class="o">=</span> <span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span>
+                <span class="n">end</span>   <span class="o">=</span> <span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="o">+</span><span class="nb">len</span><span class="p">(</span><span class="n">seq</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">feature</span><span class="o">.</span><span class="n">strand</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span> <span class="ow">and</span> <span class="nb">str</span><span class="p">(</span><span class="n">seq</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">==</span><span class="nb">str</span><span class="p">(</span><span class="n">rc</span><span class="p">(</span><span class="n">cp2</span><span class="p">[</span><span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="p">:</span><span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="o">+</span><span class="nb">len</span><span class="p">(</span><span class="n">seq</span><span class="p">)]</span><span class="o">.</span><span class="n">seq</span><span class="p">))</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
+                <span class="n">begin</span> <span class="o">=</span> <span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span>
+                <span class="n">end</span>   <span class="o">=</span> <span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="o">+</span><span class="nb">len</span><span class="p">(</span><span class="n">seq</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="k">if</span> <span class="n">end</span> <span class="o">&gt;</span> <span class="n">length</span><span class="p">:</span>
+                <span class="n">a</span> <span class="o">=</span> <span class="n">SeqFeature</span><span class="p">(</span><span class="n">FeatureLocation</span><span class="p">(</span><span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="p">,</span> <span class="n">length</span><span class="p">),</span>
+                               <span class="nb">type</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">type</span><span class="p">,</span>
+                               <span class="n">location_operator</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">location_operator</span><span class="p">,</span>
+                               <span class="n">strand</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">strand</span><span class="p">,</span>
+                               <span class="nb">id</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+                               <span class="n">qualifiers</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">qualifiers</span><span class="p">,</span>
+                               <span class="n">sub_features</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span>
+                <span class="n">b</span> <span class="o">=</span> <span class="n">SeqFeature</span><span class="p">(</span><span class="n">FeatureLocation</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">end</span><span class="o">-</span><span class="n">length</span><span class="p">),</span>
+                               <span class="nb">type</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">type</span><span class="p">,</span>
+                               <span class="n">location_operator</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">location_operator</span><span class="p">,</span>
+                               <span class="n">strand</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">strand</span><span class="p">,</span>
+                               <span class="nb">id</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+                               <span class="n">qualifiers</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">qualifiers</span><span class="p">,</span>
+                               <span class="n">sub_features</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span>
+                <span class="n">newf</span> <span class="o">=</span> <span class="n">SeqFeature</span><span class="p">(</span><span class="n">FeatureLocation</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="p">,</span> <span class="n">b</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">end</span><span class="p">),</span>
+                               <span class="nb">type</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">type</span><span class="p">,</span>
+                               <span class="n">location_operator</span><span class="o">=</span><span class="s">&quot;join&quot;</span><span class="p">,</span>
+                               <span class="n">strand</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">strand</span><span class="p">,</span>
+                               <span class="nb">id</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+                               <span class="n">qualifiers</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">qualifiers</span><span class="p">,</span>
+                               <span class="n">sub_features</span><span class="o">=</span><span class="p">[</span><span class="n">a</span><span class="p">,</span><span class="n">b</span><span class="p">])</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">newf</span> <span class="o">=</span> <span class="n">SeqFeature</span><span class="p">(</span><span class="n">FeatureLocation</span><span class="p">(</span><span class="n">begin</span><span class="p">,</span> <span class="n">end</span><span class="p">),</span>
+                                  <span class="nb">type</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">type</span><span class="p">,</span>
+                                  <span class="n">location_operator</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">location_operator</span><span class="p">,</span>
+                                  <span class="n">strand</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">strand</span><span class="p">,</span>
+                                  <span class="nb">id</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+                                  <span class="n">qualifiers</span><span class="o">=</span><span class="p">{</span><span class="n">k</span><span class="p">:</span><span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span><span class="n">v</span> <span class="ow">in</span> <span class="n">feature</span><span class="o">.</span><span class="n">qualifiers</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">k</span><span class="o">!=</span><span class="s">&quot;from_left&quot;</span><span class="p">},</span>
+                                  <span class="n">sub_features</span><span class="o">=</span><span class="bp">None</span><span class="p">,)</span>
+            <span class="n">cp</span><span class="o">.</span><span class="n">features</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">newf</span><span class="p">)</span>
+
+        <span class="n">osf</span> <span class="o">=</span> <span class="p">[</span><span class="n">feature</span> <span class="k">for</span> <span class="n">feature</span> <span class="ow">in</span> <span class="n">cp</span><span class="o">.</span><span class="n">features</span> <span class="k">if</span> <span class="s">&quot;to_right&quot;</span> <span class="ow">in</span> <span class="n">feature</span><span class="o">.</span><span class="n">qualifiers</span><span class="p">]</span>
+        <span class="n">cp</span><span class="o">.</span><span class="n">features</span> <span class="o">=</span> <span class="p">[</span><span class="n">feature</span> <span class="k">for</span> <span class="n">feature</span> <span class="ow">in</span> <span class="n">cp</span><span class="o">.</span><span class="n">features</span> <span class="k">if</span> <span class="ow">not</span> <span class="s">&quot;to_right&quot;</span> <span class="ow">in</span> <span class="n">feature</span><span class="o">.</span><span class="n">qualifiers</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">feature</span> <span class="ow">in</span> <span class="n">osf</span><span class="p">:</span>
+            <span class="n">seq</span> <span class="o">=</span> <span class="n">feature</span><span class="o">.</span><span class="n">qualifiers</span><span class="p">[</span><span class="s">&quot;to_right&quot;</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">feature</span><span class="o">.</span><span class="n">strand</span> <span class="o">==</span> <span class="mi">1</span> <span class="ow">and</span> <span class="nb">str</span><span class="p">(</span><span class="n">seq</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">==</span><span class="nb">str</span><span class="p">(</span><span class="n">cp2</span><span class="p">[</span><span class="n">length</span><span class="o">+</span><span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="n">seq</span><span class="p">):</span><span class="n">length</span><span class="o">+</span><span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="p">]</span><span class="o">.</span><span class="n">seq</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
+                <span class="n">begin</span> <span class="o">=</span> <span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="n">seq</span><span class="p">)</span>
+                <span class="n">end</span>   <span class="o">=</span> <span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span>
+            <span class="k">elif</span> <span class="n">feature</span><span class="o">.</span><span class="n">strand</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span> <span class="ow">and</span> <span class="nb">str</span><span class="p">(</span><span class="n">seq</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">==</span><span class="nb">str</span><span class="p">(</span><span class="n">rc</span><span class="p">(</span><span class="n">cp2</span><span class="p">[</span><span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="n">seq</span><span class="p">):</span><span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="p">]</span><span class="o">.</span><span class="n">seq</span><span class="p">))</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
+                <span class="n">begin</span> <span class="o">=</span> <span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="n">seq</span><span class="p">)</span>
+                <span class="n">end</span>   <span class="o">=</span> <span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="k">if</span> <span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">a</span> <span class="o">=</span> <span class="n">SeqFeature</span><span class="p">(</span><span class="n">FeatureLocation</span><span class="p">(</span><span class="n">length</span><span class="o">+</span><span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">end</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="n">seq</span><span class="p">),</span> <span class="n">end</span><span class="p">),</span>
+                               <span class="nb">type</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">type</span><span class="p">,</span>
+                               <span class="n">location_operator</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">location_operator</span><span class="p">,</span>
+                               <span class="n">strand</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">strand</span><span class="p">,</span>
+                               <span class="nb">id</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+                               <span class="n">qualifiers</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">qualifiers</span><span class="p">,</span>
+                               <span class="n">sub_features</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span>
+                <span class="n">b</span> <span class="o">=</span> <span class="n">SeqFeature</span><span class="p">(</span><span class="n">FeatureLocation</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">end</span><span class="p">),</span>
+                               <span class="nb">type</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">type</span><span class="p">,</span>
+                               <span class="n">location_operator</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">location_operator</span><span class="p">,</span>
+                               <span class="n">strand</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">strand</span><span class="p">,</span>
+                               <span class="nb">id</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+                               <span class="n">qualifiers</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">qualifiers</span><span class="p">,</span>
+                               <span class="n">sub_features</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span>
+                <span class="n">newf</span> <span class="o">=</span> <span class="n">SeqFeature</span><span class="p">(</span><span class="n">FeatureLocation</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="p">,</span> <span class="n">b</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">end</span><span class="p">),</span>
+                               <span class="nb">type</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">type</span><span class="p">,</span>
+                               <span class="n">location_operator</span><span class="o">=</span><span class="s">&quot;join&quot;</span><span class="p">,</span>
+                               <span class="n">strand</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">strand</span><span class="p">,</span>
+                               <span class="nb">id</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+                               <span class="n">qualifiers</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">qualifiers</span><span class="p">,</span>
+                               <span class="n">sub_features</span><span class="o">=</span><span class="p">[</span><span class="n">a</span><span class="p">,</span><span class="n">b</span><span class="p">])</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">newf</span> <span class="o">=</span> <span class="n">SeqFeature</span><span class="p">(</span><span class="n">FeatureLocation</span><span class="p">(</span><span class="n">begin</span><span class="p">,</span> <span class="n">end</span><span class="p">),</span>
+                                  <span class="nb">type</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">type</span><span class="p">,</span>
+                                  <span class="n">location_operator</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">location_operator</span><span class="p">,</span>
+                                  <span class="n">strand</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">strand</span><span class="p">,</span>
+                                  <span class="nb">id</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+                                  <span class="n">qualifiers</span><span class="o">=</span><span class="p">{</span><span class="n">k</span><span class="p">:</span><span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span><span class="n">v</span> <span class="ow">in</span> <span class="n">feature</span><span class="o">.</span><span class="n">qualifiers</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">k</span><span class="o">!=</span><span class="s">&quot;to_right&quot;</span><span class="p">},</span>
+                                  <span class="n">sub_features</span><span class="o">=</span><span class="bp">None</span><span class="p">,)</span>
+            <span class="n">cp</span><span class="o">.</span><span class="n">features</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">newf</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">frecs</span><span class="p">,</span> <span class="n">unique_circular_products</span>
+</div>
+<div class="viewcode-block" id="linear_assembly"><a class="viewcode-back" href="../../pydna.html#pydna.assembly.linear_assembly">[docs]</a><span class="k">def</span> <span class="nf">linear_assembly</span><span class="p">(</span><span class="n">form_rec_list</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">25</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;Accepts a list of Dseqrecords and tries to assemble them into a</span>
+<span class="sd">    linear assembly by homologous recombination based on shared</span>
+<span class="sd">    regions of homology with a minimum length given by limit.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+
+<span class="sd">    form_rec_list : list</span>
+<span class="sd">        a list of Dseqrecord objects.</span>
+
+<span class="sd">    limit : int, optional</span>
+<span class="sd">        limit is set to 25 by default.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    frecs, lp : tuple</span>
+<span class="sd">        frecs are the same Dseqrecords as given as arguments, but with the</span>
+<span class="sd">        regions of homology added to the features.</span>
+
+<span class="sd">        lp is a list of Dseqrecords representing the linear products</span>
+<span class="sd">        sorted by length (long -&gt; short).</span>
+
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="n">frecs</span><span class="p">,</span> <span class="n">G</span> <span class="o">=</span> <span class="n">_make_graph</span><span class="p">(</span><span class="n">form_rec_list</span><span class="p">,</span> <span class="n">limit</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">cycle</span> <span class="ow">in</span> <span class="n">nx</span><span class="o">.</span><span class="n">simple_cycles</span><span class="p">(</span><span class="n">G</span><span class="p">):</span>
+        <span class="n">circular_paths</span> <span class="o">=</span> <span class="p">[(</span><span class="n">cycle</span><span class="o">+</span><span class="n">cycle</span><span class="p">[</span><span class="mi">1</span><span class="p">:])[</span><span class="n">n</span><span class="p">:</span><span class="nb">len</span><span class="p">(</span><span class="n">cycle</span><span class="p">)</span><span class="o">+</span><span class="n">n</span><span class="p">]</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">cycle</span><span class="p">)</span><span class="o">-</span><span class="mi">1</span><span class="p">)]</span>
+        <span class="k">for</span> <span class="n">circular_path</span> <span class="ow">in</span> <span class="n">circular_paths</span><span class="p">:</span>
+            <span class="n">keynode</span> <span class="o">=</span> <span class="n">circular_path</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">x</span><span class="o">=</span><span class="p">[</span><span class="n">G</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="mi">0</span><span class="p">][</span><span class="s">&#39;sek&#39;</span><span class="p">]</span> <span class="k">for</span> <span class="n">u</span><span class="p">,</span><span class="n">v</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">circular_path</span><span class="p">,</span> <span class="n">circular_path</span><span class="p">[</span><span class="mi">1</span><span class="p">:])]</span> <span class="c">#collect edges</span>
+            <span class="n">y</span><span class="o">=</span><span class="p">[</span><span class="n">G</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">node</span><span class="p">][</span><span class="s">&#39;sek&#39;</span><span class="p">]</span> <span class="k">for</span> <span class="n">node</span> <span class="ow">in</span> <span class="n">circular_path</span><span class="p">]</span>                      <span class="c">#collect nodes</span>
+            <span class="n">sm</span> <span class="o">=</span> <span class="nb">reduce</span><span class="p">(</span><span class="k">lambda</span> <span class="n">x</span><span class="p">,</span><span class="n">y</span><span class="p">:</span><span class="n">x</span><span class="o">+</span><span class="n">y</span><span class="p">,</span> <span class="p">[</span><span class="n">s</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="n">itertools</span><span class="o">.</span><span class="n">chain</span><span class="o">.</span><span class="n">from_iterable</span><span class="p">(</span><span class="n">itertools</span><span class="o">.</span><span class="n">izip_longest</span><span class="p">(</span><span class="n">y</span><span class="p">,</span><span class="n">x</span><span class="p">)))[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]])</span>
+            <span class="n">incoming</span> <span class="o">=</span> <span class="p">[(</span><span class="n">n</span><span class="p">,</span> <span class="n">keynode</span><span class="p">)</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">G</span><span class="o">.</span><span class="n">predecessors</span><span class="p">(</span><span class="n">keynode</span><span class="p">)</span> <span class="k">if</span> <span class="n">n</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">circular_path</span><span class="p">]</span>
+            <span class="n">outgoing</span> <span class="o">=</span> <span class="p">[(</span><span class="n">keynode</span><span class="p">,</span> <span class="n">n</span><span class="p">)</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">G</span><span class="o">.</span><span class="n">successors</span><span class="p">(</span><span class="n">keynode</span><span class="p">)</span> <span class="k">if</span> <span class="n">n</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">circular_path</span><span class="p">]</span>
+            <span class="n">new_node</span> <span class="o">=</span> <span class="n">seguid</span><span class="p">(</span><span class="n">sm</span><span class="o">.</span><span class="n">seq</span><span class="p">)</span>
+            <span class="n">G</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="n">new_node</span><span class="p">,</span> <span class="n">sek</span><span class="o">=</span><span class="n">sm</span><span class="p">)</span>
+            <span class="n">G</span><span class="o">.</span><span class="n">add_edges_from</span><span class="p">(</span> <span class="p">[(</span><span class="n">p</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">new_node</span><span class="p">,</span> <span class="p">{</span><span class="s">&#39;sek&#39;</span> <span class="p">:</span> <span class="n">G</span><span class="p">[</span><span class="n">p</span><span class="p">[</span><span class="mi">0</span><span class="p">]][</span><span class="n">p</span><span class="p">[</span><span class="mi">1</span><span class="p">]][</span><span class="mi">0</span><span class="p">][</span><span class="s">&#39;sek&#39;</span><span class="p">]</span> <span class="p">})</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">incoming</span><span class="p">]</span> <span class="p">)</span>
+            <span class="n">G</span><span class="o">.</span><span class="n">add_edges_from</span><span class="p">(</span> <span class="p">[(</span><span class="n">new_node</span><span class="p">,</span> <span class="n">p</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="p">{</span><span class="s">&#39;sek&#39;</span> <span class="p">:</span> <span class="n">G</span><span class="p">[</span><span class="n">p</span><span class="p">[</span><span class="mi">0</span><span class="p">]][</span><span class="n">p</span><span class="p">[</span><span class="mi">1</span><span class="p">]][</span><span class="mi">0</span><span class="p">][</span><span class="s">&#39;sek&#39;</span><span class="p">]</span> <span class="p">})</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">outgoing</span><span class="p">]</span> <span class="p">)</span>
+
+    <span class="n">linear_products</span><span class="o">=</span><span class="p">[]</span>
+    <span class="n">unique_lengths</span><span class="o">=</span><span class="nb">set</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">path</span> <span class="ow">in</span> <span class="n">all_simple_paths_edges</span><span class="p">(</span><span class="n">G</span><span class="p">,</span> <span class="s">&#39;5&#39;</span><span class="p">,</span> <span class="s">&#39;3&#39;</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+
+        <span class="n">result</span> <span class="o">=</span> <span class="n">Dseqrecord</span><span class="p">(</span><span class="s">&quot;&quot;</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">first_node</span><span class="p">,</span> <span class="n">second_node</span><span class="p">,</span> <span class="n">edgedict</span> <span class="ow">in</span> <span class="n">path</span><span class="p">:</span>
+            <span class="n">e</span><span class="o">=</span><span class="n">edgedict</span><span class="o">.</span><span class="n">values</span><span class="p">()</span><span class="o">.</span><span class="n">pop</span><span class="p">()[</span><span class="s">&#39;sek&#39;</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">seq</span><span class="o">.</span><span class="n">watson</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">e</span><span class="o">.</span><span class="n">seq</span><span class="o">.</span><span class="n">watson</span><span class="p">)</span><span class="o">*</span><span class="s">&quot;-&quot;</span><span class="p">:</span>
+                <span class="n">result</span><span class="o">+=</span><span class="n">G</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">second_node</span><span class="p">][</span><span class="s">&#39;sek&#39;</span><span class="p">][</span><span class="nb">len</span><span class="p">(</span><span class="n">e</span><span class="p">):]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">result</span><span class="o">+=</span><span class="n">e</span>
+                <span class="n">result</span><span class="o">+=</span><span class="n">G</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">second_node</span><span class="p">][</span><span class="s">&#39;sek&#39;</span><span class="p">]</span>
+
+<span class="c">#        for first_node, second_node, edgedict in path:</span>
+<span class="c">#            result+=edgedict.values().pop()[&#39;sek&#39;]</span>
+<span class="c">#            result+=G.node[second_node][&#39;sek&#39;]</span>
+        <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">circular</span> <span class="o">==</span> <span class="bp">False</span>
+        <span class="n">linear_products</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+        <span class="n">unique_lengths</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">result</span><span class="p">))</span>
+
+    <span class="n">unique_linear_products</span><span class="o">=</span><span class="n">linear_products</span><span class="p">[:]</span>
+
+    <span class="k">for</span> <span class="n">le</span> <span class="ow">in</span> <span class="n">unique_lengths</span><span class="p">:</span>
+        <span class="n">lst</span> <span class="o">=</span> <span class="p">[</span><span class="n">se</span> <span class="k">for</span> <span class="n">se</span> <span class="ow">in</span> <span class="n">linear_products</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">se</span><span class="p">)</span><span class="o">==</span><span class="n">le</span><span class="p">]</span>
+        <span class="n">a</span> <span class="o">=</span> <span class="n">lst</span><span class="o">.</span><span class="n">pop</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">lst</span><span class="p">:</span>
+            <span class="k">if</span> <span class="p">(</span> <span class="nb">str</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">seq</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="nb">str</span><span class="p">(</span><span class="n">b</span><span class="o">.</span><span class="n">seq</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+                 <span class="ow">or</span>
+                 <span class="nb">str</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">seq</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="nb">str</span><span class="p">(</span><span class="n">b</span><span class="o">.</span><span class="n">seq</span><span class="o">.</span><span class="n">reverse_complement</span><span class="p">())</span><span class="o">.</span><span class="n">lower</span><span class="p">()):</span>
+                <span class="n">unique_linear_products</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">b</span><span class="p">)</span>
+
+    <span class="n">unique_linear_products</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="nb">len</span><span class="p">,</span> <span class="n">reverse</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">lp</span> <span class="ow">in</span> <span class="n">unique_linear_products</span><span class="p">:</span>
+        <span class="n">lp</span><span class="o">.</span><span class="n">description</span> <span class="o">=</span> <span class="s">&quot;linear assembly product {}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">lp</span><span class="p">))</span>
+        <span class="n">osf</span> <span class="o">=</span> <span class="p">[</span><span class="n">feature</span> <span class="k">for</span> <span class="n">feature</span> <span class="ow">in</span> <span class="n">lp</span><span class="o">.</span><span class="n">features</span> <span class="k">if</span> <span class="s">&quot;from_left&quot;</span> <span class="ow">in</span> <span class="n">feature</span><span class="o">.</span><span class="n">qualifiers</span><span class="p">]</span>
+        <span class="n">lp</span><span class="o">.</span><span class="n">features</span> <span class="o">=</span> <span class="p">[</span><span class="n">feature</span> <span class="k">for</span> <span class="n">feature</span> <span class="ow">in</span> <span class="n">lp</span><span class="o">.</span><span class="n">features</span> <span class="k">if</span> <span class="ow">not</span> <span class="s">&quot;from_left&quot;</span> <span class="ow">in</span> <span class="n">feature</span><span class="o">.</span><span class="n">qualifiers</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">feature</span> <span class="ow">in</span> <span class="n">osf</span><span class="p">:</span>
+            <span class="n">seq</span> <span class="o">=</span> <span class="n">feature</span><span class="o">.</span><span class="n">qualifiers</span><span class="p">[</span><span class="s">&quot;from_left&quot;</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">feature</span><span class="o">.</span><span class="n">strand</span> <span class="o">==</span> <span class="mi">1</span> <span class="ow">and</span> <span class="nb">str</span><span class="p">(</span><span class="n">seq</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">==</span><span class="nb">str</span><span class="p">(</span><span class="n">lp</span><span class="p">[</span><span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="p">:</span><span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="o">+</span><span class="nb">len</span><span class="p">(</span><span class="n">seq</span><span class="p">)]</span><span class="o">.</span><span class="n">seq</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
+                <span class="n">begin</span> <span class="o">=</span> <span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span>
+                <span class="n">end</span>   <span class="o">=</span> <span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="o">+</span><span class="nb">len</span><span class="p">(</span><span class="n">seq</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">feature</span><span class="o">.</span><span class="n">strand</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span> <span class="ow">and</span> <span class="nb">str</span><span class="p">(</span><span class="n">seq</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">==</span><span class="nb">str</span><span class="p">(</span><span class="n">rc</span><span class="p">(</span><span class="n">lp</span><span class="p">[</span><span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="p">:</span><span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="o">+</span><span class="nb">len</span><span class="p">(</span><span class="n">seq</span><span class="p">)]</span><span class="o">.</span><span class="n">seq</span><span class="p">))</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
+                <span class="n">begin</span> <span class="o">=</span> <span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span>
+                <span class="n">end</span>   <span class="o">=</span> <span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="o">+</span><span class="nb">len</span><span class="p">(</span><span class="n">seq</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">newf</span> <span class="o">=</span> <span class="n">SeqFeature</span><span class="p">(</span><span class="n">FeatureLocation</span><span class="p">(</span><span class="n">begin</span><span class="p">,</span> <span class="n">end</span><span class="p">),</span>
+                              <span class="nb">type</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">type</span><span class="p">,</span>
+                              <span class="n">location_operator</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">location_operator</span><span class="p">,</span>
+                              <span class="n">strand</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">strand</span><span class="p">,</span>
+                              <span class="nb">id</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+                              <span class="n">qualifiers</span><span class="o">=</span><span class="p">{</span><span class="n">k</span><span class="p">:</span><span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span><span class="n">v</span> <span class="ow">in</span> <span class="n">feature</span><span class="o">.</span><span class="n">qualifiers</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">k</span><span class="o">!=</span><span class="s">&quot;from_left&quot;</span><span class="p">},</span>
+                              <span class="n">sub_features</span><span class="o">=</span><span class="bp">None</span><span class="p">,)</span>
+            <span class="n">lp</span><span class="o">.</span><span class="n">features</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">newf</span><span class="p">)</span>
+
+        <span class="n">osf</span> <span class="o">=</span> <span class="p">[</span><span class="n">feature</span> <span class="k">for</span> <span class="n">feature</span> <span class="ow">in</span> <span class="n">lp</span><span class="o">.</span><span class="n">features</span> <span class="k">if</span> <span class="s">&quot;to_right&quot;</span> <span class="ow">in</span> <span class="n">feature</span><span class="o">.</span><span class="n">qualifiers</span><span class="p">]</span>
+        <span class="n">lp</span><span class="o">.</span><span class="n">features</span> <span class="o">=</span> <span class="p">[</span><span class="n">feature</span> <span class="k">for</span> <span class="n">feature</span> <span class="ow">in</span> <span class="n">lp</span><span class="o">.</span><span class="n">features</span> <span class="k">if</span> <span class="ow">not</span> <span class="s">&quot;to_right&quot;</span> <span class="ow">in</span> <span class="n">feature</span><span class="o">.</span><span class="n">qualifiers</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">feature</span> <span class="ow">in</span> <span class="n">osf</span><span class="p">:</span>
+            <span class="n">seq</span> <span class="o">=</span> <span class="n">feature</span><span class="o">.</span><span class="n">qualifiers</span><span class="p">[</span><span class="s">&quot;to_right&quot;</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">feature</span><span class="o">.</span><span class="n">strand</span> <span class="o">==</span> <span class="mi">1</span> <span class="ow">and</span> <span class="nb">str</span><span class="p">(</span><span class="n">seq</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">==</span><span class="nb">str</span><span class="p">(</span><span class="n">lp</span><span class="p">[</span><span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="n">seq</span><span class="p">):</span><span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="p">]</span><span class="o">.</span><span class="n">seq</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
+                <span class="n">begin</span> <span class="o">=</span> <span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="n">seq</span><span class="p">)</span>
+                <span class="n">end</span>   <span class="o">=</span> <span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span>
+            <span class="k">elif</span> <span class="n">feature</span><span class="o">.</span><span class="n">strand</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span> <span class="ow">and</span> <span class="nb">str</span><span class="p">(</span><span class="n">seq</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">==</span><span class="nb">str</span><span class="p">(</span><span class="n">rc</span><span class="p">(</span><span class="n">lp</span><span class="p">[</span><span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="n">seq</span><span class="p">):</span><span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="p">]</span><span class="o">.</span><span class="n">seq</span><span class="p">))</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
+                <span class="n">begin</span> <span class="o">=</span> <span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="n">seq</span><span class="p">)</span>
+                <span class="n">end</span>   <span class="o">=</span> <span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">newf</span> <span class="o">=</span> <span class="n">SeqFeature</span><span class="p">(</span><span class="n">FeatureLocation</span><span class="p">(</span><span class="n">begin</span><span class="p">,</span> <span class="n">end</span><span class="p">),</span>
+                              <span class="nb">type</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">type</span><span class="p">,</span>
+                              <span class="n">location_operator</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">location_operator</span><span class="p">,</span>
+                              <span class="n">strand</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">strand</span><span class="p">,</span>
+                              <span class="nb">id</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+                              <span class="n">qualifiers</span><span class="o">=</span><span class="p">{</span><span class="n">k</span><span class="p">:</span><span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span><span class="n">v</span> <span class="ow">in</span> <span class="n">feature</span><span class="o">.</span><span class="n">qualifiers</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">k</span><span class="o">!=</span><span class="s">&quot;to_right&quot;</span><span class="p">},</span>
+                              <span class="n">sub_features</span><span class="o">=</span><span class="bp">None</span><span class="p">,)</span>
+            <span class="n">lp</span><span class="o">.</span><span class="n">features</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">newf</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">frecs</span><span class="p">,</span> <span class="n">unique_linear_products</span>
+</div>
+<span class="k">def</span> <span class="nf">_make_graph</span><span class="p">(</span><span class="n">recs</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">25</span><span class="p">):</span>
+
+    <span class="n">form_rec_list</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">recs</span><span class="p">))</span>
+
+    <span class="k">for</span> <span class="n">frec</span> <span class="ow">in</span> <span class="n">form_rec_list</span><span class="p">:</span>
+        <span class="n">frec</span><span class="o">.</span><span class="n">features</span> <span class="o">=</span> <span class="p">[</span><span class="n">f</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">frec</span><span class="o">.</span><span class="n">features</span> <span class="k">if</span> <span class="n">f</span><span class="o">.</span><span class="n">type</span><span class="o">!=</span><span class="s">&quot;overlap&quot;</span><span class="p">]</span>
+        <span class="n">frec</span><span class="o">.</span><span class="n">seq</span> <span class="o">=</span> <span class="n">frec</span><span class="o">.</span><span class="n">seq</span><span class="o">.</span><span class="n">fill_in</span><span class="p">()</span> <span class="c"># !!!</span>
+
+    <span class="n">rc</span> <span class="o">=</span> <span class="p">{</span> <span class="n">frec</span> <span class="p">:</span> <span class="n">frec</span><span class="o">.</span><span class="n">rc</span><span class="p">()</span> <span class="k">for</span> <span class="n">frec</span> <span class="ow">in</span> <span class="n">form_rec_list</span> <span class="p">}</span>
+
+    <span class="n">G</span><span class="o">=</span><span class="n">nx</span><span class="o">.</span><span class="n">MultiDiGraph</span><span class="p">(</span> <span class="n">multiedges</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">selfloops</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+    <span class="n">G</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span> <span class="s">&quot;5&quot;</span><span class="p">,</span> <span class="n">sek</span><span class="o">=</span><span class="n">Dseqrecord</span><span class="p">(</span><span class="s">&quot;&quot;</span><span class="p">))</span>
+    <span class="n">G</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span> <span class="s">&quot;3&quot;</span><span class="p">,</span> <span class="n">sek</span><span class="o">=</span><span class="n">Dseqrecord</span><span class="p">(</span><span class="s">&quot;&quot;</span><span class="p">))</span>
+
+    <span class="n">matches</span><span class="o">=</span><span class="p">[]</span>
+
+    <span class="k">for</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">itertools</span><span class="o">.</span><span class="n">combinations</span><span class="p">(</span><span class="n">form_rec_list</span><span class="p">,</span> <span class="mi">2</span><span class="p">):</span>
+        <span class="n">match</span> <span class="o">=</span> <span class="n">common_sub_strings</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">seq</span><span class="p">)</span><span class="o">.</span><span class="n">upper</span><span class="p">(),</span>
+                                   <span class="nb">str</span><span class="p">(</span><span class="n">b</span><span class="o">.</span><span class="n">seq</span><span class="p">)</span><span class="o">.</span><span class="n">upper</span><span class="p">(),</span>
+                                                <span class="n">limit</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">match</span><span class="p">:</span>
+            <span class="n">matches</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">match</span><span class="p">))</span>
+
+        <span class="n">match</span> <span class="o">=</span> <span class="n">common_sub_strings</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">seq</span><span class="p">)</span><span class="o">.</span><span class="n">upper</span><span class="p">(),</span>
+                                   <span class="nb">str</span><span class="p">(</span><span class="n">rc</span><span class="p">[</span><span class="n">b</span><span class="p">]</span><span class="o">.</span><span class="n">seq</span><span class="p">)</span><span class="o">.</span><span class="n">upper</span><span class="p">(),</span>
+                                   <span class="n">limit</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">match</span><span class="p">:</span>
+            <span class="n">matches</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">a</span><span class="p">,</span> <span class="n">rc</span><span class="p">[</span><span class="n">b</span><span class="p">],</span> <span class="n">match</span><span class="p">))</span>
+            <span class="n">matches</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">rc</span><span class="p">[</span><span class="n">a</span><span class="p">],</span> <span class="n">b</span><span class="p">,</span> <span class="p">[(</span><span class="nb">len</span><span class="p">(</span><span class="n">a</span><span class="p">)</span><span class="o">-</span><span class="n">sa</span><span class="o">-</span><span class="n">le</span><span class="p">,</span><span class="nb">len</span><span class="p">(</span><span class="n">b</span><span class="p">)</span><span class="o">-</span><span class="n">sb</span><span class="o">-</span><span class="n">le</span><span class="p">,</span><span class="n">le</span><span class="p">)</span> <span class="k">for</span> <span class="n">sa</span><span class="p">,</span><span class="n">sb</span><span class="p">,</span><span class="n">le</span> <span class="ow">in</span> <span class="n">match</span><span class="p">]))</span>
+
+    <span class="k">for</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">match</span> <span class="ow">in</span> <span class="n">matches</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">start_in_a</span><span class="p">,</span> <span class="n">start_in_b</span><span class="p">,</span> <span class="n">length</span> <span class="ow">in</span> <span class="n">match</span><span class="p">:</span>
+            <span class="n">node_seq</span> <span class="o">=</span> <span class="n">a</span><span class="p">[</span><span class="n">start_in_a</span><span class="p">:</span><span class="n">start_in_a</span><span class="o">+</span><span class="n">length</span><span class="p">]</span>
+            <span class="n">node_seq2</span> <span class="o">=</span> <span class="n">b</span><span class="p">[</span><span class="n">start_in_b</span><span class="p">:</span><span class="n">start_in_b</span><span class="o">+</span><span class="n">length</span><span class="p">]</span>
+            <span class="k">assert</span> <span class="nb">str</span><span class="p">(</span><span class="n">node_seq</span><span class="o">.</span><span class="n">seq</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="nb">str</span><span class="p">(</span><span class="n">node_seq2</span><span class="o">.</span><span class="n">seq</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+            <span class="n">node_seq</span><span class="o">.</span><span class="n">features</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">node_seq2</span><span class="o">.</span><span class="n">features</span><span class="p">)</span>
+            <span class="n">chksum</span> <span class="o">=</span> <span class="n">seguid</span><span class="p">(</span><span class="n">node_seq</span><span class="o">.</span><span class="n">seq</span><span class="p">)</span>
+            <span class="n">G</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="n">chksum</span><span class="p">,</span> <span class="n">sek</span> <span class="o">=</span> <span class="n">node_seq</span><span class="p">)</span>
+
+            <span class="n">qual</span>      <span class="o">=</span> <span class="p">{</span><span class="s">&quot;note&quot;</span>             <span class="p">:</span> <span class="s">&quot;olp_{}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">chksum</span><span class="p">),</span>
+                         <span class="s">&quot;chksum&quot;</span>            <span class="p">:</span> <span class="n">chksum</span><span class="p">,</span>
+                         <span class="s">&quot;ApEinfo_fwdcolor&quot;</span> <span class="p">:</span> <span class="s">&quot;green&quot;</span><span class="p">,</span>
+                         <span class="s">&quot;ApEinfo_revcolor&quot;</span> <span class="p">:</span> <span class="s">&quot;red&quot;</span><span class="p">,}</span>
+
+            <span class="n">a</span><span class="o">.</span><span class="n">features</span><span class="o">.</span><span class="n">append</span><span class="p">(</span> <span class="n">SeqFeature</span><span class="p">(</span> <span class="n">FeatureLocation</span><span class="p">(</span><span class="n">start_in_a</span><span class="p">,</span>
+                                                           <span class="n">start_in_a</span> <span class="o">+</span> <span class="n">length</span><span class="p">),</span>
+                                                           <span class="nb">type</span> <span class="o">=</span> <span class="s">&quot;overlap&quot;</span><span class="p">,</span>
+                                                           <span class="n">qualifiers</span> <span class="o">=</span> <span class="n">qual</span><span class="p">))</span>
+            <span class="n">b</span><span class="o">.</span><span class="n">features</span><span class="o">.</span><span class="n">append</span><span class="p">(</span> <span class="n">SeqFeature</span><span class="p">(</span> <span class="n">FeatureLocation</span><span class="p">(</span><span class="n">start_in_b</span><span class="p">,</span>
+                                                           <span class="n">start_in_b</span> <span class="o">+</span> <span class="n">length</span><span class="p">),</span>
+                                                           <span class="nb">type</span> <span class="o">=</span> <span class="s">&quot;overlap&quot;</span><span class="p">,</span>
+                                                           <span class="n">qualifiers</span> <span class="o">=</span> <span class="n">qual</span><span class="p">))</span>
+    <span class="n">form_rec_list</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">rc</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+
+    <span class="k">for</span> <span class="n">frec</span> <span class="ow">in</span> <span class="n">form_rec_list</span><span class="p">:</span>
+        <span class="n">overlaps</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">({</span><span class="n">f</span><span class="o">.</span><span class="n">qualifiers</span><span class="p">[</span><span class="s">&quot;chksum&quot;</span><span class="p">]:</span><span class="n">f</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">frec</span><span class="o">.</span><span class="n">features</span> <span class="k">if</span> <span class="n">f</span><span class="o">.</span><span class="n">type</span><span class="o">==</span><span class="s">&quot;overlap&quot;</span><span class="p">}</span><span class="o">.</span><span class="n">values</span><span class="p">(),</span> <span class="n">key</span> <span class="o">=</span> <span class="n">operator</span><span class="o">.</span><span class="n">attrgetter</span><span class="p">(</span><span class="s">&quot;location.start&quot;</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">overlaps</span><span class="p">:</span>
+            <span class="n">overlaps</span> <span class="o">=</span> <span class="p">([</span><span class="n">SeqFeature</span><span class="p">(</span><span class="n">FeatureLocation</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="mi">0</span><span class="p">),</span>
+                         <span class="nb">type</span> <span class="o">=</span> <span class="s">&quot;overlap&quot;</span><span class="p">,</span>
+                         <span class="n">qualifiers</span> <span class="o">=</span> <span class="p">{</span><span class="s">&quot;chksum&quot;</span><span class="p">:</span><span class="s">&quot;5&quot;</span><span class="p">})]</span><span class="o">+</span>
+                         <span class="n">overlaps</span><span class="o">+</span>
+                        <span class="p">[</span><span class="n">SeqFeature</span><span class="p">(</span><span class="n">FeatureLocation</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">frec</span><span class="p">),</span><span class="nb">len</span><span class="p">(</span><span class="n">frec</span><span class="p">)),</span>
+                                    <span class="nb">type</span> <span class="o">=</span> <span class="s">&quot;overlap&quot;</span><span class="p">,</span>
+                                    <span class="n">qualifiers</span> <span class="o">=</span> <span class="p">{</span><span class="s">&quot;chksum&quot;</span><span class="p">:</span><span class="s">&quot;3&quot;</span><span class="p">})])</span>
+
+            <span class="k">for</span> <span class="n">olp1</span><span class="p">,</span> <span class="n">olp2</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">overlaps</span><span class="p">,</span> <span class="n">overlaps</span><span class="p">[</span><span class="mi">1</span><span class="p">:]):</span>
+                <span class="n">n1</span> <span class="o">=</span> <span class="n">olp1</span><span class="o">.</span><span class="n">qualifiers</span><span class="p">[</span><span class="s">&quot;chksum&quot;</span><span class="p">]</span>
+                <span class="n">n2</span> <span class="o">=</span> <span class="n">olp2</span><span class="o">.</span><span class="n">qualifiers</span><span class="p">[</span><span class="s">&quot;chksum&quot;</span><span class="p">]</span>
+                <span class="n">start</span><span class="p">,</span> <span class="n">end</span> <span class="o">=</span> <span class="n">olp1</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">end</span><span class="p">,</span> <span class="n">olp2</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span>
+                <span class="n">sek</span> <span class="o">=</span> <span class="n">frec</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">end</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">start</span><span class="o">&gt;</span><span class="n">end</span><span class="p">:</span>
+                    <span class="n">sek</span><span class="o">=</span><span class="n">Dseqrecord</span><span class="p">((</span><span class="n">start</span><span class="o">-</span><span class="n">end</span><span class="p">)</span><span class="o">*</span><span class="s">&quot;-&quot;</span><span class="p">)</span> <span class="c"># tandem overlaps overlap with each other !</span>
+                <span class="k">for</span> <span class="n">feature</span> <span class="ow">in</span> <span class="n">frec</span><span class="o">.</span><span class="n">features</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">start</span><span class="o">&lt;</span><span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">end</span><span class="o">&lt;</span><span class="n">end</span> <span class="ow">and</span> <span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="o">&lt;</span><span class="n">start</span><span class="p">:</span>
+                        <span class="n">newf</span> <span class="o">=</span> <span class="n">SeqFeature</span><span class="p">(</span><span class="n">FeatureLocation</span><span class="p">(</span><span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">end</span><span class="o">-</span><span class="n">start</span><span class="p">,</span>
+                                                          <span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">end</span><span class="o">-</span><span class="n">start</span><span class="p">),</span>
+                                          <span class="nb">type</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">type</span><span class="p">,</span>
+                                          <span class="n">location_operator</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">location_operator</span><span class="p">,</span>
+                                          <span class="n">strand</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">strand</span><span class="p">,</span>
+                                          <span class="nb">id</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+                                          <span class="n">qualifiers</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">qualifiers</span><span class="p">,</span>
+                                          <span class="n">sub_features</span><span class="o">=</span><span class="bp">None</span><span class="p">,)</span>
+                        <span class="n">newf</span><span class="o">.</span><span class="n">qualifiers</span><span class="p">[</span><span class="s">&#39;to_right&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">feature</span><span class="o">.</span><span class="n">extract</span><span class="p">(</span><span class="n">frec</span><span class="p">)</span><span class="o">.</span><span class="n">seq</span>
+                        <span class="n">sek</span><span class="o">.</span><span class="n">features</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">newf</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">start</span><span class="o">&lt;</span><span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="o">&lt;</span><span class="n">end</span> <span class="ow">and</span> <span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">end</span><span class="o">&gt;</span><span class="n">end</span><span class="p">:</span>
+                        <span class="n">newf</span> <span class="o">=</span> <span class="n">SeqFeature</span><span class="p">(</span><span class="n">FeatureLocation</span><span class="p">(</span><span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="o">-</span><span class="n">start</span><span class="p">,</span>
+                                                          <span class="n">feature</span><span class="o">.</span><span class="n">location</span><span class="o">.</span><span class="n">start</span><span class="o">-</span><span class="n">start</span><span class="p">),</span>
+                                          <span class="nb">type</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">type</span><span class="p">,</span>
+                                          <span class="n">location_operator</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">location_operator</span><span class="p">,</span>
+                                          <span class="n">strand</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">strand</span><span class="p">,</span>
+                                          <span class="nb">id</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+                                          <span class="n">qualifiers</span><span class="o">=</span><span class="n">feature</span><span class="o">.</span><span class="n">qualifiers</span><span class="p">,</span>
+                                          <span class="n">sub_features</span><span class="o">=</span><span class="bp">None</span><span class="p">,)</span>
+                        <span class="n">newf</span><span class="o">.</span><span class="n">qualifiers</span><span class="p">[</span><span class="s">&#39;from_left&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">feature</span><span class="o">.</span><span class="n">extract</span><span class="p">(</span><span class="n">frec</span><span class="p">)</span><span class="o">.</span><span class="n">seq</span>
+                        <span class="n">sek</span><span class="o">.</span><span class="n">features</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">newf</span><span class="p">)</span>
+                <span class="n">G</span><span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="n">n1</span><span class="p">,</span> <span class="n">n2</span><span class="p">,</span> <span class="n">sek</span><span class="o">=</span><span class="n">sek</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">form_rec_list</span><span class="p">,</span> <span class="n">G</span>
+
+
+
+
+<span class="k">if</span> <span class="n">__name__</span><span class="o">==</span><span class="s">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="k">pass</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="../../np-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">pydna  documentation</a> &raquo;</li>
+          <li><a href="../index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2013, Author.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>
