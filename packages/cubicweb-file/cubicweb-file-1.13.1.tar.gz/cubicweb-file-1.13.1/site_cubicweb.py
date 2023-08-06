@@ -1,0 +1,16 @@
+options = (
+    ('image-max-size',
+     {'type' : 'string',
+      'default': None,
+      'help': 'all images will be resized to this max size if set',
+      'group': 'file',
+      'level': 2,
+      }),
+    ('image-thumb-size',
+     {'type' : 'string',
+      'default': '75x75',
+      'help': 'thumbnail size of your images',
+      'group': 'file',
+      'level': 2,
+      }),
+    )
