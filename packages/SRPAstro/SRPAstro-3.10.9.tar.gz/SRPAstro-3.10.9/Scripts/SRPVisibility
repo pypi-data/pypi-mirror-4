@@ -1,0 +1,147 @@
+
+""" Code to compute target visibility
+
+Context : SRP
+Module  : SRPVisibility.py
+Version : 2.0.0
+Author  : Stefano Covino
+Date    : 27/08/2012
+E-mail  : stefano.covino@brera.inaf.it
+URL:    : http://www.merate.mi.astro.it/~covino
+Purpose : Compute target visibility, Moon and Sun separation.
+
+Usage   : SRPVisibility  -a arg1 arg2 / -o arg3 arg4 [-d arg5 arg6 arg7] [-h] [-l arg8 arg9 / -s arg10] [-t arg11] [-v]
+            -a Altazimuthal coordinates (dd.dddd dd.dddd)
+            -d Altitude (m), prssure (mBar) and temperature (C) of the observing site
+            -l Coordinate location of observing site (dd:mm:ss or dd.dddd)
+            -s Observing site
+            -o Object coordinates (hh:mm:ss dd:mm:ss or hh.ddd dd.ddd)
+            -t Computation time ('yyy/mm/dd hh:mm:ss')
+
+
+History : (20/12/2003) First version.
+        : (01/09/2004) Better coordinate management.
+        : (03/02/2005) Optparse.
+        : (21/05/2005) Sun altitude.
+        : (01/08/2009) Coordinated in degrees in output.
+        : (17/03/2010) Astrometric coordinates. 
+        : (12/09/2011) Better cosmetics.
+        : (14/09/2011) Input of various format for object coordinates.
+        : (12/01/2012) Minor bug.
+        : (09/02/2012) Sidereal time computation added.
+        : (26/08/2012) Air refraction added.
+        : (27/08/2012) Altazimuthal input allowed.
+"""
+
+
+import math, sys
+import ephem
+from optparse import OptionParser
+import SRP.SRPConstants as SRPConstants
+import SRP.TimeAstro_algs as TimeAstro_algs
+from SRP.SRPMath.AstroAngleInput import AstroAngleInput
+from SRP.SRPMath.AstroCoordInput import AstroCoordInput
+from SRP.SRPSky.HourAngle import HourAngle
+from SRP.SRPSky.ParallacticAngle import ParallacticAngle
+from SRP.SRPSky.SiderealTime import SiderealTime
+
+
+
+parser = OptionParser(usage="usage: %prog -a arg1 arg2 / -o arg3 arg4 [-d arg5 arg6 arg7] [-h] [-l arg8 arg9 / -s arg10] [-t arg11] [-v]", version="%prog 2.0.0")
+parser.add_option("-a", "--altaz", action="store", nargs=2, type="string", dest="altaz", help="Altazimuthal coordinates (dd.dddd dd.dddd)")
+parser.add_option("-d", "--data", action="store", nargs=3, type="float", dest="data", default=(0,0,0), help="Altitude (m), pressure (mBar) and temperature (C) of the observing site")
+parser.add_option("-l", "--location", action="store", nargs=2, type="string", dest="locat", help="Coordinate location of observing site (dd:mm:ss or dd.dddd).")
+parser.add_option("-o", "--object", action="store", nargs=2, type="string", dest="object", help="Object coordinates (hh:mm:ss dd:mm:ss or hh.ddd dd.ddd)")
+parser.add_option("-s", "--site", action="store", nargs=1, type="string", dest="site", help="Name of observing site.")
+parser.add_option("-t", "--time", action="store", nargs=1, type="string", dest="time", help="Computation time ('yyy/mm/dd hh:mm:ss')")
+parser.add_option("-v", "--verbose", action="store_true", dest="verbose", help="Fully describe operations.")
+(options, args) = parser.parse_args()
+
+
+Site = ephem.Observer()
+if options.locat:
+        Site.lat = str(options.locat[0])
+        Site.long = str(options.locat[1])
+#
+elif options.site: 
+        if options.site in SRPConstants.SiteDict.keys():
+                Site.lat = str(SRPConstants.SiteDict[options.site].Lat)
+                Site.long = str(SRPConstants.SiteDict[options.site].Long)
+        else:
+                print "Available sites: "
+		for entr in SRPConstants.SiteDict.keys():
+			print SRPConstants.SRPTab+entr
+                parser.error("Site %s is not recognized." % options.site)
+else:
+        Site.lat = str(SRPConstants.SiteDict['LaSilla'].Lat)
+        Site.long = str(SRPConstants.SiteDict['LaSilla'].Long)
+#
+if options.data:
+    if options.data[1] < 0:
+        parser.error("Pressure must be positive.")
+    if options.data[2] < -273:
+        parser.error("Temperature must be within acceptable ranges.")
+Site.elev = options.data[0]
+Site.pressure = options.data[1]
+Site.temp = options.data[2]
+#
+if options.time:
+        Site.date = options.time
+
+sun = ephem.Sun(Site)
+moon = ephem.Moon(Site)
+
+#
+nb = ephem.FixedBody()        
+#
+if options.object and options.altaz:
+    parser.error("Either equatorial or altazimuthal coordinates.")
+elif not (options.object or options.altaz):
+    parser.print_help()
+    sys.exit(1)
+#
+if options.altaz:
+        AZ = AstroAngleInput(options.altaz[0])
+        ALT = AstroAngleInput(options.altaz[1],period=(0.,90.))
+        RA, DEC = Site.radec_of(math.radians(AZ.Angle), math.radians(ALT.Angle))
+        nb._ra = str(RA)
+        nb._dec = str(DEC)
+elif options.object:
+        coords = AstroCoordInput(options.object[0], options.object[1])
+        nb._ra = str(coords.EphemCoord.ra)
+        nb._dec = str(coords.EphemCoord.dec)
+#
+nb._epoch = ephem.date(ephem.J2000)
+nb.compute(Site)
+#        
+if options.verbose:
+        print "Site coordinates        : Latitude %s, Longitude %s" % (Site.lat, Site.long)
+        print "Target astrometric coordinates: RA %s, DEC %s" % (nb.a_ra, nb.a_dec)
+        print "Target coordinates (deg)      : RA %.5f, DEC %.5f" % (math.degrees(float(nb.a_ra)), math.degrees(float(nb.a_dec)))
+if options.verbose:
+        print "Computation time: %s" % Site.date
+        print "Target Althazimuthal coordinates      : AZ %s, ALT %s" % (nb.az, nb.alt)
+        print "Target Althazimuthal coordinates (deg): AZ %.5f, ALT %.5f" % (math.degrees(float(nb.az)), math.degrees(float(nb.alt)))
+
+        print "Moon separation: %s" % ephem.separation((moon.az,moon.alt), (nb.az,nb.alt))
+        print "Sun separation: %s" % ephem.separation((sun.az,sun.alt), (nb.az,nb.alt))
+        print "Sun altitude: %s" % sun.alt
+        print "Sidereal time: %s" % ephem.hours(str(SiderealTime(Site)))
+        print "Hour angle: %s" % ephem.hours(ephem.degrees(str(HourAngle(math.degrees(float(nb.a_ra)),Site))))
+        print "Parallactic angle: %.5f" % ParallacticAngle(nb,Site)
+else:
+        print "%.5f %.5f %.5f %.5f %.5f %.5f %.5f %.5f %.5f %.5f %.5f" % (Site.date-ephem.date('2000/1/1 12:0:0'), 
+            math.degrees(float(nb.az)), math.degrees(float(nb.alt)), 
+            math.degrees(ephem.separation((moon.az,moon.alt), (nb.az,nb.alt))), 
+            math.degrees(ephem.separation((sun.az,sun.alt), (nb.az,nb.alt))),
+            math.degrees(float(sun.alt)), math.degrees(float(nb.a_ra)), 
+            math.degrees(float(nb.a_dec)), math.degrees(SiderealTime(Site)), 
+            HourAngle(math.degrees(float(nb.a_ra)),Site),ParallacticAngle(nb,Site))
+#
+
+
+
+
+
+
+

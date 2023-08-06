@@ -1,0 +1,113 @@
+""" Code to extract selected column from a table.
+
+Context : SRP
+Module  : SRPTabExtract.py
+Version : 1.1.2
+Author  : Stefano Covino
+Date    : 12/09/2011
+E-mail  : stefano.covino@brera.inaf.it
+URL:    : http://www.merate.mi.astro.it/covino
+Purpose : Extract selected columns from a table.
+
+Usage   : SRPTabExtract -c 'arg1' [-h] [-j arg2] -o arg3 -t arg4 [-v]
+            -c Columns for columns [i.e. '2 3 1 2']
+            -j Number of header lines to jump
+            -o Output file
+            -t TABLE Table containing data to extract
+
+
+History : (03/02/2005) First version.
+        : (14/04/2005) Correction in output.
+        : (29/12/2006) Correction in number of output items.
+        : (12/09/2011) Better cosmetics.
+"""
+
+
+import string, os
+from optparse import OptionParser
+import SRP.SRPConstants as SRPConstants
+import SRP.SRPFiles as SRPFiles
+
+
+
+parser = OptionParser(usage="usage: %prog -c 'arg1' [-h] [-j arg2] -o arg3 -t arg4 [-v]", version="%prog 1.1.2")
+parser.add_option("-c", "--columns", action="store", type="string", dest="col", help="Columns for columns [i.e. '2 3 1 2']")
+parser.add_option("-j", "--jump", action="store", nargs=1, type="int", dest="jump", default=0, help="Number of header lines to jump")
+parser.add_option("-o", "--out", action="store", nargs=1, type="string", dest="outf", help="Output file")
+parser.add_option("-t", "--table", action="store", nargs=1, type="string", dest="table", help="Table containing data to extract")
+parser.add_option("-v", "--verbose", action="store_true", dest="verbose", help="Fully describe operations")
+(options, args) = parser.parse_args()
+
+
+if options.table and options.col and options.outf:
+        # Session name
+        sname = SRPFiles.getSRPSessionName()
+	if options.verbose:
+		print "Session name %s retrieved." % sname
+        # Opne file
+	f1 = SRPFiles.SRPFile(SRPConstants.SRPLocalDir,options.table,SRPFiles.ReadMode)
+	f1.SRPOpenFile()
+	if options.verbose:
+		print "Opening %s file." % options.table
+	if f1.f == None:
+		parser.error("Error in input file %s." % options.table)
+        # Check header jump
+	if options.jump < 0:
+		parser.error("Header lines to jump %d must be positive." % options.jump)
+        # Check columns to include
+        col = []
+        clist = string.split(options.col)
+        if len(clist) == 0:
+                parser.error("At least one column should be present in column list.")
+        for i in clist:
+                try:
+                        ii = int(i)
+                except:
+                        parser.error("Column number cannot be read in %s." % options.col)
+                if ii <= 0:
+                        parser.error("Column number %d should be positive." % ii) 
+                else:
+                        col.append(ii)
+        # Read file
+	try:
+		dt1 = f1.SRPReadTotFile()
+	except:
+		parser.error("Error in reading from file %s." % options.table)
+	f1.SRPCloseFile()
+	if options.verbose:
+		print "Read %d entries." % len(dt1)
+	ddt1 = []
+        if options.jump <> 0:
+	       for i in range(options.jump,len(dt1)):
+		      ddt1.append(dt1[i])
+        else:
+                ddt1 = dt1
+	if options.verbose:
+		print "Selected %d entries." % len(ddt1)
+        del dt1
+        # Extract columns
+	l1 = ''
+	for i in range(len(ddt1)):
+		try:
+			inp = string.split(ddt1[i])
+		except:
+			parser.error("Problem in extracting data from file %s." % options.table)
+                if len(inp) > 0:
+                        for l in col:
+                                try:
+                                        l1 = l1 + inp[l-1] + ' '
+                                except IndexError: 
+                                        parser.error("Problem with column %d." % l)
+                l1 = l1 + os.linesep
+        # Write output 
+	if options.verbose:
+		print "Output %s creation." % (sname+options.outf)
+	o1 = SRPFiles.SRPFile(SRPConstants.SRPLocalDir,sname+options.outf,SRPFiles.WriteMode)
+	o1.SRPOpenFile()
+	o1.SRPWriteFile(l1)
+	o1.SRPCloseFile()
+        if options.verbose:
+                print "End of job."
+else:
+	parser.print_help()
+
