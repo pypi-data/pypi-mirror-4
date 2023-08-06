@@ -1,0 +1,62 @@
+##############################################################################
+#
+# Copyright (c) 2007-2009 Zope Foundation and Contributors.
+# All Rights Reserved.
+#
+# This software is subject to the provisions of the Zope Public License,
+# Version 2.1 (ZPL).  A copy of the ZPL should accompany this distribution.
+# THIS SOFTWARE IS PROVIDED "AS IS" AND ANY AND ALL EXPRESS OR IMPLIED
+# WARRANTIES ARE DISCLAIMED, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+# WARRANTIES OF TITLE, MERCHANTABILITY, AGAINST INFRINGEMENT, AND FITNESS
+# FOR A PARTICULAR PURPOSE.
+#
+##############################################################################
+
+import os
+from setuptools import setup, find_packages
+
+
+def read(*rnames):
+    return open(os.path.join(os.path.dirname(__file__), *rnames)).read()
+
+
+setup(name='as.recipe.filetemplate',
+      version='2.2.2',
+      license='ZPL 2.1',
+      url='http://pypi.python.org/pypi/as.recipe.filetemplate',
+      description="zc.buildout recipe for creating files from file templates",
+      author='Philipp von Weitershausen',
+      author_email='philipp@weitershausen.de',
+      maintainer='Gary Poster',
+      maintainer_email='gary.poster@canonical.com',
+      long_description=(read('as', 'recipe', 'filetemplate', 'README.txt')
+                        + '\n\n' +
+                        read('CHANGES.txt')),
+      classifiers=['Development Status :: 5 - Production/Stable',
+                   'Intended Audience :: Developers',
+                   'License :: OSI Approved :: Zope Public License',
+                   'Programming Language :: Python',
+                   'Operating System :: OS Independent',
+                   'Topic :: Software Development :: Build Tools',
+                   'Framework :: Buildout',
+      ],
+
+      packages=find_packages(),
+      namespace_packages=['as', 'as.recipe'],
+      install_requires=['setuptools',
+                        'zc.buildout',
+                        'zc.recipe.egg',
+      ],
+      extras_require=dict(
+          test=[
+              'zope.testing',
+              'z3c.recipe.scripts',
+          ]
+      ),
+      zip_safe=True,
+      entry_points="""
+      [zc.buildout]
+      default = as.recipe.filetemplate:FileTemplate
+      """,
+      include_package_data=True,
+)
