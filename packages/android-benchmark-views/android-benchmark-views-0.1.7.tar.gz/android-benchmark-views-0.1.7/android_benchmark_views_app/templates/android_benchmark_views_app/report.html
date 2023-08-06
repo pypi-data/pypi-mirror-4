@@ -1,0 +1,161 @@
+{% extends "layouts/content_with_sidebar.html" %}
+
+{% block extrahead %}
+{{ block.super }}
+<script type="text/javascript" src="{{STATIC_URL}}lava-server/js/jquery.dataTables.min.js"></script>
+<script type="text/javascript" src="{{STATIC_URL}}android_benchmark_views_app/js/jquery.flot.js"></script>
+<script type="text/javascript" src="{{STATIC_URL}}android_benchmark_views_app/js/jquery.flot.errorbars.js"></script>
+<script type="text/javascript" src="{{STATIC_URL}}android_benchmark_views_app/js/jquery.flot.navigate.js"></script>
+<link rel="stylesheet" type="text/css" href="{{STATIC_URL}}android_benchmark_views_app/css/bmarks.css"></style>
+<link rel="stylesheet" type="text/css" href="{{STATIC_URL}}lava-server/css/demo_table_jui.css">
+<script language="javascript" type="text/javascript">
+  //common options for all plots
+  var data_points = {
+    radius: 0, errorbars: "y",
+    yerr: {show:true, upperCap: "-", lowerCap: "-", radius: 5}
+  };
+
+  var bruns = []; //benchmark runs array
+  var tra = {};   //tra - test run averages
+{% for run in runs %}
+  bruns.push('{{run.label}}');
+  tra['{{run.label}}'] = {
+  {% for ta in run.get_test_averages %}
+    '{{ta.test}}': [
+      {% for tra in ta.test_result_averages %}
+        {'test': '{{tra.test_case__test_case_id}}', 'average': {{tra.average}}, 'std_dev': {{tra.std_dev}}},
+      {% endfor %}
+      ],
+  {% endfor %}
+  };
+{% endfor %}
+
+function get_test_result_averages(test_run, test) {
+  var results = []
+  var avgs = tra[test_run][test];
+  //we build the order of the results based on the order of the tests
+  //defined in the first test_run
+  order = [];
+  for (var i=0; i < tra[bruns[0]][test].length; i++)
+    order.push(tra[bruns[0]][test][i]['test']);
+
+  for (var i=0; i < order.length; i++) {
+    tr = get_test_result(test_run, test, order[i])
+    results.push([(i+1), tr['average'], tr['std_dev']]);
+  }
+  return results;
+}
+
+function get_test_result(test_run, test, test_result) {
+  averages = tra[test_run][test];
+  for(i = 0; i < averages.length; i++) {
+    if( averages[i]['test'] == test_result )
+      return averages[i];
+  }
+  alert("ERROR missing test result for: " + test_run + ": " + test + "->" + test_result);
+  return 0;
+}
+
+function get_test_result_average(test_run, test, test_result) {
+  return get_test_result(test_run, test, test_result)['average'];
+}
+
+function populate_table(test, tableid) {
+  //use the test results order from the first run to define what we show
+  main_test_results = tra[bruns[0]][test];
+  for(var i=0; i< main_test_results.length; i++) {
+    tr = main_test_results[i]['test'];
+    cols = [tr];
+    for( j = 0; j < bruns.length; j++)
+      cols.push(get_test_result_average(bruns[j], test, tr));
+    row = '<tr><td>' + cols.join('<td>') + '</td></tr>';
+    $(tableid +' > tbody:last').append(row);
+  }
+}
+</script>
+{% endblock %}
+{% block sidebar %}
+    <h3>Benchmark Run Details</h3>
+    <ul>
+    {% for run in runs %}
+      <li><a href="{{run.id}}">{{run.label}}</a></li>
+    {% endfor %}
+    </ul>
+    {% if report.comments %}
+    <h3>Comments</h3>
+<pre>
+{{report.comments}}
+</pre>
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+  {% block report_title %}
+    <h2>Android Benchmark Results for the {{report.series}} Engineering Cycle</h2>
+  {% endblock %}
+
+    {% for main_ta in runs.0.get_test_averages %}
+      <script type="text/javascript" charset="utf-8">
+        $(document).ready(function() {
+          populate_table('{{main_ta.test}}', '#{{main_ta.test}}-table');
+          oTable = $('#{{main_ta.test}}-table').dataTable({
+            "bJQueryUI": true,
+            "bPaginate": false,
+            "aaSorting": [],});
+	    h = "<div class='dataTables_info'><span class='bmark_run'>{{main_ta.test}}</span> - <span class='bisb'>{{main_ta.b_is_b_str}}</span></div>";
+	    $("#{{main_ta.test}}-table_wrapper").find('div.fg-toolbar:first').prepend(h);
+        });
+      </script>
+      <table class="demo_jui display" id="{{main_ta.test}}-table">
+      <thead>
+        <tr>
+          <th>Test case</th>
+          {% for run in runs %}
+            <th>{{run.label}}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+      </tbody>
+      </table>
+      <center><i>Use the scrollwheel on the mouse to zoom in/out. Panning can be done by holding down the mouse and dragging.</i></center>
+      <div id="placeholder-{{main_ta.test}}" style="width:100%;height:350px"></div>
+      <script type="text/javascript" charset="utf-8">
+        $(document).ready(function() {
+	  var options = {
+            series: {stack: 0,
+              multipleBars: true,
+              errorBars: true,
+              bars: {show: true, barWidth: .95/{{runs|length}}, align: 'center',},
+              points: {show: true, radius: 5},
+            },
+            xaxis: {
+	      ticks: [
+              {% for tra in main_ta.test_result_averages %}
+	        [{{forloop.counter}},'{{tra.test_case__test_case_id}}'],
+              {% endfor %}
+	      ],
+	      labelAngle:45,
+	    },
+	    zoom : {
+	      interactive: true,
+	    },
+	    pan : {
+	      interactive: true,
+	    },
+          };
+          var data = [
+            {% for run in runs %}
+            {
+              label: '{{run.label}}',
+	      data: get_test_result_averages('{{run.label}}', '{{main_ta.test}}'),
+	      points: data_points
+	    },
+            {% endfor %}
+          ];
+          $.plot($("#placeholder-{{main_ta.test}}"), data, options);
+	});
+      </script>
+      <br/>
+    {% endfor %}
+{% endblock %}
