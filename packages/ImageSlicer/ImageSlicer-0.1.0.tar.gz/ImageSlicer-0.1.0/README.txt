@@ -1,0 +1,9 @@
+===========
+ImageSlicer
+===========
+
+Image Slicer is a simple utility designed to slice arbitrarily large images into a grid of smaller tileable sheets. It was created when the author needed to slice a 36000px x 12000px image into 224 11"x17" sheets of paper to be tiled onto a 10'x30' wall.
+
+Typical usage often looks like this::
+    imageslicer "../NorthWall.tif" -p 11 17 -w 30 10 -v
+	
