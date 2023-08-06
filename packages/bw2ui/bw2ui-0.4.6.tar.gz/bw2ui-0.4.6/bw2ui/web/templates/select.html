@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+
+{% block body %}
+<h1>Define the functional unit to assess</h1>
+<div class="span-7 colborder">
+    <p>
+        <h3>1. Chose database</h3>
+        <br>
+        {% for name in db_names %}
+        <input type="radio" name="database-select" value="{{ name }}"> {{ name }}<br>
+        {% endfor %}
+    </p>
+    <h3>2. Search by name:</h3>
+    <input id="activity-input" type="text" size=40>
+</div>
+<div class="span-16 last">
+    <h3>Selected activities:</h3>
+    <p>(click to change amounts)</p>
+    <table id="selected-activities">
+        <thead>
+            <tr>
+                <th>Amount</th>
+                <th>Unit</th>
+                <th>Name</th>
+                <th>Location</th>
+                <th>Key</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Not yet!</td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+<hr>
+<div class="clear span-24">
+    <h1>Chose the LCIA method</h1>
+    <h3>Chosen method: <span id="chosen-method">(click below to chose a method)</span></h3>
+    <table id="lcia_methods">
+        <thead>
+            <tr>
+                <th>Level 1</th>
+                <th>Level 2</th>
+                <th>Level 3</th>
+                <th># CFs</th>
+                <th>Unit</th>
+            </tr>
+        </thead>
+        <tbody>{% for m in lcia_methods %}
+            <tr>
+                <td>{{m.l1}}</td>
+                <td>{{m.l2}}</td>
+                <td>{{m.l3}}</td>
+                <td>{{m.n}}</td>
+                <td>{{m.u}}</td>
+            </tr>{% endfor %}
+        </tbody>
+    </table>
+</div>
+<hr>
+<div>
+    <form action="/lca" method="post">
+        <input type="hidden" name="activity" value="" id="hidden-activity">
+        <input type="hidden" name="method" value="" id="hidden-method">
+        <button type="submit">Calculate!</button>
+    </form>
+</div>
+<script>
+$(document).ready(function() {
+    $("#activity-input").prop('disabled', true);
+    $('#selected-activities').dataTable({
+        "bJQueryUI": true
+    });
+    $('#lcia_methods').dataTable({
+        "bJQueryUI": true
+    });
+    $('#selected-activities').dataTable().fnSetColumnVis(4, false);
+
+    $('input[name=database-select]:radio').change(function () {
+        $("#activity-input").prop('disabled', false);
+        $("#activity-input").focus();
+
+        var url = "/database/" + $(this).val() + "/names";
+        $.getJSON(url, function(result) {
+            $("#activity-input").autocomplete("option", "disabled", false);
+            $("#activity-input").autocomplete("option", "source", result);
+        });
+    });
+
+    var method_builder = function (row) {
+        var m = [row.cells[0].textContent];
+        for (var i = 1; i <= 2; i++) {
+            if (row.cells[i].textContent !== "---") {
+                m.push(row.cells[i].textContent);
+            };
+        };
+        return m;
+    }
+
+    var get_selected_activities = function () {
+        var data = $('#selected-activities').dataTable().fnGetData(),
+            value = [];
+        for (var i = data.length - 1; i >= 0; i--) {
+            value.push([data[i][4], data[i][0]]);
+        };
+        console.log(value);
+        return value;
+    }
+
+    $("#activity-input").autocomplete({
+        disabled: true,
+        source: ["foo", "bar", "baz"],
+        select: function( event, ui ) {
+            var table = $("#selected-activities").dataTable();
+            table.fnAddData([
+                1.0, ui.item.value.u, ui.item.value.n, ui.item.value.l, ui.item.value.k
+            ]);
+            if (table.fnGetData(0)[0] === "Not yet!") {
+                table.fnDeleteRow(0);
+            };
+            $("#activity-input").val("");
+            $("#hidden-activity").val(JSON.stringify(get_selected_activities()));
+            return false;
+        },
+        focus: function( event, ui ) { return false; }
+    });
+
+    $("#lcia_methods tbody tr").click( function( e ) {
+        if ( $(this).hasClass('row_selected') ) {
+            $(this).removeClass('row_selected');
+        }
+        else {
+            $('#lcia_methods').dataTable().$('tr.row_selected').removeClass('row_selected');
+            $(this).addClass('row_selected');
+        }
+        $("#chosen-method").html(this.cells[0].textContent + " : " + this.cells[1].textContent + " : " + this.cells[2].textContent);
+        $("#hidden-method").val(JSON.stringify(method_builder(this)));
+    });
+});
+</script>
+{% endblock %}
