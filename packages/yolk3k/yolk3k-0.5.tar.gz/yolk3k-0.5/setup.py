@@ -1,0 +1,31 @@
+#!/usr/bin/env python
+
+
+from setuptools import setup
+
+from yolk.__init__ import __version__ as VERSION
+
+
+setup(name='yolk3k',
+    license='BSD License',
+    version=VERSION,
+    description='Command-line tool for querying PyPI and Python packages installed on your system.',
+    long_description=open('README', 'r').read(),
+    maintainer='Rob Cakebread',
+    author='Rob Cakebread',
+    author_email='cakebread @ gmail',
+    url='https://github.com/myint/yolk',
+    keywords='PyPI setuptools cheeseshop distutils eggs package management',
+    classifiers=['Development Status :: 4 - Beta',
+                 'Intended Audience :: Developers',
+                 'License :: OSI Approved :: BSD License',
+                 'Programming Language :: Python',
+                 'Programming Language :: Python :: 2',
+                 'Programming Language :: Python :: 3',
+                 'Topic :: Software Development :: Libraries :: Python Modules',
+                 ],
+    install_requires=['setuptools'],
+    packages=['yolk', 'yolk.plugins'],
+    package_dir={'yolk': 'yolk'},
+    entry_points={'console_scripts': ['yolk = yolk.cli:main',]},
+)
