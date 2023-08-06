@@ -1,0 +1,239 @@
+{% load theming_tags admin_tools_menu_tags pops bootstrap compress %}
+{% load url from future %}
+<!DOCTYPE html>
+<html lang="{{ LANGUAGE_CODE|default:"en-us" }}" {% if LANGUAGE_BIDI %}dir="rtl"{% endif %}>
+<head>
+<title>{% block title %}{% endblock %}</title>
+
+{% block blockbots %}<meta name="robots" content="NONE,NOARCHIVE" />{% endblock %}
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+{% block css %}
+{% comment %}TODO: Switch this on DEBUG{% endcomment %}
+<link rel="stylesheet" type="text/css" href="{{ STATIC_URL }}chosen/chosen.css">
+<link rel="stylesheet" type="text/css" href="{{ STATIC_URL }}jquery-ui-bootstrap/css/jquery-ui-1.8.16.custom.css">
+<!--[if IE]><link rel="stylesheet" type="text/css" href="{{ STATIC_URL }}jquery-ui-bootstrap/css/jquery.ui.1.8.16.ie.css"><![endif]-->
+
+<!--[if lte IE 7]><link rel="stylesheet" type="text/css" href="{% block stylesheet_ie %}{% load adminmedia %}{% admin_media_prefix %}css/ie.css{% endblock %}" /><![endif]-->
+{% if LANGUAGE_BIDI %}<link rel="stylesheet" type="text/css" href="{% block stylesheet_rtl %}{% admin_media_prefix %}css/rtl.css{% endblock %}" />{% endif %}
+
+{% comment %}
+  Make sure that the main styles are the last thing to actually load
+{% endcomment %}
+{% if debug %}
+<link rel="stylesheet/less" type="text/css" href="{{ STATIC_URL }}pops/less/style.less">
+<script src="{{ STATIC_URL }}less.js/less-1.3.0.min.js"></script>
+{% else %}
+<link rel="stylesheet" type="text/css" href="{{ STATIC_URL }}pops/css/style.css">
+{% endif %}
+
+{#{% render_theming_css %}#}
+{% endblock %}
+{% block extrastyle %}{% endblock %}
+
+{% block javascript %}
+<script>
+  window.__admin_media_prefix__ = "{% filter escapejs %}{% admin_media_prefix %}{% endfilter %}";
+</script>
+
+<script src="{{ STATIC_URL }}jquery/jquery.min.js"></script>
+<script src="{{ STATIC_URL }}jquery-ui-bootstrap/js/jquery-ui-1.8.16.custom.min.js"></script>
+<script src="{{ STATIC_URL }}bootstrap/js/bootstrap.min.js"></script>
+<script src="{{ STATIC_URL }}chosen/chosen.jquery.js"></script>
+<script src="{{ STATIC_URL }}masonry/jquery.masonry.js"></script>
+<script src="{{ STATIC_URL }}pops/js/init-ui.js"></script>
+{% endblock %}
+
+{% block extrahead %}{% endblock %}
+
+<script type="text/javascript">
+$(function(){
+
+  var django_dismimssPopup = window.dismissAddAnotherPopup;
+
+  window.dismissAddAnotherPopup = function(win, newId, newRepr) {
+    var name = windowname_to_id(win.name);
+    var elem = document.getElementById(name);
+    django_dismimssPopup(win, newId, newRepr);
+    $(elem).removeClass('chzn-done');
+    $('#' + name + '_chzn').remove();
+    $(elem).chosen();
+  }
+
+  // menu search
+
+  var nav_menu = $('#navigation-menu');
+  var menu_map = [];
+  var menu_url_map = {};
+  var search_results = $('#menu_search ul');
+  var menu_search_visible = false;
+
+  $('#navigation-menu a').not('.dropdown-toggle').each(function(i, a) {
+      var line = [a.text.toLowerCase().replace(/^\s+|\s+$/g, ''), a.href];
+      menu_map[i] = line;
+      menu_url_map[a.href] = a.text.replace(/^\s+|\s+$/g, '');
+  });
+
+  // TODO: Figure out a better way to do this, this is fuggy.
+  $('fieldset label').not("[data-skip-auto-add='true']").addClass('control-label');
+
+  var subNav = $(".subnav");
+  if (subNav.length > 0) {
+    var isFixed = false,
+        $win = $(window),
+        fieldSets = subNav.siblings("section.field_sets"),
+        navTop = subNav.offset().top - $("#header").height();
+
+    var processScroll = function() {
+      if ($win.width() < 980) {
+        return
+      }
+      var scrollTop = $win.scrollTop();
+      if (!isFixed && scrollTop >= navTop) {
+        isFixed = true;
+        subNav.addClass("subnav-fixed");
+        fieldSets.css({"margin-top": subNav.outerHeight(true) + "px" });
+
+      } else if (isFixed && scrollTop < navTop) {
+        isFixed = false;
+        fieldSets.css({"margin-top": "0"});
+        subNav.removeClass("subnav-fixed");
+      }
+    }
+    $win.on("scroll", processScroll);
+  }
+
+  $("#submitChangeFormSaves a").click(function() {
+    var $this = $(this),
+        input = $("<input>");
+    input.attr("type", "hidden").attr("name", $this.data("name"));
+    $this.parents("form").append(input).submit();
+  });
+
+  $(".alert").alert();
+  var $masonry = $(".masonry");
+  if ($masonry) {
+    $masonry.masonry();
+    $(window).resize(function(){
+      $masonry.masonry("reload");
+    });
+  }
+});
+</script>
+</head>
+{% load i18n %}
+
+<body class="{% if is_popup %}popup {% endif %}{% block bodyclass %}{% endblock %}">
+
+{% if not is_popup %}
+
+  {% block header %}
+    <div id="header" class="navbar navbar-fixed-top" data-dropdown="dropdown">
+      <div class="navbar-inner">
+        <div class="container-fluid">
+
+          {% block branding %}
+            <a class="brand" href="{% url 'admin:index' %}">
+              {% block branding_text %}{% site_name %} {% trans "admin" %}{% endblock %}
+            </a>
+          {% endblock %}
+
+          {% block nav-global %}
+          {% if user.is_active and user.is_staff %}
+            {% if not is_popup %}
+              {% admin_tools_render_menu %}
+            {% endif %}
+          {% endif %}
+          {% endblock %}
+
+          {% block nav-search %}{% endblock %}
+          {% if user.is_active and user.is_staff %}
+            <ul class="nav pull-right">
+              {% site_link %}
+
+              <li class="dropdown">
+                <a class="dropdown-toggle" href="#" data-toggle="dropdown">
+                  <i class="icon-user icon-white"></i>
+                  {% filter force_escape %}{% firstof user.first_name user.username %}{% endfilter %}
+                  <b class="caret"></b>
+                </a>
+
+                <ul class="dropdown-menu">
+                  {% block userlinks %}
+                    {% url 'django-admindocs-docroot' as docsroot %}
+                    {% if docsroot %}
+                        <li><a href="{{ docsroot }}">{% trans 'Documentation' %}</a></li>
+                    {% endif %}
+                    {% url 'admin:password_change' as password_change_url %}
+                    <li>
+                      {% if password_change_url %}
+                          <a href="{{ password_change_url }}">
+                      {% else %}
+                          <a href="{{ root_path }}password_change/">
+                      {% endif %}
+                      <i class="icon-lock"></i>
+                      {% trans 'Change password' %}</a>
+                    </li>
+
+                    {% url 'admin:logout' as logout_url %}
+                    <li>
+                      <a href="{% if logout_url %}{{ logout_url }}{% else %}{{ root_path }}logout/{% endif %}">
+                        <i class="icon-off"></i>
+                        {% trans 'Log out' %}
+                      </a>
+                    </li>
+                  {% endblock %}
+                </ul>
+              </li>
+            </ul>
+          {% endif %}
+
+        </div>
+      </div>
+    </div>
+  {% endblock header %}
+{% endif %}
+
+<!-- Container -->
+<div id="container" class="{% block container-class %}container-fluid{% endblock %}{% if is_popup %} container-popup{% endif %}">
+  {% if not is_popup %}
+    {% breadcrumbs %}
+    {% block breadcrumbs %}
+      /|{% trans "Home" %}
+      {% if title %}{{ title }}{% endif %}
+    {% endblock %}
+    {% endbreadcrumbs %}
+  {% endif %}
+
+    <div class="main-container">
+        {% block messages %}
+          {% if messages %}
+              {% for message in messages %}
+                <div class="alert alert-{{ message.tags }}" data-alert="alert">
+                  <button class="close" data-dismiss="alert">&times;</button>
+                  {{ message }}
+                </div>
+              {% endfor %}
+          {% endif %}
+        {% endblock %}
+
+      <!-- Content -->
+      <div id="content" class="{% block coltype %}container-fluid{% endblock %}">
+          {% block pretitle %}{% endblock %}
+          {% block content_title %}{% endblock %}
+          {% block object-tools %}{% endblock %}
+          {% block content %}
+          {{ content }}
+          {% endblock %}
+          {% block sidebar %}{% endblock %}
+          <br class="clear" />
+      </div>
+      <!-- END Content -->
+
+      {% block footer %}<div id="footer"></div>{% endblock %}
+    </div>
+</div>
+<!-- END Container -->
+
+</body>
+</html>
