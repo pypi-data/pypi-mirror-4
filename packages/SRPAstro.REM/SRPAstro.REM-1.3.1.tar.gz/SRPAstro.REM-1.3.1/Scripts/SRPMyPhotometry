@@ -1,0 +1,288 @@
+""" Code to perform photometry on FITS frames
+
+Context : SRP
+Module  : SRPMyPhotometry.py
+Version : 1.6.5
+Author  : Stefano Covino
+Date    : 01/08/2012
+E-mail  : stefano.covino@brera.inaf.it
+URL:    : http://www.merate.mi.astro.it/utenti/covino
+Purpose : Manage the photometry of FITS files.
+
+Usage   : SRPMyPhotometry [-a arg1 arg2] [-e arg3] -f arg4 [-g arg5] [-h] [-H arg6, arg7] -i arg8 [-n arg9 [-r arg10 arg11 arg12] [-s arg13] [-t] [-S] [-v] [-z arg14 arg15]
+            -a Observation airmass and coefficient
+            -f Input FITS file
+            -g Gain (e-/ADU) for error estimate in photometry
+            -i Input file
+            -s Saturation level (ADU) for frame(s)
+            -e Exposure time (sec) for frame(s)
+            -n Readout noise (e-)
+            -S ESO-Skycat output
+            -r Radius (pixel) for aperture photometry (r is os)
+            -t Do not fit centroid position
+            -z Zero point and error for photometry
+            -H FITS file header for exposure time and duration
+                [default: MJD-OBS, EXPTIME]
+
+History : (19/12/2008) First version.
+        : (05/11/2008) Possibility not to fit star position.
+        : (07/11/2008) Minor correction.
+        : (16/11/2008) Airmass management.
+        : (27/11/2008) Management of objects not in field of view and of saturated objects.
+        : (17/04/2009) Readout noise in magnitude computation.
+        : (04/08/2009) Better management of FITS header information.
+        : (12/11/2009) More flexibility for zero-point determination.
+        : (21/05/2010) Better averages.
+        : (17/06/2010) Better management of objects close to frame boundaries.
+        : (22/06/2010) Minor improvement.
+        : (01/07/2010) Larger centering radius.
+        : (30/09/2010) Better importing coding.
+        : (14/11/2010) Better delta magnitude computation.
+        : (20/12/2010) Minor bugs corrected.
+        : (17/02/2011) Minor bug corrected.
+        : (28/03/2011) Smaller radius for center search.
+        : (07/08/2011) Better cosmetics.
+        : (01/08/2012) Better formatted output for text only files.
+"""
+
+
+import os, os.path, math
+from optparse import OptionParser
+import SRP.SRPConstants as SRPConstants
+import SRP.SRPAstro as SRPAstro
+import SRP.SRPUtil as SRPUtil
+import pyfits
+from SRP.SRPStatistics.AverIterSigmaClipp import AverIterSigmaClipp
+
+
+parser = OptionParser(usage="usage: %prog [-a arg1 arg2] [-e arg3] -f arg4 [-g arg5] [-h] [-H arg6, arg7] -i arg8 [-n arg9 [-r arg10 arg11 arg12] [-s arg13] [-t] [-S] [-v] [-z arg14 arg15]", version="%prog 1.6.5")
+parser.add_option("-a", "--airmass", action="store", nargs=2, type="float", dest="airm", help="Observation airmass and coefficient")
+parser.add_option("-f", "--fitsfile", action="store", nargs=1, type="string", dest="fitsfile", help="Input FITS file")
+parser.add_option("-v", "--verbose", action="store_true", dest="verbose", help="Fully describe operations")
+parser.add_option("-g", "--gain", action="store", type="float", dest="gainvalue", help="Gain (e-/ADU) for error estimate in photometry")
+parser.add_option("-i", "--inpfile", action="store", type="string", dest="inpfile", help="Input file")
+parser.add_option("-s", "--saturation", action="store", type="float", dest="satvalue", help="Saturation level (ADU) for frame(s)")
+parser.add_option("-e", "--exptime", action="store", type="float", dest="exptime", help="Exposure time (sec) for frame(s)")
+parser.add_option("-n", "--readoutnoise", action="store", type="float", dest="ron", help="Readout noise (e-)")
+parser.add_option("-S", "--skycat", action="store_true", dest="skycat", help="ESO-Skycat output")
+parser.add_option("-r", "--radius", action="store", nargs=3, type="float", default=(5,10,15), dest="radius", help="Radius (pixel) for aperture photometry (r is os)")
+parser.add_option("-t", "--nopostune", action="store_true", dest="nop", help="Do not fit centroid position")
+parser.add_option("-z", "--zerpoints", action="store", nargs=2, type="float", dest="zpoints", help="Zero point and error for photometry")
+parser.add_option("-H", "--headerinfo", action="store", nargs=2, type="string", dest="headinf", default=('MJD-OBS','EXPTIME'),help="FITS file header for exposure time and duration [default: MJD-OBS, EXPTIME]")
+(options, args) = parser.parse_args()
+
+
+if options.fitsfile and options.inpfile:
+    if options.fitsfile:
+        if os.path.isfile(options.fitsfile):
+            if options.verbose:
+                print "Input FITS file is: %s." % options.fitsfile
+            hdr = pyfits.open(options.fitsfile)
+        else:
+            parser.error("Input file %s is not readable." % options.fitsfile)
+    if options.inpfile:
+        if os.path.isfile(options.inpfile):
+            if options.verbose:
+                print "Input photometry file is %s." % options.inpfile
+        else:
+            parser.error("Input photometry file %s is not readable." % options.inpfile)
+    if options.gainvalue > 0.0:
+        Gain = options.gainvalue
+    else:
+        Gain = 1.0
+    if options.verbose:
+        print "Gain value is %.2f" % Gain
+    if options.ron > 0.0:
+        Ron = options.ron
+    else:
+        Ron = 0.0
+    if options.verbose:
+        print "Readout noise is %.2f" % Ron
+    if options.satvalue > 0.0:
+        Saturation = options.satvalue
+    else:
+        Saturation = 55000.0
+    if options.verbose:
+        print "Saturation level is %.1f" % Saturation
+    if options.radius[0] > 0.0 and options.radius[1] >= options.radius[0] and options.radius[2] > options.radius[1]:
+        Radius = options.radius
+    else:
+        parser.error("Aperture radius must be positive and sequential.")
+    if options.verbose:
+        print "Aperture photometry radii are %.1f %.1f %.1f" % Radius
+    zpl = [25.0,0.0]
+    if options.zpoints:
+        zpl[0] = options.zpoints[0]
+        zpl[1] = options.zpoints[1]
+    if options.verbose:
+        print "Zero point is %.3f +/- %.3f" % (zpl[0], zpl[1])
+    if options.exptime:
+        Exptime = options.exptime
+    else:
+        try:
+            Exptime = hdr[0].header[options.headinf[1]]
+        except KeyError:
+            Exptime = 1.0
+    if options.verbose:
+        print "Exposure time is %.1f" % Exptime
+    if options.airm:
+        air = options.airm[0]
+        coef = options.airm[1]
+        if air < 1.0:
+            parser.error("Airmass must be greater than 1.0.")
+        if coef < 0.0:
+            parser.error("Airmass coefficient must be positive.")
+        if options.verbose:
+            print "Airmass is %.2f and coefficient is %.3f." % (air,coef)
+    else:
+        air = 1.0
+        coef = 0.0
+    # begin activities
+    try:
+        mjd = hdr[0].header[options.headinf[0]]
+    except KeyError:
+        mjd = -99.0
+    try:
+        etm = hdr[0].header[options.headinf[1]]
+    except KeyError:
+        etm = -99.0
+    objlist = []
+    reflist = []
+    f = file(options.inpfile)
+    dt = f.readlines()
+    f.close()
+    table = hdr[0].data
+    for i in dt:
+        if len(i) > 2:
+            il = i.split()
+            id = il[0]
+            x = float(il[1])
+            y = float(il[2])
+            if len(il) == 5:
+                mag = float(il[3])
+                emag = float(il[4])
+                reflist.append((id,x,y,mag,emag))
+            else:
+                objlist.append((id,x,y))
+    # output
+    root,ext = os.path.splitext(options.fitsfile)
+    if options.skycat:
+        f = file(root+SRPConstants.SRPMyPhotomFileSky,'w')
+        f.write("serv_type: catalog"+os.linesep)
+        f.write("long_name: SRP catalog for file %s" % options.fitsfile+os.linesep)
+        f.write("short_name: %s" % root+SRPConstants.SRPMyPhotomFileSky+os.linesep)
+        f.write("url: ./%s" % root+SRPConstants.SRPMyPhotomFileSky+os.linesep)
+        f.write("symbol: {} {circle red} %.1f : {} {circle white} %1.f  : {} {circle green} %1.f%s" % (Radius[0],Radius[1],Radius[2],os.linesep))
+        f.write("id_col: 0"+os.linesep)
+        f.write("x_col: 1"+os.linesep)
+        f.write("y_col: 2"+os.linesep)
+#               f.write("symbol: {} circle 4"+os.linesep)
+        f.write("Id\tX\tY\tMaxFlux\tMag\teMag\tMagCal\teMagCal\tComment\tMJD\tExptime\tSky\tZP\teZP\tChiZP\tNZP\tAirmass\tCoeff\tDM\teDM"+os.linesep)
+        f.write("---------"+os.linesep)
+    else:
+        f = file(root+SRPConstants.SRPMyPhotomFile,'w')
+    objmag = []
+    refmag = []
+    nzp = []
+    enzp = []
+    for i in objlist:
+        if options.verbose:
+            print "Analyzing object: %s" % i[0]
+        if 0 <= i[1] <= table.shape[1] and 0 <= i[2] <= table.shape[0]:
+            if options.nop:
+                xc,yc = i[1],i[2]
+            else:
+                xc,yc = SRPAstro.centerMoment(table,i[1],i[2],Radius[0])
+#                xc,yc,A,sx,sy,B = SRPAstro.centerGauss(table,i[1],i[2],Radius[0])
+            totf,npix,maxf = SRPAstro.sumApert(table,xc,yc,Radius[0])
+            bg,sbg,ebg,chbg,nbg = SRPAstro.getBackground(table,xc,yc,Radius[1],Radius[2])
+            mag,emag = SRPAstro.computeMag(totf,bg,ebg,npix,Gain,Ron)
+            if maxf > Saturation:
+                cmmt = 'S'
+            elif ((xc - Radius[0]) < 0) or ((xc + Radius[0]) > table.shape[1]) or ((yc - Radius[0]) < 0) or ((yc + Radius[0]) > table.shape[0]):
+                cmmt = 'P'
+            else:
+                cmmt = 'Ok'
+            objmag.append(SRPAstro.MiPhotData(i[0],xc,yc,maxf,mag,emag,Saturation,Exptime,zpl,mjd,etm,bg,(air,coef),cmt=cmmt))
+        else:
+            print "Object %s not in frame!" % i[0]
+    for i in reflist:
+        if options.verbose:
+            print "Analyzing reference: %s" % i[0]
+        if 0 <= i[1] <= table.shape[1] and 0 <= i[2] <= table.shape[0]:
+            xc,yc = SRPAstro.centerMoment(table,i[1],i[2],Radius[0])
+#                        xc,yc,A,sx,sy,B = SRPAstro.centerGauss(table,i[1],i[2],Radius[0])
+            totf,npix,maxf = SRPAstro.sumApert(table,xc,yc,Radius[1])
+            bg,sbg,ebg,chbg,nbg = SRPAstro.getBackground(table,xc,yc,Radius[1],Radius[2])
+            mag,emag = SRPAstro.computeMag(totf,bg,ebg,npix,Gain,Ron)
+            if maxf > Saturation:
+                cmmt = 'S'
+            elif ((xc - Radius[0]) < 0) or ((xc + Radius[0]) > table.shape[1]) or ((yc - Radius[0]) < 0) or ((yc + Radius[0]) > table.shape[0]):
+                cmmt = 'P'
+            else:
+                cmmt = 'Ok'
+            refmag.append(SRPAstro.MiPhotData(i[0],xc,yc,maxf,mag,emag,Saturation,Exptime,zpl,mjd,etm,bg,(air,coef),i[3],i[4],cmt=cmmt))
+            if maxf < Saturation and mag < 90:
+                mdif = i[3]-(mag+2.5*math.log10(Exptime))
+                emdif = math.sqrt(emag**2+i[4]**2)
+#                nzp.append((10**(-0.4*mdif)))
+#                enzp.append(emdif*nzp[-1]/(2.5/math.log(10.0)))
+                nzp.append((mdif))
+                enzp.append((emdif))
+#                                print nzp[-1],enzp[-1],mag,emag,mdif,emdif
+        else:
+            print "Reference %s not in frame!" % i[0]
+    if len(nzp) > 1:
+        dtnlz = []
+        for ww in range(len(nzp)):
+            dtnlz.append((nzp[ww],enzp[ww]))
+        meannzpflux = AverIterSigmaClipp(dtnlz)
+    elif len(nzp) == 1:
+        meannzpflux = nzp[0],enzp[0],enzp[0],1.0,1
+    else:
+#        fl = 10**(-0.4*zpl[0])
+#        meannzpflux = fl,fl*zpl[1]/(2.5/math.log(10.0)),fl*zpl[1]/(2.5/math.log(10.0)),1.0,0
+        meannzpflux = zpl[0],zpl[1],zpl[1],1.0,0
+    if meannzpflux[0] != None:
+#        meanmdif = -2.5*math.log10(meannzpflux[0])
+#        meanemdif = (2.5/math.log(10.0))*(meannzpflux[2]/meannzpflux[0])
+        meanmdif = meannzpflux[0]
+        meanemdif = meannzpflux[2]
+    else:
+        meanmdif = 0.0
+        meanemdif = 0.0
+    if options.verbose:
+        print "Computed zero point: %.2f +/- %.2f" % (meanmdif, meanemdif)
+    for i in objmag:
+        i.MagCal = i.Mag+meanmdif
+        i.eMagCal = math.sqrt(i.eMag**2+meanemdif**2)
+        if len(nzp) < 1:
+            i.MagCal = i.MagCal - air*coef
+        i.ZP = meanmdif
+        i.eZP = meanemdif
+        i.ChiZP = meannzpflux[3]
+        i.NZP = meannzpflux[4]
+        if options.skycat:
+            f.write(str(i))
+        else:
+            f.write(str(i).expandtabs())
+    for i in refmag:
+        i.MagCal = i.Mag+meanmdif
+        i.eMagCal = math.sqrt(i.eMag**2+meanemdif**2)
+        if len(nzp) < 1:
+            i.MagCal = i.MagCal - air*coef
+        i.ZP = meanmdif
+        i.eZP = meanemdif
+        i.ChiZP = meannzpflux[3]
+        i.NZP = meannzpflux[4]
+        i.DM = i.TMag-i.Mag
+        i.eDM = math.sqrt(i.eTMag**2+i.eMag**2)
+        if options.skycat:
+            f.write(str(i))
+        else:
+            f.write(str(i).expandtabs())       
+    if options.skycat:
+        f.write("EOD"+os.linesep)
+    f.close()
+else:
+    parser.print_help()

@@ -1,0 +1,87 @@
+""" Code to browse the REM database
+
+Context : SRP
+Module  : SRPREMDataBase.py
+Version : 1.0.0
+Author  : Stefano Covino
+Date    : 14/01/2012
+E-mail  : stefano.covino@brera.inaf.it
+URL:    : http://www.merate.mi.astro.it/utenti/covino
+Purpose : Access the REM database.
+
+Usage   : SRPREMDataBase [-a arg1] -n arg2/--remir/--ross [-o arg3] -s arg5 [-t arg4] [-v]
+            -a Database internet address
+            -n Database name/--remir REMIR database/--ross ROSS database
+            -o Output file
+            -s SQL query string
+            -t Database table name
+
+History : (14/01/2012) First version.
+"""
+
+
+#import os, os.path, math
+from optparse import OptionParser
+#import SRP.SRPConstants as SRPConstants
+import atpy, MySQLdb
+
+
+parser = OptionParser(usage="usage: %prog [-a arg1] -n arg2/--remir/--ross [-o arg3] -s arg5 [-t arg4] [-v]", version="%prog 1.0.0")
+parser.add_option("-a", "--address", action="store", nargs=1, type="string", default="ross.iasfbo.inaf.it", help="Database internet address")
+parser.add_option("-n", "--name", action="store", nargs=1, type="string", help="Database name")
+parser.add_option("-o", "--outfile", action="store", nargs=1, type="string", help="Output file")
+parser.add_option("--remir", action="store_true", help="REMIR catalogue")
+parser.add_option("--ross", action="store_true", help="ROSS catalogue")
+#parser.add_option("-p", "--password", action="store", nargs=1, type="string", help="Database password")
+parser.add_option("-s", "--sqlquery", action="store", nargs=1, type="string", help="SQL query string")
+parser.add_option("-t", "--tablename", action="store", nargs=1, type="string", default="PubObslog", help="Database table name")
+#parser.add_option("-u", "--user", action="store", nargs=1, type="string", help="Database username")
+parser.add_option("-v", "--verbose", action="store_true", dest="verbose", help="Fully describe operations")
+(options, args) = parser.parse_args()
+
+
+if options.sqlquery and (options.remir or options.ross or options.name):
+    if options.remir and options.ross:
+        parser.error("You must choose REMIR or ROSS.")
+    #
+    if options.name:
+        name = options.name
+    elif options.remir:
+        name = "RemirImgs"
+    elif options.ross:
+        name = "RossImgs"
+    #
+    if options.verbose:
+        print "Database address: %s" % options.address
+        print "Database name   : %s" % name
+        print "Database table  : %s" % options.tablename
+        squery = "select * from %s where (%s)" % (options.tablename, options.sqlquery)
+        print "SQL query string: %s" % squery
+    #
+    try:
+        t = atpy.Table('mysql',host=options.address,db=name,user='generic',passwd='password',table=options.tablename,type='sql',query=squery)
+    except MySQLdb.InternalError, inerr:
+        parser.error('Database access error %s' % inerr)
+    except MySQLdb.OperationalError, operr:
+        parser.error('Error %s' % operr)
+    except Exception, ex:
+        parser.error('Error %s' % ex)
+
+    #
+    if options.verbose:
+        print "Retrieving %d entries." % len(t)
+    else:
+        print len(t)
+    #
+    if options.outfile:
+        t.write(options.outfile,type='fits')
+    else:
+        for i in t:
+            msg = ''
+            for l in i:
+                msg = msg + str(l) + ' '
+            print msg
+    #
+else:
+    parser.print_help()
+

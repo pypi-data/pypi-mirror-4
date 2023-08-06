@@ -1,0 +1,222 @@
+""" Code to perform photometry on FITS frames
+
+Context : SRP
+Module  : SRPREMPhotometry.py
+Version : 1.5.2
+Author  : Stefano Covino
+Date    : 01/08/2012
+E-mail  : stefano.covino@brera.inaf.it
+URL:    : http://www.merate.mi.astro.it/~covino
+Purpose : Manage the photometry of FITS files.
+
+Usage   : SRPREMPhotometry [-e arg1] [-g arg2] [-h] [-H arg4 arg5] -i arg6 [-n arg7] [-r arg8 arg9 arg10] [-s arg11] [-S] [-t] [-v] [-w] [-z arg9 arg10]
+            -f Input FITS file list
+            -i Input photometry file
+            -g Gain (e-/ADU) for error estimate in photometry
+            -H FITS file header for exposure time and duration
+                [default: MJD-OBS, EXPTIME]
+            -n Readout noise (e-)
+            -r Radius (pixel) for aperture photometry
+            -s Saturation level (ADU) for frame(s)
+            -t Do not fit centroid position
+            -w Force re-write of object position files
+            -z Zero point and error for photometry
+
+History : (21/10/2008) First version.
+        : (05/11/2008) Possibility not to fit star position.
+        : (17/04/2009) Readout noise in magnitude computation.
+        : (04/08/2009) Better management of FITS header information.
+        : (12/11/2009) More flexibility for zero-point determination.
+        : (05/05/2010) Number of ref stars in report files.
+        : (21/05/2010) Calibration goodness in report files.
+        : (08/08/2011) Better cosmetics.
+        : (01/08/2012) Better import style
+"""
+
+
+
+import os, os.path
+from optparse import OptionParser
+import SRP.SRPConstants as SRPConstants
+from SRP.SRPSystem.Pipe import Pipe
+import SRP.SRPUtil as SRPUtil
+
+
+
+class outFile:
+    def __init__ (self, symb, mjd, exp, mag, emag, chi, cst, rst, cmt):
+        self.Id = symb
+        self.MJD = float(mjd)
+        self.Exp = float(exp)
+        self.Mag = float(mag)
+        self.eMag = float(emag)
+        self.Chi = float(chi)
+        self.Cmt = cmt
+        self.Cst = int(cst)
+        self.Rst = int(rst)
+
+    def __str__ (self):
+        msg = "%s %15.6f %5.1f %7.3f %7.3f %7.3f %5d %5d %s" % (self.Id, self.MJD, self.Exp, self.Mag, self.eMag, self.Chi, self.Cst, self.Rst, self.Cmt)
+        return msg
+
+    def __cmp__ (self, other):
+        if self.MJD > other.MJD:
+            return 1
+        elif self.MJD == other.MJD:
+            return 0
+        else:
+            return -1
+
+
+
+
+
+TMPFNAME = '.posphoto'
+
+
+parser = OptionParser(usage="usage: %prog [-e arg1] [-g arg2] [-h] [-H arg4 arg5] -i arg6 [-n arg7] [-r arg8 arg9 arg10] [-s arg11] [-S] [-t] [-v] [-w] [-z arg9 arg10]", version="%prog 1.5.2")
+parser.add_option("-f", "--inputlist", action="store", nargs=1, type="string", dest="inputlist", help="Input FITS file list")
+parser.add_option("-i", "--photlist", action="store", nargs=1, type="string", dest="photfile", help="Input photometry file")
+parser.add_option("-v", "--verbose", action="store_true", dest="verbose", help="Fully describe operations")
+parser.add_option("-g", "--gain", action="store", type="float", dest="gainvalue", help="Gain (e-/ADU) for error estimate in photometry")
+parser.add_option("-s", "--saturation", action="store", type="float", dest="satvalue", help="Saturation level (ADU) for frame(s)")
+parser.add_option("-r", "--radius", action="store", type="float", nargs=3, dest="radius", default=(5,15,20), help="Radius (pixel) for aperture photometry")
+parser.add_option("-t", "--nopostune", action="store_true", dest="nop", help="Do not fit centroid position")
+parser.add_option("-z", "--zerpoints", action="store", nargs=2, type="float", dest="zpoints", help="Zero point and error for photometry")
+parser.add_option("-w", "--write", action="store_true", dest="write", help="Force re-write of object position files")
+parser.add_option("-n", "--readoutnoise", action="store", type="float", dest="ron", help="Readout noise (e-)")
+parser.add_option("-H", "--headerinfo", action="store", nargs=2, type="string", dest="headinf", default=('MJD-OBS','EXPTIME'),help="FITS file header for exposure time and duration [default: MJD-OBS, EXPTIME]")
+(options, args) = parser.parse_args()
+
+
+if options.inputlist and options.photfile:
+    if options.inputlist:
+        if os.path.isfile(options.inputlist):
+            if options.verbose:
+                print "Input FITS file list is: %s." % options.inputlist
+        else:
+            parser.error("Input file list %s is not readable." % options.inputlist)
+    if options.photfile:
+        if os.path.isfile(options.photfile):
+            if options.verbose:
+                print "Input photometry file is %s." % options.photfile
+        else:
+            parser.error("Input photometry file %s is not readable." % options.photfile)
+    if options.gainvalue > 0.0:
+        Gain = options.gainvalue
+    else:
+        Gain = 1.0
+    if options.verbose:
+        print "Gain value is %.2f" % Gain
+    if options.ron > 0.0:
+        Ron = options.ron
+    else:
+        Ron = 0.0
+    if options.verbose:
+        print "Ron value is %.2f" % Ron
+    if options.satvalue > 0.0:
+        Saturation = options.satvalue
+    else:
+        Saturation = 55000.0
+    if options.verbose:
+        print "Saturation level is %.1f" % Saturation
+    if options.radius[0] > 0.0 and options.radius[1] >= options.radius[0] and options.radius[2] > options.radius[1]:
+        Radius = options.radius
+    else:
+        parser.error("Aperture radius must be positive and sequential.")
+    if options.verbose:
+        print "Aperture photometry radii are %.1f %.1f %.1f" % (Radius[0],Radius[1],Radius[2])
+    zpl = [25.0,0.0]
+    if options.zpoints:
+        zpl[0] = options.zpoints[0]
+        zpl[1] = options.zpoints[1]
+    if options.verbose:
+        print "Zero point is %.3f +/- %.3f" % (zpl[0], zpl[1])
+    # read photometry file
+    f = file(options.photfile)
+    dt = f.readlines()
+    f.close()
+    objlist = []
+    reflist = []
+    for i in dt:
+        if len(i) > 2:
+            il = i.split()
+            id = il[0]
+            x = float(il[1])
+            y = float(il[2])
+            if len(il) == 5:
+                mag = float(il[3])
+                emag = float(il[4])
+                reflist.append((id,x,y,mag,emag))
+            else:
+                objlist.append((id,x,y))
+    # read inputfile
+    listfls = []
+    f = file(options.inputlist)
+    dt = f.readlines()
+    f.close()
+    for i in dt:
+        il = i.split()
+        fnam = il[0]
+        x0 = float(il[1])
+        y0 = float(il[2])
+        ang = float(il[3])
+        hx = float(il[4])
+        hy = float(il[5])
+        listfls.append((fnam,x0,y0,ang,hx,hy))
+    # begin operations
+    for i in listfls:
+        root,ext = os.path.splitext(i[0])
+        photfn = root+TMPFNAME
+        if not os.path.isfile(photfn) or options.write:
+            f = file(photfn,'w')
+            for l in objlist:
+                nx,ny = SRPUtil.antiRotoTrasla((l[1],l[2]),i[1],i[2],i[3],i[4],i[5])
+                msg = "%s %.2f %.2f" % (l[0],nx,ny)
+                f.write(msg+os.linesep)
+            for l in reflist:
+                nx,ny = SRPUtil.antiRotoTrasla((l[1],l[2]),i[1],i[2],i[3],i[4],i[5])
+                msg = "%s %.2f %.2f %.3f %.3f" % (l[0],nx,ny,l[3],l[4])
+                f.write(msg+os.linesep)
+            f.close()
+        if options.nop:
+            cmd = "SRPMyPhotometry -f %s -g %f -i %s -s %f -r %f %f %f -z %f %f -S  -t -n %f -H %s %s" % (i[0], Gain, photfn, Saturation, Radius[0], Radius[1], Radius[2], zpl[0], zpl[1], Ron, options.headinf[0], options.headinf[1])
+        else:
+            cmd = "SRPMyPhotometry -f %s -g %f -i %s -s %f -r %f %f %f -z %f %f -S -n %f -H %s %s" % (i[0], Gain, photfn, Saturation, Radius[0], Radius[1], Radius[2], zpl[0], zpl[1], Ron, options.headinf[0], options.headinf[1])
+        if options.verbose:
+            print "Processing %s..." % i[0]
+        res = Pipe(cmd)
+        if res == None:
+            print "FITS file %s can not be processed." % i[0]
+#        os.remove(TMPFNAME)
+    stdobj = []
+    for i in objlist:
+        stdobj.append(i[0])
+    for i in reflist:
+        stdobj.append(i[0])
+    ntotref = len(reflist)
+    for i in stdobj:
+        f = file(i+SRPConstants.SRPMyPhotOutput,'w')
+        f.close()
+    if options.verbose:
+        print "Generating photometry files..."
+    outpt = []
+    for i in listfls:
+        root,ext = os.path.splitext(i[0])
+        f = file(root+SRPConstants.SRPMyPhotomFileSky)
+        dt = f.readlines()
+        f.close()
+        for l in range(10,10+len(stdobj)):
+            try:
+                ll = dt[l].split()
+            except IndexError:
+                break
+            if ll[0] in stdobj:
+                outpt.append(outFile(ll[0],ll[9],ll[10],ll[6],ll[7],ll[14],ll[15],ntotref,ll[8]))
+    outpt.sort()
+    for i in outpt:
+        f = file(i.Id+SRPConstants.SRPMyPhotOutput,'a')
+        f.write(str(i)+os.linesep)
+        f.close()
+else:
+    parser.print_help()
