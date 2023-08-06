@@ -1,0 +1,1 @@
+define([],function(){if(!String.prototype.trim)return String.prototype.ltrim=function(){return this.replace(/^\s+/,"")},String.prototype.rtrim=function(){return this.replace(/\s+$/,"")},String.prototype.trim=function(){return this.ltrim().rtrim()}});
