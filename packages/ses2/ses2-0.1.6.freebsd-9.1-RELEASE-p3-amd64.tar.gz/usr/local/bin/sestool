@@ -1,0 +1,314 @@
+#!/usr/local/bin/python
+import subprocess
+import re
+import sys
+from optparse import OptionParser
+import ses2
+
+camcontrol='/sbin/camcontrol'
+getencstat='/usr/share/examples/ses/getencstat/getencstat'
+setobjstat='/usr/share/examples/ses/setobjstat/setobjstat'
+
+class SMPPhy(dict):
+	def __init__(self,*args,**kwargs):
+		super(SMPPhy, self).__init__(*args, **kwargs)
+		self['slot']=int(self['slot'])
+	
+	@property
+	def serial(self):
+		serial=None
+		p=subprocess.Popen((camcontrol,'identify',self['dev']),stdout=subprocess.PIPE)
+		for l in p.communicate()[0].splitlines():
+			if l.startswith('serial number'):
+				serial=l[13:].strip()
+		if serial==None:
+			p=subprocess.Popen((camcontrol,'inquiry',self['dev'],'-S'),stdout=subprocess.PIPE)
+			serial=p.communicate()[0].strip()
+			del p
+		if serial==None:
+			serial=''
+		return serial
+
+	@classmethod
+	def all(cls,enclosure_dev,num_slots=None):
+		phylist=[]
+		r1=re.compile(r'^\ *(?P<slot>\d+?)\ +(?P<sasaddr>\w+?)\ +<(?P<desc>[^>]*?)>\ +\((?P<pass>pass.*?),(?P<dev>.*?)\)$')
+		r2=re.compile(r'^\ *(?P<slot>\d+?)\ +(?P<sasaddr>\w+?)\ +<(?P<desc>[^>]*?)>\ +\((?P<dev>.*?),(?P<pass>pass.*?)\)$')
+		p=subprocess.Popen((camcontrol,'smpphylist',enclosure_dev,'-q'),stdout=subprocess.PIPE)
+		for l in p.communicate()[0].splitlines():
+			try:
+				m=SMPPhy(r1.match(l).groupdict())
+			except AttributeError:
+				m=SMPPhy(r2.match(l).groupdict())
+			if not m['dev']==enclosure_dev:
+				phylist.append(m)
+			if num_slots and m['dev']==enclosure_dev:
+				adjustment=m['slot']-num_slots
+
+		if 'adjustment' in vars():
+			for i in phylist:
+				i['slot']-=adjustment
+
+		return phylist
+
+def main():
+
+	parser = OptionParser()
+	parser.add_option("-d", "--device", dest="device",
+	                  help="identify specified device (eg da0)")
+	parser.add_option("-s", "--slot", dest="slot",type='int',
+	                  help="identify specified array slot number (the first slot is number 0)")
+	parser.add_option("-e", "--sesdev", dest="sesdev",
+	                  help="ses device to use [default: %default]",default='ses0')
+	parser.add_option("-i", "--ident",
+	                  action="store_true", dest="ident", default=False,
+										                  help="toggle identify led on the array slot (use with -d or -s) [default: %default]")
+	parser.add_option("-l", "--list",
+	                  action="store_true", dest="list", default=False,
+										                  help="list array slots, with device names and serial numbers")
+	parser.add_option("-a", "--listall",
+	                  action="store_true", dest="listall", default=False,
+										                  help="list all ses objects")
+	parser.add_option("-n", "--nagios",
+	                  action="store_true", dest="nagios", default=False,
+										                  help="generate nagios-compatible status output")
+	parser.add_option("-v", "--verbose",
+	                  action="store_true", dest="verbose", default=False,
+										                  help="show verbose messages")
+
+	parser.add_option("--temp_low_warn", dest="temp_low_warn",type='int',default='15',
+	                  help="nagios low temperature warning threshold [default: %default]")
+	parser.add_option("--temp_low_crit", dest="temp_low_crit",type='int',default='10',
+	                  help="nagios low temperature critial threshold [default: %default]")
+	parser.add_option("--temp_high_warn", dest="temp_high_warn",type='int',default='35',
+	                  help="nagios high temperature warning threshold [default: %default]")
+	parser.add_option("--temp_high_crit", dest="temp_high_crit",type='int',default='40',
+	                  help="nagios high temperature critial threshold [default: %default]")
+
+	parser.add_option("--fan_low_warn", dest="fan_low_warn",type='int',default='100',
+	                  help="nagios low fan speed warning threshold [default: %default]")
+	parser.add_option("--fan_low_crit", dest="fan_low_crit",type='int',default='10',
+	                  help="nagios low fan speed critial threshold [default: %default]")
+	parser.add_option("--fan_high_warn", dest="fan_high_warn",type='int',default='2500',
+	                  help="nagios high fan speed warning threshold [default: %default]")
+	parser.add_option("--fan_high_crit", dest="fan_high_crit",type='int',default='3000',
+	                  help="nagios high fan speed critial threshold [default: %default]")
+
+	(options, args) = parser.parse_args()
+
+	if (options.device is not None) and (options.slot is not None):
+		parser.error("options --device and -slot are mutually exclusive")
+	if options.nagios and (options.list or options.listall or (not options.device is None) or (not options.slot is None)):
+		parser.error("options --nagios must not be used with --list --listall --device or --slot")
+	if (not options.list) and (not options.listall) and (options.device is None) and (options.slot is None) and (not options.nagios):
+		parser.print_help()
+		return
+
+	#get ses enclosure, and devices
+	enc=ses2.Enclosure('/dev/'+options.sesdev)
+	sesobjects=enc.objects
+
+	sesobj={}
+	for i in set(map(lambda x: x.type,sesobjects)):
+		sesobj[i]=filter(lambda x: x.type==i,sesobjects)
+		sesobj[i].sort(key=lambda x: x.obj_id)
+	
+	#get list of all disks in array (with correct slot numbers)
+	phy=SMPPhy.all(options.sesdev,len(sesobj['ARRAY']))
+	if options.verbose:
+		print 'Array enclosure drives\n----------------------'
+		for p in phy:
+			print p
+
+	#--nagios
+	if options.nagios:
+		stat_crit=False
+		stat_warn=False
+		nagios_txt=""
+
+		#check general enclosure status
+		encstat=enc.status
+		if 'UNRECOVERABLE' in encstat:
+			stat_crit=True
+		if 'CRITICAL' in encstat:
+			stat_crit=True
+		if 'NONCRITICAL' in encstat:
+			stat_warn=True
+		nagios_txt+="encl:"+":".join(encstat)
+
+		#show number of disks installed
+		disk_count=len(filter(lambda x: not x.status=="NOTINSTALLED",sesobj['ARRAY']))
+		nagios_txt+=" disks:%d"%disk_count
+
+		#check for power supply errors
+		for i in sesobj['POWER']:
+			nagios_txt+=" power%d:%s"%(sesobj['POWER'].index(i),i.status)
+			if not i.status=='OK':
+				if i.status=='NONCRITICAL':
+					stat_warn=True
+				else:
+					stat_crit=True
+
+		#check for array slot errors
+		disk_faults=filter(lambda x: (not x.status=="NOTINSTALLED") and (not x.status=="OK"),sesobj['ARRAY'])
+		for d in disk_faults:
+			stat_crit=True
+			try:
+				d_dev=filter(lambda x: x['slot']==d.obj_id,phy)[0]['dev']
+			except IndexError:
+				d_dev='-'
+			print d_dev
+			nagios_txt+=" slot%d(%s):%s"%(d.obj_id,d_dev,d.status)
+
+		#check for fan speed errors
+		for i in sesobj['FAN']:
+			if i.status=='NONCRITICAL':
+				stat_warn=True
+				s='WARNING'
+			elif not i.status=='OK':
+				stat_crit=True
+				s='CRITICAL'
+			elif i.fanrpm>options.fan_high_crit:
+				s='CRITICAL:HIGH'
+				stat_crit=True
+			elif i.fanrpm<options.fan_low_crit:
+				s='CRITICAL:LOW'
+				stat_crit=True
+			elif i.fanrpm>options.fan_high_warn:
+				s='WARNING:HIGH'
+				stat_warn=True
+			elif i.fanrpm<options.fan_low_warn:
+				s='WARNING:LOW'
+				stat_warn=True
+			else:
+				continue
+			nagios_txt+=" fan%d:%s:%drpm"%(sesobj['FAN'].index(i),s,i.fanrpm)
+
+		#check for temperature errors
+		for i in sesobj['THERM']:
+			if i.status=='NONCRITICAL':
+				stat_warn=True
+				s='WARNING'
+			elif not i.status=='OK':
+				stat_crit=True
+				s='CRITICAL'
+			elif i.temperature>options.temp_high_crit:
+				s='CRITICAL:HIGH'
+				stat_crit=True
+			elif i.temperature<options.temp_low_crit:
+				s='CRITICAL:LOW'
+				stat_crit=True
+			elif i.temperature>options.temp_high_warn:
+				s='WARNING:HIGH'
+				stat_warn=True
+			elif i.temperature<options.temp_low_warn:
+				s='WARNING:LOW'
+				stat_warn=True
+			else:
+				s="OK"
+			nagios_txt+=" temp%d:%s:%dc"%(sesobj['THERM'].index(i),s,i.temperature)
+
+
+		#TODO: VOM, AMMETER - haven't found SES specs on these
+
+		#start of performance data
+		nagios_txt+="|"
+
+		nagios_txt+=r"disks=%d;;;;"%(disk_count)
+		for i in sesobj['FAN']:
+			nagios_txt+=' '
+			nagios_txt+=r"fan%d=%d;%d:%d;%d:%d;;"%(
+				sesobj['FAN'].index(i),
+				i.fanrpm,
+				options.fan_low_warn,
+				options.fan_high_warn,
+				options.fan_low_crit,
+				options.fan_high_crit
+				)
+		for i in sesobj['THERM']:
+			nagios_txt+=' '
+			nagios_txt+=r"temp%d=%d;%d:%d;%d:%d;;"%(
+				sesobj['THERM'].index(i),
+				i.temperature,
+				options.temp_low_warn,
+				options.temp_high_warn,
+				options.temp_low_crit,
+				options.temp_high_crit
+				)
+
+		print nagios_txt
+
+		#nagios exit codes
+		if stat_crit:
+			sys.exit(2)
+		if stat_warn:
+			sys.exit(1)
+		sys.exit(0)
+
+	#get list of ses array slot objectes
+	if options.verbose:
+		print 'Array enclosure slots\n---------------------'
+		for i in sesobj['ARRAY']:
+			print "%s %-13s %s"%(i, i.status,'LED:on' if i.ident else 'LED:off')
+	if options.verbose:
+		print 'Array enclosure status: %s' % repr(enc.status)
+		print
+	
+	#--device
+	if options.device is not None:
+		try:
+			found_dev=filter(lambda x: x['dev']==options.device,phy)[0]
+		except IndexError:
+			raise Exception('Device not found: %s',options.device)
+		found_slot=filter(lambda x: x.obj_id==found_dev['slot'],sesobj['ARRAY'])[0]
+
+	#--slot
+	if options.slot is not None:
+		try:
+			found_slot=filter(lambda x: x.obj_id==options.slot,sesobj['ARRAY'])[0]
+		except IndexError:
+			raise Exception('Slot %d not found' % options.slot)
+		try:
+			found_dev=filter(lambda x: x['slot']==options.slot,phy)[0]
+		except IndexError:
+			found_dev=None
+
+	#--ident
+	if options.ident and found_slot:
+		found_slot.ident='toggle'
+	
+	#--listall
+	if options.listall:
+		for i in sesobjects:
+			print i
+	
+	#--list
+	if options.list:
+		print "Slot Device Serial Number            Status        LED"
+		print "---- ------ ------------------------ ------------- ---"
+		for i in sesobj['ARRAY']:
+			try:
+				d=filter(lambda x: x['slot']==i.obj_id,phy)[0]
+			except IndexError:
+				d=None
+			print "%4d %-6s %-24s %-13s %-3s" % (
+				i.obj_id,
+				d['dev'] if d else '-',
+				d.serial if d else '-',
+				i.status,
+				'on' if i.ident else 'off',
+			)
+
+	#display results from --slot or --device
+	if (options.device is not None) or (options.slot is not None):
+		print (
+			"Description:   %s\n" % (found_dev['desc'] if found_dev else '-')+
+			"Serial:        %s\n" % (found_dev.serial if found_dev else '-')+
+			"Device:        %s\n" % (found_dev['dev'] if found_dev else '-')+
+			"Array slot:    %s\n" % (found_slot.obj_id if found_slot else '-')+
+			"Slot status:   %s\n" % (found_slot.status if found_slot else '-')+
+			"Slot LED:      %s\n" % (('on' if found_slot.ident else 'off') if found_slot else '-')
+		)
+	
+if __name__=='__main__':
+	main()
