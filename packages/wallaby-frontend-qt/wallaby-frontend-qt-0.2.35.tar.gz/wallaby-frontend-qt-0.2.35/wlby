@@ -1,0 +1,341 @@
+#!/usr/bin/env python
+
+import sys
+sys.path.insert(0, ".")
+
+# import wallaby.frontends.qt.compile
+
+from optparse import OptionParser
+from ConfigParser import ConfigParser
+from wallaby.qt_combat import *
+import sys, shutil, os, platform
+import wallaby.FX as FX
+
+CONFIG_FILENAME = '~/.wallabyrc'
+
+def splitter(option, opt, value, parser):
+    if value == None:
+        setattr(parser.values, option.dest, [])
+    else:
+        setattr(parser.values, option.dest, value.split(','))
+    
+def runScript(options):
+    try:
+        pkg = __import__('wallaby.apps.' + options.app, globals(), locals(), ["*"], 0)
+        appPath = pkg.__path__[0]
+        path = os.path.join(appPath, 'scripts')
+    except Exception as e:
+        print "No couchapp found:", e
+        return
+
+    if not os.path.exists(os.path.join(path, options.script + ".py")):
+        print "Script", options.script, "not found in application", options.app
+        return
+
+    try:
+        if options.db == None:
+            options.db = options.app
+
+        pkg = __import__('wallaby.apps.' + options.app + '.scripts.' + options.script, globals(), locals(), ["*"], 0)
+        from twisted.internet import reactor
+        print "Running script in path", appPath
+        reactor.callWhenRunning(pkg.run, appPath, options)
+        reactor.run()
+    except Exception as e:
+        print "Error while loading script:", e
+        return
+
+def push(options):
+    path = 'couchapp'
+
+    if not os.path.exists(path):
+        try:
+            pkg = __import__('wallaby.apps.' + options.app, globals(), locals(), ["*"], 0)
+            path = os.path.join(pkg.__path__[0], 'couchapp')
+        except Exception as e:
+            print "No couchapp found:", e
+            return
+
+    try:        
+        from couchapp.commands import push as couchpush
+        from couchapp.config import Config
+    except:
+        print "couchapp not found. Please install couchapp from pip or win32-installer!"
+        return
+
+    import re
+    if path.startswith("."): path = re.sub(r'^.[/\\]?', '', path)
+    print "Try to push couchapp from", path, "to", options.push
+
+    couchpush(Config(), path, options.push)
+
+def startDesigner(options):
+    app = QtGui.QApplication(sys.argv)
+
+    plugins = []
+    sheets = []
+    prefs = []
+
+    appPath = []
+
+    import wallaby.frontends as frontends
+    from twisted.plugin import getCache
+
+    for p in FX.packagePath("wallaby.apps." + options.app + ".plugins"): plugins.append(p)
+    for p in FX.packagePath("wallaby.apps." + options.app + ".isheet"): sheets.append(p)
+    for p in FX.packagePath("wallaby.apps." + options.app + ".prefs"): prefs.append(p)
+
+    for frontend in getCache(frontends):
+        for p in FX.packagePath("wallaby.frontends." + frontend + ".plugins"): plugins.append(p)
+        for p in FX.packagePath("wallaby.frontends." + frontend + ".isheet"): sheets.append(p)
+        for p in FX.packagePath("wallaby.frontends." + frontend + ".prefs"): prefs.append(p)
+
+    for p in FX.packagePath("wallaby.apps." + options.app): appPath.append(p)
+
+    if platform.system() == 'Windows':
+        pathSeparator = ";"
+    else:
+        pathSeparator = ":"
+
+    print "find app in", FX.packagePath("wallaby.apps." + options.app)
+
+    # Tell Qt Designer where it can find the directory containing the plugins and
+    # Python where it can find the widgets.
+    env = os.environ.copy()
+    env['PYQTDESIGNERPATH'] = pathSeparator.join(plugins)
+
+    if 'PYTHONPATH' in env:
+        env['PYTHONPATH'] = env['PYTHONPATH']+pathSeparator+os.path.join(os.getcwd(), '.')
+    else:
+        env['PYTHONPATH'] = os.path.join(os.getcwd(), '.')
+
+    if platform.system() == 'Windows':
+        VERPATH='python'+str(sys.version_info[0])+str(sys.version_info[1])
+    else:
+        VERPATH='python'+str(sys.version_info[0])+'.'+str(sys.version_info[1])
+
+    if 'VIRTUAL_ENV' in env:
+        env['PYTHONPATH'] = env['VIRTUAL_ENV']+"/lib/"+VERPATH+"/site-packages:"+env['PYTHONPATH']
+
+    if 'WPP' in env:
+        env['PYTHONPATH'] = env['WPP']+":"+env['PYTHONPATH']
+
+    # env['PYTHONPATH'] = '.'
+    qenv = ['%s=%s' % (name, value) for name, value in env.items()]
+
+    # Start Designer.
+    designer = QtCore.QProcess()
+    designer.setEnvironment(qenv)
+
+    if options.designerLog:
+        designer.setStandardErrorFile("wallaby-designer.err.log")
+        designer.setStandardOutputFile("wallaby-designer.out.log")
+
+    from wallaby.frontends.qt.widgets.labels.label import Label
+    l = Label()
+    
+    designer_bin = QtCore.QLibraryInfo.location(QtCore.QLibraryInfo.BinariesPath)
+
+    if sys.platform == 'darwin':
+        if os.path.exists(designer_bin + '/Designer.app'):
+            designer_bin += '/Designer.app/Contents/MacOS/Designer'
+        else:
+            designer_bin += '/../Designer.app/Contents/MacOS/Designer'
+    else:
+        designer_bin += '/designer'
+
+    found = False
+    
+    if options.isheet:
+        for path in sheets:
+            path = os.path.join(path, options.isheet + ".ui")
+            if os.path.exists(path):
+                designer.start(designer_bin, [path])
+                found = True
+                break
+
+        if not found:
+            print options.isheet + ".ui File not found in any of", sheets
+            if len(sheets) > 0:
+                path = os.path.join(sheets[0], options.isheet + ".ui")
+                designer.start(designer_bin, [path])
+
+    elif options.pref:
+        for path in prefs:
+            path = os.path.join(path, options.pref + ".ui")
+            if os.path.exists(path):
+                designer.start(designer_bin, [path])
+                found = True
+                break
+
+        if not found:
+            print options.pref + ".ui File not found in any of", prefs
+            if len(prefs) > 0:
+                path = os.path.join(prefs[0], options.pref + ".ui")
+                designer.start(designer_bin, [path])
+
+    else:
+        for path in appPath:
+            path = os.path.join(path, "mainWindow.ui")
+            if os.path.exists(path):
+                designer.start(designer_bin, [path])
+                found = True
+                break
+
+        if not found:
+            print "mainWindow.ui File not found in any of", appPath
+
+    designer.waitForFinished(-1)
+
+    print
+    print "Your application UI is now configured. To start the application just enter:"
+    print
+    print "wlby"
+    print
+    print "and configure your new widgets with the wallaby inspector (CMD+ALT+O/CTRL+ALT+O)"
+    print
+
+    sys.exit(designer.exitCode())
+
+def replaceVars(path, options):
+    f = open(path, 'r')
+    content = f.read()
+    f.close()
+
+    content = content.replace('$appname$', options.create)
+
+    f = open(path, 'w')
+    f.write(content)
+    f.close()
+
+def createApp(options):
+    print
+    print "Creating application", options.create
+
+    try:
+        import wallaby.apps.template
+        templatePath = wallaby.apps.template.__path__[0]
+
+        shutil.copytree(templatePath, "wallaby-app-" + options.create)
+        os.chdir("wallaby-app-" + options.create)
+
+        if not os.path.exists("__init__.py"):
+            print "Application is not clean."
+            return
+
+        if not os.path.exists(os.path.join("wallaby", "apps", "appname")):
+            print "No template application found under wallaby/apps/appname.", notice
+            return
+
+        if os.path.exists(os.path.join("wallaby", "apps", options.create)):
+            print "Application", options.app, "already exists under path wallaby/apps.", notice
+            return
+
+        shutil.move(os.path.join("wallaby", "apps", "appname"), os.path.join("wallaby", "apps", options.create))
+
+        replaceVars(os.path.join("wallaby", "apps", options.create, "couchapp", ".couchapprc"), options)
+        replaceVars(os.path.join("wallaby", "apps", options.create, "couchapp", "_id"), options)
+        replaceVars(os.path.join("deploy", "setup.py"), options)
+        replaceVars(os.path.join("deploy", "app.py"), options)
+        replaceVars(os.path.join("deploy", "app.iss"), options)
+
+        options.create = "wallaby-app-" + options.create
+        replaceVars("setup.py", options)
+
+        os.unlink("__init__.py")
+        print
+        print "The application was created successfully. To continue designing the UI"
+        print
+        print "cd", options.create
+        print "wlby --designer" 
+        print
+        print "or if you just want to start the empty application"
+        print
+        print "cd", options.create
+        print "wlby"
+        print
+        print "Have fun..."
+    except:
+        print
+        print "Error while creating new app: "
+        import traceback 
+        traceback.print_exc(file=sys.stdout)
+        print
+
+def main():
+    config = ConfigParser()
+    config.read(CONFIG_FILENAME)
+
+    parser = OptionParser()
+    parser.add_option("-a"        , dest="app"         , default=None, help="The application name. If you are in a wallaby application folder, this option could be omitted.")
+    parser.add_option("--username", dest="username"    , default=None, help="The user to authenticate with the backends.")
+    parser.add_option("--password", dest="password"    , default=None, help="The password to authenticate with the backends.")
+
+    parser.add_option("--create"  , dest="create"      , default=None, help="Create a new application with the given name. This option creates a new folder wallaby-app-<name>")
+    parser.add_option("--push"    , dest="push"        , default=None, help="Push the couchapp to the given target. The targets could be configered in the <app>/couchapp/.couchapprc configuration file")
+    parser.add_option("--script"  , dest="script"      , default=None, help="Execute an application script. The scripts are located in the <app>/scripts folder")
+
+    parser.add_option("--server"  , dest="server"      , default="http://127.0.0.1", help="The URL of the backend server (without port)")
+    parser.add_option("--couch-port", dest="couchPort" , default="5984", help="The port of the CouchDB backend")
+    parser.add_option("--es-port"   , dest="esPort"    , default="9200", help="The port of the elasticsearch backend")
+    parser.add_option("--db"      , dest="db"          , default=None, help="The name of the database. Defaults to the application name")
+
+    parser.add_option("-p"        , dest="pref"        , default=None, help="Special option for the designer. Open the preference sheet with the given name.")
+    parser.add_option("-i"        , dest="isheet"      , default=None, help="Special option for the designer. Open the inspector sheet with the given name.")
+    parser.add_option("-c"        , dest="check"       , default=None, help="Check the pillow consistency of the given room-name")
+
+    parser.add_option("-s"        , action="store_true", dest="suggest" , default=False, help="Output the suggestions for all room")
+    parser.add_option("--fx"      , action="store_true", dest="fx"      , default=False, help="Use the backends of FreshX.")
+    parser.add_option("--designer", action="store_true", dest="designer", default=False, help="Launch the Qt designer.")
+    parser.add_option("--designerLog", action="store_true", dest="designerLog", default=False, help="Output the designer log to the current folder.")
+
+    parser.add_option("--debug"   , action="callback"  , dest="debug"   , default="", type="string", callback=splitter, help="Debug the given rooms. Multiple room are seperated by ','.")
+
+    (options, args) = parser.parse_args()
+
+    import wallaby.apps
+
+    if options.app is None and options.create is None:
+        if options.app is None and len(wallaby.apps.__path__) > 0 and wallaby.apps.__path__[0].startswith("."):
+            path = wallaby.apps.__path__[0]
+            for item in os.listdir(path):
+                if FX.is_package(os.path.join(path, item)):
+                    options.app = item
+                    break
+
+        if options.app is None:
+            print wallaby.apps.__path__
+            print "No application name given."
+            return
+
+    if options.app is not None and options.create is not None:
+        print "In create mode the application options is not allowed!"
+        return
+
+    if options.app == "template":
+        print "Starting of template app not allowed!"
+        return
+
+    if options.push:
+        push(options)
+        return
+
+    if options.designer:
+        startDesigner(options)
+        return
+
+    if options.create:
+        createApp(options)
+        return
+
+    if options.script:
+        runScript(options)
+        return
+
+    # print "USES_PYSIDE", USES_PYSIDE
+
+    import wallaby.apps.wallabyApp
+    wallaby.apps.wallabyApp.WallabyApp(options.app, options.check, options.suggest, options)
+
+if __name__ == '__main__':
+    main()
