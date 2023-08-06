@@ -1,0 +1,100 @@
+#! /usr/bin/env python
+
+# Main module (to run from command line)
+# Author: Balkansoft.BlogSpot.com
+# GNU GPL licensed
+
+import getopt
+import sys
+import os
+from nanolp import lp
+
+__VERSION__ = '1.0e'
+__ABOUT__ = 'Nano LP, v. %s'%__VERSION__
+
+################################################################################
+
+class AppError(Exception): pass
+
+class App:
+    input_file = None # input file name
+    cfgfile = '' # path to config. file
+    tb = False # show traceback on exceptions
+
+    def parse_cmdline(self):
+        def parser_info(cls):
+            ext = '%s' % ', '.join(cls.ext)
+            return '   %s - %s: %s'%(cls.__name__, cls.descr or 'Unknown', ext)
+
+        formats = [parser_info(p) for p in lp.Parser.parsers]
+        formats = '\n'.join(formats)
+
+        USAGE = '''\
+Syntax: -i FILE [-h] [-t]
+   -i FILE      Input file
+   -x           Detailed stack-trace on errors
+   -h           This help
+Supported formats:
+%s
+'''%formats
+        try:
+            opts, args = getopt.getopt(sys.argv[1:], 'hxi:', [])
+        except getopt.GetoptError as x:
+            sys.stderr.write('Syntax error! See help (-h)\n')
+            sys.exit(1)
+
+        self.input_file = None
+
+        for o, v in opts:
+            if o == '-h':
+                sys.stdout.write(USAGE)
+                sys.exit(0)
+            elif o == '-i':
+                self.input_file = v
+            elif o == '-x':
+                self.tb = True
+
+        if not self.input_file:
+            sys.stderr.write('Input file is mandatory. See help (-h)\n')
+            sys.exit(1)
+
+    # XXX first call parse_cmdline() to determine input dir (as possible place
+    # of cfg. file)
+    def findcfgfile(self):
+        """Return path to cfg file or raise exception, if not found. First lookup
+        in dir. of input file, then in current directory.
+        'input_file' should be set in command line before call
+        """
+        dirs = [os.getcwd()]
+        if self.input_file:
+            # input dir has higher priority for search of cfgfile
+            absp = os.path.abspath(self.input_file)
+            dirs.insert(0, os.path.dirname(absp))
+        for indir in dirs:
+            cfgfile = os.path.join(indir, 'lprc')
+            if os.path.exists(cfgfile):
+                return cfgfile
+        raise AppError('Can not found configuration file')
+
+    def main(self):
+        if self.tb:
+            self.__main()
+        else:
+            try:
+                self.__main()
+            except Exception as x:
+                sys.stderr.write("ERROR '%s': %s\n"%(x.__class__.__name__,str(x)))
+
+    def __main(self):
+        sys.stderr.write(__ABOUT__+'\n')
+        self.parse_cmdline()
+        self.cfgfile = self.findcfgfile()
+        lp.Lp(cfgfile=self.cfgfile)
+        parserclass = lp.Parser.fileparser(self.input_file)
+        parserclass.parsefile(self.input_file)
+
+################################################################################
+
+if __name__ == "__main__":
+    app = App()
+    app.main()
