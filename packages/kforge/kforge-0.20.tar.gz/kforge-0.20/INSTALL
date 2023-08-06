@@ -1,0 +1,552 @@
+Install Guide
+=============
+
+Welcome to the `KForge <http://pypi.python.org/pypi/kforge>`_ Install Guide. 
+
+*Please note, this guide pertains to the forthcoming version 0.20 of KForge.*
+
+
+Prepare Operating System
+------------------------
+
+Install System Packages
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Using an account that has root privileges, install the following system
+packages (Debian package names).
+::
+
+    $ sudo aptitude install python-pip sqlite3 libsqlite3-dev subversion \
+    python-subversion python-virtualenv virtualenvwrapper mercurial git \
+    gitweb mailman apache2 apache2-mpm-worker libapache2-svn viewvc libc-bin \
+    libapache2-mod-wsgi libapache2-mod-python build-essential python-dev \
+    locales hostname
+
+
+Make sure the following Apache modules are enabled.
+::
+
+    $ sudo a2enmod wsgi python rewrite dav dav_svn dav_fs env alias cgid
+
+
+Install the `KForge installer <http://pypi.python.org/pypi/kforgeinstall>`_.
+::
+
+    $ sudo pip install -U kforgeinstall
+
+
+Create System User
+~~~~~~~~~~~~~~~~~~
+
+If you would like to copy and paste the bash shell commands below, please set
+KFORGEUSER in the environment, for example to 'projects'.
+::
+
+    $ KFORGEUSER=projects
+
+
+Now, create the KForge system user.
+::
+
+    $ sudo adduser $KFORGEUSER --disabled-password
+
+
+Add the KForge system user to the Apache user group, and add the Apache user
+group to the KForge system user group. This is necessary because Subversion
+access via HTTP will run in mod_python (if it is enabled) so that repositories
+that are readable by unautheticated users don't prompt for a password even
+though no password is needed. We haven't been able to code for this is WSGI.
+Because this channel will run in mod_python, the process user will be the
+Apache user, and so new files created within the repository will be owned
+by the Apache user. To create such files, the Apache user will need to be in
+the KForge system user group. And then when accessing such files via SSH,
+the process user will be the KForge system user, and so the KForge system user
+will need to be in the Apache system user group. And both will need to run
+with a umask of 002 (see below). The Apache system user also needs to be able
+to check for .htaccess files in the wsgi directory.
+::
+
+    $ sudo addgroup www-data $KFORGEUSER
+    $ sudo addgroup $KFORGEUSER www-data
+
+
+Allow the KForge system user to restart Apache, to create and delete
+mailing lists, and to add and remove members from mailing lists.
+::
+
+    $ echo "# KForge needs to restart Apache, and create and delete mailing lists.
+    %$KFORGEUSER ALL=(ALL) NOPASSWD: /etc/init.d/apache2
+    %$KFORGEUSER ALL=(ALL) NOPASSWD: /usr/sbin/newlist
+    %$KFORGEUSER ALL=(ALL) NOPASSWD: /usr/sbin/rmlist
+    %$KFORGEUSER ALL=(ALL) NOPASSWD: /usr/sbin/add_members
+    %$KFORGEUSER ALL=(ALL) NOPASSWD: /usr/sbin/remove_members
+    " | sudo tee -a /etc/sudoers
+
+
+Edit the Apache 'envvars' file and set the umask to 002.
+::
+    
+    $ echo "
+    umask 002
+    " | sudo tee -a /etc/apache2/envvars
+
+
+Prepare Database
+----------------
+
+Decide which database management system will be used by KForge. The choices
+are SQLite (default), PostgreSQL, and MySQL.
+
+If you want to use PostreSQL or MySQL, then follow the sections below. If you
+want to use SQLite, there is no need to anything further to prepare the
+database.
+
+
+PostgreSQL
+~~~~~~~~~~
+
+If you want to use PostgreSQL, then install the PostgreSQL packages (pick
+the version of the -dev- package according to the version of PostgreSQL on
+your system).
+::
+
+    $ sudo aptitude install postgresql postgresql-server-dev-X.X
+
+
+Make sure the KForge system user can access the database via TCP/IP sockets
+with a password. If necessary, please refer to the PostgreSQL manual.
+
+Remember the database username and password, and the name of the new database.
+
+
+MySQL
+~~~~~
+
+If you want to use MySQL, then install the MySQL packages.
+::
+
+    $ sudo aptitude install mysql-server libmysqlclient-dev
+
+
+Make sure the KForge system user can access the database via TCP/IP sockets
+with a password. If necessary, please refer to the MySQL manual.
+
+Remember the database username and password, and the name of the database.
+
+
+Change System User
+------------------
+
+Change to the KForge system user.
+::
+
+    $ sudo su $KFORGEUSER --login
+
+
+If you would like to copy and paste the bash shell commands below, then set
+the following environment variables: SITEHOST as the fully qualified domain
+name of your KForge site; RELEASE as the name of the release; and
+SERVICE as a combination of SITEHOST and RELEASE
+
+(If you don't know which version of KForge will be
+installed, please check with the
+`Python Package Index <http://pypi.python.org/pypi/kforge>`_.)
+
+::
+
+    $ SITEHOST=$USER.`dnsdomainname`
+    $ RELEASE=kforge-0.20
+    $ SERVICE=$SITEHOST-$RELEASE
+
+
+If you are creating a new site, please note that it is recommended to use a
+separate directory for project data. The project data directory will contain
+data created by project services for example Subversion repositories and Trac
+environments. When you migrate to a future version of KForge, you will need to
+setup a new service using the new version of KForge, but the project data
+directory will continue to be used by the new service. So it makes good sense
+to create a separate directory now.
+::
+
+    $ mkdir $HOME/storage
+    $ mkdir $HOME/storage/$SITEHOST/
+
+
+Install KForge Software
+-----------------------
+
+The KForge installer will create a new virtual Python environment and install
+KForge into it. Software that is needed to support different services and
+database systems will also be installed, according to the options you choose.
+::
+
+    $ kforge-install --help
+
+    Usage: kforge-install [OPTIONS] [PATH]
+
+    Installs KForge software to current working directory, or PATH if provided.
+
+    ...
+
+
+It is possible to be selective of the different types of project services that
+will be availabe on your KForge site, but it is recommended to install KForge
+with all the software needed for all the services, by using the
+'--with-all-services' option. You will still need to enable each plugin
+to make its functionality available to users as project services. But if you
+know you just want to create for example Trac and Git services, then just
+use the '--with-trac' and '--with-git' options instead of '--with-all-services'.
+
+If you want to use PostgreSQL, then use the '--with-postgresql' option. If you
+want to use MySQL, then use the '--with-mysql' option.
+
+To leave room for future versions of KForge software, install KForge to a
+directory called 'software' and a sub-directory named after the version of
+KForge being installed (RELEASE).
+
+Now, run the KForge installer. If something fails to download, just try
+running the installer again.
+::
+
+    $ kforge-install --with-all-services $HOME/software/$RELEASE
+
+
+Activate the new virtualenv, and check the 'kforge-makeconfig' and
+'kforge-admin' programs are available.
+::
+
+    $ source $HOME/software/$RELEASE/bin/activate
+    $ which kforge-makeconfig
+    ...
+    $ which kforge-admin
+    ...
+
+
+Create KForge Service
+---------------------
+
+The KForge configuration file maker 'kforge-makeconfig' creates KForge
+configuration files. There are various options for overiding default values.
+
+The 'kforge-admin setup' command will set up a KForge service based on the
+configuration file.
+
+If you are migrating from an older version of KForge, then prepare the
+migration data file by activating the old vitualenv and dumping the old data.
+Before dumping the data, set the path to the dump file in the environment, so
+the path can be reused when setting up the new service (below).
+::
+    
+    $ DUMPPATH=$HOME/kforge-data-dump.json
+    $ source /path/to/old/kforge/bin/activate
+    $ kforge-admin --config /path/to/old/kforge/etc/kforge.conf migratedump $DUMPPATH
+    $ deactivate
+
+
+Now, as above, make sure the new KForge virtualenv is activated, and both the
+new 'kforge-makeconfig' and the 'kforge-admin' programs are available.
+::
+
+    $ source $HOME/software/$RELEASE/bin/activate
+    $ which kforge-makeconfig
+    ...
+    $ which kforge-admin
+    ...
+
+
+Make Configuration
+~~~~~~~~~~~~~~~~~~
+
+Set and export the KForge environment variable KFORGE_SETTINGS as the
+filesystem path for the new configuration file.
+
+It is recommended to keep the configuration file in a directory called
+'settings', and a sub-directory named after both the site host and the new
+version of KForge (SERVICE).
+::
+
+    $ export KFORGE_SETTINGS=$HOME/settings/$SERVICE/kforge.conf
+
+
+You can read about the various options that are supported by the
+'kforge-makeconfig' program.
+::
+
+    $ kforge-makeconfig --help
+
+    Usage: kforge-makeconfig [OPTIONS] [PATH]
+
+    Generate new configuration file, see --help for options.
+
+    Writes file to PATH if given, otherwise prints to stdout.
+
+    ...
+
+
+To leave room for future services (setup from future releases of KForge
+software), it is recommended to use the '--master-dir' option, so the service
+will be setup within a directory called 'services', and a sub-directory named
+after both the site host and the version of Kforge (SERVICE).
+
+It is also recommended to locate the project data directory outside the
+service directory by using the '--project-data-dir' option.
+
+You may also wish to set the service name for your service by using the
+'--service-name' option, so that your site can be recognised by users.
+
+It is also recommended to enable reloading Apache, by using the
+'--enable-reload-apache' option.
+
+You may also wish to enable memoisation ('--enable-memoization') and the
+model cache ('--enable-model-cache').
+
+It is also recommended to set the site host, by using the '--site-host'
+option, so that for example email messages can correctly link back to the
+site.
+
+And if you are using PostreSQL or MySQL, then you will need to use the
+'--db-type', '--db-name', '--db-user' and '--db-pass' options. (Otherwise, if
+you are using SQLite, then you do not need to use these options. But
+if you wish to specify the location of the SQLite file, then you can use the
+'--db-type' to provide a filesystem path.)
+
+Now, create the configuration file.
+::
+
+    $ kforge-makeconfig --master-dir=$HOME/services/$SERVICE \
+    --project-data-dir=$HOME/storage/$SITEHOST --service-name="My KForge" \
+    --enable-reload-apache --enable-memoization --enable-model-cache \
+     --site-host=$SITEHOST $KFORGE_SETTINGS 
+
+
+Edit the new configuration file, and review the options. If you are upgrading
+from an existing service, then copy and paste any preferences for timezone, 
+password digest secret, SMTP settings, and so on.
+::
+
+    $ editor $KFORGE_SETTINGS
+
+
+Setup Service
+~~~~~~~~~~~~~
+
+You can read about the various options that are supported by the
+'kforge-admin' program.
+::
+
+    $ kforge-admin --help
+    Usage: kforge-admin [options] [command]
+
+    Administer a KForge service, including its domain objects. 
+
+    To obtain information about the commands available run the "help" command.
+
+    $ kforge-admin help
+
+
+Now, setup a new service based on the configuration file created above. (The
+'kforge-admin' program reads the path to the configuration file from the
+KFORGE_SETTTINGS environment variable.) If something goes wrong, you will
+need to move or remove the directories created under the "master directory"
+before trying again (and recreate an empty database if using PostgreSQL or
+MySQL).
+::
+
+    $ kforge-admin setup
+
+
+If you are upgrading, you can provide the path to the migration data as an
+additonal argument to the 'setup' command. This will initialise the database
+with migrated data, rather than default data.
+::
+
+    $ kforge-admin setup $DUMPPATH
+
+
+After the service has been setup, make sure the system settings are okay.
+::
+
+    $ kforge-admin checksettings
+
+
+If you are creating a new service (rather than migrating from an old service),
+then enable plugins for the different kinds of project services that are to be
+available. For example, if you installed KForge with all services, then
+you may wish to enable the 'trac', 'git', 'svn', 'mercurial' and 'mailman'
+plugins.
+
+If there are any snags with a plugin's dependencies or configuraton
+settings, they will need to be resolved before the plugin can be enabled.
+Plugin configuration options are set in the KForge configuration file.
+
+For example, if the directory for "static" git files is not located at
+'/usr/share/gitweb/static' then you may need to change this path to be
+'/usr/share/gitweb' instead. This is one difference between Ubuntu and Debian.
+
+Please note, before enabling the SSH plugin, you will have to create the
+'.ssh' directory and the 'authorized_keys' file (with correct file permissions
+and ownership).
+::
+
+    $ kforge-admin plugin enable git
+    $ kforge-admin plugin enable mailman
+    $ kforge-admin plugin enable mercurial
+    $ kforge-admin plugin enable ssh
+    $ kforge-admin plugin enable svn
+    $ kforge-admin plugin enable trac
+
+
+You can see which plugins are enabled by running the 'plugin enabled'
+command.
+::
+
+    $ kforge-admin plugin enabled
+
+
+You can see which plugins are available by running the 'plugin available'
+command.
+::
+
+    $ kforge-admin plugin available
+
+
+If you are upgrading and have enabled the trac plugin, then 'sync' the trac
+services.
+::
+
+    $ kforge-admin plugin sync trac
+
+
+Configure Apache
+----------------
+
+You can use the 'apacheconfig path' command of the 'kforge-admin' program to
+locate the auto-generated KForge Apache configuration file.
+::
+
+    $ kforge-admin apacheconfig path
+
+
+The KForge Apache configuration file will be regenerated as project services 
+change, so it is important to include the generated file within the main
+Apache configuration, rather than copy its contents elsewhere. It is
+recommended to run the WSGI process with the process user as the KForge system
+user, and the process group as the Apache system user group (so mailman
+doesn't complain when new lists are created).
+
+Now, create an Apache virtual host for the new KForge service. It is also
+recommended to create a separate directory for Apache virtual host files.
+::
+
+    $ mkdir $HOME/sites
+    $ echo "<VirtualHost *:80>
+        ServerName $SITEHOST
+        Include `kforge-admin apacheconfig path`
+        WSGIDaemonProcess $SITEHOST user=$USER group=www-data threads=15 maximum-requests=10000
+    </VirtualHost>
+    " > sites/$SITEHOST
+
+
+Exit the shell, return to the account that has root priveleges. Link to the
+Apache virtual host. Enable the Apache virtual host. Restart Apache.
+::
+
+    $ exit
+    $ SITEHOST=$KFORGEUSER.`dnsdomainname`
+    $ sudo ln -s /home/$KFORGEUSER/sites/$SITEHOST /etc/apache2/sites-available/$SITEHOST
+    $ sudo a2ensite $SITEHOST
+    $ sudo /etc/init.d/apache2 restart
+
+
+Visit Site
+----------
+
+Configure your DNS so the site name can be resolved (or as a temporary fix, set the site host in your hosts file).
+
+Check you can resolve the site name.
+::
+
+    $ getent hosts $SITEHOST
+    ...
+
+
+Now, visit the KForge service in a browser. 
+::
+
+    $ www-browser http://$SITEHOST
+
+
+For a new service, login with username 'admin', password 'pass'. Please note,
+it is *strongly recommended* that you update this password *immediately* (see
+`User Guide <user-guide.html#edit-profile>`_). If you are migrating, then
+login with previously established credentials.
+
+Optionally, tail the Apache and KForge logs for errors.
+::
+
+    $ sudo tail -f /var/log/apache2/*log
+    $ sudo tail -f /home/$KFORGEUSER/services/kforge-0.20-$SITEHOST/var/log/kforge.log
+
+
+Backup Site
+-----------
+
+Configure a cronjob to dump the domain data, and then rsync all files to a
+remote machine.
+
+Then, you will be able to restore the site by following the instructions for
+migrating, with an additional step of copying the backup of the project data
+into place. You may wish to test that your backup is working by building and
+maintaining a "fail-over" site on a different machine.
+
+
+Additional Notes
+----------------
+
+*Please note, KForge should not be installed under DocumentRoot of
+the Apache installation, or any other directory exposed via Apache web server.*
+
+Production Service
+~~~~~~~~~~~~~~~~~~
+
+It is recommended to run a production service with PostgreSQL. You may also
+wish to enable both model cacheing and access control memoisation (see
+KForge configuration file). You may also wish to adjust Apache MPM parameters
+and the WSGI process parameters to match your hardware.
+
+Please note, a production service should be created freshly and not by reusing
+a service that has been used to run the test suite. Do not run the test suite
+against a production service.
+
+
+Run Test Suite
+~~~~~~~~~~~~~~
+
+If you wish to run the KForge test suite, then set the KForge configuration
+option 'system_mode' to 'development' before setting up the KForge service.
+
+It is recommended to repeat the above steps, starting from 'Create System User'
+perhaps with a system user name of 'testprojects' instead of 'projects'.
+
+Do not enable model cacheing, and do not enable access control memoisation.
+
+The reason for creating a new user for each site is to make sure SSH access
+for each service is well separated (there can only be one authorized_users
+file per system user).
+
+Now, the test suite can be executed by running the 'kforge-test' program.
+::
+
+    $ kforge-test
+
+The KForge software, and this install guide, have been tested with
+Python 2.6 on Debian 6, and with Python 2.7 on Ubuntu 12.10.
+
+User Acceptance Testing
+~~~~~~~~~~~~~~~~~~~~~~~
+
+If you wish to create a user acceptance testing site for a new version of
+KForge, whilst leaving the current production service in operation, then
+repeat the above steps, Starting from 'Create System User' perhaps with a
+system user name of 'acceptprojects' instead of 'projects'.
+

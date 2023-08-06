@@ -1,0 +1,147 @@
+# The Command Line Interface Shell and Adminstration of the Domain Model #
+
+## Prerequisites ##
+
+This howto assumes basic knowledge of python. If you are unfamiliar with python
+please visit http://www.python.org/
+
+## Getting Started ##
+
+First import kforge and get the application object::
+
+    >>> from kforge.soleInstance import application
+
+The Application object holds everything you need to manage the KForge
+application including the domain model. You can take a look at it by doing::
+
+    >>> help(application)
+
+## Registers ##
+
+To administer the domain model you will want to use the registry attribute::
+
+    >>> application.registry
+
+The registry holds registers (lists) of domain objects which are keyed by a
+unique identifier (an id, a unique name or even another domain object).
+Registers provide a dictionary like interface to the domain objects that they
+hold and are also the means by which to create new domain objects.
+
+The best way to see how this works is by an example. Suppose we wish to enable
+a plugin called 'myplugin' for which the code is already installed (see the
+KForge guide) by creating the associated domain object::
+
+    >>> plugins = application.registry.plugins
+    >>> plugins.create('myplugin')
+
+If successful the result of the final statement should be to print a string
+representation of the plugin domain object just created. It will look something
+like: <Plugin id='<some-int>' services='[]' ..... >
+
+If you now wanted to get the plugin object you have just created you can do::
+
+    >>> myplugin = plugins['myplugin']
+
+Remark: As stated above a registry provides a dictionary like interface to
+obtain the domain objects that it holds. Thus you can do::
+
+    >>> if 'myplugin' in plugins:
+    >>> ...
+
+Unlike a dictionary their default iterator is an iterator over values *not*
+key, value pairs::
+
+    >>> for pluginobject in plugins:
+    >>> ....
+
+Once you have a domain object you can manipulate it in various ways. Taking a
+different example::
+
+    >>> admin = application.registry.persons['admin']  # person registry is keyed by (user)name
+    >>> admin.__dict__  # show list of attributes
+    >>> admin.name      # username
+    'admin'
+    >>> admin.fullname
+    'Administrator'
+    >>> admin.email
+    ''                  # does not yet have an email
+    >>> admin.dateCreated   # note the value you get will almost certainly be different
+    datetime.datetime(2006, 6, 3, 23, 5, 16)
+    >>> admin.memberships  # this is a registry of memberships keyed by project
+
+If you want to update a domain object you just set the attribute and save::
+
+    >>> joe = application.registry.persons['joebloggs']
+    >>> joe.fullname
+    'Joe Bloggs'
+    >>> joe.fullname = 'Joe Bloggins'
+    >>> joe.save()  # until you call save the change won't be saved to the database
+
+You can also delete domain objects::
+
+    >>> joe.delete()
+
+Note that some domain objects are 'stateful' and some are not. If a domain
+object is stateful then it can be in 2 states: active/deleted. When you delete
+a stateful domain object it is put in the deleted state and will not appear in
+a register. To completely remove a stateful domain object you have to purge
+it. For example Person objects are stateful so to fully remove one you need to
+do::
+
+    >>> joe.delete()
+    >>> joe.purge()
+
+For non-stateful domain objects (e.g. License) delete() is sufficient to
+completely remove the object, e.g.::
+
+    >>> license = application.registry.licenses['BSD'])
+    >>> license.delete()
+
+An alternative is to use the dict-style pop() syntax:
+
+    >>> session = application.registry.sessions.pop(key)
+
+Another alternative is to use the "list delete" syntax::
+
+    >>> del application.registry.sessions[ key ]
+
+
+
+## Compound Registers ##
+
+Registers to hold all kinds of lists not just those associated with all domain
+objects. For example instead of all services
+
+    >>> application.registry.services  # key by id
+
+You might want all services for a given project:
+
+    >>> myproject = application.registry.projects['myproject']
+    >>> myproject.services
+
+Here myproject.services is a register that only contains the services
+associated with that project. More examples of usage are provided below.
+
+### Example 1: Create a new service for a project ###
+
+Creating a service is relatively complicated because it brings together the
+project, the plugin with which the service is associated and the service
+itself::
+
+    >>> myproject = application.registry.projects['myproject']  # keyed by name of project
+    >>> myplugin = application.registry.plugins['myplugin']
+    >>> myservice = myproject.services.create(name='newservice', plugin=myplugin)
+
+### Example 2: Updating the role of a member of a project ###
+
+    >>> myproject = application.registry.projects['myproject']  # keyed by name of project
+    >>> myperson = application.registry.projects['myperson']
+    >>> application.registry.roles.keys()   # get a list of the role (names) available
+    ["Administrator", "Developer", "Friend", "Visitor"]
+    >>> newrole = application.registry.roles['Administrator']  # make them an Administrator
+    >>> membership = myproject.members[myperson] # members registry is keyed by person object
+    >>> membership.role.name  # print the name of the current role
+    'Developer'
+    >>> membership.role = newrole
+    >>> membership.save()
+

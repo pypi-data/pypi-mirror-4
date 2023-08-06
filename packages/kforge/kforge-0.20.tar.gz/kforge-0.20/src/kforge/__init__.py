@@ -1,0 +1,23 @@
+# KForge is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the
+# Free Software Foundation, either version 3 of the License, or (at your
+# option) any later version.
+#
+# KForge is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+# FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Affero General Public
+# License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with KForge.  If not, see <http://www.gnu.org/licenses/>.
+#
+# Copyright (C) 2011 Approriate Software Foundation, Open Knowledge Foundation
+#
+# Contributors are listed in the AUTHORS file in the root of the distribution.
+# For license details see the COPYING file in the root of the distribution.
+
+__version__ = '0.20'
+
+def get():
+    import kforge.soleInstance
+    return kforge.soleInstance.application
