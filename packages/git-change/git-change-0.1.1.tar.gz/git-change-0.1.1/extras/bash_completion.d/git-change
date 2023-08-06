@@ -1,0 +1,117 @@
+# -*- mode: shell-script; -*-
+
+# Copyright 2012 Nextdoor.com, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Bash completion for git-change.
+#
+# Author: jacob@nextdoor.com (Jacob Hesch)
+
+if [[ -f /etc/bash_completion.d/git ]]; then
+        source /etc/bash_completion.d/git
+fi
+
+_values_not_seen ()
+{
+        seen=$1
+        values=$2
+        for value in $values; do
+                if [[ ! $seen =~ $value ]]; then
+                        echo $value
+                fi
+        done
+}
+
+# For completing multiple option values delimited by comma.
+COMP_WORDBREAKS=${COMP_WORDBREAKS},
+
+_git_change ()
+{
+
+	local cur="${COMP_WORDS[COMP_CWORD]}"
+	local create_opts='--reviewers= --cc= --bug= --message= --topic= --skip=
+                           --fetch --switch --chain --use-head-commit
+                           --merge-commit'
+	local update_opts='--reviewers= --cc= --bug=  --skip='
+	local print_opts='--reviewers= --cc= --topic='
+	local skip_values='tests whitespace linelength pep8 pyflakes jslint all'
+	local subcommands='create update rebase list submit gc print'
+	local subcommand="$(__git_find_on_cmdline "$subcommands")"
+        local last_opt="--${COMP_LINE##*-}"
+        local reviewers_file=${GIT_CHANGE_REVIEWERS_FILE:-/dev/null}
+        local values reviewers
+
+	if [ -z "$subcommand" ]; then
+
+                if [[ $last_opt =~ --(reviewers|cc)= && ! $last_opt =~ ' ' ]]; then
+                        reviewers=( $(<$reviewers_file ) )
+                        values=$(_values_not_seen "$last_opt" "${reviewers[*]}")
+                        cur=${cur#=}
+			COMPREPLY=( $(compgen -W "$values" -- "${cur##,}") )
+                        return 0
+                fi
+
+                if [[ $last_opt =~ --skip= && ! $last_opt =~ ' ' ]]; then
+                        values=$(_values_not_seen "$last_opt" "$skip_values")
+                        cur=${cur#=}
+			COMPREPLY=( $(compgen -W "$values" -- "${cur##*,}") )
+                        return 0
+                fi
+
+		case "$cur" in
+		--*)
+			__gitcomp "$create_opts"
+			;;
+		*)
+			if [ -z "$(__git_find_on_cmdline "$create_opts")" ]; then
+				__gitcomp "$subcommands"
+			else
+				COMPREPLY=()
+			fi
+			;;
+		esac
+	else
+                if [[ $subcommand =~ update|create|print && \
+                    $last_opt =~ --(reviewers|cc)= && ! $last_opt =~ ' ' ]]; then
+                        reviewers=( $(<$reviewers_file ) )
+                        values=$(_values_not_seen "$last_opt" "${reviewers[*]}")
+                        cur=${cur#=}
+			COMPREPLY=( $(compgen -W "$values" -- "${cur##,}") )
+                        return 0
+                fi
+
+                if [[ $subcommand =~ update|create && \
+                    $last_opt =~ --skip= && ! $last_opt =~ ' ' ]]; then
+                        values=$(_values_not_seen "$last_opt" "$skip_values")
+                        cur=${cur#=}
+			COMPREPLY=( $(compgen -W "$values" -- "${cur##*,}") )
+                        return 0
+                fi
+
+		case "$subcommand,$cur" in
+		create,--*)
+			__gitcomp "$create_opts"
+			;;
+		update,--*)
+			__gitcomp "$update_opts"
+			;;
+		print,--*)
+			__gitcomp "$print_opts"
+			;;
+		*)
+			COMPREPLY=()
+			;;
+		esac
+	fi
+}
