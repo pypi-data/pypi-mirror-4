@@ -1,0 +1,92 @@
+List relations that don't comply with portal_relations constraints
+==================================================================
+Check if relations comply with the constraints defined under portal_relations.
+
+Set up
+------
+
+    >>> self.loginAsPortalOwner()
+    >>> from Products.CMFCore.utils import getToolByName
+    >>> rtool = getToolByName(portal, 'portal_relations')
+
+Check @@bad_relations_report report
+-----------------------------------
+
+Let's check if @@bad_relations_report is registered
+
+    >>> from zope.component import queryMultiAdapter
+    >>> request = rtool.REQUEST
+    >>> view = queryMultiAdapter((rtool, request), name=u'badrelations.html')
+    >>> view.bad_relations_report
+    []
+
+Check if @@bad_relations_report return data
+
+    >>> request.set('ct_type', 'all')
+    >>> view.bad_relations_report
+    [('', <ATFolder ...
+
+Cleanup default relations
+
+    >>> rtool.manage_delObjects(rtool.objectIds())
+    >>> rtool.objectIds()
+    []
+
+Add possible relations. We will use EEARefBrowserDemo as document content-type
+as it already has a schema containing EEAReferenceField
+
+    >>> from zope.component import queryMultiAdapter
+    >>> from Products.GenericSetup.interfaces import IBody
+    >>> from Products.GenericSetup.testing import DummySetupEnviron
+    >>> importer = queryMultiAdapter((rtool, DummySetupEnviron()), IBody)
+
+    >>> importer.body = '''<?xml version="1.0" encoding="utf-8"?>
+    ... <object name="portal_relations" meta_type="EEARelationsTool">
+    ...  <object name="demo" meta_type="EEARelationsContentType">
+    ...   <property name="title">Demo</property>
+    ...   <property name="ct_type">EEARefBrowserDemo</property>
+    ...  </object>
+    ...  <object name="file" meta_type="EEARelationsContentType">
+    ...   <property name="title">File</property>
+    ...   <property name="ct_type">File</property>
+    ...  </object>
+    ...  <object name="demo-to-demo" meta_type="EEAPossibleRelation">
+    ...   <property name="title">Demo -> Demo</property>
+    ...   <property name="from">demo</property>
+    ...   <property name="to">demo</property>
+    ...  </object>
+    ...  <object name="demo-to-file" meta_type="EEAPossibleRelation">
+    ...   <property name="title">Demo -> File</property>
+    ...   <property name="from">demo</property>
+    ...   <property name="to">file</property>
+    ...   <property name="required_for">
+    ...    <element value="published" />
+    ...   </property>
+    ...  </object>
+    ... </object>
+    ... '''
+
+Now let's add some content to our portal
+
+    >>> name = folder.invokeFactory('Folder', 'sandbox')
+    >>> sandbox = folder._getOb(name)
+    >>> name = sandbox.invokeFactory('EEARefBrowserDemo', 'my-doc')
+    >>> document = sandbox._getOb(name)
+    >>> name = sandbox.invokeFactory('File', 'my-file')
+    >>> file = sandbox._getOb(name)
+
+Let's check that all relations of "demo" content types are fine
+
+    >>> request.set('ct_type', 'demo')
+    >>> view.bad_relations_report[0][2]
+    []
+
+Let's add a bad relation
+
+    >>> document = sandbox._getOb('my-doc')
+    >>> other_document = portal._getOb('news')
+    >>> document.processForm(values={
+    ...  'relatedItems': [other_document.UID(),],
+    ... }, data=1, metadata=1)
+    >>> view.bad_relations_report[0][2]
+    [<ATFolder at /plone/news>]
