@@ -1,0 +1,1174 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>fnss.traffic.trafficmatrices &mdash; FNSS 0.1.0 documentation</title>
+    
+    <link rel="stylesheet" href="../../../_static/sphinxdoc.css" type="text/css" />
+    <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../../',
+        VERSION:     '0.1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../../_static/doctools.js"></script>
+    <link rel="top" title="FNSS 0.1.0 documentation" href="../../../index.html" />
+    <link rel="up" title="Module code" href="../../index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="../../../np-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../../index.html">FNSS 0.1.0 documentation</a> &raquo;</li>
+          <li><a href="../../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for fnss.traffic.trafficmatrices</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Provides functions and classes for creating and manipulating traffic matrices.</span>
+
+<span class="sd">The functions of this class allow to synthetically generate traffic matrices</span>
+<span class="sd">with given statistical properties according to models proposed in literature.</span>
+
+<span class="sd">The output of this generation is either a TrafficMatrix or a</span>
+<span class="sd">TrafficMatrixSequence object.</span>
+
+<span class="sd">A traffic matrix or a sequence of matrices can be read and written from/to an</span>
+<span class="sd">XML files with provided functions.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">networkx</span> <span class="kn">as</span> <span class="nn">nx</span>
+<span class="kn">import</span> <span class="nn">xml.etree.ElementTree</span> <span class="kn">as</span> <span class="nn">ET</span>
+<span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">Counter</span>
+<span class="kn">from</span> <span class="nn">multiprocessing</span> <span class="kn">import</span> <span class="n">cpu_count</span><span class="p">,</span> <span class="n">Pool</span>
+<span class="kn">from</span> <span class="nn">math</span> <span class="kn">import</span> <span class="n">exp</span><span class="p">,</span> <span class="n">sin</span><span class="p">,</span> <span class="n">pi</span><span class="p">,</span> <span class="n">log</span><span class="p">,</span> <span class="n">sqrt</span>
+<span class="c">#from random import lognormvariate, normalvariate</span>
+<span class="kn">from</span> <span class="nn">numpy.random</span> <span class="kn">import</span> <span class="n">lognormal</span><span class="p">,</span> <span class="n">normal</span>
+<span class="kn">from</span> <span class="nn">numpy</span> <span class="kn">import</span> <span class="n">isinf</span>
+<span class="kn">from</span> <span class="nn">fnss.util</span> <span class="kn">import</span> <span class="n">capacity_units</span><span class="p">,</span> <span class="n">time_units</span><span class="p">,</span> <span class="n">split_list</span><span class="p">,</span> \
+                      <span class="n">_xml_type</span><span class="p">,</span> <span class="n">_xml_indent</span><span class="p">,</span> <span class="n">_xml_cast_type</span>
+<span class="kn">from</span> <span class="nn">fnss.topologies.topology</span> <span class="kn">import</span> <span class="n">fan_in_out_capacities</span><span class="p">,</span> \
+                                     <span class="n">od_pairs_from_topology</span>
+
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;TrafficMatrix&#39;</span><span class="p">,</span>
+           <span class="s">&#39;TrafficMatrixSequence&#39;</span><span class="p">,</span>
+           <span class="s">&#39;static_traffic_matrix&#39;</span><span class="p">,</span>
+           <span class="s">&#39;stationary_traffic_matrix&#39;</span><span class="p">,</span>
+           <span class="s">&#39;sin_cyclostationary_traffic_matrix&#39;</span><span class="p">,</span>
+           <span class="s">&#39;read_traffic_matrix&#39;</span><span class="p">,</span>
+           <span class="s">&#39;write_traffic_matrix&#39;</span><span class="p">,</span>
+           <span class="s">&#39;validate_traffic_matrix&#39;</span><span class="p">,</span>
+           <span class="s">&#39;link_loads&#39;</span>
+           <span class="p">]</span>
+
+
+<div class="viewcode-block" id="TrafficMatrix"><a class="viewcode-back" href="../../../apidoc/fnss.classes.html#fnss.traffic.trafficmatrices.TrafficMatrix">[docs]</a><span class="k">class</span> <span class="nc">TrafficMatrix</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Class representing a single traffic matrix.</span>
+
+<span class="sd">    It simply contains a set of traffic volumes being exchanged between </span>
+<span class="sd">    origin-destination pairs</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    volume_unit : str</span>
+<span class="sd">        The unit in which traffic volumes are expressed</span>
+<span class="sd">    flows : dict, optional</span>
+<span class="sd">        The traffic volumes or the matrix, keyed by origin-destination pair.</span>
+<span class="sd">        The origin-destination pair is a tuple whose two elements are </span>
+<span class="sd">        respectively the identifier of the origin and destination nodes and </span>
+<span class="sd">        volumes are all expressed in the same unit </span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">volume_unit</span><span class="o">=</span><span class="s">&#39;Mbps&#39;</span><span class="p">,</span> <span class="n">flows</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initialize the traffic matrix</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">volume_unit</span> <span class="ow">in</span> <span class="n">capacity_units</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;The volume_unit argument is not valid&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;volume_unit&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">volume_unit</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">flow</span> <span class="o">=</span> <span class="n">flows</span> <span class="k">if</span> <span class="n">flows</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="k">else</span> <span class="p">{}</span> 
+        <span class="k">return</span>
+
+    <span class="k">def</span> <span class="nf">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Iterates over the flows. Use the expression </span>
+<span class="sd">        &#39;for flow in traffic_matrix&#39;</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">iter</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">flows</span><span class="p">())</span>
+    
+    <span class="k">def</span> <span class="nf">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Return the number of OD pairs of the matrix. Use the expression </span>
+<span class="sd">        &#39;len(traffic_matrix)&#39;</span>
+<span class="sd">        </span>
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        len : int</span>
+<span class="sd">            The number of OD pairs</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">flows</span><span class="p">())</span>
+
+    <span class="k">def</span> <span class="nf">__contains__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">item</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Test whether a specific OD flow is in the matrix or not. Use the</span>
+<span class="sd">        expression &#39;(origin, destination) in traffic_matrix&#39;</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">origin</span><span class="p">,</span> <span class="n">destination</span> <span class="o">=</span> <span class="n">item</span>
+        <span class="k">return</span> <span class="n">origin</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow</span> <span class="ow">and</span> <span class="n">destination</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow</span><span class="p">[</span><span class="n">origin</span><span class="p">]</span>
+
+    <span class="k">def</span> <span class="nf">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Return the traffic volume of a specific flow of the matrix. Use the</span>
+<span class="sd">        expression &#39;volume = traffic_matrix[(origin, destination)]&#39;</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">origin</span><span class="p">,</span> <span class="n">destination</span> <span class="o">=</span> <span class="n">key</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow</span><span class="p">[</span><span class="n">origin</span><span class="p">][</span><span class="n">destination</span><span class="p">]</span>
+    
+    <span class="k">def</span> <span class="nf">__setitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Sets the traffic volume of a specific flow of the matrix. Use the</span>
+<span class="sd">        expression &#39;traffic_matrix[(origin, destination)] = volume&#39;</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">origin</span><span class="p">,</span> <span class="n">destination</span> <span class="o">=</span> <span class="n">key</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">origin</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">flow</span><span class="p">[</span><span class="n">origin</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">flow</span><span class="p">[</span><span class="n">origin</span><span class="p">][</span><span class="n">destination</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+    
+    <span class="k">def</span> <span class="nf">__delitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Delete a specific flow from the matrix. Use the</span>
+<span class="sd">        expression &#39;del traffic_matrix[(u, v)]&#39;</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">origin</span><span class="p">,</span> <span class="n">destination</span> <span class="o">=</span> <span class="n">key</span>
+        <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow</span><span class="p">[</span><span class="n">origin</span><span class="p">][</span><span class="n">destination</span><span class="p">]</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">flow</span><span class="p">[</span><span class="n">origin</span><span class="p">])</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow</span><span class="p">[</span><span class="n">origin</span><span class="p">]</span>
+
+<div class="viewcode-block" id="TrafficMatrix.flows"><a class="viewcode-back" href="../../../apidoc/generated/fnss.traffic.trafficmatrices.TrafficMatrix.flows.html#fnss.traffic.trafficmatrices.TrafficMatrix.flows">[docs]</a>    <span class="k">def</span> <span class="nf">flows</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Return the flows of the traffic matrix</span>
+<span class="sd">        </span>
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        flows : dict</span>
+<span class="sd">            A dictionary of all traffic volumes keyed by OD pair </span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">{(</span><span class="n">o</span><span class="p">,</span> <span class="n">d</span><span class="p">):</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow</span><span class="p">[</span><span class="n">o</span><span class="p">][</span><span class="n">d</span><span class="p">]</span> <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow</span> 
+                <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow</span><span class="p">[</span><span class="n">o</span><span class="p">]</span> <span class="k">if</span> <span class="n">o</span> <span class="o">!=</span> <span class="n">d</span><span class="p">}</span>
+        </div>
+<div class="viewcode-block" id="TrafficMatrix.od_pairs"><a class="viewcode-back" href="../../../apidoc/generated/fnss.traffic.trafficmatrices.TrafficMatrix.od_pairs.html#fnss.traffic.trafficmatrices.TrafficMatrix.od_pairs">[docs]</a>    <span class="k">def</span> <span class="nf">od_pairs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Return all OD pairs of the traffic matrix</span>
+<span class="sd">        </span>
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        od_pairs : list</span>
+<span class="sd">            A list of OD pairs. Each OD pair is expressed as an </span>
+<span class="sd">            (origin, destination) tuple</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">[(</span><span class="n">o</span><span class="p">,</span> <span class="n">d</span><span class="p">)</span> <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow</span><span class="p">[</span><span class="n">o</span><span class="p">]</span> <span class="k">if</span> <span class="n">o</span> <span class="o">!=</span> <span class="n">d</span><span class="p">]</span>
+    </div>
+<div class="viewcode-block" id="TrafficMatrix.add_flow"><a class="viewcode-back" href="../../../apidoc/generated/fnss.traffic.trafficmatrices.TrafficMatrix.add_flow.html#fnss.traffic.trafficmatrices.TrafficMatrix.add_flow">[docs]</a>    <span class="k">def</span> <span class="nf">add_flow</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">origin</span><span class="p">,</span> <span class="n">destination</span><span class="p">,</span> <span class="n">volume</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Add a flow to the traffic matrix</span>
+<span class="sd">        </span>
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        origin : any hashable type</span>
+<span class="sd">            The origin node</span>
+<span class="sd">        destination : any hashable type</span>
+<span class="sd">            The destination node</span>
+<span class="sd">        volume : float</span>
+<span class="sd">            The traffic volume</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">origin</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">flow</span><span class="p">[</span><span class="n">origin</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">flow</span><span class="p">[</span><span class="n">origin</span><span class="p">][</span><span class="n">destination</span><span class="p">]</span> <span class="o">=</span> <span class="n">volume</span>
+</div>
+<div class="viewcode-block" id="TrafficMatrix.pop_flow"><a class="viewcode-back" href="../../../apidoc/generated/fnss.traffic.trafficmatrices.TrafficMatrix.pop_flow.html#fnss.traffic.trafficmatrices.TrafficMatrix.pop_flow">[docs]</a>    <span class="k">def</span> <span class="nf">pop_flow</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">origin</span><span class="p">,</span> <span class="n">destination</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Pop a flow from the traffic matrix and return the volume of the flow</span>
+<span class="sd">        removed. If the flow to remove does not exist, a KeyError is raised.</span>
+<span class="sd">        </span>
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        origin : any hashable type</span>
+<span class="sd">            The origin node</span>
+<span class="sd">        destination : any hashable type</span>
+<span class="sd">            The destination node</span>
+<span class="sd">            </span>
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        KeyError:</span>
+<span class="sd">            if there is no flow from the given origin to the given destination</span>
+<span class="sd">        </span>
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        volume : float</span>
+<span class="sd">            The volume of the flow popped from the matrix</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">origin</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow</span> <span class="ow">or</span> <span class="n">destination</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow</span><span class="p">[</span><span class="n">origin</span><span class="p">]:</span>
+            <span class="k">raise</span> <span class="ne">KeyError</span><span class="p">(</span><span class="s">&#39;There is no flow from </span><span class="si">%s</span><span class="s"> to </span><span class="si">%s</span><span class="s">&#39;</span> 
+                           <span class="o">%</span> <span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">origin</span><span class="p">),</span> <span class="nb">str</span><span class="p">(</span><span class="n">destination</span><span class="p">)))</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow</span><span class="p">[</span><span class="n">origin</span><span class="p">]</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">destination</span><span class="p">)</span>
+
+</div></div>
+<div class="viewcode-block" id="TrafficMatrixSequence"><a class="viewcode-back" href="../../../apidoc/fnss.classes.html#fnss.traffic.trafficmatrices.TrafficMatrixSequence">[docs]</a><span class="k">class</span> <span class="nc">TrafficMatrixSequence</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Class representing a sequence of traffic matrices.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    interval : float or int, optional</span>
+<span class="sd">        The time interval elapsed between subsequent traffic matrices of the</span>
+<span class="sd">        sequence </span>
+<span class="sd">    t_unit : str, optional</span>
+<span class="sd">        The unit of the interval value (e.g. &#39;sec&#39; or &#39;min&#39;)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">interval</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">t_unit</span><span class="o">=</span><span class="s">&#39;min&#39;</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initialize the traffic matrix sequence</span>
+<span class="sd">        </span>
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        interval : float, optional</span>
+<span class="sd">            The time interval between subsequent traffic matrices of the </span>
+<span class="sd">            sequence</span>
+<span class="sd">        t_unit : str, optional</span>
+<span class="sd">            The time unit of the time interval </span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="n">interval</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">t_unit</span> <span class="ow">in</span> <span class="n">time_units</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;The t_unit argument is not valid&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;interval&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">interval</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;t_unit&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">t_unit</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">matrix</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">return</span>
+
+    <span class="k">def</span> <span class="nf">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Iterates over the matrices of the sequence. Use the expression </span>
+<span class="sd">        &#39;for traffic_matrix in traffic_matrix_sequence&#39;</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">iter</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">matrix</span><span class="p">)</span>
+    
+    <span class="k">def</span> <span class="nf">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Return the number of traffic matrices of the sequence. Use the </span>
+<span class="sd">        expression &#39;len(traffic_matrix_sequence)&#39;</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">matrix</span><span class="p">)</span>
+    
+    <span class="k">def</span> <span class="nf">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Return the traffic matrix at a specific index of the sequence. Use the</span>
+<span class="sd">        expression &#39;traffic_matrix = traffic_matrix_sequence[i]&#39;</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">matrix</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
+    
+    <span class="k">def</span> <span class="nf">__setitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Add/edit the traffic matrix at a specific index of the sequence. Use</span>
+<span class="sd">        the expression &#39;traffic_matrix_sequence[i] = traffic_matrix&#39;</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">matrix</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+    
+    <span class="k">def</span> <span class="nf">__delitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Remove the traffic matrix at a specific index of the sequence. Use the</span>
+<span class="sd">        expression &#39;del traffic_matrix_sequence[i]&#39;</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">matrix</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>   
+    
+<div class="viewcode-block" id="TrafficMatrixSequence.insert"><a class="viewcode-back" href="../../../apidoc/generated/fnss.traffic.trafficmatrices.TrafficMatrixSequence.insert.html#fnss.traffic.trafficmatrices.TrafficMatrixSequence.insert">[docs]</a>    <span class="k">def</span> <span class="nf">insert</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">tm</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Insert a traffic matrix in the sequence at a specified position</span>
+<span class="sd">        </span>
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        i : int</span>
+<span class="sd">            The position at which the matrix is inserted</span>
+<span class="sd">        </span>
+<span class="sd">        tm : TrafficMatrix</span>
+<span class="sd">            The traffic matrix to insert</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">matrix</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">tm</span><span class="p">)</span>
+    </div>
+<div class="viewcode-block" id="TrafficMatrixSequence.append"><a class="viewcode-back" href="../../../apidoc/generated/fnss.traffic.trafficmatrices.TrafficMatrixSequence.append.html#fnss.traffic.trafficmatrices.TrafficMatrixSequence.append">[docs]</a>    <span class="k">def</span> <span class="nf">append</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tm</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Append a traffic matrix at the end of the sequence</span>
+<span class="sd">        </span>
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        tm : TrafficMatrix</span>
+<span class="sd">            The traffic matrix to append     </span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">matrix</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">tm</span><span class="p">)</span>
+    </div>
+<div class="viewcode-block" id="TrafficMatrixSequence.get"><a class="viewcode-back" href="../../../apidoc/generated/fnss.traffic.trafficmatrices.TrafficMatrixSequence.get.html#fnss.traffic.trafficmatrices.TrafficMatrixSequence.get">[docs]</a>    <span class="k">def</span> <span class="nf">get</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">i</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Return a specific traffic matrix in a specific position of the sequence</span>
+<span class="sd">        </span>
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        i : int</span>
+<span class="sd">            The index of the traffic matrix</span>
+<span class="sd">            </span>
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tm : TrafficMatrix</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">matrix</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+
+</div>
+<div class="viewcode-block" id="TrafficMatrixSequence.pop"><a class="viewcode-back" href="../../../apidoc/generated/fnss.traffic.trafficmatrices.TrafficMatrixSequence.pop.html#fnss.traffic.trafficmatrices.TrafficMatrixSequence.pop">[docs]</a>    <span class="k">def</span> <span class="nf">pop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">i</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Removes the traffic matrix in a specific position of the sequence</span>
+<span class="sd">        </span>
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        i : int</span>
+<span class="sd">            The index of the traffic matrix to remove</span>
+<span class="sd">        </span>
+<span class="sd">        Raises </span>
+<span class="sd">        ------</span>
+<span class="sd">        IndexError : if list is empty or index is out of range.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tm : TrafficMatrix</span>
+<span class="sd">            The TrafficMatrix popped from the sequence</span>
+
+<span class="sd">        Examples</span>
+<span class="sd">        --------</span>
+<span class="sd">        &gt;&gt;&gt; import fnss</span>
+<span class="sd">        &gt;&gt;&gt; tms = fnss.TrafficMatrixSequence()</span>
+<span class="sd">        &gt;&gt;&gt; tm = TrafficMatrix()</span>
+<span class="sd">        &gt;&gt;&gt; tms.append(tm)</span>
+<span class="sd">        &gt;&gt;&gt; tms.remove(tm)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">matrix</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+    
+
+<span class="c"># We assume that links are full duplex, if undirected</span></div></div>
+<div class="viewcode-block" id="static_traffic_matrix"><a class="viewcode-back" href="../../../apidoc/generated/fnss.traffic.trafficmatrices.static_traffic_matrix.html#fnss.traffic.trafficmatrices.static_traffic_matrix">[docs]</a><span class="k">def</span> <span class="nf">static_traffic_matrix</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">mean</span><span class="p">,</span> <span class="n">stddev</span><span class="p">,</span> <span class="n">max_u</span><span class="o">=</span><span class="mf">0.9</span><span class="p">,</span> 
+                          <span class="n">origin_nodes</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">destination_nodes</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Return a TrafficMatrix object, i.e. a single traffic matrix, representing</span>
+<span class="sd">    the traffic volume exchanged over a network at a specific point in time</span>
+<span class="sd">    </span>
+<span class="sd">    This matrix is generated by assigning traffic volumes drawn from a </span>
+<span class="sd">    lognormal distribution and assigned to specific origin-destination pairs</span>
+<span class="sd">    using the Ranking Metrics Heuristic method proposed by Nucci et al. [1]_</span>
+<span class="sd">    </span>
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    topology : topology</span>
+<span class="sd">        The topology for which the traffic matrix is calculated. This topology</span>
+<span class="sd">        can either be directed or undirected. If it is undirected, this </span>
+<span class="sd">        function assumes that all links are full-duplex.</span>
+<span class="sd">    </span>
+<span class="sd">    mean : float</span>
+<span class="sd">        The mean volume of traffic among all origin-destination pairs</span>
+<span class="sd">    </span>
+<span class="sd">    stddev : float</span>
+<span class="sd">        The standard deviation of volumes among all origin-destination pairs.</span>
+<span class="sd">    </span>
+<span class="sd">    max_u : float, optional</span>
+<span class="sd">        Represent the max link utilization. If specified, traffic volumes are</span>
+<span class="sd">        scaled so that the most utilized link of the network has an utilization</span>
+<span class="sd">        equal to max_u. If None, volumes are not scaled, but in this case links</span>
+<span class="sd">        may end up with an utilization factor greater than 1.0</span>
+<span class="sd">    </span>
+<span class="sd">    origin_nodes : list, optional</span>
+<span class="sd">        A list of all nodes which can be traffic sources. If not specified,</span>
+<span class="sd">        all nodes of the topology are traffic sources</span>
+<span class="sd">    </span>
+<span class="sd">    destination_nodes : list, optional</span>
+<span class="sd">        A list of all nodes which can be traffic destinations. If not </span>
+<span class="sd">        specified, all nodes of the topology are traffic destinations</span>
+<span class="sd">        </span>
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    tm : TrafficMatrix</span>
+<span class="sd">    </span>
+<span class="sd">    References</span>
+<span class="sd">    ----------</span>
+<span class="sd">    .. [1] Nucci et al., The problem of synthetically generating IP traffic </span>
+<span class="sd">       matrices: initial recommendations, ACM SIGCOMM Computer Communication </span>
+<span class="sd">       Review, 35(3), 2005</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">mean</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">mean</span><span class="p">)</span>
+        <span class="n">stddev</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">stddev</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;mean and stddev must be of type float&#39;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">mean</span> <span class="o">&lt;</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">stddev</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;mean and stddev must be not negative&#39;</span><span class="p">)</span>
+    <span class="n">topology</span> <span class="o">=</span> <span class="n">topology</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span> <span class="k">if</span> <span class="n">topology</span><span class="o">.</span><span class="n">is_directed</span><span class="p">()</span> \
+               <span class="k">else</span> <span class="n">topology</span><span class="o">.</span><span class="n">to_directed</span><span class="p">()</span>
+    <span class="n">volume_unit</span> <span class="o">=</span> <span class="n">topology</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s">&#39;capacity_unit&#39;</span><span class="p">]</span>
+    <span class="n">mu</span> <span class="o">=</span> <span class="n">log</span><span class="p">(</span><span class="n">mean</span><span class="o">**</span><span class="mi">2</span><span class="o">/</span><span class="n">sqrt</span><span class="p">(</span><span class="n">stddev</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="n">mean</span><span class="o">**</span><span class="mi">2</span><span class="p">))</span>
+    <span class="n">sigma</span> <span class="o">=</span> <span class="n">sqrt</span><span class="p">(</span><span class="n">log</span><span class="p">((</span><span class="n">stddev</span><span class="o">**</span><span class="mi">2</span><span class="o">/</span><span class="n">mean</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">origin_nodes</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">and</span> <span class="n">destination_nodes</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">od_pairs</span> <span class="o">=</span> <span class="n">od_pairs_from_topology</span><span class="p">(</span><span class="n">topology</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">origins</span> <span class="o">=</span> <span class="n">origin_nodes</span> <span class="k">if</span> <span class="n">origin_nodes</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> \
+                  <span class="k">else</span> <span class="n">topology</span><span class="o">.</span><span class="n">nodes</span><span class="p">()</span>
+        <span class="n">destinations</span> <span class="o">=</span> <span class="n">destination_nodes</span> <span class="k">if</span> <span class="n">destination_nodes</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> \
+                       <span class="k">else</span> <span class="n">topology</span><span class="o">.</span><span class="n">nodes</span><span class="p">()</span>
+        <span class="n">od_pairs</span> <span class="o">=</span> <span class="p">[(</span><span class="n">o</span><span class="p">,</span> <span class="n">d</span><span class="p">)</span> <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="n">origins</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">destinations</span><span class="p">]</span>
+        
+    <span class="n">nr_pairs</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">od_pairs</span><span class="p">)</span>
+    <span class="n">volumes</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">lognormal</span><span class="p">(</span><span class="n">mu</span><span class="p">,</span> <span class="n">sigma</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="n">nr_pairs</span><span class="p">))</span>
+    <span class="c">#volumes = sorted([lognormvariate(mu, sigma) for _ in range(nr_pairs)])</span>
+    <span class="k">if</span> <span class="nb">any</span><span class="p">([</span><span class="n">isinf</span><span class="p">(</span><span class="n">vol</span><span class="p">)</span> <span class="k">for</span> <span class="n">vol</span> <span class="ow">in</span> <span class="n">volumes</span><span class="p">]):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Some volumes are too large to be handled by a &#39;</span>\
+                         <span class="s">&#39;float type. Set a lower value of mu and try again.&#39;</span><span class="p">)</span>
+    <span class="n">sorted_od_pairs</span> <span class="o">=</span> <span class="n">__ranking_metrics_heuristic</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">od_pairs</span><span class="p">)</span>
+    <span class="c"># check if the matrix matches and scale if needed</span>
+    <span class="n">assignments</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="n">sorted_od_pairs</span><span class="p">,</span> <span class="n">volumes</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">max_u</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">shortest_path</span> <span class="o">=</span> <span class="n">nx</span><span class="o">.</span><span class="n">all_pairs_dijkstra_path</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">weight</span><span class="o">=</span><span class="s">&#39;weight&#39;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">edges</span><span class="p">():</span>
+            <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;load&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
+        <span class="c"># Find max u</span>
+        <span class="k">for</span> <span class="n">o</span><span class="p">,</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">od_pairs</span><span class="p">:</span>
+            <span class="n">path</span> <span class="o">=</span> <span class="n">shortest_path</span><span class="p">[</span><span class="n">o</span><span class="p">][</span><span class="n">d</span><span class="p">]</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">path</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">hop</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">path</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">):</span>
+                    <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">path</span><span class="p">[</span><span class="n">hop</span><span class="p">]][</span><span class="n">path</span><span class="p">[</span><span class="n">hop</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]][</span><span class="s">&#39;load&#39;</span><span class="p">]</span> \
+                            <span class="o">+=</span> <span class="n">assignments</span><span class="p">[(</span><span class="n">o</span><span class="p">,</span> <span class="n">d</span><span class="p">)]</span>
+        <span class="c"># Calculate scaling</span>
+        <span class="n">current_max_u</span> <span class="o">=</span> <span class="nb">max</span><span class="p">([</span><span class="nb">float</span><span class="p">(</span><span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;load&#39;</span><span class="p">])</span> \
+                             <span class="o">/</span><span class="nb">float</span><span class="p">(</span><span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;capacity&#39;</span><span class="p">])</span> 
+                             <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">edges</span><span class="p">()])</span>
+        <span class="n">norm_factor</span> <span class="o">=</span> <span class="n">max_u</span><span class="o">/</span><span class="n">current_max_u</span>
+        <span class="k">for</span> <span class="n">od_pair</span> <span class="ow">in</span> <span class="n">assignments</span><span class="p">:</span>
+            <span class="n">assignments</span><span class="p">[</span><span class="n">od_pair</span><span class="p">]</span> <span class="o">*=</span> <span class="n">norm_factor</span>
+            
+    <span class="c"># write to traffic matrix</span>
+    <span class="n">traffic_matrix</span> <span class="o">=</span> <span class="n">TrafficMatrix</span><span class="p">(</span><span class="n">volume_unit</span><span class="o">=</span><span class="n">volume_unit</span><span class="p">)</span>
+    <span class="k">for</span> <span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="n">d</span><span class="p">),</span> <span class="n">flow</span> <span class="ow">in</span> <span class="n">assignments</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="n">traffic_matrix</span><span class="o">.</span><span class="n">add_flow</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">flow</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">traffic_matrix</span>
+
+</div>
+<div class="viewcode-block" id="stationary_traffic_matrix"><a class="viewcode-back" href="../../../apidoc/generated/fnss.traffic.trafficmatrices.stationary_traffic_matrix.html#fnss.traffic.trafficmatrices.stationary_traffic_matrix">[docs]</a><span class="k">def</span> <span class="nf">stationary_traffic_matrix</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">mean</span><span class="p">,</span> <span class="n">stddev</span><span class="p">,</span> <span class="n">gamma</span><span class="p">,</span> <span class="n">log_psi</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> 
+                              <span class="n">max_u</span><span class="o">=</span><span class="mf">0.9</span><span class="p">,</span> 
+                              <span class="n">origin_nodes</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">destination_nodes</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Return a stationary sequence of traffic matrices.</span>
+<span class="sd">    </span>
+<span class="sd">    The sequence is generated by first generating a single matrix assigning </span>
+<span class="sd">    traffic volumes drawn from a lognormal distribution and assigned to </span>
+<span class="sd">    specific origin-destination pairs using the Ranking Metrics Heuristic</span>
+<span class="sd">    method proposed by Nucci et al. [2]_. Then, all matrices of the sequence </span>
+<span class="sd">    are generated by adding zero-mean normal fluctuation in the traffic </span>
+<span class="sd">    volumes. This process was originally proposed by [2]_ </span>
+<span class="sd">    </span>
+<span class="sd">    Stationary sequences of traffic matrices are generally suitable for </span>
+<span class="sd">    modeling network traffic over short periods (up to 1.5 hours). Over longer</span>
+<span class="sd">    periods, real traffic exhibits diurnal patterns and they are better </span>
+<span class="sd">    modelled by cyclostationary sequences</span>
+<span class="sd">    </span>
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    topology : topology</span>
+<span class="sd">        The topology for which the traffic matrix is calculated. This topology</span>
+<span class="sd">        can either be directed or undirected. If it is undirected, this </span>
+<span class="sd">        function assumes that all links are full-duplex.</span>
+<span class="sd">    </span>
+<span class="sd">    mean : float</span>
+<span class="sd">        The mean volume of traffic among all origin-destination pairs</span>
+<span class="sd">    </span>
+<span class="sd">    stddev : float</span>
+<span class="sd">        The standard deviation of volumes among all origin-destination pairs.</span>
+<span class="sd">        </span>
+<span class="sd">    gamma : float</span>
+<span class="sd">        Parameter expressing relation between mean and standard deviation of</span>
+<span class="sd">        traffic volumes of a specific flow over the time </span>
+<span class="sd">        </span>
+<span class="sd">    log_psi : float</span>
+<span class="sd">        Parameter expressing relation between mean and standard deviation of</span>
+<span class="sd">        traffic volumes of a specific flow over the time</span>
+<span class="sd">        </span>
+<span class="sd">    n : int</span>
+<span class="sd">        Number of matrices in the sequence</span>
+<span class="sd">    </span>
+<span class="sd">    max_u : float, optional</span>
+<span class="sd">        Represent the max link utilization. If specified, traffic volumes are</span>
+<span class="sd">        scaled so that the most utilized link of the network has an utilization</span>
+<span class="sd">        equal to max_u. If None, volumes are not scaled, but in this case links</span>
+<span class="sd">        may end up with an utilization factor greater than 1.0</span>
+<span class="sd">    </span>
+<span class="sd">    origin_nodes : list, optional</span>
+<span class="sd">        A list of all nodes which can be traffic sources. If not specified</span>
+<span class="sd">        all nodes of the topology are traffic sources</span>
+<span class="sd">    </span>
+<span class="sd">    destination_nodes : list, optional</span>
+<span class="sd">        A list of all nodes which can be traffic destinations. If not specified</span>
+<span class="sd">        all nodes of the topology are traffic destinations</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    tms : TrafficMatrixSequence</span>
+
+<span class="sd">    References</span>
+<span class="sd">    ----------</span>
+<span class="sd">    .. [2] Nucci et al., The problem of synthetically generating IP traffic </span>
+<span class="sd">       matrices: initial recommendations, ACM SIGCOMM Computer Communication </span>
+<span class="sd">       Review, 35(3), 2005</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">tm_sequence</span> <span class="o">=</span> <span class="n">TrafficMatrixSequence</span><span class="p">()</span>
+    <span class="n">static_tm</span> <span class="o">=</span> <span class="n">static_traffic_matrix</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">mean</span><span class="p">,</span> <span class="n">stddev</span><span class="p">,</span> <span class="n">max_u</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> 
+                                      <span class="n">origin_nodes</span><span class="o">=</span><span class="n">origin_nodes</span><span class="p">,</span> 
+                                      <span class="n">destination_nodes</span><span class="o">=</span><span class="n">destination_nodes</span><span class="p">)</span>
+    <span class="n">volume_unit</span> <span class="o">=</span> <span class="n">static_tm</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;volume_unit&#39;</span><span class="p">]</span>
+    <span class="n">mean_dict</span> <span class="o">=</span> <span class="n">static_tm</span><span class="o">.</span><span class="n">flows</span><span class="p">()</span>
+    <span class="n">psi</span> <span class="o">=</span> <span class="n">exp</span><span class="p">(</span><span class="n">log_psi</span><span class="p">)</span>
+    <span class="n">std_dict</span> <span class="o">=</span> <span class="p">{(</span><span class="n">o</span><span class="p">,</span> <span class="n">d</span><span class="p">)</span> <span class="p">:</span> <span class="p">(</span><span class="n">m</span><span class="o">/</span><span class="n">psi</span><span class="p">)</span><span class="o">**</span><span class="p">(</span><span class="mf">1.0</span><span class="o">/</span><span class="n">gamma</span><span class="p">)</span> 
+                <span class="k">for</span> <span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="n">d</span><span class="p">),</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">mean_dict</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+    <span class="n">flows</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">o</span><span class="p">,</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">mean_dict</span><span class="p">:</span>
+        <span class="c"># Implementation without Numpy:</span>
+        <span class="c"># flows[(o, d)] = [max([0, normalvariate(mean_dict[(o, d)], </span>
+        <span class="c">#                std_dict[(o, d)])]) for _ in range(n)]</span>
+        <span class="n">flows</span><span class="p">[(</span><span class="n">o</span><span class="p">,</span> <span class="n">d</span><span class="p">)]</span> <span class="o">=</span> <span class="p">[</span><span class="nb">max</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="n">normal</span><span class="p">(</span><span class="n">mean_dict</span><span class="p">[(</span><span class="n">o</span><span class="p">,</span> <span class="n">d</span><span class="p">)],</span> <span class="n">std_dict</span><span class="p">[(</span><span class="n">o</span><span class="p">,</span> <span class="n">d</span><span class="p">)])])</span>\
+                         <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">)]</span>
+        
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+        <span class="n">traffic_marix</span> <span class="o">=</span> <span class="n">TrafficMatrix</span><span class="p">(</span><span class="n">volume_unit</span><span class="o">=</span><span class="n">volume_unit</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">o</span><span class="p">,</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">mean_dict</span><span class="p">:</span>
+            <span class="n">traffic_marix</span><span class="o">.</span><span class="n">add_flow</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">flows</span><span class="p">[(</span><span class="n">o</span><span class="p">,</span> <span class="n">d</span><span class="p">)][</span><span class="n">i</span><span class="p">])</span>
+        <span class="n">tm_sequence</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">traffic_marix</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">max_u</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">routing_matrix</span> <span class="o">=</span> <span class="n">nx</span><span class="o">.</span><span class="n">all_pairs_dijkstra_path</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">weight</span><span class="o">=</span><span class="s">&#39;weight&#39;</span><span class="p">)</span>
+        <span class="n">current_max_u</span> <span class="o">=</span> <span class="nb">max</span><span class="p">([</span><span class="nb">max</span><span class="p">(</span><span class="n">link_loads</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> 
+                                            <span class="n">tm_sequence</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">i</span><span class="p">),</span>
+                                            <span class="n">routing_matrix</span>
+                                            <span class="p">)</span><span class="o">.</span><span class="n">values</span><span class="p">())</span> 
+                             <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">)])</span>
+        <span class="n">norm_factor</span> <span class="o">=</span> <span class="n">max_u</span><span class="o">/</span><span class="n">current_max_u</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">o</span><span class="p">,</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">mean_dict</span><span class="p">:</span>
+                <span class="n">tm_sequence</span><span class="o">.</span><span class="n">matrix</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">flow</span><span class="p">[</span><span class="n">o</span><span class="p">][</span><span class="n">d</span><span class="p">]</span> <span class="o">*=</span> <span class="n">norm_factor</span>
+    <span class="k">return</span> <span class="n">tm_sequence</span>
+
+
+</div>
+<div class="viewcode-block" id="sin_cyclostationary_traffic_matrix"><a class="viewcode-back" href="../../../apidoc/generated/fnss.traffic.trafficmatrices.sin_cyclostationary_traffic_matrix.html#fnss.traffic.trafficmatrices.sin_cyclostationary_traffic_matrix">[docs]</a><span class="k">def</span> <span class="nf">sin_cyclostationary_traffic_matrix</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">mean</span><span class="p">,</span> <span class="n">stddev</span><span class="p">,</span> <span class="n">gamma</span><span class="p">,</span> <span class="n">log_psi</span><span class="p">,</span> 
+                                       <span class="n">delta</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span> <span class="n">n</span><span class="o">=</span><span class="mi">24</span><span class="p">,</span> <span class="n">periods</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">max_u</span><span class="o">=</span><span class="mf">0.9</span><span class="p">,</span> 
+                                       <span class="n">origin_nodes</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> 
+                                       <span class="n">destination_nodes</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Return a cyclostationary sequence of traffic matrices, where traffic </span>
+<span class="sd">    volumes evolve over time as sin waves.</span>
+<span class="sd">    </span>
+<span class="sd">    The sequence is generated by first generating a single matrix assigning </span>
+<span class="sd">    traffic volumes drawn from a lognormal distribution and assigned to </span>
+<span class="sd">    specific origin-destination pairs using the Ranking Metrics Heuristic</span>
+<span class="sd">    method proposed by Nucci et al. [3]_. Then, all matrices of the sequence </span>
+<span class="sd">    are generated by adding zero-mean normal fluctuation in the traffic </span>
+<span class="sd">    volumes. Finally, traffic volumes are multiplied by a sin function with</span>
+<span class="sd">    unitary mean to model periodic fluctuations.</span>
+<span class="sd">    </span>
+<span class="sd">    This process was originally proposed by [3]_.</span>
+<span class="sd">    </span>
+<span class="sd">    Cyclostationary sequences of traffic matrices are generally suitable for </span>
+<span class="sd">    modeling real network traffic over long periods, up to several days. In</span>
+<span class="sd">    fact, real traffic exhibits diurnal patterns well modelled by </span>
+<span class="sd">    cyclostationary sequences.</span>
+<span class="sd">    </span>
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    topology : topology</span>
+<span class="sd">        The topology for which the traffic matrix is calculated. This topology</span>
+<span class="sd">        can either be directed or undirected. If it is undirected, this </span>
+<span class="sd">        function assumes that all links are full-duplex.</span>
+<span class="sd">    </span>
+<span class="sd">    mean : float</span>
+<span class="sd">        The mean volume of traffic among all origin-destination pairs</span>
+<span class="sd">    </span>
+<span class="sd">    stddev : float</span>
+<span class="sd">        The standard deviation of volumes among all origin-destination pairs.</span>
+<span class="sd">        </span>
+<span class="sd">    gamma : float</span>
+<span class="sd">        Parameter expressing relation between mean and standard deviation of</span>
+<span class="sd">        traffic volumes of a specific flow over the time </span>
+<span class="sd">        </span>
+<span class="sd">    log_psi : float</span>
+<span class="sd">        Parameter expressing relation between mean and standard deviation of</span>
+<span class="sd">        traffic volumes of a specific flow over the time    </span>
+<span class="sd">    </span>
+<span class="sd">    delta : float [0, 1]</span>
+<span class="sd">        A parameter indicating the intensity of variation of traffic volumes</span>
+<span class="sd">        over a period. Specifically, let x be the mean volume over a specific </span>
+<span class="sd">        OD pair, the minimum and maximum traffic volumes for that OD pair </span>
+<span class="sd">        (excluding random fluctuations) are respectively :math:`x*(1 - delta)`</span>
+<span class="sd">        and :math:`x*(1 + delta)`</span>
+<span class="sd">        </span>
+<span class="sd">    n : int</span>
+<span class="sd">        Number of traffic matrices per period. For example, if it is desired to</span>
+<span class="sd">        model traffic varying cyclically over a 24 hour period, and n is set to</span>
+<span class="sd">        24, therefore, the time interval between subsequent traffic matrices is</span>
+<span class="sd">        is 1 hour.</span>
+<span class="sd">    </span>
+<span class="sd">    periods : int</span>
+<span class="sd">        Number of periods. In total the sequence is composed of</span>
+<span class="sd">        :math:`n * periods` traffic matrices.</span>
+<span class="sd">    </span>
+<span class="sd">    max_u : float, optional</span>
+<span class="sd">        Represent the max link utilization. If specified, traffic volumes are</span>
+<span class="sd">        scaled so that the most utilized link of the network has an utilization</span>
+<span class="sd">        equal to max_u. If None, volumes are not scaled, but in this case links</span>
+<span class="sd">        may end up with an utilization factor greater than 1.0</span>
+<span class="sd">    </span>
+<span class="sd">    origin_nodes : list, optional</span>
+<span class="sd">        A list of all nodes which can be traffic sources. If not specified</span>
+<span class="sd">        all nodes of the topology are traffic sources</span>
+<span class="sd">    </span>
+<span class="sd">    destination_nodes : list, optional</span>
+<span class="sd">        A list of all nodes which can be traffic destinations. If not specified</span>
+<span class="sd">        all nodes of the topology are traffic destinations</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    tms : TrafficMatrixSequence</span>
+
+<span class="sd">    References</span>
+<span class="sd">    ----------</span>
+<span class="sd">    .. [3] Nucci et al., The problem of synthetically generating IP traffic </span>
+<span class="sd">       matrices: initial recommendations, ACM SIGCOMM Computer Communication </span>
+<span class="sd">       Review, 35(3), 2005</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">tm_sequence</span> <span class="o">=</span> <span class="n">TrafficMatrixSequence</span><span class="p">()</span>
+    <span class="n">static_tm</span> <span class="o">=</span> <span class="n">static_traffic_matrix</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">mean</span><span class="p">,</span> <span class="n">stddev</span><span class="p">,</span> <span class="n">max_u</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> 
+                                      <span class="n">origin_nodes</span><span class="o">=</span><span class="n">origin_nodes</span><span class="p">,</span> 
+                                      <span class="n">destination_nodes</span><span class="o">=</span><span class="n">destination_nodes</span><span class="p">)</span>
+    <span class="n">volume_unit</span> <span class="o">=</span> <span class="n">static_tm</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;volume_unit&#39;</span><span class="p">]</span>
+    <span class="n">mean_dict</span> <span class="o">=</span> <span class="n">static_tm</span><span class="o">.</span><span class="n">flows</span><span class="p">()</span>
+    <span class="n">psi</span> <span class="o">=</span> <span class="n">exp</span><span class="p">(</span><span class="n">log_psi</span><span class="p">)</span>
+    <span class="n">std_dict</span> <span class="o">=</span> <span class="p">{(</span><span class="n">o</span><span class="p">,</span> <span class="n">d</span><span class="p">)</span> <span class="p">:</span> <span class="p">(</span><span class="n">m</span><span class="o">/</span><span class="n">psi</span><span class="p">)</span><span class="o">**</span><span class="p">(</span><span class="mf">1.0</span><span class="o">/</span><span class="n">gamma</span><span class="p">)</span> 
+                <span class="k">for</span> <span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="n">d</span><span class="p">),</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">mean_dict</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+    <span class="n">od_pairs</span> <span class="o">=</span> <span class="n">static_tm</span><span class="o">.</span><span class="n">od_pairs</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">periods</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+            <span class="n">tm</span> <span class="o">=</span> <span class="n">TrafficMatrix</span><span class="p">(</span><span class="n">volume_unit</span><span class="o">=</span><span class="n">volume_unit</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">o</span><span class="p">,</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">od_pairs</span><span class="p">:</span>
+                <span class="n">volume</span> <span class="o">=</span> <span class="n">static_tm</span><span class="p">[(</span><span class="n">o</span><span class="p">,</span> <span class="n">d</span><span class="p">)]</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">delta</span><span class="o">*</span><span class="n">sin</span><span class="p">((</span><span class="mi">2</span><span class="o">*</span><span class="n">pi</span><span class="o">*</span><span class="n">i</span><span class="p">)</span><span class="o">/</span><span class="n">n</span><span class="p">))</span> 
+                <span class="c"># Implementation without Numpy</span>
+                <span class="c"># volume = max([0, normalvariate(volume, std_dict[(o, d)])])</span>
+                <span class="n">volume</span> <span class="o">=</span> <span class="nb">max</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="n">normal</span><span class="p">(</span><span class="n">volume</span><span class="p">,</span> <span class="n">std_dict</span><span class="p">[(</span><span class="n">o</span><span class="p">,</span> <span class="n">d</span><span class="p">)])])</span>
+                <span class="n">tm</span><span class="o">.</span><span class="n">add_flow</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">volume</span><span class="p">)</span>
+            <span class="n">tm_sequence</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">tm</span><span class="p">)</span>
+    
+    <span class="k">if</span> <span class="n">max_u</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">routing_matrix</span> <span class="o">=</span> <span class="n">nx</span><span class="o">.</span><span class="n">all_pairs_dijkstra_path</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">weight</span><span class="o">=</span><span class="s">&#39;weight&#39;</span><span class="p">)</span>
+        <span class="n">current_max_u</span> <span class="o">=</span> <span class="nb">max</span><span class="p">([</span><span class="nb">max</span><span class="p">(</span><span class="n">link_loads</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> 
+                                            <span class="n">tm_sequence</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">i</span><span class="p">),</span>
+                                            <span class="n">routing_matrix</span>
+                                            <span class="p">)</span><span class="o">.</span><span class="n">values</span><span class="p">())</span> 
+                             <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="o">*</span><span class="n">periods</span><span class="p">)])</span>
+        <span class="n">norm_factor</span> <span class="o">=</span> <span class="n">max_u</span><span class="o">/</span><span class="n">current_max_u</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="o">*</span><span class="n">periods</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">o</span><span class="p">,</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">mean_dict</span><span class="p">:</span>
+                <span class="n">tm_sequence</span><span class="o">.</span><span class="n">matrix</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">flow</span><span class="p">[</span><span class="n">o</span><span class="p">][</span><span class="n">d</span><span class="p">]</span> <span class="o">*=</span> <span class="n">norm_factor</span>
+    <span class="k">return</span> <span class="n">tm_sequence</span>
+
+</div>
+<span class="k">def</span> <span class="nf">__ranking_metrics_heuristic</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">od_pairs</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Sort OD pairs of a topology according to the Ranking Metrics Heuristics</span>
+<span class="sd">    method</span>
+<span class="sd">    </span>
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    topology : Topology or DirectedTopology</span>
+<span class="sd">        The topology</span>
+<span class="sd">    od_pairs : list, optional</span>
+<span class="sd">        The OD pairs to be ranked (must be a subset of the OD pairs of the </span>
+<span class="sd">        topology). If None, then the heuristic is calculated for all the OD</span>
+<span class="sd">        pairs of the topology</span>
+<span class="sd">    </span>
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    od_pairs : list</span>
+<span class="sd">        The sorted list of OD pairs</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c"># Ranking Metrics Heuristic</span>
+    <span class="k">if</span> <span class="n">od_pairs</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">od_pairs</span> <span class="o">=</span> <span class="n">od_pairs_from_topology</span><span class="p">(</span><span class="n">topology</span><span class="p">)</span> 
+    
+    <span class="n">fan_in</span><span class="p">,</span> <span class="n">fan_out</span> <span class="o">=</span> <span class="n">fan_in_out_capacities</span><span class="p">(</span><span class="n">topology</span><span class="p">)</span>
+    <span class="n">degree</span> <span class="o">=</span> <span class="n">topology</span><span class="o">.</span><span class="n">degree</span><span class="p">()</span>
+    <span class="n">min_capacity</span> <span class="o">=</span> <span class="p">{(</span><span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">):</span> <span class="nb">min</span><span class="p">(</span><span class="n">fan_out</span><span class="p">[</span><span class="n">u</span><span class="p">],</span> <span class="n">fan_in</span><span class="p">[</span><span class="n">v</span><span class="p">])</span> <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">od_pairs</span><span class="p">}</span>
+    <span class="n">min_degree</span> <span class="o">=</span> <span class="p">{(</span><span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">):</span> <span class="nb">min</span><span class="p">(</span><span class="n">degree</span><span class="p">[</span><span class="n">u</span><span class="p">],</span> <span class="n">degree</span><span class="p">[</span><span class="n">v</span><span class="p">])</span> <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">od_pairs</span><span class="p">}</span>
+    
+    <span class="c"># NFUR calculation is expensive, so before calculating it, the code</span>
+    <span class="c"># checks if it is really needed, i.e. if there are ties after capacity</span>
+    <span class="c"># and degree sorting</span>
+    <span class="n">cap_deg_pairs</span> <span class="o">=</span> <span class="p">[(</span><span class="n">min_capacity</span><span class="p">[(</span><span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">)],</span> <span class="n">min_degree</span><span class="p">[(</span><span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">)])</span> 
+                     <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">od_pairs</span><span class="p">]</span>
+    <span class="n">nfur_required</span> <span class="o">=</span> <span class="nb">any</span><span class="p">([</span><span class="n">val</span> <span class="o">&gt;</span> <span class="mi">1</span> <span class="k">for</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">Counter</span><span class="p">(</span><span class="n">cap_deg_pairs</span><span class="p">)</span><span class="o">.</span><span class="n">values</span><span class="p">()])</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">nfur_required</span><span class="p">:</span>
+        <span class="c"># Sort all OD_pairs</span>
+        <span class="k">return</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">od_pairs</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">od_pair</span><span class="p">:</span> <span class="p">(</span><span class="n">min_capacity</span><span class="p">[</span><span class="n">od_pair</span><span class="p">],</span> 
+                                                     <span class="n">min_degree</span><span class="p">[</span><span class="n">od_pair</span><span class="p">]))</span>
+    <span class="c"># if NFUR is required we calculate it. If fast is True, this function</span>
+    <span class="c"># returns the betweenness centrality rather than the NFUR.    </span>
+    <span class="c"># Use betweenness centrality instead of NFUR if the topology is not trivial</span>
+    <span class="c"># for scalability reasons.</span>
+    <span class="c"># The threshold of 300 is a conservative value which allows fast execution</span>
+    <span class="c"># on most machines.</span>
+    <span class="n">parallelize</span> <span class="o">=</span> <span class="p">(</span><span class="n">topology</span><span class="o">.</span><span class="n">number_of_edges</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mi">100</span><span class="p">)</span>
+    <span class="n">fast</span> <span class="o">=</span> <span class="p">(</span><span class="n">topology</span><span class="o">.</span><span class="n">number_of_edges</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mi">300</span><span class="p">)</span>
+    <span class="n">nfur</span> <span class="o">=</span> <span class="n">__calc_nfur</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">fast</span><span class="p">,</span> <span class="n">parallelize</span><span class="p">)</span>
+    <span class="c"># Note: here we use the opposite of max rather than the inverse of max</span>
+    <span class="c"># (which is the formulation of the paper) because we only need to rank</span>
+    <span class="c"># in reverse order the max of NFURs. Since all NFURs are &gt;=0, </span>
+    <span class="c"># using the opposite yields the same results as the inverse, but there</span>
+    <span class="c"># is no risk of incurring in divisions by 0.</span>
+    <span class="n">max_inv_nfur</span> <span class="o">=</span> <span class="p">{(</span><span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">):</span> <span class="o">-</span> <span class="nb">max</span><span class="p">(</span><span class="n">nfur</span><span class="p">[</span><span class="n">u</span><span class="p">],</span> <span class="n">nfur</span><span class="p">[</span><span class="n">v</span><span class="p">])</span> <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">od_pairs</span><span class="p">}</span>
+        
+    <span class="c"># Sort all OD_pairs</span>
+    <span class="k">return</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">od_pairs</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">od_pair</span><span class="p">:</span> <span class="p">(</span><span class="n">min_capacity</span><span class="p">[</span><span class="n">od_pair</span><span class="p">],</span> 
+                                                 <span class="n">min_degree</span><span class="p">[</span><span class="n">od_pair</span><span class="p">],</span> 
+                                                 <span class="n">max_inv_nfur</span><span class="p">[</span><span class="n">od_pair</span><span class="p">]))</span>
+
+
+<span class="k">def</span> <span class="nf">__calc_nfur</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">fast</span><span class="p">,</span> <span class="n">parallelize</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Calculate the Number of Flows under Failure (NFUR) for all nodes of a</span>
+<span class="sd">    topology</span>
+<span class="sd">    </span>
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    topology : Topology or DirectedTopology</span>
+<span class="sd">        The topology</span>
+<span class="sd">    fast : bool</span>
+<span class="sd">        If True returns betweenness centrality instead of NFUR</span>
+<span class="sd">    parallelize : bool</span>
+<span class="sd">        If True, spawns as many processes as the number of cores of the machine</span>
+<span class="sd">        using the map-reduce algorithm. It is always recommended unless the</span>
+<span class="sd">        topology is very small. If *fast* parameter is True, this option is</span>
+<span class="sd">        ignored, as betweenness centrality calculation cannot be parallelized.</span>
+<span class="sd">    </span>
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    nfur : dict</span>
+<span class="sd">        A dictionary of the NFURs of the topology keyed by node. If fast is</span>
+<span class="sd">        True, returns betweenness centrality instead.</span>
+<span class="sd">    </span>
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    The time complexity of the calculation of NFUR grows linearly with the</span>
+<span class="sd">    number of links. A topology with thousands of links is likely to take hours</span>
+<span class="sd">    to compute on commodity hardware. For this reason, this function can spawn</span>
+<span class="sd">    as many processes as the number of cores of the machine on which it runs</span>
+<span class="sd">    and parallelizes the task with a map-reduce algorithm.   </span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c"># Note: The NFUR calculation doesn&#39;t scale because I need to calc betw for</span>
+    <span class="c"># each edge removed. With many nodes and edges, takes very long. The</span>
+    <span class="c"># parallelization reduced the time but it can still be very long </span>
+    <span class="n">betw</span> <span class="o">=</span> <span class="n">nx</span><span class="o">.</span><span class="n">betweenness_centrality</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">normalized</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span>
+                                     <span class="n">weight</span><span class="o">=</span><span class="s">&#39;weight&#39;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">fast</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">betw</span>
+    <span class="n">edges</span> <span class="o">=</span> <span class="n">topology</span><span class="o">.</span><span class="n">to_undirected</span><span class="p">()</span><span class="o">.</span><span class="n">edges</span><span class="p">()</span> <span class="k">if</span> <span class="n">topology</span><span class="o">.</span><span class="n">is_directed</span><span class="p">()</span> <span class="k">else</span> \
+            <span class="n">topology</span><span class="o">.</span><span class="n">edges</span><span class="p">()</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">parallelize</span><span class="p">:</span>
+        <span class="c"># execute the NFUR calculation in one single process</span>
+        <span class="c"># Recommended only if the size of the topology is so small that the</span>
+        <span class="c"># overhead of creating new processes overcomes the performance gains</span>
+        <span class="c"># achieved by splitting the calculation</span>
+        <span class="k">return</span> <span class="n">__nfur_func</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">edges</span><span class="p">,</span> <span class="n">betw</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">processes</span> <span class="o">=</span> <span class="n">cpu_count</span><span class="p">()</span>
+    <span class="k">except</span> <span class="ne">NotImplementedError</span><span class="p">:</span>
+        <span class="n">processes</span> <span class="o">=</span> <span class="mi">32</span> <span class="c"># upper bound of number of cores on a commodity server</span>
+    <span class="n">pool</span> <span class="o">=</span> <span class="n">Pool</span><span class="p">(</span><span class="n">processes</span><span class="p">)</span>
+    <span class="c"># map operation</span>
+    <span class="n">edges_chunks</span> <span class="o">=</span> <span class="n">split_list</span><span class="p">(</span><span class="n">edges</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">edges</span><span class="p">)</span><span class="o">//</span><span class="n">processes</span><span class="p">)</span>
+    <span class="n">args</span> <span class="o">=</span> <span class="p">[(</span><span class="n">__nfur_func</span><span class="p">,</span> <span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">chunk</span><span class="p">,</span> <span class="n">betw</span><span class="p">))</span> <span class="k">for</span> <span class="n">chunk</span> <span class="ow">in</span> <span class="n">edges_chunks</span><span class="p">]</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="n">pool</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">__map_func</span><span class="p">,</span> <span class="n">args</span><span class="p">)</span>
+    <span class="c"># reduce operation</span>
+    <span class="k">return</span> <span class="p">{</span><span class="n">v</span><span class="p">:</span> <span class="nb">max</span><span class="p">([</span><span class="n">result</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">v</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">result</span><span class="p">))])</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">betw</span><span class="p">}</span>
+
+
+<span class="k">def</span> <span class="nf">__map_func</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Execute a function with given arguments, both of them passed as an argument</span>
+<span class="sd">    </span>
+<span class="sd">    This function is used to execute map operations on a function taking an</span>
+<span class="sd">    arbitrary number of arguments</span>
+<span class="sd">    </span>
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    x : tuple (func, args)</span>
+<span class="sd">        A tuple where the first argument is the function to execute and the</span>
+<span class="sd">        second argument is a tuple of arguments</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">func</span><span class="p">,</span> <span class="n">args</span> <span class="o">=</span> <span class="n">x</span>
+    <span class="k">return</span> <span class="n">func</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">__nfur_func</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">edges</span><span class="p">,</span> <span class="n">betweenness</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Calculate NFUR on a specific set of edges</span>
+<span class="sd">    </span>
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    topology : Topology</span>
+<span class="sd">        The topology</span>
+<span class="sd">    edges : list</span>
+<span class="sd">        The list of edges (subset of topology edges)</span>
+<span class="sd">    betweenness : dict</span>
+<span class="sd">        The betweeness centrality of the topology, keyed by node</span>
+<span class="sd">        </span>
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    nfur : dict</span>
+<span class="sd">        NFUR values keyed by node, only relative to failures of the specified</span>
+<span class="sd">        edges </span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">nfur</span> <span class="o">=</span> <span class="n">betweenness</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="n">topology</span> <span class="o">=</span> <span class="n">topology</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span> <span class="k">if</span> <span class="n">topology</span><span class="o">.</span><span class="n">is_directed</span><span class="p">()</span> \
+                           <span class="k">else</span> <span class="n">topology</span><span class="o">.</span><span class="n">to_directed</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">edges</span><span class="p">:</span>
+        <span class="n">edge_attr</span> <span class="o">=</span> <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">]</span>
+        <span class="n">topology</span><span class="o">.</span><span class="n">remove_edge</span><span class="p">(</span><span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span>
+        <span class="n">betw</span> <span class="o">=</span> <span class="n">nx</span><span class="o">.</span><span class="n">betweenness_centrality</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">normalized</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> 
+                                         <span class="n">weight</span><span class="o">=</span><span class="s">&#39;weight&#39;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">node</span> <span class="ow">in</span> <span class="n">betw</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">betw</span><span class="p">[</span><span class="n">node</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">nfur</span><span class="p">[</span><span class="n">node</span><span class="p">]:</span>
+                <span class="n">nfur</span><span class="p">[</span><span class="n">node</span><span class="p">]</span> <span class="o">=</span> <span class="n">betw</span><span class="p">[</span><span class="n">node</span><span class="p">]</span>
+        <span class="n">topology</span><span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">edge_attr</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">nfur</span>
+
+
+<span class="c"># Note: Calling networkx&#39;s all_pairs_shortest_path does not return multiple </span>
+<span class="c"># paths with same cost (and apparently doesn&#39;t even select path randomly, </span>
+<span class="c"># but selects the next hop with lowest ID).</span>
+<div class="viewcode-block" id="validate_traffic_matrix"><a class="viewcode-back" href="../../../apidoc/generated/fnss.traffic.trafficmatrices.validate_traffic_matrix.html#fnss.traffic.trafficmatrices.validate_traffic_matrix">[docs]</a><span class="k">def</span> <span class="nf">validate_traffic_matrix</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">traffic_matrix</span><span class="p">,</span> <span class="n">validate_load</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Validate whether a given traffic matrix and given topology are compatible.</span>
+<span class="sd">    </span>
+<span class="sd">    Returns True if they are compatible, False otherwise</span>
+<span class="sd">    </span>
+<span class="sd">    This validation includes validating whether the origin-destination pairs of </span>
+<span class="sd">    the traffic matrix are coincide with or are a subset of the </span>
+<span class="sd">    origin-destination pairs of the topology. Optionally, this function can </span>
+<span class="sd">    verify if the volumes of the traffic matrix are compatible too, i.e. if at </span>
+<span class="sd">    any time, no link has an utilization greater than 1.0.</span>
+<span class="sd">    </span>
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    topology : topology</span>
+<span class="sd">        The topology agains which the traffic matrix is validated</span>
+<span class="sd">    tm : TrafficMatrix or TrafficMatrixSequence</span>
+<span class="sd">        The traffic matrix (or sequence of) to be validated</span>
+<span class="sd">    validate_load : bool, optional</span>
+<span class="sd">        Specify whether load compatibility has to be validated or not. </span>
+<span class="sd">        Default value is False</span>
+<span class="sd">        </span>
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    is_valid : bool</span>
+<span class="sd">        True if the topology and the traffic matrix are compatible, </span>
+<span class="sd">        False otherwise</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">traffic_matrix</span><span class="p">)</span> <span class="ow">is</span> <span class="n">TrafficMatrix</span><span class="p">:</span>
+        <span class="n">matrices</span> <span class="o">=</span> <span class="p">[</span><span class="n">traffic_matrix</span><span class="p">]</span>
+    <span class="k">elif</span> <span class="nb">type</span><span class="p">(</span><span class="n">traffic_matrix</span><span class="p">)</span> <span class="ow">is</span> <span class="n">TrafficMatrixSequence</span><span class="p">:</span>
+        <span class="n">matrices</span> <span class="o">=</span> <span class="n">traffic_matrix</span><span class="o">.</span><span class="n">matrix</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;tm must be either a TrafficMatrix or a &#39;</span>\
+                         <span class="s">&#39; TrafficMatrixSequence object&#39;</span><span class="p">)</span>
+    
+    <span class="n">topology</span> <span class="o">=</span> <span class="n">topology</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span> <span class="k">if</span> <span class="n">topology</span><span class="o">.</span><span class="n">is_directed</span><span class="p">()</span> \
+                               <span class="k">else</span> <span class="n">topology</span><span class="o">.</span><span class="n">to_directed</span><span class="p">()</span>
+   
+    <span class="n">od_pairs_topology</span> <span class="o">=</span> <span class="n">od_pairs_from_topology</span><span class="p">(</span><span class="n">topology</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">matrix</span> <span class="ow">in</span> <span class="n">matrices</span><span class="p">:</span>
+        <span class="n">od_pairs_tm</span> <span class="o">=</span> <span class="n">matrix</span><span class="o">.</span><span class="n">od_pairs</span><span class="p">()</span>
+        <span class="c"># verify that OD pairs in TM are equal or subset of topology</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">all</span><span class="p">([(</span><span class="n">o</span><span class="p">,</span> <span class="n">d</span><span class="p">)</span> <span class="ow">in</span> <span class="n">od_pairs_topology</span> <span class="k">for</span> <span class="n">o</span><span class="p">,</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">od_pairs_tm</span><span class="p">]):</span>
+            <span class="k">return</span> <span class="bp">False</span>
+        <span class="k">if</span> <span class="n">validate_load</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">edges</span><span class="p">():</span>
+                <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;load&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="n">capacity_unit</span> <span class="o">=</span> <span class="n">capacity_units</span><span class="p">[</span><span class="n">topology</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s">&#39;capacity_unit&#39;</span><span class="p">]]</span>
+            <span class="n">volume_unit</span> <span class="o">=</span> <span class="n">capacity_units</span><span class="p">[</span><span class="n">matrix</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;volume_unit&#39;</span><span class="p">]]</span>
+            <span class="n">norm_factor</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">capacity_unit</span><span class="p">)</span><span class="o">/</span><span class="nb">float</span><span class="p">(</span><span class="n">volume_unit</span><span class="p">)</span>
+            <span class="n">shortest_path</span> <span class="o">=</span> <span class="n">nx</span><span class="o">.</span><span class="n">all_pairs_dijkstra_path</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> 
+                                                       <span class="n">weight</span><span class="o">=</span><span class="s">&#39;weight&#39;</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">o</span><span class="p">,</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">od_pairs_tm</span><span class="p">:</span>
+                <span class="n">path</span> <span class="o">=</span> <span class="n">shortest_path</span><span class="p">[</span><span class="n">o</span><span class="p">][</span><span class="n">d</span><span class="p">]</span>
+                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">path</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="mi">1</span><span class="p">:</span>
+                    <span class="k">continue</span>
+                <span class="k">for</span> <span class="n">hop</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">path</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">):</span>
+                    <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">path</span><span class="p">[</span><span class="n">hop</span><span class="p">]][</span><span class="n">path</span><span class="p">[</span><span class="n">hop</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]][</span><span class="s">&#39;load&#39;</span><span class="p">]</span> \
+                            <span class="o">+=</span> <span class="n">matrix</span><span class="o">.</span><span class="n">flow</span><span class="p">[</span><span class="n">o</span><span class="p">][</span><span class="n">d</span><span class="p">]</span>
+            <span class="n">max_u</span> <span class="o">=</span> <span class="nb">max</span><span class="p">([</span><span class="n">norm_factor</span> <span class="o">*</span> <span class="nb">float</span><span class="p">(</span><span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;load&#39;</span><span class="p">])</span> \
+                         <span class="o">/</span> <span class="nb">float</span><span class="p">(</span><span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;capacity&#39;</span><span class="p">])</span> 
+                         <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">edges</span><span class="p">()])</span>
+            <span class="k">if</span> <span class="n">max_u</span> <span class="o">&gt;</span> <span class="mf">1.0</span><span class="p">:</span> <span class="k">return</span> <span class="bp">False</span>
+    <span class="k">return</span> <span class="bp">True</span>
+
+</div>
+<div class="viewcode-block" id="link_loads"><a class="viewcode-back" href="../../../apidoc/generated/fnss.traffic.trafficmatrices.link_loads.html#fnss.traffic.trafficmatrices.link_loads">[docs]</a><span class="k">def</span> <span class="nf">link_loads</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">traffic_matrix</span><span class="p">,</span> <span class="n">routing_matrix</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Calculate link utilization given a traffic matrix.  </span>
+<span class="sd">    </span>
+<span class="sd">    Return a dictionary mapping for each link of a topology, the relative link</span>
+<span class="sd">    utilization (i.e. traffic volume divided by link capacity) given a traffic</span>
+<span class="sd">    matrix. The keys of the dictionary are (u, v) tuple where u and v are</span>
+<span class="sd">    respectively the source and destination nodes of the link. The values are </span>
+<span class="sd">    float values between 0 and 1. A zero value means that the link is not </span>
+<span class="sd">    utilized, while a one value means that the link is saturated.</span>
+<span class="sd">    </span>
+<span class="sd">    Link utilizations are calculated assuming that all traffic is routed</span>
+<span class="sd">    following the shortest path from origin to destination, calculated with the</span>
+<span class="sd">    Dijkstra algorithm. If the topology is annotated with link weights, they</span>
+<span class="sd">    are used for the shortest path calculation. Otherwise hop count is used.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    topology : topology</span>
+<span class="sd">        The topology whose link utilization is calculated. This topology must</span>
+<span class="sd">        be annotate with at least link capacity. If it also presents link </span>
+<span class="sd">        weights, those are used for shortest paths calculation.</span>
+<span class="sd">    tm : TrafficMatrix</span>
+<span class="sd">        The traffic matrix associated to the topology.</span>
+<span class="sd">    routing_matrix : dict of dicts</span>
+<span class="sd">        The routing matrix used by the traffic. This matrix is a dictionary of</span>
+<span class="sd">        dictionaries, where the keys of the root dictionary are the origin</span>
+<span class="sd">        nodes, the keys of the nested dictionary are the destination nodes and</span>
+<span class="sd">        the values of the nested dictionary are lists of nodes on the path</span>
+<span class="sd">        from origin to destination (both included). For example, if the</span>
+<span class="sd">        path from node 1 to node 4 is 1 -&gt; 2 -&gt; 3 -&gt; 4, then </span>
+<span class="sd">        routing_matrix[1][4] = [1, 2, 3, 4].</span>
+<span class="sd">        The networkx all_pairs_dijkstra_path function returns shortest paths</span>
+<span class="sd">        in this format.</span>
+<span class="sd">        If this parameter is None, then Dijkstra shortest paths are used.</span>
+<span class="sd">        </span>
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    link_loads : dict</span>
+<span class="sd">        A dictionary of link loads keyed by link</span>
+<span class="sd">        </span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">topology</span> <span class="o">=</span> <span class="n">topology</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span> <span class="k">if</span> <span class="n">topology</span><span class="o">.</span><span class="n">is_directed</span><span class="p">()</span> \
+                               <span class="k">else</span> <span class="n">topology</span><span class="o">.</span><span class="n">to_directed</span><span class="p">()</span>
+    <span class="n">capacity_unit</span> <span class="o">=</span> <span class="n">capacity_units</span><span class="p">[</span><span class="n">topology</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s">&#39;capacity_unit&#39;</span><span class="p">]]</span>
+    <span class="n">volume_unit</span> <span class="o">=</span> <span class="n">capacity_units</span><span class="p">[</span><span class="n">traffic_matrix</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;volume_unit&#39;</span><span class="p">]]</span>
+    <span class="n">norm_factor</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">capacity_unit</span><span class="p">)</span><span class="o">/</span><span class="nb">float</span><span class="p">(</span><span class="n">volume_unit</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">routing_matrix</span> <span class="o">==</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">routing_matrix</span> <span class="o">=</span> <span class="n">nx</span><span class="o">.</span><span class="n">all_pairs_dijkstra_path</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">weight</span><span class="o">=</span><span class="s">&#39;weight&#39;</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">edges</span><span class="p">():</span>
+        <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;load&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">od_pairs</span> <span class="o">=</span> <span class="n">traffic_matrix</span><span class="o">.</span><span class="n">od_pairs</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">o</span><span class="p">,</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">od_pairs</span><span class="p">:</span>
+        <span class="n">path</span> <span class="o">=</span> <span class="n">routing_matrix</span><span class="p">[</span><span class="n">o</span><span class="p">][</span><span class="n">d</span><span class="p">]</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">path</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">continue</span>
+        <span class="k">for</span> <span class="n">hop</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">path</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">):</span>
+            <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">path</span><span class="p">[</span><span class="n">hop</span><span class="p">]][</span><span class="n">path</span><span class="p">[</span><span class="n">hop</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]][</span><span class="s">&#39;load&#39;</span><span class="p">]</span> <span class="o">+=</span> \
+                        <span class="n">traffic_matrix</span><span class="o">.</span><span class="n">flow</span><span class="p">[</span><span class="n">o</span><span class="p">][</span><span class="n">d</span><span class="p">]</span>
+    <span class="k">return</span> <span class="p">{(</span><span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">):</span> <span class="n">norm_factor</span> <span class="o">*</span> 
+            <span class="nb">float</span><span class="p">(</span><span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;load&#39;</span><span class="p">])</span> \
+                        <span class="o">/</span> <span class="nb">float</span><span class="p">(</span><span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;capacity&#39;</span><span class="p">])</span> 
+            <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">edges</span><span class="p">()}</span>
+    
+
+</div>
+<div class="viewcode-block" id="read_traffic_matrix"><a class="viewcode-back" href="../../../apidoc/generated/fnss.traffic.trafficmatrices.read_traffic_matrix.html#fnss.traffic.trafficmatrices.read_traffic_matrix">[docs]</a><span class="k">def</span> <span class="nf">read_traffic_matrix</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s">&#39;utf-8&#39;</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Parses a traffic matrix from a traffic matrix XML file. If the XML file </span>
+<span class="sd">    contains more than one traffic matrix, it returns a TrafficMatrixSequence</span>
+<span class="sd">    object, otherwise a TrafficMatrixObject.</span>
+<span class="sd">    </span>
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    path: str</span>
+<span class="sd">        The path of the XML file to parse</span>
+<span class="sd">    encoding : str, optional</span>
+<span class="sd">        The encoding of the file</span>
+<span class="sd">        </span>
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    tm : TrafficMatrix or TrafficMatrixSequence</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">parse_single_matrix</span><span class="p">(</span><span class="n">head</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Parses a single traffic matrix from the XML file</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">traffic_matrix</span> <span class="o">=</span> <span class="n">TrafficMatrix</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">prop</span> <span class="ow">in</span> <span class="n">head</span><span class="o">.</span><span class="n">findall</span><span class="p">(</span><span class="s">&#39;property&#39;</span><span class="p">):</span>
+            <span class="n">name</span> <span class="o">=</span> <span class="n">prop</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;name&#39;</span><span class="p">]</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="n">_xml_cast_type</span><span class="p">(</span><span class="n">prop</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;type&#39;</span><span class="p">],</span> <span class="n">prop</span><span class="o">.</span><span class="n">text</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">name</span> <span class="o">==</span> <span class="s">&#39;volume_unit&#39;</span> <span class="ow">and</span> <span class="n">value</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">capacity_units</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">ET</span><span class="o">.</span><span class="n">ParseError</span><span class="p">(</span>\
+                                <span class="s">&#39;Invalid volume_unit property in time node&#39;</span><span class="p">)</span>
+            <span class="n">traffic_matrix</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+        <span class="k">for</span> <span class="n">origin</span> <span class="ow">in</span> <span class="n">head</span><span class="o">.</span><span class="n">findall</span><span class="p">(</span><span class="s">&#39;origin&#39;</span><span class="p">):</span>
+            <span class="n">o</span> <span class="o">=</span> <span class="n">_xml_cast_type</span><span class="p">(</span><span class="n">origin</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;id.type&#39;</span><span class="p">],</span> <span class="n">origin</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;id&#39;</span><span class="p">])</span>
+            <span class="k">for</span> <span class="n">destination</span> <span class="ow">in</span> <span class="n">origin</span><span class="o">.</span><span class="n">findall</span><span class="p">(</span><span class="s">&#39;destination&#39;</span><span class="p">):</span>
+                <span class="n">d</span> <span class="o">=</span> <span class="n">_xml_cast_type</span><span class="p">(</span><span class="n">destination</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;id.type&#39;</span><span class="p">],</span> 
+                                   <span class="n">destination</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;id&#39;</span><span class="p">])</span>
+                <span class="n">volume</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">destination</span><span class="o">.</span><span class="n">text</span><span class="p">)</span>
+                <span class="n">traffic_matrix</span><span class="o">.</span><span class="n">add_flow</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">volume</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">traffic_matrix</span>
+    <span class="n">tree</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+    <span class="n">head</span> <span class="o">=</span> <span class="n">tree</span><span class="o">.</span><span class="n">getroot</span><span class="p">()</span>
+    <span class="n">matrix_type</span> <span class="o">=</span> <span class="n">head</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;type&#39;</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">matrix_type</span> <span class="o">==</span> <span class="s">&#39;single&#39;</span><span class="p">:</span>
+        <span class="n">traffic_matrix</span> <span class="o">=</span> <span class="n">parse_single_matrix</span><span class="p">(</span><span class="n">head</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="s">&#39;time&#39;</span><span class="p">))</span>
+    <span class="k">elif</span> <span class="n">matrix_type</span> <span class="o">==</span> <span class="s">&#39;sequence&#39;</span><span class="p">:</span>
+        <span class="n">traffic_matrix</span> <span class="o">=</span> <span class="n">TrafficMatrixSequence</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">prop</span> <span class="ow">in</span> <span class="n">head</span><span class="o">.</span><span class="n">findall</span><span class="p">(</span><span class="s">&#39;property&#39;</span><span class="p">):</span>
+            <span class="n">name</span> <span class="o">=</span> <span class="n">prop</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;name&#39;</span><span class="p">]</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="n">_xml_cast_type</span><span class="p">(</span><span class="n">prop</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;type&#39;</span><span class="p">],</span> <span class="n">prop</span><span class="o">.</span><span class="n">text</span><span class="p">)</span>
+            <span class="n">traffic_matrix</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+        <span class="k">for</span> <span class="n">matrix</span> <span class="ow">in</span> <span class="n">head</span><span class="o">.</span><span class="n">findall</span><span class="p">(</span><span class="s">&#39;time&#39;</span><span class="p">):</span>
+            <span class="n">traffic_matrix</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">parse_single_matrix</span><span class="p">(</span><span class="n">matrix</span><span class="p">))</span> 
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">ET</span><span class="o">.</span><span class="n">ParseError</span><span class="p">(</span><span class="s">&#39;Invalid TM type attribute in XML file&#39;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">traffic_matrix</span>
+
+</div>
+<div class="viewcode-block" id="write_traffic_matrix"><a class="viewcode-back" href="../../../apidoc/generated/fnss.traffic.trafficmatrices.write_traffic_matrix.html#fnss.traffic.trafficmatrices.write_traffic_matrix">[docs]</a><span class="k">def</span> <span class="nf">write_traffic_matrix</span><span class="p">(</span><span class="n">traffic_matrix</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s">&#39;utf-8&#39;</span><span class="p">,</span> 
+                         <span class="n">prettyprint</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Write a TrafficMatrix or a TrafficMatrixSequence object to an XML file.</span>
+<span class="sd">    This function can be use to either persistently store a traffic matrix for</span>
+<span class="sd">    later use or to export it to an FNSS adapter for a simulator or an API for</span>
+<span class="sd">    another programming language.</span>
+<span class="sd">    </span>
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    traffic_matrix : TrafficMatrix or TrafficMatrixSequence</span>
+<span class="sd">        The traffic matrix to save</span>
+<span class="sd">    path : str</span>
+<span class="sd">        The path where the file will be saved</span>
+<span class="sd">    encoding : str (optional)</span>
+<span class="sd">        The desired encoding of the output file</span>
+<span class="sd">    prettyprint : bool (optional)</span>
+<span class="sd">        Specify whether the XML file should be written with indentation for</span>
+<span class="sd">        improved human readability</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">head</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">Element</span><span class="p">(</span><span class="s">&quot;traffic-matrix&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">traffic_matrix</span><span class="p">)</span> <span class="ow">is</span> <span class="n">TrafficMatrix</span><span class="p">:</span>
+        <span class="n">head</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;type&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;single&#39;</span>
+        <span class="n">matrices</span> <span class="o">=</span> <span class="p">[</span><span class="n">traffic_matrix</span><span class="p">]</span>
+    <span class="k">elif</span> <span class="nb">type</span><span class="p">(</span><span class="n">traffic_matrix</span><span class="p">)</span> <span class="ow">is</span> <span class="n">TrafficMatrixSequence</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">traffic_matrix</span><span class="o">.</span><span class="n">attrib</span><span class="p">:</span>
+            <span class="n">prop</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">head</span><span class="p">,</span> <span class="s">&quot;property&quot;</span><span class="p">)</span>
+            <span class="n">prop</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;name&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+            <span class="n">prop</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;type&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">_xml_type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+            <span class="n">prop</span><span class="o">.</span><span class="n">text</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+        <span class="n">head</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;type&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;sequence&#39;</span>
+        <span class="n">matrices</span> <span class="o">=</span> <span class="n">traffic_matrix</span><span class="o">.</span><span class="n">matrix</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;traffic_matrix parameter must be either a &#39;</span> <span class="o">/</span> 
+                         <span class="s">&#39;TrafficMatrix or a TrafficMatrixSequence instance&#39;</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">matrix</span> <span class="ow">in</span> <span class="n">matrices</span><span class="p">:</span>
+        <span class="n">time</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">head</span><span class="p">,</span> <span class="s">&quot;time&quot;</span><span class="p">)</span>
+        <span class="n">time</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;seq&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">matrices</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">matrix</span><span class="p">))</span>
+        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">matrix</span><span class="o">.</span><span class="n">attrib</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">prop</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">time</span><span class="p">,</span> <span class="s">&quot;property&quot;</span><span class="p">)</span>
+            <span class="n">prop</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;name&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+            <span class="n">prop</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;type&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">_xml_type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+            <span class="n">prop</span><span class="o">.</span><span class="n">text</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="n">matrix</span><span class="o">.</span><span class="n">flow</span><span class="p">:</span>
+            <span class="n">origin</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">time</span><span class="p">,</span> <span class="s">&quot;origin&quot;</span><span class="p">)</span>
+            <span class="n">origin</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;id&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">o</span><span class="p">)</span>
+            <span class="n">origin</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;id.type&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">_xml_type</span><span class="p">(</span><span class="n">o</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">matrix</span><span class="o">.</span><span class="n">flow</span><span class="p">[</span><span class="n">o</span><span class="p">]:</span>
+                <span class="n">volume</span> <span class="o">=</span> <span class="n">matrix</span><span class="o">.</span><span class="n">flow</span><span class="p">[</span><span class="n">o</span><span class="p">][</span><span class="n">d</span><span class="p">]</span>
+                <span class="n">destination</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">origin</span><span class="p">,</span> <span class="s">&quot;destination&quot;</span><span class="p">)</span>
+                <span class="n">destination</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;id&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">d</span><span class="p">)</span>
+                <span class="n">destination</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s">&#39;id.type&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">_xml_type</span><span class="p">(</span><span class="n">d</span><span class="p">)</span>
+                <span class="n">destination</span><span class="o">.</span><span class="n">text</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">volume</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">prettyprint</span><span class="p">:</span>
+        <span class="n">_xml_indent</span><span class="p">(</span><span class="n">head</span><span class="p">)</span>
+    <span class="n">ET</span><span class="o">.</span><span class="n">ElementTree</span><span class="p">(</span><span class="n">head</span><span class="p">)</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="n">encoding</span><span class="p">)</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="../../../np-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../../index.html">FNSS 0.1.0 documentation</a> &raquo;</li>
+          <li><a href="../../index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2012, Lorenzo Saino, Cosmin Cocora.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

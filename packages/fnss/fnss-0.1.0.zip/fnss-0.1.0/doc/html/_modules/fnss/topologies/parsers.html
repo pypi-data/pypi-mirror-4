@@ -1,0 +1,588 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>fnss.topologies.parsers &mdash; FNSS 0.1.0 documentation</title>
+    
+    <link rel="stylesheet" href="../../../_static/sphinxdoc.css" type="text/css" />
+    <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../../',
+        VERSION:     '0.1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../../_static/doctools.js"></script>
+    <link rel="top" title="FNSS 0.1.0 documentation" href="../../../index.html" />
+    <link rel="up" title="Module code" href="../../index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="../../../np-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../../index.html">FNSS 0.1.0 documentation</a> &raquo;</li>
+          <li><a href="../../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for fnss.topologies.parsers</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Provides functions to parse topologies from datasets or from outputs of</span>
+<span class="sd">other generators.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">from</span> <span class="nn">re</span> <span class="kn">import</span> <span class="nb">compile</span><span class="p">,</span> <span class="n">findall</span><span class="p">,</span> <span class="n">sub</span> 
+<span class="kn">from</span> <span class="nn">math</span> <span class="kn">import</span> <span class="n">sqrt</span>
+<span class="kn">import</span> <span class="nn">networkx</span> <span class="kn">as</span> <span class="nn">nx</span>
+<span class="kn">from</span> <span class="nn">fnss.topologies.topology</span> <span class="kn">import</span> <span class="n">Topology</span><span class="p">,</span> <span class="n">DirectedTopology</span>
+
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;parse_rocketfuel_isp_map&#39;</span><span class="p">,</span>
+           <span class="s">&#39;parse_caida_as_relationships&#39;</span><span class="p">,</span>
+           <span class="s">&#39;parse_inet&#39;</span><span class="p">,</span>
+           <span class="s">&#39;parse_abilene&#39;</span><span class="p">,</span>
+           <span class="s">&#39;parse_brite&#39;</span><span class="p">,</span>
+           <span class="s">&#39;parse_topology_zoo&#39;</span><span class="p">,</span>
+           <span class="s">&#39;parse_ashiip&#39;</span><span class="p">,</span>
+          <span class="p">]</span>
+
+
+<span class="c"># Parser for RocketFuel ISP (router-level) maps .cch files</span>
+<div class="viewcode-block" id="parse_rocketfuel_isp_map"><a class="viewcode-back" href="../../../apidoc/generated/fnss.topologies.parsers.parse_rocketfuel_isp_map.html#fnss.topologies.parsers.parse_rocketfuel_isp_map">[docs]</a><span class="k">def</span> <span class="nf">parse_rocketfuel_isp_map</span><span class="p">(</span><span class="n">path</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Parse a network topology from RocketFuel ISP map file.</span>
+<span class="sd">    </span>
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    path : str</span>
+<span class="sd">        The path of the file containing the RocketFuel map. It should have </span>
+<span class="sd">        extension .cch</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    topology : DirectedTopology</span>
+<span class="sd">        The object containing the parsed topology.</span>
+<span class="sd">    </span>
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    Each node of the returned graph has the following attributes:</span>
+<span class="sd">     * **type**: string</span>
+<span class="sd">     * **location**: string (optional)</span>
+<span class="sd">     * **address**: string </span>
+<span class="sd">     * **r**: int</span>
+<span class="sd">     * **backbone**: boolean (optional)</span>
+<span class="sd">        </span>
+<span class="sd">    Each edge of the returned graph has the following attributes:</span>
+<span class="sd">     * type : string, which can either be *internal* or *external*</span>
+<span class="sd">     </span>
+<span class="sd">    If the topology contains self-loops (links starting and ending in the same</span>
+<span class="sd">    node) they are stripped from the topology.</span>
+<span class="sd">    </span>
+<span class="sd">    Raises</span>
+<span class="sd">    ------</span>
+<span class="sd">    ValueError</span>
+<span class="sd">        If the provided file cannot be parsed correctly.</span>
+<span class="sd">        </span>
+<span class="sd">    Examples</span>
+<span class="sd">    --------</span>
+<span class="sd">    &gt;&gt;&gt; import fnss</span>
+<span class="sd">    &gt;&gt;&gt; topology = fnss.parse_rocketfuel_isp_map(&#39;1221.r0.cch&#39;)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">topology</span> <span class="o">=</span> <span class="n">DirectedTopology</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s">&#39;rocket_fuel&#39;</span><span class="p">)</span>
+    <span class="n">comment_char</span> <span class="o">=</span> <span class="s">&#39;#&#39;</span>
+    
+    <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="s">&quot;r&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">readlines</span><span class="p">():</span>
+        <span class="k">if</span> <span class="n">comment_char</span> <span class="ow">in</span> <span class="n">line</span><span class="p">:</span>
+            <span class="c"># split on comment char, keep only the part before</span>
+            <span class="n">line</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">comment_char</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">line</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="c">#Parse line.</span>
+            <span class="k">if</span> <span class="n">line</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&quot;-&quot;</span><span class="p">):</span>
+                <span class="c"># Case external node     </span>
+                <span class="c"># -euid =externaladdress rn</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">node</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">findall</span><span class="p">(</span><span class="s">&quot;-\d+&quot;</span><span class="p">,</span> <span class="n">line</span><span class="p">)[</span><span class="mi">0</span><span class="p">])</span>
+                    <span class="n">address</span> <span class="o">=</span> <span class="p">(</span><span class="n">findall</span><span class="p">(</span><span class="s">&quot;=\S+&quot;</span><span class="p">,</span> <span class="n">line</span><span class="p">)[</span><span class="mi">0</span><span class="p">])[</span><span class="mi">1</span><span class="p">:]</span>  <span class="c"># .strip(&quot;=&quot;)</span>
+                    <span class="n">r</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">findall</span><span class="p">(</span><span class="s">&quot;r\d$&quot;</span><span class="p">,</span> <span class="n">line</span><span class="p">)[</span><span class="mi">0</span><span class="p">][</span><span class="mi">1</span><span class="p">:])</span>  <span class="c"># .strip(&quot;r&quot;))</span>
+                <span class="k">except</span> <span class="ne">IndexError</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Invalid input file. Parsing failed &#39;</span>\
+                                     <span class="s">&#39;while trying to parse an external node&#39;</span><span class="p">)</span>
+                <span class="n">topology</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="n">node</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;external&#39;</span><span class="p">,</span> <span class="n">address</span><span class="o">=</span><span class="n">address</span><span class="p">,</span> <span class="n">r</span><span class="o">=</span><span class="n">r</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c"># Case internal node</span>
+                <span class="c"># uid @loc [+] [bb] (num_neigh) [&amp;ext] -&gt; &lt;nuid-1&gt; &lt;nuid-2&gt; </span>
+                <span class="c"># ... {-euid} ... =name[!] rn</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">node</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">findall</span><span class="p">(</span><span class="s">&quot;\d+&quot;</span><span class="p">,</span> <span class="n">line</span><span class="p">)[</span><span class="mi">0</span><span class="p">])</span>
+                    <span class="n">node_location</span> <span class="o">=</span> <span class="n">findall</span><span class="p">(</span><span class="s">&quot;@\S*&quot;</span><span class="p">,</span> <span class="n">line</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+                    <span class="n">node_location</span> <span class="o">=</span> <span class="n">sub</span><span class="p">(</span><span class="s">&quot;[\+@]&quot;</span><span class="p">,</span> <span class="s">&quot;&quot;</span><span class="p">,</span> <span class="n">node_location</span><span class="p">)</span>
+                    <span class="n">r</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">findall</span><span class="p">(</span><span class="s">&quot;r\d$&quot;</span><span class="p">,</span> <span class="n">line</span><span class="p">)[</span><span class="mi">0</span><span class="p">][</span><span class="mi">1</span><span class="p">:])</span><span class="c"># .strip(&quot;r&quot;))</span>
+                    <span class="n">address</span> <span class="o">=</span> <span class="p">(</span><span class="n">findall</span><span class="p">(</span><span class="s">&quot;=\S+&quot;</span><span class="p">,</span> <span class="n">line</span><span class="p">)[</span><span class="mi">0</span><span class="p">])[</span><span class="mi">1</span><span class="p">:]</span>  <span class="c"># .strip(&quot;=&quot;)</span>
+                <span class="k">except</span> <span class="ne">IndexError</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Invalid input file. Parsing failed &#39;</span>\
+                                     <span class="s">&#39;while trying to parse an internal node&#39;</span><span class="p">)</span>
+                <span class="n">internal_links</span> <span class="o">=</span> <span class="n">findall</span><span class="p">(</span><span class="s">&quot;&lt;(\d+)&gt;&quot;</span><span class="p">,</span> <span class="n">line</span><span class="p">)</span>
+                <span class="n">external_links</span> <span class="o">=</span> <span class="n">findall</span><span class="p">(</span><span class="s">&quot;{(-?\d+)}&quot;</span><span class="p">,</span> <span class="n">line</span><span class="p">)</span>
+                <span class="n">backbone</span> <span class="o">=</span> <span class="bp">True</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">findall</span><span class="p">(</span><span class="s">&quot;\sbb\s&quot;</span><span class="p">,</span> <span class="n">line</span><span class="p">))</span> <span class="o">&gt;</span> <span class="mi">0</span> \
+                           <span class="k">else</span> <span class="bp">False</span>
+                <span class="n">topology</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="n">node</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;internal&#39;</span><span class="p">,</span> 
+                                  <span class="n">location</span><span class="o">=</span><span class="n">node_location</span><span class="p">,</span> 
+                                  <span class="n">address</span><span class="o">=</span><span class="n">address</span><span class="p">,</span> <span class="n">r</span><span class="o">=</span><span class="n">r</span><span class="p">,</span> <span class="n">backbone</span><span class="o">=</span><span class="n">backbone</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">link</span> <span class="ow">in</span> <span class="n">internal_links</span><span class="p">:</span>
+                    <span class="n">link</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">link</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">node</span> <span class="o">!=</span> <span class="n">link</span><span class="p">:</span>
+                        <span class="n">topology</span><span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="n">node</span><span class="p">,</span> <span class="n">link</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;internal&#39;</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">link</span> <span class="ow">in</span> <span class="n">external_links</span><span class="p">:</span>
+                    <span class="n">link</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">link</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">node</span> <span class="o">!=</span> <span class="n">link</span><span class="p">:</span>
+                        <span class="n">topology</span><span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="n">node</span><span class="p">,</span> <span class="n">link</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;external&#39;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">topology</span>
+
+
+<span class="c"># Parser for CAIDA AS-relationships dataset</span>
+<span class="c"># Data from http://www.caida.org/data/active/as-relationships/</span>
+<span class="c"># http://as-rank.caida.org/data/</span></div>
+<div class="viewcode-block" id="parse_caida_as_relationships"><a class="viewcode-back" href="../../../apidoc/generated/fnss.topologies.parsers.parse_caida_as_relationships.html#fnss.topologies.parsers.parse_caida_as_relationships">[docs]</a><span class="k">def</span> <span class="nf">parse_caida_as_relationships</span><span class="p">(</span><span class="n">path</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Parse a topology from the CAIDA AS relationships dataset</span>
+<span class="sd">    </span>
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    path : str</span>
+<span class="sd">        The path to the CAIDA AS relationships file</span>
+<span class="sd">    </span>
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    topology : DirectedTopology</span>
+<span class="sd">    </span>
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    The node namesof the returned topology are the the ASN of the of the AS </span>
+<span class="sd">    they represent and edges are annotated with the relationship between ASes </span>
+<span class="sd">    they connect. The relationship values can either be *customer*, *peer* or</span>
+<span class="sd">    *sibling*.     </span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">topology</span> <span class="o">=</span> <span class="n">DirectedTopology</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s">&#39;caida_as_relationships&#39;</span><span class="p">)</span>
+    <span class="n">comment_char</span> <span class="o">=</span> <span class="s">&#39;#&#39;</span>
+    <span class="n">relationships_dict</span> <span class="o">=</span> <span class="p">{</span><span class="o">-</span><span class="mi">1</span><span class="p">:</span> <span class="s">&#39;customer&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">:</span> <span class="s">&#39;peer&#39;</span><span class="p">,</span> <span class="mi">2</span><span class="p">:</span> <span class="s">&#39;sibling&#39;</span><span class="p">}</span>
+    
+    <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="s">&quot;r&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">readlines</span><span class="p">():</span>
+        <span class="k">if</span> <span class="n">comment_char</span> <span class="ow">in</span> <span class="n">line</span><span class="p">:</span>
+            <span class="c"># split on comment char, keep only the part before</span>
+            <span class="n">line</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">comment_char</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">line</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">continue</span>
+        <span class="n">entry</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;|&#39;</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">from_as</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+            <span class="n">to_as</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+            <span class="n">relationship</span> <span class="o">=</span> <span class="n">relationships_dict</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="mi">2</span><span class="p">])]</span>
+        <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">IndexError</span><span class="p">,</span> <span class="ne">KeyError</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Invalid input file. Parsing failed while trying&#39;</span>\
+                             <span class="s">&#39; to parse a line&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">from_as</span> <span class="o">!=</span> <span class="n">to_as</span><span class="p">:</span>
+            <span class="n">topology</span><span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="n">from_as</span><span class="p">,</span> <span class="n">to_as</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="n">relationship</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">topology</span>
+
+</div>
+<div class="viewcode-block" id="parse_inet"><a class="viewcode-back" href="../../../apidoc/generated/fnss.topologies.parsers.parse_inet.html#fnss.topologies.parsers.parse_inet">[docs]</a><span class="k">def</span> <span class="nf">parse_inet</span><span class="p">(</span><span class="n">path</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Parse a topology from an output file generated by the Inet topology</span>
+<span class="sd">    generator</span>
+<span class="sd">    </span>
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    path : str</span>
+<span class="sd">        The path to the Inet output file</span>
+<span class="sd">        </span>
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    topology : Topology</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">topology</span> <span class="o">=</span> <span class="n">Topology</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s">&#39;inet&#39;</span><span class="p">)</span>
+    <span class="n">lines</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="s">&quot;r&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">readlines</span><span class="p">()</span>
+    <span class="n">sep</span> <span class="o">=</span> <span class="nb">compile</span><span class="p">(</span><span class="s">&#39;[\s</span><span class="se">\t</span><span class="s">]&#39;</span><span class="p">)</span>
+    <span class="n">first_line</span> <span class="o">=</span> <span class="n">sep</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">lines</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">strip</span><span class="p">())</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">n_nodes</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">first_line</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="n">n_links</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">first_line</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+    <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">IndexError</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Invalid input file. &#39;</span>\
+                         <span class="s">&#39;Cannot parse the number of nodes and links&#39;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">lines</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">1</span> <span class="o">+</span> <span class="n">n_nodes</span> <span class="o">+</span> <span class="n">n_links</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Invalid input file. &#39;</span>\
+                         <span class="s">&#39;It does not have as many lines as expected&#39;</span><span class="p">)</span>
+    
+    <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">lines</span><span class="p">[</span><span class="mi">1</span><span class="p">:]:</span>
+        <span class="n">entry</span> <span class="o">=</span> <span class="n">sep</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">())</span>
+        <span class="k">if</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">n_nodes</span><span class="p">:</span>
+            <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">node_id</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+                <span class="n">longitude</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+                <span class="n">latitude</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span>
+            <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">IndexError</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Invalid input file. Parsing failed while &#39;</span>\
+                                 <span class="s">&#39;trying to parse a node&#39;</span><span class="p">)</span>
+            <span class="n">topology</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="n">node_id</span><span class="p">,</span> <span class="n">latitude</span><span class="o">=</span><span class="n">latitude</span><span class="p">,</span> <span class="n">longitude</span><span class="o">=</span><span class="n">longitude</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">u</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+                <span class="n">v</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+                <span class="n">weight</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span>
+            <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">IndexError</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Invalid input file. Parsing failed while &#39;</span>\
+                                 <span class="s">&#39;trying to parse a link&#39;</span><span class="p">)</span>
+            <span class="n">topology</span><span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">weight</span><span class="o">=</span><span class="n">weight</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">topology</span>
+
+
+<span class="c"># Ignore external links</span>
+<span class="c"># Node parameters: city, latitude, longitude</span>
+<span class="c"># Link parameters: capacity, weight[, link_index, link_type]</span></div>
+<div class="viewcode-block" id="parse_abilene"><a class="viewcode-back" href="../../../apidoc/generated/fnss.topologies.parsers.parse_abilene.html#fnss.topologies.parsers.parse_abilene">[docs]</a><span class="k">def</span> <span class="nf">parse_abilene</span><span class="p">(</span><span class="n">topology_file</span><span class="p">,</span> <span class="n">links_file</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Parse the Abilene topology</span>
+<span class="sd">    </span>
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    topology_file : str</span>
+<span class="sd">        The path of the Abilene topology file</span>
+<span class="sd">    links_file : str, optional</span>
+<span class="sd">        The path of the Abilene links file</span>
+<span class="sd">    </span>
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    topology : DirectedTopology</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">topology</span> <span class="o">=</span> <span class="n">DirectedTopology</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s">&#39;abilene&#39;</span><span class="p">,</span> 
+                         <span class="n">capacity_unit</span><span class="o">=</span><span class="s">&#39;kbps&#39;</span><span class="p">,</span> 
+                         <span class="n">distance_unit</span><span class="o">=</span><span class="s">&#39;Km&#39;</span><span class="p">)</span>
+    <span class="n">comment_char</span> <span class="o">=</span> <span class="s">&#39;#&#39;</span>
+    <span class="n">link_type_dict</span> <span class="o">=</span> <span class="p">{</span><span class="mi">0</span><span class="p">:</span> <span class="s">&#39;internal&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">:</span> <span class="s">&#39;inbound&#39;</span><span class="p">,</span> <span class="mi">2</span><span class="p">:</span> <span class="s">&#39;outbound&#39;</span><span class="p">}</span>
+    <span class="n">line_type</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="nb">open</span><span class="p">(</span><span class="n">topology_file</span><span class="p">,</span> <span class="s">&quot;r&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">readlines</span><span class="p">():</span>
+        <span class="k">if</span> <span class="n">comment_char</span> <span class="ow">in</span> <span class="n">line</span><span class="p">:</span>
+            <span class="c"># split on comment char, keep only the part before</span>
+            <span class="n">line</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">comment_char</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">line</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">line</span> <span class="o">==</span> <span class="s">&#39;router&#39;</span> <span class="ow">or</span> <span class="n">line</span> <span class="o">==</span> <span class="s">&#39;link&#39;</span><span class="p">:</span>
+                <span class="n">line_type</span> <span class="o">=</span> <span class="n">line</span>
+                <span class="k">continue</span>
+            <span class="k">if</span> <span class="n">line_type</span> <span class="o">==</span> <span class="s">&#39;router&#39;</span><span class="p">:</span> 
+                <span class="n">node_entry</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\t</span><span class="s">&#39;</span><span class="p">)</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">name</span> <span class="o">=</span> <span class="n">node_entry</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+                    <span class="n">city</span> <span class="o">=</span> <span class="n">node_entry</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+                    <span class="n">latitude</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">node_entry</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span>
+                    <span class="n">longitude</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">node_entry</span><span class="p">[</span><span class="mi">3</span><span class="p">])</span>
+                <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">IndexError</span><span class="p">):</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Invalid input file. Parsing failed &#39;</span>\
+                                     <span class="s">&#39;while trying to parse a router&#39;</span><span class="p">)</span>
+                <span class="n">topology</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">city</span><span class="o">=</span><span class="n">city</span><span class="p">,</span> <span class="n">latitude</span><span class="o">=</span><span class="n">latitude</span><span class="p">,</span> 
+                           <span class="n">longitude</span><span class="o">=</span><span class="n">longitude</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">line_type</span> <span class="o">==</span> <span class="s">&#39;link&#39;</span><span class="p">:</span>
+                <span class="n">sep</span> <span class="o">=</span> <span class="nb">compile</span><span class="p">(</span><span class="s">&#39;[\s</span><span class="se">\t</span><span class="s">]&#39;</span><span class="p">)</span>
+                <span class="n">link_entry</span> <span class="o">=</span> <span class="n">sep</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">u</span> <span class="o">=</span> <span class="n">link_entry</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+                    <span class="n">v</span> <span class="o">=</span> <span class="n">link_entry</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+                    <span class="n">capacity</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">link_entry</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span>
+                    <span class="n">x_u</span> <span class="o">=</span> <span class="n">topology</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="s">&#39;longitude&#39;</span><span class="p">]</span>
+                    <span class="n">y_u</span> <span class="o">=</span> <span class="n">topology</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="s">&#39;latitude&#39;</span><span class="p">]</span>
+                    <span class="n">x_v</span> <span class="o">=</span> <span class="n">topology</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;longitude&#39;</span><span class="p">]</span>
+                    <span class="n">y_v</span> <span class="o">=</span> <span class="n">topology</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;latitude&#39;</span><span class="p">]</span>
+                    <span class="n">length</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">sqrt</span><span class="p">((</span><span class="n">x_v</span> <span class="o">-</span> <span class="n">x_u</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="p">(</span><span class="n">y_v</span> <span class="o">-</span> <span class="n">y_u</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="p">))</span>
+                    <span class="n">weight</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">link_entry</span><span class="p">[</span><span class="mi">3</span><span class="p">])</span>
+                <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">IndexError</span><span class="p">):</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Invalid input file. Parsing failed &#39;</span>\
+                                     <span class="s">&#39;while trying to parse a link&#39;</span><span class="p">)</span>
+                <span class="n">topology</span><span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">capacity</span><span class="o">=</span><span class="n">capacity</span><span class="p">,</span> 
+                           <span class="n">weight</span><span class="o">=</span><span class="n">weight</span><span class="p">,</span> <span class="n">length</span><span class="o">=</span><span class="n">length</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Invalid input file. Found a line that &#39;</span>\
+                                 <span class="s">&#39;I cannot interpret&#39;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">links_file</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="nb">open</span><span class="p">(</span><span class="n">links_file</span><span class="p">,</span> <span class="s">&quot;r&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">readlines</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">comment_char</span> <span class="ow">in</span> <span class="n">line</span><span class="p">:</span>
+                <span class="c"># split on comment char, keep only the part before</span>
+                <span class="n">line</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">comment_char</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">line</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">sep</span> <span class="o">=</span> <span class="nb">compile</span><span class="p">(</span><span class="s">&#39;[\s</span><span class="se">\t</span><span class="s">]&#39;</span><span class="p">)</span>
+                <span class="n">link_entry</span> <span class="o">=</span> <span class="n">sep</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="o">=</span> <span class="n">link_entry</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;,&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">u</span> <span class="o">==</span> <span class="s">&#39;*&#39;</span> <span class="ow">or</span> <span class="n">v</span> <span class="o">==</span> <span class="s">&#39;*&#39;</span><span class="p">:</span> <span class="c"># ignore external links</span>
+                        <span class="k">continue</span>
+                    <span class="n">link_index</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">link_entry</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+                    <span class="n">link_type</span> <span class="o">=</span> <span class="n">link_type_dict</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">link_entry</span><span class="p">[</span><span class="mi">2</span><span class="p">])]</span>
+                <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">IndexError</span><span class="p">):</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Invalid input file. &#39;</span>\
+                                     <span class="s">&#39;Parsing failed while trying to &#39;</span>\
+                                     <span class="s">&#39;parse a link from links_file&#39;</span><span class="p">)</span>
+                <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;link_index&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">link_index</span>
+                <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;link_type&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">link_type</span>        
+    <span class="k">return</span> <span class="n">topology</span>
+
+
+</div>
+<div class="viewcode-block" id="parse_brite"><a class="viewcode-back" href="../../../apidoc/generated/fnss.topologies.parsers.parse_brite.html#fnss.topologies.parsers.parse_brite">[docs]</a><span class="k">def</span> <span class="nf">parse_brite</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">capacity_unit</span><span class="o">=</span><span class="s">&#39;Mbps&#39;</span><span class="p">,</span> <span class="n">delay_unit</span><span class="o">=</span><span class="s">&#39;ms&#39;</span><span class="p">,</span> <span class="n">directed</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Parse a topology from an output file generated by the BRITE topology </span>
+<span class="sd">    generator</span>
+<span class="sd">    </span>
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    path : str</span>
+<span class="sd">        The path to the BRITE output file    </span>
+<span class="sd">    capacity_unit : str, optional</span>
+<span class="sd">        The unit in which link capacity values are expresses in the BRITE file</span>
+<span class="sd">    delay_unit : str, optional</span>
+<span class="sd">        The unit in which link delay values are expresses in the BRITE file</span>
+<span class="sd">    directed : bool, optional</span>
+<span class="sd">        If True, the topology is parsed as directed topology.</span>
+<span class="sd">        </span>
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    topology : Topology or DirectedTopology</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c"># BRITE output format:</span>
+    <span class="c"># http://www.cs.bu.edu/brite/user_manual/node29.html</span>
+    <span class="n">topology</span> <span class="o">=</span> <span class="n">DirectedTopology</span><span class="p">()</span> <span class="k">if</span> <span class="n">directed</span> <span class="k">else</span> <span class="n">Topology</span><span class="p">()</span>
+    <span class="n">topology</span><span class="o">.</span><span class="n">graph</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;type&#39;</span><span class="p">:</span><span class="s">&#39;brite&#39;</span><span class="p">,</span> <span class="s">&#39;capacity_unit&#39;</span><span class="p">:</span><span class="n">capacity_unit</span><span class="p">,</span> 
+               <span class="s">&#39;delay_unit&#39;</span><span class="p">:</span><span class="n">delay_unit</span><span class="p">}</span>
+    <span class="n">line_type</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="s">&quot;r&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">readlines</span><span class="p">():</span>
+        <span class="k">if</span> <span class="n">line</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;Nodes:&#39;</span><span class="p">):</span>
+            <span class="n">line_type</span> <span class="o">=</span> <span class="s">&#39;node&#39;</span>
+        <span class="k">elif</span> <span class="n">line</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;Edges:&#39;</span><span class="p">):</span>
+            <span class="n">line_type</span> <span class="o">=</span> <span class="s">&#39;edge&#39;</span>
+        <span class="k">elif</span> <span class="n">line</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">isdigit</span><span class="p">():</span>
+            <span class="n">elements</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;</span><span class="se">\t</span><span class="s">&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">line_type</span> <span class="o">==</span> <span class="s">&#39;node&#39;</span><span class="p">:</span>
+                <span class="c"># Parse node</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">node_id</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">elements</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+                    <span class="n">longitude</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">elements</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+                    <span class="n">latitude</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">elements</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span>
+                    <span class="c">#indegree = int(elements[3])</span>
+                    <span class="c">#outdegree = int(elements[4])</span>
+                    <span class="n">as_id</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">elements</span><span class="p">[</span><span class="mi">5</span><span class="p">])</span>
+                    <span class="c"># Node type can be:</span>
+                    <span class="c"># AS-only: AS_NODE</span>
+                    <span class="c"># Router-only: RT_NODE</span>
+                    <span class="c"># Top-down: RT_NODE, RT_BORDER</span>
+                    <span class="c"># Bottom-up: RT_NODE</span>
+                    <span class="n">node_type</span> <span class="o">=</span> <span class="n">elements</span><span class="p">[</span><span class="mi">6</span><span class="p">]</span>
+                <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">IndexError</span><span class="p">):</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Invalid input file. Parsing failed &#39;</span>\
+                                     <span class="s">&#39;while trying to parse a node&#39;</span><span class="p">)</span>
+                <span class="n">topology</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="n">node_id</span><span class="p">,</span> <span class="n">latitude</span><span class="o">=</span><span class="n">latitude</span><span class="p">,</span> 
+                                  <span class="n">longitude</span><span class="o">=</span><span class="n">longitude</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="n">node_type</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">as_id</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="n">topology</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">node_id</span><span class="p">][</span><span class="s">&#39;AS&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">as_id</span>
+            <span class="k">elif</span> <span class="n">line_type</span> <span class="o">==</span> <span class="s">&#39;edge&#39;</span><span class="p">:</span>
+                <span class="c"># Parse link</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">edge_id</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">elements</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+                    <span class="n">from_node</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">elements</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+                    <span class="n">to_node</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">elements</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span>
+                    <span class="n">length</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">elements</span><span class="p">[</span><span class="mi">3</span><span class="p">])</span>
+                    <span class="n">delay</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">elements</span><span class="p">[</span><span class="mi">4</span><span class="p">])</span>
+                    <span class="n">capacity</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">elements</span><span class="p">[</span><span class="mi">5</span><span class="p">])</span>
+                    <span class="c">#from_as = elements[6]</span>
+                    <span class="c">#to_as = elements[7]</span>
+                    <span class="c"># Link type can be:</span>
+                    <span class="c"># AS-only: E_AS</span>
+                    <span class="c"># Router-only: E_RT</span>
+                    <span class="c"># Top-down: E_AS, E_RT</span>
+                    <span class="c"># bottom-up: E_RT</span>
+                    <span class="n">link_type</span> <span class="o">=</span> <span class="n">elements</span><span class="p">[</span><span class="mi">8</span><span class="p">]</span>
+                <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">IndexError</span><span class="p">):</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Invalid input file. Parsing failed &#39;</span>\
+                                     <span class="s">&#39;while trying to parse a link&#39;</span><span class="p">)</span>
+                <span class="n">topology</span><span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="n">from_node</span><span class="p">,</span> <span class="n">to_node</span><span class="p">,</span> <span class="nb">id</span><span class="o">=</span><span class="n">edge_id</span><span class="p">,</span> 
+                                  <span class="n">length</span><span class="o">=</span><span class="n">length</span><span class="p">,</span> <span class="n">delay</span><span class="o">=</span><span class="n">delay</span><span class="p">,</span> 
+                                  <span class="n">capacity</span><span class="o">=</span><span class="n">capacity</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="n">link_type</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">continue</span>
+    <span class="k">return</span> <span class="n">topology</span>
+
+</div>
+<div class="viewcode-block" id="parse_topology_zoo"><a class="viewcode-back" href="../../../apidoc/generated/fnss.topologies.parsers.parse_topology_zoo.html#fnss.topologies.parsers.parse_topology_zoo">[docs]</a><span class="k">def</span> <span class="nf">parse_topology_zoo</span><span class="p">(</span><span class="n">path</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Parse a topology from the Topology Zoo dataset.</span>
+<span class="sd">    </span>
+<span class="sd">    Note: if the topology to be parsed contains multilinks, i.e. multiple links</span>
+<span class="sd">    between the same pair or nodes, the parsing may fail or not parse only one</span>
+<span class="sd">    link.</span>
+<span class="sd">    </span>
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    path : str</span>
+<span class="sd">        The path to the Topology Zoo file</span>
+<span class="sd">    </span>
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    topology : Topology or DirectedTopology</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">try_convert_int</span><span class="p">(</span><span class="n">value</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Try to convert a string to an int. If not possible, returns the given</span>
+<span class="sd">        value unchanged </span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">int</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">value</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+                <span class="k">pass</span>
+        <span class="k">return</span> <span class="n">value</span>
+    <span class="k">if</span> <span class="n">path</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s">&#39;.gml&#39;</span><span class="p">):</span>
+        <span class="n">topo_zoo_graph</span> <span class="o">=</span> <span class="n">nx</span><span class="o">.</span><span class="n">read_gml</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">path</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s">&#39;.graphml&#39;</span><span class="p">):</span>
+        <span class="n">topo_zoo_graph</span> <span class="o">=</span> <span class="n">nx</span><span class="o">.</span><span class="n">read_graphml</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Invalid input file format. It must either be a GML &#39;</span>\
+                         <span class="s">&#39;or GraohML file (with extensions .gml or .graphml)&#39;</span><span class="p">)</span>
+    <span class="n">topology</span> <span class="o">=</span> <span class="n">Topology</span><span class="p">()</span> <span class="k">if</span> <span class="n">topo_zoo_graph</span><span class="o">.</span><span class="n">is_undirected</span><span class="p">()</span> \
+               <span class="k">else</span> <span class="n">DirectedTopology</span><span class="p">()</span>
+    
+    <span class="k">for</span> <span class="n">tv</span> <span class="ow">in</span> <span class="n">topo_zoo_graph</span><span class="o">.</span><span class="n">nodes</span><span class="p">():</span>
+        <span class="n">v</span> <span class="o">=</span> <span class="n">try_convert_int</span><span class="p">(</span><span class="n">tv</span><span class="p">)</span>
+        <span class="n">topology</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">label</span> <span class="o">=</span> <span class="n">topo_zoo_graph</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">tv</span><span class="p">][</span><span class="s">&#39;label&#39;</span><span class="p">]</span>
+            <span class="n">topology</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;label&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">label</span>
+            <span class="n">longitude</span> <span class="o">=</span> <span class="n">topo_zoo_graph</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">tv</span><span class="p">][</span><span class="s">&#39;Longitude&#39;</span><span class="p">]</span>
+            <span class="n">latitude</span> <span class="o">=</span> <span class="n">topo_zoo_graph</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">tv</span><span class="p">][</span><span class="s">&#39;Latitude&#39;</span><span class="p">]</span>
+            <span class="n">topology</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;longitude&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">longitude</span>
+            <span class="n">topology</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;latitude&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">latitude</span>
+        <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+            <span class="k">pass</span>
+    <span class="k">for</span> <span class="n">tv</span><span class="p">,</span> <span class="n">tu</span> <span class="ow">in</span> <span class="n">topo_zoo_graph</span><span class="o">.</span><span class="n">edges</span><span class="p">():</span>
+        <span class="n">v</span> <span class="o">=</span> <span class="n">try_convert_int</span><span class="p">(</span><span class="n">tv</span><span class="p">)</span>
+        <span class="n">u</span> <span class="o">=</span> <span class="n">try_convert_int</span><span class="p">(</span><span class="n">tu</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">u</span> <span class="o">==</span> <span class="n">v</span><span class="p">:</span>
+            <span class="k">continue</span>
+        <span class="n">topology</span><span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">u</span><span class="p">)</span>
+        <span class="k">if</span> <span class="s">&#39;Latitude&#39;</span> <span class="ow">in</span> <span class="n">topo_zoo_graph</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">tv</span><span class="p">]</span> <span class="ow">and</span> \
+                <span class="s">&#39;Longitude&#39;</span> <span class="ow">in</span> <span class="n">topo_zoo_graph</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">tv</span><span class="p">]</span> <span class="ow">and</span> \
+                <span class="s">&#39;Latitude&#39;</span> <span class="ow">in</span> <span class="n">topo_zoo_graph</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">tu</span><span class="p">]</span> <span class="ow">and</span> \
+                <span class="s">&#39;Longitude&#39;</span> <span class="ow">in</span> <span class="n">topo_zoo_graph</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">tu</span><span class="p">]:</span>
+            
+            <span class="n">y_v</span> <span class="o">=</span> <span class="n">topo_zoo_graph</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">tv</span><span class="p">][</span><span class="s">&#39;Latitude&#39;</span><span class="p">]</span> 
+            <span class="n">x_v</span> <span class="o">=</span> <span class="n">topo_zoo_graph</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">tv</span><span class="p">][</span><span class="s">&#39;Longitude&#39;</span><span class="p">]</span> 
+            <span class="n">y_u</span> <span class="o">=</span> <span class="n">topo_zoo_graph</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">tu</span><span class="p">][</span><span class="s">&#39;Latitude&#39;</span><span class="p">]</span>  
+            <span class="n">x_u</span> <span class="o">=</span> <span class="n">topo_zoo_graph</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">tu</span><span class="p">][</span><span class="s">&#39;Longitude&#39;</span><span class="p">]</span>
+            <span class="n">length</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">sqrt</span><span class="p">((</span><span class="n">x_v</span> <span class="o">-</span> <span class="n">x_u</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="p">(</span><span class="n">y_v</span> <span class="o">-</span> <span class="n">y_u</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="p">))</span>
+            <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">v</span><span class="p">][</span><span class="n">u</span><span class="p">][</span><span class="s">&#39;length&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">length</span>
+    <span class="k">return</span> <span class="n">topology</span>
+
+</div>
+<div class="viewcode-block" id="parse_ashiip"><a class="viewcode-back" href="../../../apidoc/generated/fnss.topologies.parsers.parse_ashiip.html#fnss.topologies.parsers.parse_ashiip">[docs]</a><span class="k">def</span> <span class="nf">parse_ashiip</span><span class="p">(</span><span class="n">file_name</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Parse a topology from an output file generated by the aShiip topology </span>
+<span class="sd">    generator</span>
+<span class="sd">    </span>
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    path : str</span>
+<span class="sd">        The path to the aShiip output file</span>
+<span class="sd">    </span>
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    topology : Topology</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">topology</span> <span class="o">=</span> <span class="n">Topology</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s">&#39;ashiip&#39;</span><span class="p">)</span>
+    
+    <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="nb">open</span><span class="p">(</span><span class="n">file_name</span><span class="p">,</span> <span class="s">&quot;r&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">readlines</span><span class="p">():</span>
+        <span class="c"># There is no documented aShiip format but we assume that if the line</span>
+        <span class="c"># does not start with a number it is not part of the topology</span>
+        <span class="k">if</span> <span class="n">line</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">isdigit</span><span class="p">():</span>
+            <span class="n">node_ids</span> <span class="o">=</span> <span class="n">findall</span><span class="p">(</span><span class="s">&quot;\d+&quot;</span><span class="p">,</span> <span class="n">line</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">node_ids</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">3</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Invalid input file. Parsing failed while &#39;</span>\
+                                 <span class="s">&#39;trying to parse a line&#39;</span><span class="p">)</span>
+            <span class="n">node</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">node_ids</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+            <span class="n">level</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">node_ids</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+            <span class="n">topology</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="n">node</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="n">level</span><span class="p">)</span>
+            
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">node_ids</span><span class="p">)):</span>
+                <span class="n">topology</span><span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="n">node</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">node_ids</span><span class="p">[</span><span class="n">i</span><span class="p">]))</span>
+    <span class="k">return</span> <span class="n">topology</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="../../../np-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../../index.html">FNSS 0.1.0 documentation</a> &raquo;</li>
+          <li><a href="../../index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2012, Lorenzo Saino, Cosmin Cocora.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

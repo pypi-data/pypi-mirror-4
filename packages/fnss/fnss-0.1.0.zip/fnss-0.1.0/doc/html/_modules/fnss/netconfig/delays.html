@@ -1,0 +1,281 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>fnss.netconfig.delays &mdash; FNSS 0.1.0 documentation</title>
+    
+    <link rel="stylesheet" href="../../../_static/sphinxdoc.css" type="text/css" />
+    <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../../',
+        VERSION:     '0.1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../../_static/doctools.js"></script>
+    <link rel="top" title="FNSS 0.1.0 documentation" href="../../../index.html" />
+    <link rel="up" title="Module code" href="../../index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="../../../np-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../../index.html">FNSS 0.1.0 documentation</a> &raquo;</li>
+          <li><a href="../../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for fnss.netconfig.delays</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Provides functions to assign and manipulate link delays.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">from</span> <span class="nn">math</span> <span class="kn">import</span> <span class="n">sqrt</span>
+<span class="kn">import</span> <span class="nn">networkx</span> <span class="kn">as</span> <span class="nn">nx</span>
+<span class="kn">from</span> <span class="nn">fnss.util</span> <span class="kn">import</span> <span class="n">time_units</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;PROPAGATION_DELAY_VACUUM&#39;</span><span class="p">,</span>
+           <span class="s">&#39;PROPAGATION_DELAY_FIBER&#39;</span><span class="p">,</span>
+           <span class="s">&#39;set_delays_constant&#39;</span><span class="p">,</span> 
+           <span class="s">&#39;set_delays_geo_distance&#39;</span><span class="p">,</span> 
+           <span class="s">&#39;get_delays&#39;</span><span class="p">,</span> 
+           <span class="s">&#39;clear_delays&#39;</span><span class="p">]</span>
+
+<span class="c"># Propagation delay of light in the vacuum</span>
+<span class="n">PROPAGATION_DELAY_VACUUM</span> <span class="o">=</span> <span class="mf">1.0</span><span class="o">/</span><span class="mi">300</span> <span class="c"># ms/Km</span>
+
+<span class="c"># Propagation delay of light in an average optical fiber</span>
+<span class="n">PROPAGATION_DELAY_FIBER</span> <span class="o">=</span> <span class="mf">0.005</span> <span class="c"># ms/Km</span>
+
+
+<div class="viewcode-block" id="set_delays_constant"><a class="viewcode-back" href="../../../apidoc/generated/fnss.netconfig.delays.set_delays_constant.html#fnss.netconfig.delays.set_delays_constant">[docs]</a><span class="k">def</span> <span class="nf">set_delays_constant</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">delay</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">delay_unit</span><span class="o">=</span><span class="s">&#39;ms&#39;</span><span class="p">,</span> <span class="n">links</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Assign a constant delay to all selected links</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    topology : Topology</span>
+<span class="sd">        The topology on which delays are applied.</span>
+<span class="sd">    delay : float, optional</span>
+<span class="sd">        The constant delay to be applied to all links</span>
+<span class="sd">    delay_unit : string, optional</span>
+<span class="sd">        The unit of delays. Supported units are: &quot;us&quot; (microseconds), &quot;ms&quot; </span>
+<span class="sd">        (milliseconds) and &quot;s&quot; (seconds)</span>
+<span class="sd">    links : list, optional</span>
+<span class="sd">        List of selected links on which weights are applied. If it is None, all</span>
+<span class="sd">        links are selected</span>
+
+<span class="sd">    Examples</span>
+<span class="sd">    --------</span>
+<span class="sd">    &gt;&gt;&gt; import fnss</span>
+<span class="sd">    &gt;&gt;&gt; topology = fnss.Topology()</span>
+<span class="sd">    &gt;&gt;&gt; topology.add_path([1, 2, 4, 5, 8])</span>
+<span class="sd">    &gt;&gt;&gt; fnss.set_delays_constant(topology, 5.0, &#39;ms&#39;, links=[(1,2), (5,8), (4,5)])</span>
+<span class="sd">    &gt;&gt;&gt; delay = fnss.get_delays(topology)</span>
+<span class="sd">    &gt;&gt;&gt; delay[(1, 2)]</span>
+<span class="sd">    5.0</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">delay_unit</span> <span class="ow">in</span> <span class="n">time_units</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;The delay_unit argument is not valid&quot;</span><span class="p">)</span>
+    <span class="n">conversion_factor</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="k">if</span> <span class="s">&#39;delay_unit&#39;</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">graph</span> <span class="ow">and</span> <span class="n">links</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="c"># If a delay_unit is set, that means that some links have already</span>
+        <span class="c"># been assigned delays, so set these delay using the same unit</span>
+        <span class="c"># already used</span>
+        <span class="n">curr_delay_unit</span> <span class="o">=</span> <span class="n">topology</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s">&#39;delay_unit&#39;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">curr_delay_unit</span> <span class="o">!=</span> <span class="n">delay_unit</span><span class="p">:</span>
+            <span class="n">conversion_factor</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">time_units</span><span class="p">[</span><span class="n">delay_unit</span><span class="p">])</span> \
+                                <span class="o">/</span> <span class="n">time_units</span><span class="p">[</span><span class="n">curr_delay_unit</span><span class="p">]</span> 
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">topology</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s">&#39;delay_unit&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">delay_unit</span>
+    <span class="n">edges</span> <span class="o">=</span> <span class="n">topology</span><span class="o">.</span><span class="n">edges</span><span class="p">()</span> <span class="k">if</span> <span class="n">links</span> <span class="ow">is</span> <span class="bp">None</span> <span class="k">else</span> <span class="n">links</span>
+    <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">edges</span><span class="p">:</span>
+        <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;delay&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">delay</span> <span class="o">*</span> <span class="n">conversion_factor</span>
+
+</div>
+<div class="viewcode-block" id="set_delays_geo_distance"><a class="viewcode-back" href="../../../apidoc/generated/fnss.netconfig.delays.set_delays_geo_distance.html#fnss.netconfig.delays.set_delays_geo_distance">[docs]</a><span class="k">def</span> <span class="nf">set_delays_geo_distance</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">specific_delay</span><span class="p">,</span> <span class="n">default_delay</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> 
+                            <span class="n">delay_unit</span><span class="o">=</span><span class="s">&#39;ms&#39;</span><span class="p">,</span> <span class="n">links</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Assign a delay to all selected links equal to the product of link length</span>
+<span class="sd">    and specific delay. To use this function, all nodes must have a &#39;latitude&#39;</span>
+<span class="sd">    and a &#39;longitude&#39; attribute. Alternatively, all links of the topology must </span>
+<span class="sd">    have a &#39;length&#39; attribute. If the length of a link cannot be determined, it</span>
+<span class="sd">    is applied the delay equal default_delay if specified, otherwise an error </span>
+<span class="sd">    is returned. </span>
+<span class="sd">    </span>
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    topology : Topology</span>
+<span class="sd">        The topology on which delays are applied.</span>
+<span class="sd">    specific_delay : float, optional</span>
+<span class="sd">        The specific delay (in ms/Km) to be applied to all links</span>
+<span class="sd">    default_delay : float, optional</span>
+<span class="sd">        The delay to be applied to links whose length is not known. If None, if</span>
+<span class="sd">        the length of a link cannot be determined, an error is returned    </span>
+<span class="sd">    delay_unit : string, optional</span>
+<span class="sd">        The unit of delays. Supported units are: &quot;us&quot; (microseconds), &quot;ms&quot; </span>
+<span class="sd">        (milliseconds) and &quot;s&quot; (seconds)</span>
+<span class="sd">    links : list, optional</span>
+<span class="sd">        List of selected links on which weights are applied. If it is None, all</span>
+<span class="sd">        links are selected</span>
+
+<span class="sd">    Examples</span>
+<span class="sd">    --------</span>
+<span class="sd">    &gt;&gt;&gt; import fnss</span>
+<span class="sd">    &gt;&gt;&gt; topology = fnss.parse_abilene(&#39;abilene_topo.txt&#39;)</span>
+<span class="sd">    &gt;&gt;&gt; fnss.set_delays_geo_distance(topology, specific_delay=fnss.PROP_DELAY_FIBER)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">delay_unit</span> <span class="ow">in</span> <span class="n">time_units</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;The delay_unit argument is not valid&quot;</span><span class="p">)</span> 
+    <span class="n">edges</span> <span class="o">=</span> <span class="n">topology</span><span class="o">.</span><span class="n">edges</span><span class="p">()</span> <span class="k">if</span> <span class="n">links</span> <span class="ow">is</span> <span class="bp">None</span> <span class="k">else</span> <span class="n">links</span>
+    <span class="k">if</span> <span class="n">default_delay</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">all</span><span class="p">([</span><span class="s">&#39;length&#39;</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">]</span> <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">edges</span><span class="p">]):</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">all</span><span class="p">([</span><span class="s">&#39;latitude&#39;</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">v</span><span class="p">]</span> <span class="ow">and</span> \
+                        <span class="s">&#39;longitude&#39;</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">v</span><span class="p">]</span> <span class="ow">and</span> \
+                        <span class="s">&#39;latitude&#39;</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">u</span><span class="p">]</span> <span class="ow">and</span> \
+                        <span class="s">&#39;longitude&#39;</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">u</span><span class="p">]</span> 
+                        <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">edges</span><span class="p">]):</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;All links must have a length attribute or &#39;</span>\
+                   <span class="s">&#39;at all nodes must have a latitude and longitude attribute&#39;</span><span class="p">)</span>
+        <span class="n">conversion_factor</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="k">if</span> <span class="s">&#39;delay_unit&#39;</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">graph</span> <span class="ow">and</span> <span class="n">links</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="c"># If a delay_unit is set, that means that some links have already</span>
+        <span class="c"># been assigned delays, so set these delay using the same unit</span>
+        <span class="c"># already used</span>
+        <span class="n">curr_delay_unit</span> <span class="o">=</span> <span class="n">topology</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s">&#39;delay_unit&#39;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">curr_delay_unit</span> <span class="o">!=</span> <span class="n">delay_unit</span><span class="p">:</span>
+            <span class="n">conversion_factor</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">time_units</span><span class="p">[</span><span class="n">delay_unit</span><span class="p">])</span> \
+                                <span class="o">/</span> <span class="n">time_units</span><span class="p">[</span><span class="n">curr_delay_unit</span><span class="p">]</span> 
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">topology</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s">&#39;delay_unit&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">delay_unit</span>
+    <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">edges</span><span class="p">:</span>
+        <span class="k">if</span> <span class="s">&#39;length&#39;</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">]:</span>
+            <span class="n">length</span> <span class="o">=</span> <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;length&#39;</span><span class="p">]</span>
+            <span class="n">delay</span> <span class="o">=</span> <span class="n">specific_delay</span> <span class="o">*</span> <span class="n">length</span>
+        <span class="k">elif</span> <span class="s">&#39;longitude&#39;</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">u</span><span class="p">]</span> <span class="ow">and</span> \
+             <span class="s">&#39;latitude&#39;</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">u</span><span class="p">]</span> <span class="ow">and</span> \
+             <span class="s">&#39;longitude&#39;</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">v</span><span class="p">]</span> <span class="ow">and</span> \
+             <span class="s">&#39;latitude&#39;</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">v</span><span class="p">]:</span>
+            <span class="n">x_v</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">topology</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;longitude&#39;</span><span class="p">])</span>
+            <span class="n">y_v</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">topology</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;latitude&#39;</span><span class="p">])</span>
+            <span class="n">x_u</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">topology</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="s">&#39;longitude&#39;</span><span class="p">])</span>
+            <span class="n">y_u</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">topology</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="s">&#39;latitude&#39;</span><span class="p">])</span>  
+            <span class="n">length</span> <span class="o">=</span> <span class="n">sqrt</span><span class="p">((</span><span class="n">x_v</span> <span class="o">-</span> <span class="n">x_u</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="p">(</span><span class="n">y_v</span> <span class="o">-</span> <span class="n">y_u</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span>
+            <span class="n">delay</span> <span class="o">=</span> <span class="n">specific_delay</span> <span class="o">*</span> <span class="n">length</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">delay</span> <span class="o">=</span> <span class="n">default_delay</span>
+        <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;delay&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">delay</span> <span class="o">*</span> <span class="n">conversion_factor</span>
+
+</div>
+<div class="viewcode-block" id="get_delays"><a class="viewcode-back" href="../../../apidoc/generated/fnss.netconfig.delays.get_delays.html#fnss.netconfig.delays.get_delays">[docs]</a><span class="k">def</span> <span class="nf">get_delays</span><span class="p">(</span><span class="n">topology</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Returns all the delays.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    topology : Topology</span>
+<span class="sd">        The topology whose link delays are requested</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    delays : dict</span>
+<span class="sd">        Dictionary of link delays keyed by link.</span>
+<span class="sd">    </span>
+<span class="sd">    Examples</span>
+<span class="sd">    --------</span>
+<span class="sd">    &gt;&gt;&gt; import fnss</span>
+<span class="sd">    &gt;&gt;&gt; topology = fnss.Topology()</span>
+<span class="sd">    &gt;&gt;&gt; topology.add_path([1,2,3])</span>
+<span class="sd">    &gt;&gt;&gt; fnss.set_delays_constant(topology, 10, &#39;ms&#39;)</span>
+<span class="sd">    &gt;&gt;&gt; delay = get_delays(topology)</span>
+<span class="sd">    &gt;&gt;&gt; delay[(1,2)]</span>
+<span class="sd">    10</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">nx</span><span class="o">.</span><span class="n">get_edge_attributes</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="s">&#39;delay&#39;</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="clear_delays"><a class="viewcode-back" href="../../../apidoc/generated/fnss.netconfig.delays.clear_delays.html#fnss.netconfig.delays.clear_delays">[docs]</a><span class="k">def</span> <span class="nf">clear_delays</span><span class="p">(</span><span class="n">topology</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Remove all delays from the topology.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    topology : Topology</span>
+<span class="sd">        </span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="s">&#39;delay_unit&#39;</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">graph</span><span class="p">:</span>
+        <span class="k">del</span> <span class="n">topology</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s">&#39;delay_unit&#39;</span><span class="p">]</span>
+    <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">edges</span><span class="p">():</span>
+        <span class="k">if</span> <span class="s">&#39;delay&#39;</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">]:</span>
+            <span class="k">del</span> <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;delay&#39;</span><span class="p">]</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="../../../np-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../../index.html">FNSS 0.1.0 documentation</a> &raquo;</li>
+          <li><a href="../../index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2012, Lorenzo Saino, Cosmin Cocora.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>
