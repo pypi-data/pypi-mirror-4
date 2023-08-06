@@ -1,0 +1,1 @@
+A package to solve ZODB conflict problems of sessions for high traffic sites
