@@ -1,0 +1,218 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>zope.security.adapter &mdash; zope.security 4.0dev documentation</title>
+    
+    <link rel="stylesheet" href="../../../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../../',
+        VERSION:     '4.0dev',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../../_static/doctools.js"></script>
+    <link rel="top" title="zope.security 4.0dev documentation" href="../../../index.html" />
+    <link rel="up" title="Module code" href="../../index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../../index.html">zope.security 4.0dev documentation</a> &raquo;</li>
+          <li><a href="../../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for zope.security.adapter</h1><div class="highlight"><pre>
+<span class="c">##############################################################################</span>
+<span class="c">#</span>
+<span class="c"># Copyright (c) 2004 Zope Foundation and Contributors.</span>
+<span class="c"># All Rights Reserved.</span>
+<span class="c">#</span>
+<span class="c"># This software is subject to the provisions of the Zope Public License,</span>
+<span class="c"># Version 2.1 (ZPL).  A copy of the ZPL should accompany this distribution.</span>
+<span class="c"># THIS SOFTWARE IS PROVIDED &quot;AS IS&quot; AND ANY AND ALL EXPRESS OR IMPLIED</span>
+<span class="c"># WARRANTIES ARE DISCLAIMED, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED</span>
+<span class="c"># WARRANTIES OF TITLE, MERCHANTABILITY, AGAINST INFRINGEMENT, AND FITNESS</span>
+<span class="c"># FOR A PARTICULAR PURPOSE.</span>
+<span class="c">#</span>
+<span class="c">##############################################################################</span>
+<span class="sd">&quot;&quot;&quot;Support for taking security into account in adaptation</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span> <span class="nn">zope.security.checker</span> <span class="kn">import</span> <span class="n">ProxyFactory</span>
+<span class="kn">from</span> <span class="nn">zope.security.proxy</span> <span class="kn">import</span> <span class="n">removeSecurityProxy</span>
+<span class="kn">from</span> <span class="nn">zope.location</span> <span class="kn">import</span> <span class="n">ILocation</span><span class="p">,</span> <span class="n">LocationProxy</span>
+
+<div class="viewcode-block" id="assertLocation"><a class="viewcode-back" href="../../../api/adapter.html#zope.security.adapter.assertLocation">[docs]</a><span class="k">def</span> <span class="nf">assertLocation</span><span class="p">(</span><span class="n">adapter</span><span class="p">,</span> <span class="n">parent</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Assert locatable adapters.</span>
+
+<span class="sd">    This function asserts that the adapter get location-proxied if</span>
+<span class="sd">    it doesn&#39;t provide ILocation itself. Further more the returned</span>
+<span class="sd">    locatable adapter get its parent set if its __parent__ attribute</span>
+<span class="sd">    is currently None.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c"># handle none-locatable adapters (A)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">ILocation</span><span class="o">.</span><span class="n">providedBy</span><span class="p">(</span><span class="n">adapter</span><span class="p">):</span>
+        <span class="n">locatable</span> <span class="o">=</span> <span class="n">LocationProxy</span><span class="p">(</span><span class="n">adapter</span><span class="p">)</span>
+        <span class="n">locatable</span><span class="o">.</span><span class="n">__parent__</span> <span class="o">=</span> <span class="n">parent</span>
+        <span class="k">return</span> <span class="n">locatable</span>
+
+    <span class="c"># handle locatable, parentless adapters (B)</span>
+    <span class="k">if</span> <span class="n">adapter</span><span class="o">.</span><span class="n">__parent__</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">adapter</span><span class="o">.</span><span class="n">__parent__</span> <span class="o">=</span> <span class="n">parent</span>
+        <span class="k">return</span> <span class="n">adapter</span>
+
+    <span class="c"># handle locatable, parentful adapters (C)</span>
+    <span class="k">return</span> <span class="n">adapter</span>
+
+</div>
+<div class="viewcode-block" id="LocatingTrustedAdapterFactory"><a class="viewcode-back" href="../../../api/adapter.html#zope.security.adapter.LocatingTrustedAdapterFactory">[docs]</a><span class="k">class</span> <span class="nc">LocatingTrustedAdapterFactory</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Adapt an adapter factory to provide trusted and (locatable) adapters.</span>
+
+<span class="sd">    Trusted adapters always adapt unproxied objects. If asked to</span>
+<span class="sd">    adapt any proxied objects, it will unproxy them and then</span>
+<span class="sd">    security-proxy the resulting adapter (S) unless the objects where not</span>
+<span class="sd">    security-proxied before (N).</span>
+
+<span class="sd">    Further locating trusted adapters provide a location for protected</span>
+<span class="sd">    adapters only (S). If such a protected adapter itself does not provide</span>
+<span class="sd">    ILocation it is wrapped within a location proxy and it parent will</span>
+<span class="sd">    be set. If the adapter does provide ILocation and it&#39;s __parent__ is None,</span>
+<span class="sd">    we set the __parent__ to the adapter&#39;s context:</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">factory</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">factory</span> <span class="o">=</span> <span class="n">factory</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__name__</span> <span class="o">=</span> <span class="n">factory</span><span class="o">.</span><span class="n">__name__</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__module__</span> <span class="o">=</span> <span class="n">factory</span><span class="o">.</span><span class="n">__module__</span>
+
+    <span class="c"># protected methods</span>
+    <span class="k">def</span> <span class="nf">_customizeProtected</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">adapter</span><span class="p">,</span> <span class="n">context</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">assertLocation</span><span class="p">(</span><span class="n">adapter</span><span class="p">,</span> <span class="n">context</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_customizeUnprotected</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">adapter</span><span class="p">,</span> <span class="n">context</span><span class="p">):</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">ILocation</span><span class="o">.</span><span class="n">providedBy</span><span class="p">(</span><span class="n">adapter</span><span class="p">)</span>
+            <span class="ow">and</span> <span class="n">adapter</span><span class="o">.</span><span class="n">__parent__</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">):</span>
+                    <span class="n">adapter</span><span class="o">.</span><span class="n">__parent__</span> <span class="o">=</span> <span class="n">context</span>
+        <span class="k">return</span> <span class="n">adapter</span>
+
+    <span class="k">def</span> <span class="nf">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">arg</span> <span class="ow">in</span> <span class="n">args</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">removeSecurityProxy</span><span class="p">(</span><span class="n">arg</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">arg</span><span class="p">:</span>
+                <span class="n">args</span> <span class="o">=</span> <span class="p">[</span><span class="n">removeSecurityProxy</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">args</span><span class="p">]</span>
+                <span class="n">adapter</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">factory</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span>
+                <span class="n">adapter</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_customizeProtected</span><span class="p">(</span><span class="n">adapter</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+                <span class="k">return</span> <span class="n">ProxyFactory</span><span class="p">(</span><span class="n">adapter</span><span class="p">)</span>
+
+        <span class="n">adapter</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">factory</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span>
+        <span class="n">adapter</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_customizeUnprotected</span><span class="p">(</span><span class="n">adapter</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="k">return</span> <span class="n">adapter</span>
+
+</div>
+<div class="viewcode-block" id="TrustedAdapterFactory"><a class="viewcode-back" href="../../../api/adapter.html#zope.security.adapter.TrustedAdapterFactory">[docs]</a><span class="k">class</span> <span class="nc">TrustedAdapterFactory</span><span class="p">(</span><span class="n">LocatingTrustedAdapterFactory</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Adapt an adapter factory to provide trusted adapters.</span>
+
+<span class="sd">    Trusted adapters always adapt unproxied objects. If asked to</span>
+<span class="sd">    adapt any proxied objects, it will unproxy them and then</span>
+<span class="sd">    security-proxy the resulting adapter unless the objects where not</span>
+<span class="sd">    security-proxied before.</span>
+
+<span class="sd">    If the adapter does provide ILocation and it&#39;s __parent__ is None,</span>
+<span class="sd">    we set the __parent__ to the adapter&#39;s context.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c"># do not location-proxy the adapter</span>
+    <span class="k">def</span> <span class="nf">_customizeProtected</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">adapter</span><span class="p">,</span> <span class="n">context</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_customizeUnprotected</span><span class="p">(</span><span class="n">adapter</span><span class="p">,</span> <span class="n">context</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="LocatingUntrustedAdapterFactory"><a class="viewcode-back" href="../../../api/adapter.html#zope.security.adapter.LocatingUntrustedAdapterFactory">[docs]</a><span class="k">class</span> <span class="nc">LocatingUntrustedAdapterFactory</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Adapt an adapter factory to provide locatable untrusted adapters</span>
+
+<span class="sd">    Untrusted adapters always adapt proxied objects. If any permission</span>
+<span class="sd">    other than zope.Public is required, untrusted adapters need a location</span>
+<span class="sd">    in order that the local authentication mechanism can be inovked</span>
+<span class="sd">    correctly.</span>
+
+<span class="sd">    If the adapter does not provide ILocation, we location proxy it and</span>
+<span class="sd">    set the parent. If the adapter does provide ILocation and</span>
+<span class="sd">    it&#39;s __parent__ is None, we set the __parent__ to the adapter&#39;s</span>
+<span class="sd">    context only:</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">factory</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">factory</span> <span class="o">=</span> <span class="n">factory</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__name__</span> <span class="o">=</span> <span class="n">factory</span><span class="o">.</span><span class="n">__name__</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__module__</span> <span class="o">=</span> <span class="n">factory</span><span class="o">.</span><span class="n">__module__</span>
+
+    <span class="k">def</span> <span class="nf">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="n">adapter</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">factory</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">assertLocation</span><span class="p">(</span><span class="n">adapter</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../../index.html">zope.security 4.0dev documentation</a> &raquo;</li>
+          <li><a href="../../index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2012, Zope Foundation Contributors &lt;zope-dev@zope.org&gt;.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

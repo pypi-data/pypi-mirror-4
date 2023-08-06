@@ -1,0 +1,870 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>zope.security.checker &mdash; zope.security 4.0dev documentation</title>
+    
+    <link rel="stylesheet" href="../../../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../../',
+        VERSION:     '4.0dev',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../../_static/doctools.js"></script>
+    <link rel="top" title="zope.security 4.0dev documentation" href="../../../index.html" />
+    <link rel="up" title="Module code" href="../../index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../../index.html">zope.security 4.0dev documentation</a> &raquo;</li>
+          <li><a href="../../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for zope.security.checker</h1><div class="highlight"><pre>
+<span class="c">##############################################################################</span>
+<span class="c">#</span>
+<span class="c"># Copyright (c) 2003 Zope Foundation and Contributors.</span>
+<span class="c"># All Rights Reserved.</span>
+<span class="c">#</span>
+<span class="c"># This software is subject to the provisions of the Zope Public License,</span>
+<span class="c"># Version 2.1 (ZPL).  A copy of the ZPL should accompany this distribution.</span>
+<span class="c"># THIS SOFTWARE IS PROVIDED &quot;AS IS&quot; AND ANY AND ALL EXPRESS OR IMPLIED</span>
+<span class="c"># WARRANTIES ARE DISCLAIMED, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED</span>
+<span class="c"># WARRANTIES OF TITLE, MERCHANTABILITY, AGAINST INFRINGEMENT, AND FITNESS</span>
+<span class="c"># FOR A PARTICULAR PURPOSE.</span>
+<span class="c">#</span>
+<span class="c">##############################################################################</span>
+<span class="sd">&quot;&quot;&quot;Security Checkers</span>
+
+<span class="sd">You can set the environment variable ZOPE_WATCH_CHECKERS to get additional</span>
+<span class="sd">security checker debugging output on the standard error.</span>
+
+<span class="sd">Setting ZOPE_WATCH_CHECKERS to 1 will display messages about unauthorized or</span>
+<span class="sd">forbidden attribute access.  Setting it to a larger number will also display</span>
+<span class="sd">messages about granted attribute access.</span>
+
+<span class="sd">Note that the ZOPE_WATCH_CHECKERS mechanism will eventually be</span>
+<span class="sd">replaced with a more general security auditing mechanism.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">abc</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">types</span>
+<span class="kn">import</span> <span class="nn">datetime</span>
+<span class="kn">import</span> <span class="nn">decimal</span>
+<span class="kn">import</span> <span class="nn">weakref</span>
+
+<span class="kn">from</span> <span class="nn">zope.i18nmessageid</span> <span class="kn">import</span> <span class="n">Message</span>
+<span class="kn">import</span> <span class="nn">zope.interface.interface</span>
+<span class="kn">import</span> <span class="nn">zope.interface.interfaces</span>
+<span class="kn">import</span> <span class="nn">zope.interface.declarations</span>
+<span class="kn">from</span> <span class="nn">zope.interface</span> <span class="kn">import</span> <span class="n">Interface</span>
+<span class="kn">from</span> <span class="nn">zope.interface</span> <span class="kn">import</span> <span class="n">directlyProvides</span>
+<span class="kn">from</span> <span class="nn">zope.interface</span> <span class="kn">import</span> <span class="n">implementer</span>
+<span class="kn">from</span> <span class="nn">zope.interface.interfaces</span> <span class="kn">import</span> <span class="n">IDeclaration</span>
+<span class="kn">from</span> <span class="nn">zope.interface.interfaces</span> <span class="kn">import</span> <span class="n">IInterface</span>
+
+<span class="kn">from</span> <span class="nn">zope.security.interfaces</span> <span class="kn">import</span> <span class="n">IChecker</span>
+<span class="kn">from</span> <span class="nn">zope.security.interfaces</span> <span class="kn">import</span> <span class="n">INameBasedChecker</span>
+<span class="kn">from</span> <span class="nn">zope.security.interfaces</span> <span class="kn">import</span> <span class="n">ISecurityProxyFactory</span>
+<span class="kn">from</span> <span class="nn">zope.security.interfaces</span> <span class="kn">import</span> <span class="n">ForbiddenAttribute</span>
+<span class="kn">from</span> <span class="nn">zope.security.interfaces</span> <span class="kn">import</span> <span class="n">Unauthorized</span>
+<span class="kn">from</span> <span class="nn">zope.security._definitions</span> <span class="kn">import</span> <span class="n">thread_local</span>
+<span class="kn">from</span> <span class="nn">zope.security._compat</span> <span class="kn">import</span> <span class="n">CLASS_TYPES</span>
+<span class="kn">from</span> <span class="nn">zope.security._compat</span> <span class="kn">import</span> <span class="n">PYTHON2</span>
+<span class="kn">from</span> <span class="nn">zope.security._compat</span> <span class="kn">import</span> <span class="n">_u</span>
+<span class="kn">from</span> <span class="nn">zope.security._proxy</span> <span class="kn">import</span> <span class="n">_Proxy</span> <span class="k">as</span> <span class="n">Proxy</span>
+<span class="kn">from</span> <span class="nn">zope.security._proxy</span> <span class="kn">import</span> <span class="n">getChecker</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">from</span> <span class="nn">zope.exceptions</span> <span class="kn">import</span> <span class="n">DuplicationError</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span> <span class="c">#pragma NO COVER</span>
+    <span class="k">class</span> <span class="nc">DuplicationError</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;A duplicate registration was attempted&quot;&quot;&quot;</span>
+
+<span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;ZOPE_WATCH_CHECKERS&#39;</span><span class="p">):</span> <span class="c">#pragma NO COVER</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">WATCH_CHECKERS</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;ZOPE_WATCH_CHECKERS&#39;</span><span class="p">))</span>
+    <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+        <span class="n">WATCH_CHECKERS</span> <span class="o">=</span> <span class="mi">1</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">WATCH_CHECKERS</span> <span class="o">=</span> <span class="mi">0</span>
+
+
+<div class="viewcode-block" id="ProxyFactory"><a class="viewcode-back" href="../../../api/checker.html#zope.security.checker.ProxyFactory">[docs]</a><span class="k">def</span> <span class="nf">ProxyFactory</span><span class="p">(</span><span class="nb">object</span><span class="p">,</span> <span class="n">checker</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Factory function that creates a proxy for an object</span>
+
+<span class="sd">    The proxy checker is looked up if not provided.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="nb">object</span><span class="p">)</span> <span class="ow">is</span> <span class="n">Proxy</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">checker</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">or</span> <span class="n">checker</span> <span class="ow">is</span> <span class="n">getChecker</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+            <span class="k">return</span> <span class="nb">object</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c"># We have a proxy, but someone asked us to change its checker.</span>
+            <span class="c"># Let&#39;s raise an exception.</span>
+            <span class="c">#</span>
+            <span class="c"># Other reasonable actions would be to either keep the existing</span>
+            <span class="c"># proxy, or to create a new one with the given checker.</span>
+            <span class="c"># The latter might be a security hole though, if untrusted code</span>
+            <span class="c"># can call ProxyFactory.</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&quot;Tried to use ProxyFactory to change a Proxy&#39;s&quot;</span>
+                            <span class="s">&quot; checker.&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">checker</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">checker</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="nb">object</span><span class="p">,</span> <span class="s">&#39;__Security_checker__&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">checker</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">checker</span> <span class="o">=</span> <span class="n">selectChecker</span><span class="p">(</span><span class="nb">object</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">checker</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">return</span> <span class="nb">object</span>
+
+    <span class="k">return</span> <span class="n">Proxy</span><span class="p">(</span><span class="nb">object</span><span class="p">,</span> <span class="n">checker</span><span class="p">)</span>
+</div>
+<span class="n">directlyProvides</span><span class="p">(</span><span class="n">ProxyFactory</span><span class="p">,</span> <span class="n">ISecurityProxyFactory</span><span class="p">)</span>
+
+<div class="viewcode-block" id="canWrite"><a class="viewcode-back" href="../../../api/checker.html#zope.security.checker.canWrite">[docs]</a><span class="k">def</span> <span class="nf">canWrite</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Check whether the interaction may write an attribute named name on obj.</span>
+
+<span class="sd">    Convenience method.  Rather than using checkPermission in high level code,</span>
+<span class="sd">    use canWrite and canAccess to avoid binding code to permissions.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">obj</span> <span class="o">=</span> <span class="n">ProxyFactory</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+    <span class="n">checker</span> <span class="o">=</span> <span class="n">getChecker</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">checker</span><span class="o">.</span><span class="n">check_setattr</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+    <span class="k">except</span> <span class="n">Unauthorized</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">False</span>
+    <span class="k">except</span> <span class="n">ForbiddenAttribute</span><span class="p">:</span>
+        <span class="c"># we are going to be a bit DWIM-y here: see</span>
+        <span class="c"># http://www.zope.org/Collectors/Zope3-dev/506</span>
+
+        <span class="c"># generally, if the check is ForbiddenAttribute we want it to be</span>
+        <span class="c"># raised: it probably indicates a programming or configuration error.</span>
+        <span class="c"># However, we special case a write ForbiddenAttribute when one can</span>
+        <span class="c"># actually read the attribute: this represents a reasonable</span>
+        <span class="c"># configuration of a readonly attribute, and returning False (meaning</span>
+        <span class="c"># &quot;no, you can&#39;t write it&quot;) is arguably more useful than raising the</span>
+        <span class="c"># exception.</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">checker</span><span class="o">.</span><span class="n">check_getattr</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+            <span class="c"># we&#39;ll let *this* ForbiddenAttribute fall through, if any.  It</span>
+            <span class="c"># means that both read and write are forbidden.</span>
+        <span class="k">except</span> <span class="n">Unauthorized</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="k">return</span> <span class="bp">False</span>
+    <span class="c"># all other exceptions, other than Unauthorized and ForbiddenAttribute,</span>
+    <span class="c"># should be passed through uncaught, as they indicate programmer error</span>
+    <span class="k">return</span> <span class="bp">True</span>
+</div>
+<div class="viewcode-block" id="canAccess"><a class="viewcode-back" href="../../../api/checker.html#zope.security.checker.canAccess">[docs]</a><span class="k">def</span> <span class="nf">canAccess</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Check whether the interaction may access an attribute named name on obj.</span>
+
+<span class="sd">    Convenience method.  Rather than using checkPermission in high level code,</span>
+<span class="sd">    use canWrite and canAccess to avoid binding code to permissions.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c"># access attributes and methods, including, in the current checker</span>
+    <span class="c"># implementation, special names like __getitem__</span>
+    <span class="n">obj</span> <span class="o">=</span> <span class="n">ProxyFactory</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+    <span class="n">checker</span> <span class="o">=</span> <span class="n">getChecker</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">checker</span><span class="o">.</span><span class="n">check_getattr</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+    <span class="k">except</span> <span class="n">Unauthorized</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">False</span>
+    <span class="c"># if it is Forbidden (or anything else), let it be raised: it probably</span>
+    <span class="c"># indicates a programming or configuration error</span>
+    <span class="k">return</span> <span class="bp">True</span>
+</div>
+<span class="nd">@implementer</span><span class="p">(</span><span class="n">INameBasedChecker</span><span class="p">)</span>
+<span class="k">class</span> <span class="nc">CheckerPy</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">get_permissions</span><span class="p">,</span> <span class="n">set_permissions</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Create a checker</span>
+
+<span class="sd">        A dictionary must be provided for computing permissions for</span>
+<span class="sd">        names. The dictionary get will be called with attribute names</span>
+<span class="sd">        and must return a permission id, None, or the special marker,</span>
+<span class="sd">        CheckerPublic. If None is returned, then access to the name is</span>
+<span class="sd">        forbidden. If CheckerPublic is returned, then access will be</span>
+<span class="sd">        granted without checking a permission.</span>
+
+<span class="sd">        An optional setattr dictionary may be provided for checking</span>
+<span class="sd">        set attribute access.</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">get_permissions</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&#39;get_permissions must be a dict&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">get_permissions</span> <span class="o">=</span> <span class="n">get_permissions</span>
+        <span class="k">if</span> <span class="n">set_permissions</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">set_permissions</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&#39;set_permissions must be a dict&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">set_permissions</span> <span class="o">=</span> <span class="n">set_permissions</span>
+
+    <span class="k">def</span> <span class="nf">permission_id</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="s">&#39;See INameBasedChecker&#39;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_permissions</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">setattr_permission_id</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="s">&#39;See INameBasedChecker&#39;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">set_permissions</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">set_permissions</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+
+
+    <span class="k">def</span> <span class="nf">check_setattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">object</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="s">&#39;See IChecker&#39;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">set_permissions</span><span class="p">:</span>
+            <span class="n">permission</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">set_permissions</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">permission</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="k">if</span> <span class="n">permission</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">permission</span> <span class="ow">is</span> <span class="n">CheckerPublic</span><span class="p">:</span>
+                <span class="k">return</span> <span class="c"># Public</span>
+            <span class="k">if</span> <span class="n">thread_local</span><span class="o">.</span><span class="n">interaction</span><span class="o">.</span><span class="n">checkPermission</span><span class="p">(</span><span class="n">permission</span><span class="p">,</span> <span class="nb">object</span><span class="p">):</span>
+                <span class="k">return</span> <span class="c"># allowed</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">__traceback_supplement__</span> <span class="o">=</span> <span class="p">(</span><span class="n">TracebackSupplement</span><span class="p">,</span> <span class="nb">object</span><span class="p">)</span>
+                <span class="k">raise</span> <span class="n">Unauthorized</span><span class="p">(</span><span class="nb">object</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">permission</span><span class="p">)</span>
+
+        <span class="n">__traceback_supplement__</span> <span class="o">=</span> <span class="p">(</span><span class="n">TracebackSupplement</span><span class="p">,</span> <span class="nb">object</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="n">ForbiddenAttribute</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="nb">object</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">check</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">object</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="s">&#39;See IChecker&#39;</span>
+        <span class="n">permission</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_permissions</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">permission</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">permission</span> <span class="ow">is</span> <span class="n">CheckerPublic</span><span class="p">:</span>
+                <span class="k">return</span> <span class="c"># Public</span>
+            <span class="k">if</span> <span class="n">thread_local</span><span class="o">.</span><span class="n">interaction</span><span class="o">.</span><span class="n">checkPermission</span><span class="p">(</span><span class="n">permission</span><span class="p">,</span> <span class="nb">object</span><span class="p">):</span>
+                <span class="k">return</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">__traceback_supplement__</span> <span class="o">=</span> <span class="p">(</span><span class="n">TracebackSupplement</span><span class="p">,</span> <span class="nb">object</span><span class="p">)</span>
+                <span class="k">raise</span> <span class="n">Unauthorized</span><span class="p">(</span><span class="nb">object</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">permission</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">_available_by_default</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="k">if</span> <span class="n">name</span> <span class="o">!=</span> <span class="s">&#39;__iter__&#39;</span> <span class="ow">or</span> <span class="nb">hasattr</span><span class="p">(</span><span class="nb">object</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+            <span class="n">__traceback_supplement__</span> <span class="o">=</span> <span class="p">(</span><span class="n">TracebackSupplement</span><span class="p">,</span> <span class="nb">object</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="n">ForbiddenAttribute</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="nb">object</span><span class="p">)</span>
+
+    <span class="n">check_getattr</span> <span class="o">=</span> <span class="n">check</span> <span class="c"># &#39;See IChecker&#39;</span>
+
+    <span class="k">def</span> <span class="nf">proxy</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="s">&#39;See IChecker&#39;</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">is</span> <span class="n">Proxy</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">value</span>
+        <span class="n">checker</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="s">&#39;__Security_checker__&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">checker</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">checker</span> <span class="o">=</span> <span class="n">selectChecker</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">checker</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">value</span>
+
+        <span class="k">return</span> <span class="n">Proxy</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">checker</span><span class="p">)</span>
+<span class="n">Checker</span> <span class="o">=</span> <span class="n">CheckerPy</span> <span class="c"># in case no C optimizations</span>
+
+
+<span class="c"># Helper class for __traceback_supplement__</span>
+<span class="k">class</span> <span class="nc">TracebackSupplement</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">obj</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">obj</span> <span class="o">=</span> <span class="n">obj</span>
+
+    <span class="k">def</span> <span class="nf">getInfo</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">cls</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">obj</span><span class="o">.</span><span class="n">__class__</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="s">&quot;__module__&quot;</span><span class="p">):</span>
+                <span class="n">s</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s">.</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">cls</span><span class="o">.</span><span class="n">__module__</span><span class="p">,</span> <span class="n">cls</span><span class="o">.</span><span class="n">__name__</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span> <span class="c">#pragma NO COVER XXX</span>
+                <span class="n">s</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">cls</span><span class="o">.</span><span class="n">__name__</span><span class="p">)</span>
+            <span class="n">result</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;   - class: &quot;</span> <span class="o">+</span> <span class="n">s</span><span class="p">)</span>
+        <span class="k">except</span><span class="p">:</span> <span class="c">#pragma NO COVER XXX</span>
+            <span class="k">pass</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">cls</span> <span class="o">=</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">obj</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="s">&quot;__module__&quot;</span><span class="p">):</span>
+                <span class="n">s</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s">.</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">cls</span><span class="o">.</span><span class="n">__module__</span><span class="p">,</span> <span class="n">cls</span><span class="o">.</span><span class="n">__name__</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span> <span class="c">#pragma NO COVER XXX</span>
+                <span class="n">s</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">cls</span><span class="o">.</span><span class="n">__name__</span><span class="p">)</span>
+            <span class="n">result</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;   - type: &quot;</span> <span class="o">+</span> <span class="n">s</span><span class="p">)</span>
+        <span class="k">except</span><span class="p">:</span> <span class="c">#pragma NO COVER XXX</span>
+            <span class="k">pass</span>
+        <span class="k">return</span> <span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="Global"><a class="viewcode-back" href="../../../api/checker.html#zope.security.checker.Global">[docs]</a><span class="k">class</span> <span class="nc">Global</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;A global object that behaves like a string.</span>
+
+<span class="sd">    We want this to behave as a global, meaning it&#39;s pickled</span>
+<span class="sd">    by name, rather than value. We need to arrange that it has a suitable</span>
+<span class="sd">    __reduce__.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">module</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">module</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span> <span class="c">#pragma NO COVER XXX</span>
+            <span class="n">module</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">_getframe</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">f_locals</span><span class="p">[</span><span class="s">&#39;__name__&#39;</span><span class="p">]</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">__name__</span> <span class="o">=</span> <span class="n">name</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__module__</span> <span class="o">=</span> <span class="n">module</span>
+
+    <span class="k">def</span> <span class="nf">__reduce__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__name__</span>
+
+    <span class="k">def</span> <span class="nf">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s">(</span><span class="si">%s</span><span class="s">,</span><span class="si">%s</span><span class="s">)&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span>
+                              <span class="bp">self</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">__module__</span><span class="p">)</span>
+
+<span class="c"># Marker for public attributes</span></div>
+<span class="n">CheckerPublic</span> <span class="o">=</span> <span class="n">Global</span><span class="p">(</span><span class="s">&#39;CheckerPublic&#39;</span><span class="p">)</span>
+<span class="n">CP_HACK_XXX</span> <span class="o">=</span> <span class="n">CheckerPublic</span>
+
+<span class="c"># Now we wrap it in a security proxy so that it retains it&#39;s</span>
+<span class="c"># identity when it needs to be security proxied.</span>
+<span class="n">d</span><span class="o">=</span><span class="p">{}</span>
+<span class="n">CheckerPublic</span> <span class="o">=</span> <span class="n">Proxy</span><span class="p">(</span><span class="n">CheckerPublic</span><span class="p">,</span> <span class="n">Checker</span><span class="p">(</span><span class="n">d</span><span class="p">))</span> <span class="c"># XXX uses CheckerPy</span>
+<span class="n">d</span><span class="p">[</span><span class="s">&#39;__reduce__&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">CheckerPublic</span>
+<span class="k">del</span> <span class="n">d</span>
+
+<span class="c"># TODO: It&#39;s a bit scary above that we can pickle a proxy if access is</span>
+<span class="c"># granted to __reduce__. We might want to bother to prevent this in</span>
+<span class="c"># general and only allow it in this specific case.</span>
+
+<div class="viewcode-block" id="NamesChecker"><a class="viewcode-back" href="../../../api/checker.html#zope.security.checker.NamesChecker">[docs]</a><span class="k">def</span> <span class="nf">NamesChecker</span><span class="p">(</span><span class="n">names</span><span class="o">=</span><span class="p">(),</span> <span class="n">permission_id</span><span class="o">=</span><span class="n">CheckerPublic</span><span class="p">,</span> <span class="o">**</span><span class="n">__kw__</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Return a checker that grants access to a set of names.</span>
+
+<span class="sd">    A sequence of names is given as the first argument. If a second</span>
+<span class="sd">    argument, permission_id, is given, it is the permission required</span>
+<span class="sd">    to access the names.  Additional names and permission ids can be</span>
+<span class="sd">    supplied as keyword arguments.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">data</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">data</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">__kw__</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">names</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">permission_id</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">permission_id</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">DuplicationError</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="n">data</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">permission_id</span>
+
+    <span class="k">return</span> <span class="n">Checker</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+</div>
+<span class="k">def</span> <span class="nf">InterfaceChecker</span><span class="p">(</span><span class="n">interface</span><span class="p">,</span> <span class="n">permission_id</span><span class="o">=</span><span class="n">CheckerPublic</span><span class="p">,</span> <span class="o">**</span><span class="n">__kw__</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">NamesChecker</span><span class="p">(</span><span class="n">interface</span><span class="o">.</span><span class="n">names</span><span class="p">(</span><span class="nb">all</span><span class="o">=</span><span class="bp">True</span><span class="p">),</span> <span class="n">permission_id</span><span class="p">,</span> <span class="o">**</span><span class="n">__kw__</span><span class="p">)</span>
+
+<div class="viewcode-block" id="MultiChecker"><a class="viewcode-back" href="../../../api/checker.html#zope.security.checker.MultiChecker">[docs]</a><span class="k">def</span> <span class="nf">MultiChecker</span><span class="p">(</span><span class="n">specs</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Create a checker from a sequence of specifications</span>
+
+<span class="sd">    A specification is:</span>
+
+<span class="sd">    - A two-tuple with:</span>
+
+<span class="sd">      o a sequence of names or an interface</span>
+
+<span class="sd">      o a permission id</span>
+
+<span class="sd">      All the names in the sequence of names or the interface are</span>
+<span class="sd">      protected by the permission.</span>
+
+<span class="sd">    - A dictionoid (having an items method), with items that are</span>
+<span class="sd">      name/permission-id pairs.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="k">for</span> <span class="n">spec</span> <span class="ow">in</span> <span class="n">specs</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">spec</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">tuple</span><span class="p">:</span>
+            <span class="n">names</span><span class="p">,</span> <span class="n">permission_id</span> <span class="o">=</span> <span class="n">spec</span>
+            <span class="k">if</span> <span class="n">IInterface</span><span class="o">.</span><span class="n">providedBy</span><span class="p">(</span><span class="n">names</span><span class="p">):</span>
+                <span class="n">names</span> <span class="o">=</span> <span class="n">names</span><span class="o">.</span><span class="n">names</span><span class="p">(</span><span class="nb">all</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">names</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">permission_id</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">permission_id</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="n">DuplicationError</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+                <span class="n">data</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">permission_id</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">permission_id</span> <span class="ow">in</span> <span class="n">spec</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="k">if</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">permission_id</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">permission_id</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="n">DuplicationError</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+                <span class="n">data</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">permission_id</span>
+
+    <span class="k">return</span> <span class="n">Checker</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="selectCheckerPy"><a class="viewcode-back" href="../../../api/checker.html#zope.security.checker.selectCheckerPy">[docs]</a><span class="k">def</span> <span class="nf">selectCheckerPy</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Get a checker for the given object</span>
+
+<span class="sd">    The appropriate checker is returned or None is returned. If the</span>
+<span class="sd">    return value is None, then object should not be wrapped in a proxy.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c"># We need to be careful here. We might have a proxy, in which case</span>
+    <span class="c"># we can&#39;t use the type.  OTOH, we might not be able to use the</span>
+    <span class="c"># __class__ either, since not everything has one.</span>
+
+    <span class="c"># TODO: we really need formal proxy introspection</span>
+
+    <span class="c">#if type(object) is Proxy:</span>
+    <span class="c">#    # Is this already a security proxy?</span>
+    <span class="c">#    return None</span>
+
+    <span class="n">checker</span> <span class="o">=</span> <span class="n">_getChecker</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="nb">object</span><span class="p">),</span> <span class="n">_defaultChecker</span><span class="p">)</span>
+
+    <span class="c">#checker = _getChecker(getattr(object, &#39;__class__&#39;, type(object)),</span>
+    <span class="c">#                      _defaultChecker)</span>
+
+    <span class="k">if</span> <span class="n">checker</span> <span class="ow">is</span> <span class="n">NoProxy</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">None</span>
+
+    <span class="k">while</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">checker</span><span class="p">,</span> <span class="n">Checker</span><span class="p">):</span>
+        <span class="n">checker</span> <span class="o">=</span> <span class="n">checker</span><span class="p">(</span><span class="nb">object</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">checker</span> <span class="ow">is</span> <span class="n">NoProxy</span> <span class="ow">or</span> <span class="n">checker</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">None</span>
+
+    <span class="k">return</span> <span class="n">checker</span></div>
+<span class="n">selectChecker</span> <span class="o">=</span> <span class="n">selectCheckerPy</span> <span class="c"># in case no C optimizations</span>
+
+<span class="k">def</span> <span class="nf">getCheckerForInstancesOf</span><span class="p">(</span><span class="n">class_</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">_checkers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">class_</span><span class="p">)</span>
+
+<span class="n">DEFINABLE_TYPES</span> <span class="o">=</span> <span class="n">CLASS_TYPES</span> <span class="o">+</span> <span class="p">(</span><span class="n">types</span><span class="o">.</span><span class="n">ModuleType</span><span class="p">,)</span>
+<div class="viewcode-block" id="defineChecker"><a class="viewcode-back" href="../../../api/checker.html#zope.security.checker.defineChecker">[docs]</a><span class="k">def</span> <span class="nf">defineChecker</span><span class="p">(</span><span class="n">type_</span><span class="p">,</span> <span class="n">checker</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Define a checker for a given type of object</span>
+
+<span class="sd">    The checker can be a Checker, or a function that, when called with</span>
+<span class="sd">    an object, returns a Checker.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">type_</span><span class="p">,</span> <span class="n">DEFINABLE_TYPES</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+                <span class="s">&#39;type_ must be a type, class or module, not a </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">type_</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">type_</span> <span class="ow">in</span> <span class="n">_checkers</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">DuplicationError</span><span class="p">(</span><span class="n">type_</span><span class="p">)</span>
+    <span class="n">_checkers</span><span class="p">[</span><span class="n">type_</span><span class="p">]</span> <span class="o">=</span> <span class="n">checker</span>
+</div>
+<span class="k">def</span> <span class="nf">undefineChecker</span><span class="p">(</span><span class="n">type_</span><span class="p">):</span>
+    <span class="k">del</span> <span class="n">_checkers</span><span class="p">[</span><span class="n">type_</span><span class="p">]</span>
+
+<span class="n">NoProxy</span> <span class="o">=</span> <span class="nb">object</span><span class="p">()</span>
+
+<span class="c"># _checkers is a mapping.</span>
+<span class="c">#</span>
+<span class="c">#  - Keys are types</span>
+<span class="c">#</span>
+<span class="c">#  - Values are</span>
+<span class="c">#</span>
+<span class="c">#    o None =&gt; rock</span>
+<span class="c">#    o a Checker</span>
+<span class="c">#    o a function returning None or a Checker</span>
+<span class="c">#</span>
+<span class="n">_checkers</span> <span class="o">=</span> <span class="p">{}</span>
+
+<span class="n">_defaultChecker</span> <span class="o">=</span> <span class="n">Checker</span><span class="p">({})</span>
+<span class="n">_available_by_default</span> <span class="o">=</span> <span class="p">[]</span>
+
+<span class="c"># Get optimized versions</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">zope.security._zope_security_checker</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span> <span class="c">#pragma NO COVER</span>
+    <span class="k">pass</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="kn">from</span> <span class="nn">zope.security._zope_security_checker</span> <span class="kn">import</span> <span class="n">_checkers</span><span class="p">,</span> <span class="n">selectChecker</span>
+    <span class="kn">from</span> <span class="nn">zope.security._zope_security_checker</span> <span class="kn">import</span> <span class="n">NoProxy</span><span class="p">,</span> <span class="n">Checker</span>
+    <span class="kn">from</span> <span class="nn">zope.security._zope_security_checker</span> <span class="kn">import</span> <span class="n">_defaultChecker</span>
+    <span class="kn">from</span> <span class="nn">zope.security._zope_security_checker</span> <span class="kn">import</span> <span class="n">_available_by_default</span>
+    <span class="n">zope</span><span class="o">.</span><span class="n">interface</span><span class="o">.</span><span class="n">classImplements</span><span class="p">(</span><span class="n">Checker</span><span class="p">,</span> <span class="n">INameBasedChecker</span><span class="p">)</span>
+
+
+<span class="n">_getChecker</span> <span class="o">=</span> <span class="n">_checkers</span><span class="o">.</span><span class="n">get</span>
+
+<span class="nd">@implementer</span><span class="p">(</span><span class="n">IChecker</span><span class="p">)</span>
+<span class="k">class</span> <span class="nc">CombinedChecker</span><span class="p">(</span><span class="n">Checker</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;A checker that combines two other checkers in a logical-or fashion.</span>
+
+<span class="sd">    The following table describes the result of a combined checker in detail.</span>
+
+<span class="sd">    checker1           checker2           CombinedChecker(checker1, checker2)</span>
+<span class="sd">    ------------------ ------------------ -----------------------------------</span>
+<span class="sd">    ok                 anything           ok (checker2 is never called)</span>
+<span class="sd">    Unauthorized       ok                 ok</span>
+<span class="sd">    Unauthorized       Unauthorized       Unauthorized</span>
+<span class="sd">    Unauthorized       ForbiddenAttribute Unauthorized</span>
+<span class="sd">    ForbiddenAttribute ok                 ok</span>
+<span class="sd">    ForbiddenAttribute Unauthorized       Unauthorized</span>
+<span class="sd">    ForbiddenAttribute ForbiddenAttribute ForbiddenAttribute</span>
+<span class="sd">    ------------------ ------------------ -----------------------------------</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">checker1</span><span class="p">,</span> <span class="n">checker2</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Create a combined checker.&quot;&quot;&quot;</span>
+        <span class="n">Checker</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+                         <span class="n">checker1</span><span class="o">.</span><span class="n">get_permissions</span><span class="p">,</span>
+                         <span class="n">checker1</span><span class="o">.</span><span class="n">set_permissions</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_checker2</span> <span class="o">=</span> <span class="n">checker2</span>
+
+<div class="viewcode-block" id="CombinedChecker.check"><a class="viewcode-back" href="../../../api/checker.html#zope.security.checker.CombinedChecker.check">[docs]</a>    <span class="k">def</span> <span class="nf">check</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">object</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="s">&#39;See IChecker&#39;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">Checker</span><span class="o">.</span><span class="n">check</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">object</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">ForbiddenAttribute</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_checker2</span><span class="o">.</span><span class="n">check</span><span class="p">(</span><span class="nb">object</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">Unauthorized</span> <span class="k">as</span> <span class="n">unauthorized_exception</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_checker2</span><span class="o">.</span><span class="n">check</span><span class="p">(</span><span class="nb">object</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+            <span class="k">except</span> <span class="n">ForbiddenAttribute</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">unauthorized_exception</span>
+</div>
+    <span class="n">check_getattr</span> <span class="o">=</span> <span class="n">__setitem__</span> <span class="o">=</span> <span class="n">check</span>
+
+<div class="viewcode-block" id="CombinedChecker.check_setattr"><a class="viewcode-back" href="../../../api/checker.html#zope.security.checker.CombinedChecker.check_setattr">[docs]</a>    <span class="k">def</span> <span class="nf">check_setattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">object</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="s">&#39;See IChecker&#39;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">Checker</span><span class="o">.</span><span class="n">check_setattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">object</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">ForbiddenAttribute</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_checker2</span><span class="o">.</span><span class="n">check_setattr</span><span class="p">(</span><span class="nb">object</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">Unauthorized</span> <span class="k">as</span> <span class="n">unauthorized_exception</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_checker2</span><span class="o">.</span><span class="n">check_setattr</span><span class="p">(</span><span class="nb">object</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+            <span class="k">except</span> <span class="n">ForbiddenAttribute</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">unauthorized_exception</span>
+</div>
+<div class="viewcode-block" id="CheckerLoggingMixin"><a class="viewcode-back" href="../../../api/checker.html#zope.security.checker.CheckerLoggingMixin">[docs]</a><span class="k">class</span> <span class="nc">CheckerLoggingMixin</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Debugging mixin for checkers.</span>
+
+<span class="sd">    Prints verbose debugging information about every performed check to</span>
+<span class="sd">    sys.stderr.</span>
+
+<span class="sd">    If verbosity is set to 1, only displays Unauthorized and Forbidden messages.</span>
+<span class="sd">    If verbosity is set to a larger number, displays all messages.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">verbosity</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="n">_file</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span>
+
+    <span class="k">def</span> <span class="nf">_log</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">,</span> <span class="n">verbosity</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">verbosity</span> <span class="o">&gt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">verbosity</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_file</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&#39;</span><span class="si">%s</span><span class="se">\n</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">msg</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">check</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">object</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="nb">super</span><span class="p">(</span><span class="n">CheckerLoggingMixin</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">check</span><span class="p">(</span><span class="nb">object</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">verbosity</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">_available_by_default</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="p">(</span><span class="s">&#39;[CHK] + Always available: </span><span class="si">%s</span><span class="s"> on </span><span class="si">%r</span><span class="s">&#39;</span>
+                        <span class="o">%</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="nb">object</span><span class="p">),</span> <span class="mi">2</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="p">(</span>
+                        <span class="s">&#39;[CHK] + Granted: </span><span class="si">%s</span><span class="s"> on </span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="nb">object</span><span class="p">),</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">Unauthorized</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="p">(</span>
+                <span class="s">&#39;[CHK] - Unauthorized: </span><span class="si">%s</span><span class="s"> on </span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="nb">object</span><span class="p">))</span>
+            <span class="k">raise</span>
+        <span class="k">except</span> <span class="n">ForbiddenAttribute</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="p">(</span>
+                <span class="s">&#39;[CHK] - Forbidden: </span><span class="si">%s</span><span class="s"> on </span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="nb">object</span><span class="p">))</span>
+            <span class="k">raise</span>
+
+    <span class="k">def</span> <span class="nf">check_getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">object</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="nb">super</span><span class="p">(</span><span class="n">CheckerLoggingMixin</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">check</span><span class="p">(</span><span class="nb">object</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">verbosity</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">_available_by_default</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="p">(</span>
+                        <span class="s">&#39;[CHK] + Always available getattr: </span><span class="si">%s</span><span class="s"> on </span><span class="si">%r</span><span class="s">&#39;</span>
+                        <span class="o">%</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="nb">object</span><span class="p">),</span> <span class="mi">2</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="p">(</span>
+                        <span class="s">&#39;[CHK] + Granted getattr: </span><span class="si">%s</span><span class="s"> on </span><span class="si">%r</span><span class="s">&#39;</span>
+                        <span class="o">%</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="nb">object</span><span class="p">),</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">Unauthorized</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="p">(</span>
+                <span class="s">&#39;[CHK] - Unauthorized getattr: </span><span class="si">%s</span><span class="s"> on </span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="nb">object</span><span class="p">))</span>
+            <span class="k">raise</span>
+        <span class="k">except</span> <span class="n">ForbiddenAttribute</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="p">(</span>
+                <span class="s">&#39;[CHK] - Forbidden getattr: </span><span class="si">%s</span><span class="s"> on </span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="nb">object</span><span class="p">))</span>
+            <span class="k">raise</span>
+
+    <span class="k">def</span> <span class="nf">check_setattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">object</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="nb">super</span><span class="p">(</span><span class="n">CheckerLoggingMixin</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">check_setattr</span><span class="p">(</span><span class="nb">object</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">verbosity</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="p">(</span>
+                    <span class="s">&#39;[CHK] + Granted setattr: </span><span class="si">%s</span><span class="s"> on </span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="nb">object</span><span class="p">),</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">Unauthorized</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="p">(</span>
+                <span class="s">&#39;[CHK] - Unauthorized setattr: </span><span class="si">%s</span><span class="s"> on </span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="nb">object</span><span class="p">))</span>
+            <span class="k">raise</span>
+        <span class="k">except</span> <span class="n">ForbiddenAttribute</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_log</span><span class="p">(</span>
+                <span class="s">&#39;[CHK] - Forbidden setattr: </span><span class="si">%s</span><span class="s"> on </span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="nb">object</span><span class="p">))</span>
+            <span class="k">raise</span>
+
+</div>
+<span class="k">if</span> <span class="n">WATCH_CHECKERS</span><span class="p">:</span> <span class="c">#pragma NO COVER</span>
+<div class="viewcode-block" id="Checker"><a class="viewcode-back" href="../../../api/checker.html#zope.security.checker.Checker">[docs]</a>    <span class="k">class</span> <span class="nc">Checker</span><span class="p">(</span><span class="n">CheckerLoggingMixin</span><span class="p">,</span> <span class="n">Checker</span><span class="p">):</span>
+        <span class="n">verbosity</span> <span class="o">=</span> <span class="n">WATCH_CHECKERS</span></div>
+<div class="viewcode-block" id="CombinedChecker"><a class="viewcode-back" href="../../../api/checker.html#zope.security.checker.CombinedChecker">[docs]</a>    <span class="k">class</span> <span class="nc">CombinedChecker</span><span class="p">(</span><span class="n">CheckerLoggingMixin</span><span class="p">,</span> <span class="n">CombinedChecker</span><span class="p">):</span>
+        <span class="n">verbosity</span> <span class="o">=</span> <span class="n">WATCH_CHECKERS</span>
+</div>
+<span class="k">def</span> <span class="nf">_instanceChecker</span><span class="p">(</span><span class="n">inst</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">_checkers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">inst</span><span class="o">.</span><span class="n">__class__</span><span class="p">,</span> <span class="n">_defaultChecker</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">moduleChecker</span><span class="p">(</span><span class="n">module</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">_checkers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">module</span><span class="p">)</span>
+
+
+<span class="n">_available_by_default</span><span class="p">[:]</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;__lt__&#39;</span><span class="p">,</span> <span class="s">&#39;__le__&#39;</span><span class="p">,</span> <span class="s">&#39;__eq__&#39;</span><span class="p">,</span>
+                            <span class="s">&#39;__gt__&#39;</span><span class="p">,</span> <span class="s">&#39;__ge__&#39;</span><span class="p">,</span> <span class="s">&#39;__ne__&#39;</span><span class="p">,</span>
+                            <span class="s">&#39;__hash__&#39;</span><span class="p">,</span> <span class="s">&#39;__nonzero__&#39;</span><span class="p">,</span>
+                            <span class="s">&#39;__class__&#39;</span><span class="p">,</span> <span class="s">&#39;__providedBy__&#39;</span><span class="p">,</span> <span class="s">&#39;__implements__&#39;</span><span class="p">,</span>
+                            <span class="s">&#39;__repr__&#39;</span><span class="p">,</span> <span class="s">&#39;__conform__&#39;</span><span class="p">,</span>
+                            <span class="s">&#39;__name__&#39;</span><span class="p">,</span> <span class="s">&#39;__parent__&#39;</span><span class="p">,</span>
+                            <span class="p">]</span>
+
+<span class="n">_callableChecker</span> <span class="o">=</span> <span class="n">NamesChecker</span><span class="p">([</span><span class="s">&#39;__str__&#39;</span><span class="p">,</span> <span class="s">&#39;__name__&#39;</span><span class="p">,</span> <span class="s">&#39;__call__&#39;</span><span class="p">])</span>
+<span class="n">_typeChecker</span> <span class="o">=</span> <span class="n">NamesChecker</span><span class="p">(</span>
+    <span class="p">[</span><span class="s">&#39;__str__&#39;</span><span class="p">,</span> <span class="s">&#39;__name__&#39;</span><span class="p">,</span> <span class="s">&#39;__module__&#39;</span><span class="p">,</span> <span class="s">&#39;__bases__&#39;</span><span class="p">,</span> <span class="s">&#39;__mro__&#39;</span><span class="p">,</span>
+     <span class="s">&#39;__implemented__&#39;</span><span class="p">])</span>
+<span class="n">_namedChecker</span> <span class="o">=</span> <span class="n">NamesChecker</span><span class="p">([</span><span class="s">&#39;__name__&#39;</span><span class="p">])</span>
+
+<span class="n">_iteratorChecker</span> <span class="o">=</span> <span class="n">NamesChecker</span><span class="p">([</span><span class="s">&#39;next&#39;</span><span class="p">,</span> <span class="s">&#39;__iter__&#39;</span><span class="p">,</span> <span class="s">&#39;__len__&#39;</span><span class="p">])</span>
+
+<span class="n">_setChecker</span> <span class="o">=</span> <span class="n">NamesChecker</span><span class="p">([</span><span class="s">&#39;__iter__&#39;</span><span class="p">,</span> <span class="s">&#39;__len__&#39;</span><span class="p">,</span> <span class="s">&#39;__str__&#39;</span><span class="p">,</span> <span class="s">&#39;__contains__&#39;</span><span class="p">,</span>
+                            <span class="s">&#39;copy&#39;</span><span class="p">,</span> <span class="s">&#39;difference&#39;</span><span class="p">,</span> <span class="s">&#39;intersection&#39;</span><span class="p">,</span> <span class="s">&#39;issubset&#39;</span><span class="p">,</span>
+                            <span class="s">&#39;issuperset&#39;</span><span class="p">,</span> <span class="s">&#39;symmetric_difference&#39;</span><span class="p">,</span> <span class="s">&#39;union&#39;</span><span class="p">,</span>
+                            <span class="s">&#39;__and__&#39;</span><span class="p">,</span> <span class="s">&#39;__or__&#39;</span><span class="p">,</span> <span class="s">&#39;__sub__&#39;</span><span class="p">,</span> <span class="s">&#39;__xor__&#39;</span><span class="p">,</span>
+                            <span class="s">&#39;__rand__&#39;</span><span class="p">,</span> <span class="s">&#39;__ror__&#39;</span><span class="p">,</span> <span class="s">&#39;__rsub__&#39;</span><span class="p">,</span> <span class="s">&#39;__rxor__&#39;</span><span class="p">,</span>
+                            <span class="s">&#39;__eq__&#39;</span><span class="p">,</span> <span class="s">&#39;__ne__&#39;</span><span class="p">,</span> <span class="s">&#39;__lt__&#39;</span><span class="p">,</span> <span class="s">&#39;__gt__&#39;</span><span class="p">,</span>
+                            <span class="s">&#39;__le__&#39;</span><span class="p">,</span> <span class="s">&#39;__ge__&#39;</span><span class="p">])</span>
+
+<span class="k">class</span> <span class="nc">BasicTypes</span><span class="p">(</span><span class="nb">dict</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Basic Types Dictionary</span>
+
+<span class="sd">    Make sure that checkers are really updated, when a new type is added.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">__setitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">BasicTypes</span><span class="o">.</span><span class="n">__class__</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__setitem__</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+        <span class="n">_checkers</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+
+    <span class="k">def</span> <span class="nf">__delitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">BasicTypes</span><span class="o">.</span><span class="n">__class__</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__delitem__</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="k">del</span> <span class="n">_checkers</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+
+    <span class="k">def</span> <span class="nf">clear</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Make sure you cannot clear the values</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span>
+
+    <span class="k">def</span> <span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">d</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">BasicTypes</span><span class="o">.</span><span class="n">__class__</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">d</span><span class="p">)</span>
+        <span class="n">_checkers</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">d</span><span class="p">)</span>
+
+<span class="n">_basic_types</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="nb">object</span><span class="p">:</span> <span class="n">NoProxy</span><span class="p">,</span>
+    <span class="nb">int</span><span class="p">:</span> <span class="n">NoProxy</span><span class="p">,</span>
+    <span class="nb">float</span><span class="p">:</span> <span class="n">NoProxy</span><span class="p">,</span>
+    <span class="nb">complex</span><span class="p">:</span> <span class="n">NoProxy</span><span class="p">,</span>
+    <span class="nb">type</span><span class="p">(</span><span class="bp">None</span><span class="p">):</span> <span class="n">NoProxy</span><span class="p">,</span>
+    <span class="nb">str</span><span class="p">:</span> <span class="n">NoProxy</span><span class="p">,</span>
+    <span class="nb">bytes</span><span class="p">:</span> <span class="n">NoProxy</span><span class="p">,</span>
+    <span class="n">Message</span><span class="p">:</span> <span class="n">NoProxy</span><span class="p">,</span> <span class="c"># Messages are immutable, so it&#39;s okay</span>
+    <span class="nb">bool</span><span class="p">:</span> <span class="n">NoProxy</span><span class="p">,</span>
+    <span class="n">datetime</span><span class="o">.</span><span class="n">timedelta</span><span class="p">:</span> <span class="n">NoProxy</span><span class="p">,</span>
+    <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="p">:</span> <span class="n">NoProxy</span><span class="p">,</span>
+    <span class="n">datetime</span><span class="o">.</span><span class="n">date</span><span class="p">:</span> <span class="n">NoProxy</span><span class="p">,</span>
+    <span class="n">datetime</span><span class="o">.</span><span class="n">time</span><span class="p">:</span> <span class="n">NoProxy</span><span class="p">,</span>
+    <span class="n">datetime</span><span class="o">.</span><span class="n">tzinfo</span><span class="p">:</span> <span class="n">NoProxy</span><span class="p">,</span>
+<span class="p">}</span>
+<span class="k">if</span> <span class="n">PYTHON2</span><span class="p">:</span> 
+    <span class="n">_basic_types</span><span class="p">[</span><span class="nb">long</span><span class="p">]</span> <span class="o">=</span> <span class="n">NoProxy</span>
+    <span class="n">_basic_types</span><span class="p">[</span><span class="nb">unicode</span><span class="p">]</span> <span class="o">=</span> <span class="n">NoProxy</span>
+<span class="k">else</span><span class="p">:</span> <span class="c">#pragma NO COVER</span>
+    <span class="n">_basic_types</span><span class="p">[</span><span class="nb">type</span><span class="p">({}</span><span class="o">.</span><span class="n">values</span><span class="p">())]</span> <span class="o">=</span> <span class="n">NoProxy</span>
+    <span class="n">_basic_types</span><span class="p">[</span><span class="nb">type</span><span class="p">({}</span><span class="o">.</span><span class="n">keys</span><span class="p">())]</span> <span class="o">=</span> <span class="n">NoProxy</span>
+    <span class="n">_basic_types</span><span class="p">[</span><span class="nb">type</span><span class="p">({}</span><span class="o">.</span><span class="n">items</span><span class="p">())]</span> <span class="o">=</span> <span class="n">NoProxy</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">pytz</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+    <span class="k">pass</span>
+<span class="k">else</span><span class="p">:</span> <span class="c">#pragma NO COVER</span>
+    <span class="n">_basic_types</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">pytz</span><span class="o">.</span><span class="n">UTC</span><span class="p">)]</span> <span class="o">=</span> <span class="n">NoProxy</span>
+
+<span class="n">BasicTypes</span> <span class="o">=</span> <span class="n">BasicTypes</span><span class="p">(</span><span class="n">_basic_types</span><span class="p">)</span>
+<span class="k">del</span> <span class="n">_basic_types</span>
+
+<span class="c"># Available for tests. Located here so it can be kept in sync with BasicTypes.</span>
+<span class="n">BasicTypes_examples</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="nb">object</span><span class="p">:</span> <span class="nb">object</span><span class="p">(),</span>
+    <span class="nb">int</span><span class="p">:</span> <span class="mi">65536</span><span class="p">,</span>
+    <span class="nb">float</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.4142</span><span class="p">,</span>
+    <span class="nb">complex</span><span class="p">:</span> <span class="o">-</span><span class="mf">1.4142j</span><span class="p">,</span>
+    <span class="nb">type</span><span class="p">(</span><span class="bp">None</span><span class="p">):</span> <span class="bp">None</span><span class="p">,</span>
+    <span class="nb">bytes</span><span class="p">:</span> <span class="n">b</span><span class="s">&#39;abc&#39;</span><span class="p">,</span>
+    <span class="nb">bool</span><span class="p">:</span> <span class="bp">True</span><span class="p">,</span>
+    <span class="n">datetime</span><span class="o">.</span><span class="n">timedelta</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">timedelta</span><span class="p">(</span><span class="mi">3</span><span class="p">),</span>
+    <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="p">(</span><span class="mi">2003</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+    <span class="n">datetime</span><span class="o">.</span><span class="n">date</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">date</span><span class="p">(</span><span class="mi">2003</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+    <span class="n">datetime</span><span class="o">.</span><span class="n">time</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">time</span><span class="p">(</span><span class="mi">23</span><span class="p">,</span> <span class="mi">58</span><span class="p">),</span>
+    <span class="n">Message</span><span class="p">:</span> <span class="n">Message</span><span class="p">(</span><span class="s">&#39;message&#39;</span><span class="p">,</span> <span class="n">domain</span><span class="o">=</span><span class="s">&#39;hello&#39;</span><span class="p">)</span>
+<span class="p">}</span>
+
+<span class="k">if</span> <span class="n">PYTHON2</span><span class="p">:</span>
+    <span class="n">BasicTypes_examples</span><span class="p">[</span><span class="nb">unicode</span><span class="p">]</span> <span class="o">=</span> <span class="n">_u</span><span class="p">(</span><span class="s">&#39;uabc&#39;</span><span class="p">)</span>
+    <span class="n">BasicTypes_examples</span><span class="p">[</span><span class="nb">long</span><span class="p">]</span> <span class="o">=</span> <span class="nb">long</span><span class="p">(</span><span class="mi">65536</span><span class="p">)</span>
+
+
+<span class="k">class</span> <span class="nc">_Sequence</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span> <span class="c">#pragma NO COVER</span>
+    <span class="k">def</span> <span class="nf">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span> <span class="k">return</span> <span class="mi">0</span>
+    <span class="k">def</span> <span class="nf">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">i</span><span class="p">):</span> <span class="k">raise</span> <span class="ne">IndexError</span>
+
+<span class="n">_Declaration_checker</span> <span class="o">=</span> <span class="n">InterfaceChecker</span><span class="p">(</span>
+    <span class="n">IDeclaration</span><span class="p">,</span>
+    <span class="n">_implied</span><span class="o">=</span><span class="n">CheckerPublic</span><span class="p">,</span>
+    <span class="n">subscribe</span><span class="o">=</span><span class="n">CheckerPublic</span><span class="p">,</span>
+    <span class="n">unsubscribe</span><span class="o">=</span><span class="n">CheckerPublic</span><span class="p">,</span>
+    <span class="n">__call__</span><span class="o">=</span><span class="n">CheckerPublic</span><span class="p">,</span>
+    <span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">f</span><span class="p">():</span> <span class="c">#pragma NO COVER</span>
+    <span class="k">yield</span> <span class="n">f</span>
+
+
+<span class="n">_default_checkers</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="nb">dict</span><span class="p">:</span> <span class="n">NamesChecker</span><span class="p">([</span><span class="s">&#39;__getitem__&#39;</span><span class="p">,</span> <span class="s">&#39;__len__&#39;</span><span class="p">,</span> <span class="s">&#39;__iter__&#39;</span><span class="p">,</span>
+                        <span class="s">&#39;get&#39;</span><span class="p">,</span> <span class="s">&#39;has_key&#39;</span><span class="p">,</span> <span class="s">&#39;copy&#39;</span><span class="p">,</span> <span class="s">&#39;__str__&#39;</span><span class="p">,</span> <span class="s">&#39;keys&#39;</span><span class="p">,</span>
+                        <span class="s">&#39;values&#39;</span><span class="p">,</span> <span class="s">&#39;items&#39;</span><span class="p">,</span> <span class="s">&#39;iterkeys&#39;</span><span class="p">,</span> <span class="s">&#39;iteritems&#39;</span><span class="p">,</span>
+                        <span class="s">&#39;itervalues&#39;</span><span class="p">,</span> <span class="s">&#39;__contains__&#39;</span><span class="p">]),</span>
+    <span class="nb">list</span><span class="p">:</span> <span class="n">NamesChecker</span><span class="p">([</span><span class="s">&#39;__getitem__&#39;</span><span class="p">,</span> <span class="s">&#39;__getslice__&#39;</span><span class="p">,</span> <span class="s">&#39;__len__&#39;</span><span class="p">,</span> <span class="s">&#39;__iter__&#39;</span><span class="p">,</span>
+                        <span class="s">&#39;__contains__&#39;</span><span class="p">,</span> <span class="s">&#39;index&#39;</span><span class="p">,</span> <span class="s">&#39;count&#39;</span><span class="p">,</span> <span class="s">&#39;__str__&#39;</span><span class="p">,</span>
+                        <span class="s">&#39;__add__&#39;</span><span class="p">,</span> <span class="s">&#39;__radd__&#39;</span><span class="p">,</span> <span class="p">]),</span>
+    <span class="nb">set</span><span class="p">:</span> <span class="n">_setChecker</span><span class="p">,</span>
+    <span class="nb">frozenset</span><span class="p">:</span> <span class="n">_setChecker</span><span class="p">,</span>
+    <span class="n">decimal</span><span class="o">.</span><span class="n">Decimal</span><span class="p">:</span> <span class="n">NamesChecker</span><span class="p">([</span><span class="s">&#39;__nonzero__&#39;</span><span class="p">,</span> <span class="s">&#39;__cmp__&#39;</span><span class="p">,</span> <span class="s">&#39;__eq__&#39;</span><span class="p">,</span>
+                                   <span class="s">&#39;__ne__&#39;</span><span class="p">,</span> <span class="s">&#39;compare&#39;</span><span class="p">,</span> <span class="s">&#39;__hash__&#39;</span><span class="p">,</span>
+                                   <span class="s">&#39;as_tuple&#39;</span><span class="p">,</span> <span class="s">&#39;__str__&#39;</span><span class="p">,</span> <span class="s">&#39;to_eng_string&#39;</span><span class="p">,</span>
+                                   <span class="s">&#39;__neg__&#39;</span><span class="p">,</span> <span class="s">&#39;__pos__&#39;</span><span class="p">,</span> <span class="s">&#39;__abs__&#39;</span><span class="p">,</span>
+                                   <span class="s">&#39;__add__&#39;</span><span class="p">,</span> <span class="s">&#39;__radd__&#39;</span><span class="p">,</span> <span class="s">&#39;__sub__&#39;</span><span class="p">,</span>
+                                   <span class="s">&#39;__rsub__&#39;</span><span class="p">,</span> <span class="s">&#39;__mul__&#39;</span><span class="p">,</span> <span class="s">&#39;__rmul__&#39;</span><span class="p">,</span>
+                                   <span class="s">&#39;__div__&#39;</span><span class="p">,</span> <span class="s">&#39;__rdiv__&#39;</span><span class="p">,</span> <span class="s">&#39;__rtruediv__&#39;</span><span class="p">,</span>
+                                   <span class="s">&#39;__divmod__&#39;</span><span class="p">,</span> <span class="s">&#39;__rdivmod__&#39;</span><span class="p">,</span> <span class="s">&#39;__mod__&#39;</span><span class="p">,</span>
+                                   <span class="s">&#39;__rmod__&#39;</span><span class="p">,</span> <span class="s">&#39;remainder_near&#39;</span><span class="p">,</span>
+                                   <span class="s">&#39;__floordiv__&#39;</span><span class="p">,</span> <span class="s">&#39;__rfloordiv__&#39;</span><span class="p">,</span>
+                                   <span class="s">&#39;__float__&#39;</span><span class="p">,</span> <span class="s">&#39;__int__&#39;</span><span class="p">,</span> <span class="s">&#39;__long__&#39;</span><span class="p">,</span>
+                                   <span class="s">&#39;__pow__&#39;</span><span class="p">,</span> <span class="s">&#39;__rpow__&#39;</span><span class="p">,</span> <span class="s">&#39;normalize&#39;</span><span class="p">,</span>
+                                   <span class="s">&#39;quantize&#39;</span><span class="p">,</span> <span class="s">&#39;same_quantum&#39;</span><span class="p">,</span> <span class="s">&#39;to_integral&#39;</span><span class="p">,</span>
+                                   <span class="s">&#39;sqrt&#39;</span><span class="p">,</span> <span class="s">&#39;max&#39;</span><span class="p">,</span> <span class="s">&#39;min&#39;</span><span class="p">,</span> <span class="s">&#39;adjusted&#39;</span><span class="p">]),</span>
+
+    <span class="c"># YAGNI: () a rock</span>
+    <span class="nb">tuple</span><span class="p">:</span> <span class="n">NamesChecker</span><span class="p">([</span><span class="s">&#39;__getitem__&#39;</span><span class="p">,</span> <span class="s">&#39;__getslice__&#39;</span><span class="p">,</span> <span class="s">&#39;__add__&#39;</span><span class="p">,</span> <span class="s">&#39;__radd__&#39;</span><span class="p">,</span>
+                         <span class="s">&#39;__contains__&#39;</span><span class="p">,</span> <span class="s">&#39;__len__&#39;</span><span class="p">,</span> <span class="s">&#39;__iter__&#39;</span><span class="p">,</span>
+                         <span class="s">&#39;__str__&#39;</span><span class="p">]),</span>
+    <span class="n">Proxy</span><span class="p">:</span> <span class="n">NoProxy</span><span class="p">,</span>
+    <span class="nb">type</span><span class="p">(</span><span class="n">weakref</span><span class="o">.</span><span class="n">ref</span><span class="p">(</span><span class="n">_Sequence</span><span class="p">())):</span> <span class="n">NamesChecker</span><span class="p">([</span><span class="s">&#39;__call__&#39;</span><span class="p">]),</span>
+    <span class="n">types</span><span class="o">.</span><span class="n">FunctionType</span><span class="p">:</span> <span class="n">_callableChecker</span><span class="p">,</span>
+    <span class="n">types</span><span class="o">.</span><span class="n">MethodType</span><span class="p">:</span> <span class="n">_callableChecker</span><span class="p">,</span>
+    <span class="n">types</span><span class="o">.</span><span class="n">BuiltinFunctionType</span><span class="p">:</span> <span class="n">_callableChecker</span><span class="p">,</span>
+    <span class="n">types</span><span class="o">.</span><span class="n">BuiltinMethodType</span><span class="p">:</span> <span class="n">_callableChecker</span><span class="p">,</span>
+    <span class="nb">type</span><span class="p">:</span> <span class="n">_typeChecker</span><span class="p">,</span>
+    <span class="n">types</span><span class="o">.</span><span class="n">ModuleType</span><span class="p">:</span> <span class="k">lambda</span> <span class="n">module</span><span class="p">:</span> <span class="n">_checkers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">_namedChecker</span><span class="p">),</span>
+    <span class="nb">type</span><span class="p">(</span><span class="nb">iter</span><span class="p">([])):</span> <span class="n">_iteratorChecker</span><span class="p">,</span> <span class="c"># Same types in Python 2.2.1,</span>
+    <span class="nb">type</span><span class="p">(</span><span class="nb">iter</span><span class="p">(())):</span> <span class="n">_iteratorChecker</span><span class="p">,</span> <span class="c"># different in Python 2.3.</span>
+    <span class="nb">type</span><span class="p">(</span><span class="nb">iter</span><span class="p">({})):</span> <span class="n">_iteratorChecker</span><span class="p">,</span>
+    <span class="nb">type</span><span class="p">(</span><span class="nb">iter</span><span class="p">(</span><span class="nb">set</span><span class="p">())):</span> <span class="n">_iteratorChecker</span><span class="p">,</span>
+    <span class="nb">type</span><span class="p">(</span><span class="nb">iter</span><span class="p">(</span><span class="n">_Sequence</span><span class="p">())):</span> <span class="n">_iteratorChecker</span><span class="p">,</span>
+    <span class="nb">type</span><span class="p">(</span><span class="n">f</span><span class="p">()):</span> <span class="n">_iteratorChecker</span><span class="p">,</span>
+    <span class="nb">type</span><span class="p">(</span><span class="n">Interface</span><span class="p">):</span> <span class="n">InterfaceChecker</span><span class="p">(</span>
+        <span class="n">IInterface</span><span class="p">,</span>
+        <span class="n">__str__</span><span class="o">=</span><span class="n">CheckerPublic</span><span class="p">,</span> <span class="n">_implied</span><span class="o">=</span><span class="n">CheckerPublic</span><span class="p">,</span> <span class="n">subscribe</span><span class="o">=</span><span class="n">CheckerPublic</span><span class="p">,</span>
+        <span class="p">),</span>
+    <span class="n">zope</span><span class="o">.</span><span class="n">interface</span><span class="o">.</span><span class="n">interface</span><span class="o">.</span><span class="n">Method</span><span class="p">:</span> <span class="n">InterfaceChecker</span><span class="p">(</span>
+                                        <span class="n">zope</span><span class="o">.</span><span class="n">interface</span><span class="o">.</span><span class="n">interfaces</span><span class="o">.</span><span class="n">IMethod</span><span class="p">),</span>
+    <span class="n">zope</span><span class="o">.</span><span class="n">interface</span><span class="o">.</span><span class="n">declarations</span><span class="o">.</span><span class="n">ProvidesClass</span><span class="p">:</span> <span class="n">_Declaration_checker</span><span class="p">,</span>
+    <span class="n">zope</span><span class="o">.</span><span class="n">interface</span><span class="o">.</span><span class="n">declarations</span><span class="o">.</span><span class="n">ClassProvides</span><span class="p">:</span> <span class="n">_Declaration_checker</span><span class="p">,</span>
+    <span class="n">zope</span><span class="o">.</span><span class="n">interface</span><span class="o">.</span><span class="n">declarations</span><span class="o">.</span><span class="n">Implements</span><span class="p">:</span> <span class="n">_Declaration_checker</span><span class="p">,</span>
+    <span class="n">zope</span><span class="o">.</span><span class="n">interface</span><span class="o">.</span><span class="n">declarations</span><span class="o">.</span><span class="n">Declaration</span><span class="p">:</span> <span class="n">_Declaration_checker</span><span class="p">,</span>
+    <span class="n">abc</span><span class="o">.</span><span class="n">ABCMeta</span><span class="p">:</span> <span class="n">_typeChecker</span><span class="p">,</span>
+<span class="p">}</span>
+<span class="k">if</span> <span class="n">PYTHON2</span><span class="p">:</span>
+    <span class="n">_default_checkers</span><span class="p">[</span><span class="n">types</span><span class="o">.</span><span class="n">ClassType</span><span class="p">]</span> <span class="o">=</span> <span class="n">_typeChecker</span>
+    <span class="n">_default_checkers</span><span class="p">[</span><span class="n">types</span><span class="o">.</span><span class="n">InstanceType</span><span class="p">]</span> <span class="o">=</span> <span class="n">_instanceChecker</span>
+    <span class="c"># slot description</span>
+    <span class="n">_default_checkers</span><span class="p">[</span><span class="nb">type</span><span class="p">(()</span><span class="o">.</span><span class="n">__getslice__</span><span class="p">)]</span> <span class="o">=</span> <span class="n">_callableChecker</span>
+    <span class="n">_default_checkers</span><span class="p">[</span><span class="nb">type</span><span class="p">({}</span><span class="o">.</span><span class="n">iteritems</span><span class="p">())]</span> <span class="o">=</span> <span class="n">_iteratorChecker</span>
+    <span class="n">_default_checkers</span><span class="p">[</span><span class="nb">type</span><span class="p">({}</span><span class="o">.</span><span class="n">iterkeys</span><span class="p">())]</span> <span class="o">=</span> <span class="n">_iteratorChecker</span>
+    <span class="n">_default_checkers</span><span class="p">[</span><span class="nb">type</span><span class="p">({}</span><span class="o">.</span><span class="n">itervalues</span><span class="p">())]</span> <span class="o">=</span> <span class="n">_iteratorChecker</span>
+
+<span class="k">def</span> <span class="nf">_clear</span><span class="p">():</span>
+    <span class="n">_checkers</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+    <span class="n">_checkers</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">_default_checkers</span><span class="p">)</span>
+    <span class="n">_checkers</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">BasicTypes</span><span class="p">)</span>
+
+<span class="n">_clear</span><span class="p">()</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">from</span> <span class="nn">zope.testing.cleanup</span> <span class="kn">import</span> <span class="n">addCleanUp</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span> <span class="c">#pragma NO COVER</span>
+    <span class="k">pass</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">addCleanUp</span><span class="p">(</span><span class="n">_clear</span><span class="p">)</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../../index.html">zope.security 4.0dev documentation</a> &raquo;</li>
+          <li><a href="../../index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2012, Zope Foundation Contributors &lt;zope-dev@zope.org&gt;.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>
