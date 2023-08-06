@@ -1,0 +1,320 @@
+Example and tests
+=================
+
+Define a wizard with three steps
+--------------------------------
+
+To define a form that uses the wizard, we'll need to define steps.
+These steps represent individual forms that are processed
+sequentially.  Only when the last step is completed will the data be
+submitted through a user-defined method. 
+
+  >>> from zope import schema
+  >>> from z3c.form import field, form
+  >>> from collective.z3cform.wizard import wizard
+  >>> from plone.z3cform.fieldsets import group
+  >>> from Products.statusmessages.interfaces import IStatusMessage
+  >>> from Products.statusmessages.adapter import _decodeCookieValue
+
+  >>> class StepOne(wizard.Step):
+  ...     prefix = 'one'
+  ...     fields = field.Fields(
+  ...         schema.Int(__name__='age', title=u"Age"))
+
+By default, the steps will get/set values in the session.  If we want to
+initialize these values or do something with them once the wizard is completed,
+we need to implement the load and apply methods for our step.
+
+  >>> from pprint import pprint
+  >>> class StepTwo(wizard.Step):
+  ...     prefix = 'two'
+  ...     fields = field.Fields(
+  ...         schema.TextLine(__name__='name', title=u"Name", required=True),
+  ...         schema.TextLine(__name__='beer', title=u'Favorite Beer', required=True))
+  ...         
+  ...     def load(self, context):
+  ...         data = self.getContent()
+  ...         data['name'] = 'David'
+  ...         
+  ...     def apply(self, context):
+  ...         data = self.getContent()
+  ...         pprint('Name from step 2: %s' % data['name'])
+
+We can also do group steps
+
+  >>> class AddressGroup(group.Group):
+  ...   fields = field.Fields(
+  ...     schema.TextLine(__name__='address', title=u'Address', required=False),
+  ...     schema.TextLine(__name__='city', title=u'City', required=False),
+  ...     schema.TextLine(__name__='state', title=u'State', required=False))
+  ...   label = u"Address Information"
+  ...   prefix = 'address'
+
+  >>> class StepThree(wizard.GroupStep):
+  ...   prefix = 'three'
+  ...   fields = field.Fields()
+  ...   groups = [AddressGroup]
+
+
+We can now define our minimal wizard:
+
+  >>> class Wizard(wizard.Wizard):
+  ...     label = u"My silly wizard"
+  ...     steps = StepOne, StepTwo, StepThree
+
+Render the form
+---------------
+
+Let's render the form for the first time now:
+
+  >>> request = TestRequest()
+  >>> wizard = Wizard(None, request)
+  >>> print wizard()
+  <...
+  <div class="form" id="wizard-step-one">
+    <form action="http://127.0.0.1" method="post"
+          class="rowlike enableUnloadProtection kssattr-formname-127.0.0.1"
+          id="one" enctype="multipart/form-data">
+        <p class="discreet"></p>
+        <div class="field">
+          <label for="one-widgets-age">
+            <span>Age</span>
+          </label>...
+          <span class="fieldRequired"
+                title="Required">
+            (Required)
+          </span>
+          <div class="widget">
+            <input id="one-widgets-age" name="one.widgets.age"
+                   class="text-widget required int-field" value=""
+                   type="text" />
+          </div>
+        </div>
+    <div class="formControls wizard-buttons">
+        <input id="form-buttons-continue"
+               name="form.buttons.continue"
+               class="submit-widget button-field" value="Continue"
+               type="submit" />
+        <input id="form-buttons-clear"
+               name="form.buttons.clear"
+               class="submit-widget button-field" value="Clear"
+               type="submit" />
+    </div>
+    </form>
+  </div>
+
+
+Submit with an error
+--------------------
+
+Remember that our first step requires the age.
+
+  >>> request.form = {
+  ...     'form.buttons.continue': u'Continue',
+  ... }
+  >>> wizard = Wizard(None, request)
+
+  >>> print wizard()
+  <...
+  ...Required input is missing...
+
+  >>> messages = _decodeCookieValue(request.__annotations__.pop('statusmessages'))
+  >>> [(m.message, m.type) for m in messages]
+  [(u'There were errors.', u'error')]
+
+
+Submit the first step successfully
+----------------------------------
+
+  >>> request.form['one.widgets.age'] = u'27'
+  >>> wizard = Wizard(None, request)
+  >>> print wizard()
+  <...
+  <div class="form" id="wizard-step-two">
+    <form action="http://127.0.0.1" method="post"
+          class="rowlike enableUnloadProtection kssattr-formname-127.0.0.1"
+          id="two" enctype="multipart/form-data">
+        <p class="discreet"></p>
+        <div class="field">
+          <label for="two-widgets-name">
+            <span>Name</span>
+          </label>
+          <span class="fieldRequired"
+                title="Required">
+            (Required)
+          </span>
+          <div class="widget">
+            <input id="two-widgets-name" name="two.widgets.name"
+                   class="text-widget required textline-field"
+                   value="David" type="text" />
+          </div>  
+        </div>
+        <div class="field">
+          <label for="two-widgets-beer">
+            <span>Favorite Beer</span>
+          </label>
+          <span class="fieldRequired"
+                title="Required">
+            (Required)
+          </span>
+          <div class="widget">
+            <input id="two-widgets-beer" name="two.widgets.beer"
+                   class="text-widget required textline-field"
+                   value="" type="text" />
+          </div>  
+        </div>
+      <div class="formControls wizard-buttons">
+        <input id="form-buttons-continue" name="form.buttons.continue"
+               class="submit-widget button-field" value="Continue"
+               type="submit" />
+        <input id="form-buttons-back" name="form.buttons.back"
+               class="submit-widget button-field" value="Back"
+               type="submit" />
+        <input id="form-buttons-clear"
+               name="form.buttons.clear"
+               class="submit-widget button-field" value="Clear"
+               type="submit" />
+      </div>
+    </form>
+  </div>
+
+
+Going backwards
+---------------
+
+When we go back, we should get validation errors, because we left a field blank:
+
+  >>> del request.form['form.buttons.continue']
+  >>> request.form['form.buttons.back'] = u'Back'
+  >>> wizard = Wizard(None, request)
+  >>> print wizard()
+  <...
+  ...Required input is missing...
+
+  >>> messages = _decodeCookieValue(request.__annotations__.pop('statusmessages'))
+  >>> [(m.message, m.type) for m in messages]
+  [(u'There were errors.', u'error')]
+
+Now if we set validate_back to False it should be possible to go back with no errors:
+
+  >>> request.form['form.buttons.back'] = u'Back'
+  >>> wizard = Wizard(None, request)
+  >>> wizard.validate_back = False
+  >>> html = wizard()
+  >>> 'wizard-step-one' in html
+  True
+
+Make sure we get back to step two (again):
+
+  >>> del request.form['form.buttons.back']
+  >>> request.form['form.buttons.continue'] = u'Continue'
+  >>> wizard = Wizard(None, request)
+  >>> html = wizard()
+  >>> 'wizard-step-two' in html
+  True
+
+Submitting step two
+-------------------
+
+Fill in the missing value:
+
+  >>> request.form['two.widgets.beer'] = u'Boont Amber'
+
+Step two works similarly:
+
+  >>> request.form['two.widgets.name'] = u'David'
+  >>> wizard = Wizard(None, request)
+  >>> html = wizard()
+  >>> 'three' in html, 'Address' in html, 'City' in html, 'State' in html, 'Finish' in html
+  (True, True, True, True, True)
+
+Step Three: Slaying the dragon
+------------------------------
+
+Now let's press the Finish button.  We expect this to print out the value
+from step 2, thanks to the 'apply' method we implemented for that step.
+
+Remembering that in our wizard, we implemented ``finish`` to print out
+the data that it receives.  Here's the finishing move:
+
+  >>> request.form['form.buttons.finish'] = u'Finish'
+  >>> wizard = Wizard(None, request)
+  >>> html = wizard()
+  'Name from step 2: David'
+
+  >>> messages = _decodeCookieValue(request.__annotations__.pop('statusmessages'))
+  >>> [(m.message, m.type) for m in messages]
+  [(u'Information submitted successfully.', u'info')]
+
+
+Example
+-------
+
+See the `collective.megaphone`_ package for an example of this library in use.
+
+.. _`collective.megaphone`: http://plone.org/products/megaphone
+
+
+AutoWizard
+----------
+
+An AutoWizard creates steps out of plone.autoform fieldsets (including those
+in a plone.supermodel xml schema).
+
+First we define our schema:
+
+  >>> from plone.supermodel.interfaces import FIELDSETS_KEY
+  >>> from plone.supermodel.model import Fieldset
+  >>> from zope.interface import Interface, taggedValue
+  >>> class IMySchema(Interface):
+  ...     age = schema.Int(title=u"Age")
+  ...     name = schema.Int(title=u"Name")
+  ...     taggedValue(FIELDSETS_KEY, [
+  ...         Fieldset('one', label=u"One from fieldset", fields=['age']),
+  ...         Fieldset('two', fields=['name']),
+  ...         ])
+
+Then create the AutoWizard class:
+
+  >>> from collective.z3cform.wizard import autowizard
+  >>> class AutoWizard(autowizard.AutoWizard):
+  ...     label = u"Automatically silly wizard."
+  ...     schema = IMySchema
+
+
+We can now render the form:
+
+  >>> request = TestRequest()
+  >>> wizard = AutoWizard(None, request)
+  >>> print wizard()
+  <...
+  <div class="form" id="wizard-step-form-one">
+    <form action="http://127.0.0.1" method="post"
+          class="rowlike enableUnloadProtection kssattr-formname-127.0.0.1"
+          id="form-one" enctype="multipart/form-data">
+        <h2>One from fieldset</h2>
+        <p class="discreet"></p>
+        <div class="field">
+          <label for="form-one-widgets-age">
+            <span>Age</span>
+          </label>...
+          <span class="fieldRequired"
+                title="Required">
+            (Required)
+          </span>
+          <div class="widget">
+            <input id="form-one-widgets-age" name="form.one.widgets.age"
+                   class="text-widget required int-field" value=""
+                   type="text" />
+          </div>
+        </div>
+    <div class="formControls wizard-buttons">
+        <input id="form-buttons-continue"
+               name="form.buttons.continue"
+               class="submit-widget button-field" value="Continue"
+               type="submit" />
+    </div>
+    </form>
+  </div>
+
+Otherwise it works in exactly the same way as the standard Wizard.
