@@ -1,0 +1,45 @@
+Provides simple pyramid routes/views for facebook canvas application.
+
+Some documentation on http://pyramid_facebook.rtfd.org
+
+=============
+Configuration
+=============
+
+#. Create facebook application on https://developers.facebook.com/apps
+
+#. Add facebook settings in .ini file under application section and fill with
+   facebook application parameters::
+
+      facebook.app_id =
+      facebook.secret_key =
+      facebook.namespace =
+      facebook.scope =
+
+#. In the app settings on https://developers.facebook.com/apps, set callbak url
+   to point to ::
+
+      http://127.0.0.1:6543/[facebook app namespace]/
+
+#. Include ``pyramid_facebook`` in your config::
+
+      config.include('pyramid_facebook')
+      config.scan()
+
+#. Define your facebook canvas view::
+
+      from pyramid_facebook.canvas import facebook_canvas
+
+      @facebook_canvas()
+      def canvas(context, request):
+         # canvas is available only to users who accepted facebook permission
+         # defined in setting['facebook.scope'].
+         # context.facebook_data dict contains signed_request content.
+         # i.e.:
+         # user_id = context.facebook["user_id"]
+         ...
+         return Response('Hello Facebok World')
+
+#. Browse to your app on ::
+
+      http://apps.facebook.com/[app namespace]
