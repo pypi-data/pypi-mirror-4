@@ -1,0 +1,359 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>fnss.netconfig.buffers &mdash; FNSS 0.1.0 documentation</title>
+    
+    <link rel="stylesheet" href="../../../_static/sphinxdoc.css" type="text/css" />
+    <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../../',
+        VERSION:     '0.1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../../_static/doctools.js"></script>
+    <link rel="top" title="FNSS 0.1.0 documentation" href="../../../index.html" />
+    <link rel="up" title="Module code" href="../../index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="../../../np-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../../index.html">FNSS 0.1.0 documentation</a> &raquo;</li>
+          <li><a href="../../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for fnss.netconfig.buffers</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Provides function to assign and manipulate buffer sizes of network interfaces.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">networkx</span> <span class="kn">as</span> <span class="nn">nx</span>
+<span class="kn">from</span> <span class="nn">numpy</span> <span class="kn">import</span> <span class="n">mean</span>
+<span class="kn">from</span> <span class="nn">fnss.util</span> <span class="kn">import</span> <span class="n">capacity_units</span><span class="p">,</span> <span class="n">time_units</span>
+
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;set_buffer_sizes_bw_delay_prod&#39;</span><span class="p">,</span> 
+           <span class="s">&#39;set_buffer_sizes_link_bandwidth&#39;</span><span class="p">,</span>
+           <span class="s">&#39;set_buffer_sizes_constant&#39;</span><span class="p">,</span>
+           <span class="s">&#39;get_buffer_sizes&#39;</span><span class="p">,</span>
+           <span class="s">&#39;clear_buffer_sizes&#39;</span><span class="p">,</span>
+           <span class="p">]</span>
+
+
+<div class="viewcode-block" id="set_buffer_sizes_bw_delay_prod"><a class="viewcode-back" href="../../../apidoc/generated/fnss.netconfig.buffers.set_buffer_sizes_bw_delay_prod.html#fnss.netconfig.buffers.set_buffer_sizes_bw_delay_prod">[docs]</a><span class="k">def</span> <span class="nf">set_buffer_sizes_bw_delay_prod</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">buffer_unit</span><span class="o">=</span><span class="s">&#39;bytes&#39;</span><span class="p">,</span> 
+                                   <span class="n">packet_size</span><span class="o">=</span><span class="s">&quot;1500&quot;</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Assign a buffer sizes proportionally to the product of link bandwidth and </span>
+<span class="sd">    average network RTT. This is a rule of thumb according to which the buffers</span>
+<span class="sd">    of Internet routers are generally configured.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    topology : Topology or DirectedTopology</span>
+<span class="sd">        The topology on which delays are applied.</span>
+<span class="sd">    buffer_unit : string</span>
+<span class="sd">        The unit of buffer sizes. Supported units are: &quot;bytes&quot; and &quot;packets&quot;</span>
+<span class="sd">    mtu : int, optional</span>
+<span class="sd">        The average packet size of the network. It used only if &quot;packets&quot; is </span>
+<span class="sd">        selected as buffer size to properly calculate buffer sizes</span>
+
+<span class="sd">    Examples</span>
+<span class="sd">    --------</span>
+<span class="sd">    &gt;&gt;&gt; import fnss</span>
+<span class="sd">    &gt;&gt;&gt; topology = fnss.erdos_renyi_topology(50, 0.2)</span>
+<span class="sd">    &gt;&gt;&gt; fnss.set_capacities_constant(topology, 10, &#39;Mbps&#39;)</span>
+<span class="sd">    &gt;&gt;&gt; fnss.set_delays_constant(topology, 2, &#39;ms&#39;)</span>
+<span class="sd">    &gt;&gt;&gt; fnss.set_buffer_sizes_bw_delay_prod(topology)</span>
+<span class="sd">    &quot;&quot;&quot;</span>    
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">assert</span> <span class="nb">all</span><span class="p">([</span><span class="s">&#39;capacity&#39;</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">]</span> 
+                    <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">edges</span><span class="p">()])</span>
+        <span class="k">assert</span> <span class="nb">all</span><span class="p">([</span><span class="s">&#39;delay&#39;</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">]</span> 
+                    <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">edges</span><span class="p">()])</span>
+        <span class="n">capacity_unit</span> <span class="o">=</span> <span class="n">topology</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s">&#39;capacity_unit&#39;</span><span class="p">]</span>
+        <span class="n">delay_unit</span> <span class="o">=</span> <span class="n">topology</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s">&#39;delay_unit&#39;</span><span class="p">]</span>
+    <span class="k">except</span> <span class="p">(</span><span class="ne">AssertionError</span><span class="p">,</span> <span class="ne">KeyError</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;All links must have a capacity and delay attribute&#39;</span><span class="p">)</span>
+    <span class="n">topology</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s">&#39;buffer_unit&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">buffer_unit</span>
+    <span class="c"># this filters potential self-loops which would crash the function</span>
+    <span class="n">edges</span> <span class="o">=</span> <span class="p">[(</span><span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="p">(</span><span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">edges</span><span class="p">()</span> <span class="k">if</span> <span class="n">u</span> <span class="o">!=</span> <span class="n">v</span><span class="p">]</span>
+    <span class="c"># dictionary listing all end-to-end routes in which a link appears</span>
+    <span class="n">route_presence</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="n">edges</span><span class="p">,</span> <span class="p">[[]</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">edges</span><span class="p">))]))</span>
+    <span class="c"># dictionary with all network routes</span>
+    <span class="n">route</span> <span class="o">=</span> <span class="n">nx</span><span class="o">.</span><span class="n">all_pairs_dijkstra_path</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">weight</span><span class="o">=</span><span class="s">&#39;weight&#39;</span><span class="p">)</span>
+    <span class="c"># Dictionary storing end-to-end path delays for each OD pair</span>
+    <span class="n">e2e_delay</span> <span class="o">=</span> <span class="p">{}</span>
+    
+    <span class="k">for</span> <span class="n">orig</span> <span class="ow">in</span> <span class="n">route</span><span class="p">:</span>
+        <span class="n">e2e_delay</span><span class="p">[</span><span class="n">orig</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">dest</span> <span class="ow">in</span> <span class="n">route</span><span class="p">[</span><span class="n">orig</span><span class="p">]:</span>
+            <span class="n">path</span> <span class="o">=</span> <span class="n">route</span><span class="p">[</span><span class="n">orig</span><span class="p">][</span><span class="n">dest</span><span class="p">]</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">path</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">path_delay</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">for</span> <span class="n">hop</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">path</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">):</span>
+                <span class="k">if</span> <span class="s">&#39;delay&#39;</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">path</span><span class="p">[</span><span class="n">hop</span><span class="p">]][</span><span class="n">path</span><span class="p">[</span><span class="n">hop</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]]:</span>
+                    <span class="k">if</span> <span class="p">(</span><span class="n">path</span><span class="p">[</span><span class="n">hop</span><span class="p">],</span> <span class="n">path</span><span class="p">[</span><span class="n">hop</span> <span class="o">+</span> <span class="mi">1</span><span class="p">])</span> <span class="ow">in</span> <span class="n">route_presence</span><span class="p">:</span>
+                        <span class="n">route_presence</span><span class="p">[(</span><span class="n">path</span><span class="p">[</span><span class="n">hop</span><span class="p">],</span> <span class="n">path</span><span class="p">[</span><span class="n">hop</span> <span class="o">+</span> <span class="mi">1</span><span class="p">])]</span> \
+                                      <span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">orig</span><span class="p">,</span> <span class="n">dest</span><span class="p">))</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="n">route_presence</span><span class="p">[(</span><span class="n">path</span><span class="p">[</span><span class="n">hop</span> <span class="o">+</span> <span class="mi">1</span><span class="p">],</span> <span class="n">path</span><span class="p">[</span><span class="n">hop</span><span class="p">])]</span> \
+                                      <span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">orig</span><span class="p">,</span> <span class="n">dest</span><span class="p">))</span>
+                    <span class="n">path_delay</span> <span class="o">+=</span> \
+                            <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">path</span><span class="p">[</span><span class="n">hop</span><span class="p">]][</span><span class="n">path</span><span class="p">[</span><span class="n">hop</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]][</span><span class="s">&#39;delay&#39;</span><span class="p">]</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;No link delays available&#39;</span><span class="p">)</span>
+            <span class="n">e2e_delay</span><span class="p">[</span><span class="n">orig</span><span class="p">][</span><span class="n">dest</span><span class="p">]</span> <span class="o">=</span> <span class="n">path_delay</span>
+            
+    <span class="c"># dict containing mean RTT experienced by flows traversing a specific link</span>
+    <span class="n">mean_rtt_dict</span> <span class="o">=</span> <span class="p">{}</span> 
+    <span class="k">for</span> <span class="p">(</span><span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">),</span> <span class="n">route</span> <span class="ow">in</span> <span class="n">route_presence</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">route</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">mean_rtt</span> <span class="o">=</span> <span class="n">mean</span><span class="p">([</span><span class="n">e2e_delay</span><span class="p">[</span><span class="n">o</span><span class="p">][</span><span class="n">d</span><span class="p">]</span> <span class="o">+</span> <span class="n">e2e_delay</span><span class="p">[</span><span class="n">d</span><span class="p">][</span><span class="n">o</span><span class="p">]</span> 
+                                 <span class="k">for</span> <span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="n">d</span><span class="p">)</span> <span class="ow">in</span> <span class="n">route</span><span class="p">])</span>
+            <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Cannot assign buffer sizes because some &#39;</span>
+                                 <span class="s">&#39;paths do not have corresponding return path&#39;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c"># if this is the case, then this link is in any shortest path,</span>
+            <span class="c"># not even in the one between its endpoint because there is an</span>
+            <span class="c"># alternative route with lower cost.</span>
+            <span class="c"># In this case we arbitrarily set the RTT as the RTT between the</span>
+            <span class="c"># link endpoint if that link was used, i.e. twice the delay of the</span>
+            <span class="c"># link</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">u</span><span class="p">)</span> <span class="ow">in</span> <span class="n">edges</span><span class="p">:</span>
+                <span class="n">mean_rtt</span> <span class="o">=</span> <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;delay&#39;</span><span class="p">]</span> <span class="o">+</span> \
+                           <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">v</span><span class="p">][</span><span class="n">u</span><span class="p">][</span><span class="s">&#39;delay&#39;</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">mean_rtt</span> <span class="o">=</span> <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;delay&#39;</span><span class="p">]</span> <span class="o">+</span> <span class="n">e2e_delay</span><span class="p">[</span><span class="n">v</span><span class="p">][</span><span class="n">u</span><span class="p">]</span>
+                <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Cannot assign buffer sizes because some &#39;</span>
+                                 <span class="s">&#39;paths do not have corresponding return path&#39;</span><span class="p">)</span>
+        <span class="n">mean_rtt_dict</span><span class="p">[(</span><span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">)]</span> <span class="o">=</span> <span class="n">mean_rtt</span>
+    <span class="n">norm_factor</span> <span class="o">=</span> <span class="n">capacity_units</span><span class="p">[</span><span class="n">capacity_unit</span><span class="p">]</span> <span class="o">*</span> \
+                  <span class="n">time_units</span><span class="p">[</span><span class="n">delay_unit</span><span class="p">]</span> <span class="o">/</span> <span class="mf">8000.0</span>
+    <span class="k">if</span> <span class="n">buffer_unit</span> <span class="o">==</span> <span class="s">&#39;packets&#39;</span><span class="p">:</span>
+        <span class="n">norm_factor</span> <span class="o">/=</span> <span class="n">packet_size</span>
+    <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">edges</span><span class="p">:</span>
+        <span class="n">capacity</span> <span class="o">=</span> <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;capacity&#39;</span><span class="p">]</span>
+        <span class="n">buffer_size</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">mean_rtt_dict</span><span class="p">[(</span><span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">)]</span> <span class="o">*</span> <span class="n">capacity</span> <span class="o">*</span> <span class="n">norm_factor</span><span class="p">)</span>
+        <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;buffer&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">buffer_size</span> 
+    <span class="k">return</span>
+
+</div>
+<div class="viewcode-block" id="set_buffer_sizes_link_bandwidth"><a class="viewcode-back" href="../../../apidoc/generated/fnss.netconfig.buffers.set_buffer_sizes_link_bandwidth.html#fnss.netconfig.buffers.set_buffer_sizes_link_bandwidth">[docs]</a><span class="k">def</span> <span class="nf">set_buffer_sizes_link_bandwidth</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">default_size</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> 
+                                    <span class="n">buffer_unit</span><span class="o">=</span><span class="s">&#39;bytes&#39;</span><span class="p">,</span> <span class="n">interfaces</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Assign a buffer sizes proportionally to the bandwidth of the interface on </span>
+<span class="sd">    which the flush. In particularly, the buffer size will be equal to k*C,</span>
+<span class="sd">    where C is the capacity of the link in bps.</span>
+<span class="sd">    </span>
+<span class="sd">    To use this function, all links of the topology must have a &#39;capacity&#39; </span>
+<span class="sd">    attribute. If the length of a link cannot be determined, it is applied the </span>
+<span class="sd">    delay equal default_delay if specified, otherwise an error is returned. </span>
+<span class="sd">    </span>
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    topology : Topology or DirectedTopology</span>
+<span class="sd">        The topology on which delays are applied.</span>
+<span class="sd">    k : float, optional</span>
+<span class="sd">        The multiplicative constant applied to capacity to derive buffer size</span>
+<span class="sd">    default_size : float, optional</span>
+<span class="sd">        The buffer size to be applied to interfaces whose speed is unknown. If</span>
+<span class="sd">        it is None and at least one link does not have a capacity attribute,</span>
+<span class="sd">        return an error   </span>
+<span class="sd">    buffer_unit : string, unit</span>
+<span class="sd">        The unit of buffer sizes. Supported units are: &quot;bytes&quot; and &quot;packets&quot;</span>
+<span class="sd">    interfaces : list of tuples, optional</span>
+<span class="sd">        The list of selected interfaces on which buffer sizes are applied. </span>
+<span class="sd">        An interface is defined by the tuple (u,v) where u is the node on which</span>
+<span class="sd">        the interface is located and (u,v) is the link to which the buffer </span>
+<span class="sd">        flushes.</span>
+
+<span class="sd">    Examples</span>
+<span class="sd">    --------</span>
+<span class="sd">    &gt;&gt;&gt; import fnss</span>
+<span class="sd">    &gt;&gt;&gt; topology = fnss.erdos_renyi_topology(50, 0.1)</span>
+<span class="sd">    &gt;&gt;&gt; fnss.set_capacities_constant(topology, 10, &#39;Mbps&#39;)</span>
+<span class="sd">    &gt;&gt;&gt; fnss.set_delays_constant(topology, 2, &#39;ms&#39;)</span>
+<span class="sd">    &gt;&gt;&gt; fnss.set_buffer_sizes_link_bandwidth(topology, k=1.0)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">edges</span> <span class="o">=</span> <span class="n">topology</span><span class="o">.</span><span class="n">edges</span><span class="p">()</span> <span class="k">if</span> <span class="n">interfaces</span> <span class="ow">is</span> <span class="bp">None</span> <span class="k">else</span> <span class="n">interfaces</span>
+    <span class="k">if</span> <span class="n">default_size</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="p">[</span><span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;capacity&#39;</span><span class="p">]</span> <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">edges</span><span class="p">]</span>
+        <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;All links must have a capacity attribute.&#39;</span>\
+                             <span class="s">&#39;Set capacity or specify a default buffer size&#39;</span><span class="p">)</span> 
+    <span class="n">topology</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s">&#39;buffer_unit&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">buffer_unit</span>
+    <span class="n">norm_factor</span> <span class="o">=</span> <span class="n">capacity_units</span><span class="p">[</span><span class="n">topology</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s">&#39;capacity_unit&#39;</span><span class="p">]]</span>
+    <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">edges</span><span class="p">:</span>
+        <span class="k">if</span> <span class="s">&#39;capacity&#39;</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">]:</span>
+            <span class="n">capacity</span> <span class="o">=</span> <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;capacity&#39;</span><span class="p">]</span>
+            <span class="n">buffer_size</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">k</span> <span class="o">*</span> <span class="n">capacity</span> <span class="o">*</span> <span class="n">norm_factor</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span> 
+            <span class="n">buffer_size</span> <span class="o">=</span> <span class="n">default_size</span>
+        <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;buffer&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">buffer_size</span> 
+
+</div>
+<div class="viewcode-block" id="set_buffer_sizes_constant"><a class="viewcode-back" href="../../../apidoc/generated/fnss.netconfig.buffers.set_buffer_sizes_constant.html#fnss.netconfig.buffers.set_buffer_sizes_constant">[docs]</a><span class="k">def</span> <span class="nf">set_buffer_sizes_constant</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="n">buffer_size</span><span class="p">,</span> <span class="n">buffer_unit</span><span class="o">=</span><span class="s">&#39;bytes&#39;</span><span class="p">,</span> 
+                              <span class="n">interfaces</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Assign a constant buffer size to all selected interfaces</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    topology : Topology or DirectedTopology</span>
+<span class="sd">        The topology on which buffer sizes are applied.</span>
+<span class="sd">    buffer_size : int</span>
+<span class="sd">        The constant buffer_size to be applied to all interface</span>
+<span class="sd">    buffer_unit : string, unit</span>
+<span class="sd">        The unit of buffer sizes. Supported units are: &quot;bytes&quot; and &quot;packets&quot;</span>
+<span class="sd">    interfaces : list of tuples, optional</span>
+<span class="sd">        The list of selected interfaces on which buffer sizes are applied. </span>
+<span class="sd">        An interface is defined by the tuple (u,v) where u is the node on which</span>
+<span class="sd">        the interface is located and (u,v) is the link to which the buffer </span>
+<span class="sd">        flushes.</span>
+
+<span class="sd">    Examples</span>
+<span class="sd">    --------</span>
+<span class="sd">    &gt;&gt;&gt; import fnss</span>
+<span class="sd">    &gt;&gt;&gt; topology = fnss.Topology()</span>
+<span class="sd">    &gt;&gt;&gt; topology.add_path([1, 2, 4, 5, 8])</span>
+<span class="sd">    &gt;&gt;&gt; fnss.set_buffer_sizes_constant(topology, 100000, buffer_unit=&#39;bytes&#39;, \</span>
+<span class="sd">    ... interfaces=[(1,2), (5,8), (4,5)])</span>
+<span class="sd">    &quot;&quot;&quot;</span>    
+    <span class="k">if</span> <span class="n">buffer_size</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;The buffer_size argument cannot be negative&#39;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">interfaces</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="s">&#39;buffer_unit&#39;</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">graph</span><span class="p">:</span>
+        <span class="n">curr_buffer_unit</span> <span class="o">=</span> <span class="n">topology</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s">&#39;buffer_unit&#39;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">curr_buffer_unit</span> <span class="o">!=</span> <span class="n">buffer_unit</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;The topology already contains buffer sizes &#39;</span> \
+                             <span class="s">&#39;expressed in </span><span class="si">%s</span><span class="s">. Use that unit instead of </span><span class="si">%s</span><span class="s">&#39;</span> \
+                             <span class="o">%</span> <span class="p">(</span><span class="n">curr_buffer_unit</span><span class="p">,</span> <span class="n">buffer_unit</span><span class="p">))</span>
+    <span class="n">topology</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s">&#39;buffer_unit&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">buffer_unit</span>
+    <span class="n">edges</span> <span class="o">=</span> <span class="n">topology</span><span class="o">.</span><span class="n">edges</span><span class="p">()</span> <span class="k">if</span> <span class="n">interfaces</span> <span class="ow">is</span> <span class="bp">None</span> <span class="k">else</span> <span class="n">interfaces</span>
+    <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">edges</span><span class="p">:</span>
+        <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;buffer&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">buffer_size</span>
+
+
+</div>
+<div class="viewcode-block" id="get_buffer_sizes"><a class="viewcode-back" href="../../../apidoc/generated/fnss.netconfig.buffers.get_buffer_sizes.html#fnss.netconfig.buffers.get_buffer_sizes">[docs]</a><span class="k">def</span> <span class="nf">get_buffer_sizes</span><span class="p">(</span><span class="n">topology</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Returns all the buffer sizes.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    topology : Topology or DirectedTopology</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    buffer_sizes : dict</span>
+<span class="sd">        Dictionary of buffer sizes keyed by (u, v) tuple. The key (u, v) </span>
+<span class="sd">        represents a network interface where u is the node on which the</span>
+<span class="sd">        interface is located and (u, v) is the link to which the buffer flushes</span>
+<span class="sd">    </span>
+<span class="sd">    Examples</span>
+<span class="sd">    --------</span>
+<span class="sd">    &gt;&gt;&gt; import fnss</span>
+<span class="sd">    &gt;&gt;&gt; topology = fnss.Topology()</span>
+<span class="sd">    &gt;&gt;&gt; topology.add_path([1, 2, 3])</span>
+<span class="sd">    &gt;&gt;&gt; fnss.set_buffer_sizes_constant(topology, buffer_size=10)</span>
+<span class="sd">    &gt;&gt;&gt; buffer = fnss.get_buffer_sizes(topology)</span>
+<span class="sd">    &gt;&gt;&gt; buffer[(1,2)]</span>
+<span class="sd">    10</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">nx</span><span class="o">.</span><span class="n">get_edge_attributes</span><span class="p">(</span><span class="n">topology</span><span class="p">,</span> <span class="s">&#39;buffer&#39;</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="clear_buffer_sizes"><a class="viewcode-back" href="../../../apidoc/generated/fnss.netconfig.buffers.clear_buffer_sizes.html#fnss.netconfig.buffers.clear_buffer_sizes">[docs]</a><span class="k">def</span> <span class="nf">clear_buffer_sizes</span><span class="p">(</span><span class="n">topology</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Remove all buffer sizes from the topology.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    topology : Topology or DirectedTopology</span>
+<span class="sd">        The topology whose buffer sizes are cleared</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="s">&#39;buffer_unit&#39;</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">graph</span><span class="p">:</span>
+        <span class="k">del</span> <span class="n">topology</span><span class="o">.</span><span class="n">graph</span><span class="p">[</span><span class="s">&#39;buffer_unit&#39;</span><span class="p">]</span>
+    <span class="k">for</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">edges</span><span class="p">():</span>
+        <span class="k">if</span> <span class="s">&#39;buffer&#39;</span> <span class="ow">in</span> <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">]:</span>
+            <span class="k">del</span> <span class="n">topology</span><span class="o">.</span><span class="n">edge</span><span class="p">[</span><span class="n">u</span><span class="p">][</span><span class="n">v</span><span class="p">][</span><span class="s">&#39;buffer&#39;</span><span class="p">]</span>
+</pre></div></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="../../../np-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../../index.html">FNSS 0.1.0 documentation</a> &raquo;</li>
+          <li><a href="../../index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2012, Lorenzo Saino, Cosmin Cocora.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>
