@@ -1,0 +1,103 @@
+Site Search
+-----------
+
+This tests the Solr-based replacement for Plone's site search feature.  We'll
+use a testbrowser to created an object and then search for it.  First we need
+to activate Solr support and reindex the site's content, though:
+
+  >>> self.activateAndReindex()
+
+  >>> self.setRoles(('Manager',))
+  >>> browser = self.getBrowser()
+  >>> browser.open('http://nohost/plone/')
+  >>> browser.getLink('Page').click()
+  >>> browser.getControl('Title').value = 'Foo'
+  >>> browser.getControl('Save').click()
+  >>> browser.url
+  'http://nohost/plone/foo'
+  >>> browser.contents
+  '...Info...Changes saved...
+   ...documentFirstHeading...Foo...'
+
+  >>> browser.getControl('Search Site').value = 'Foo'
+  >>> browser.getForm(name='searchform').submit()
+  >>> browser.contents
+  '...Search results...1...items matching your search terms...
+   ...http://nohost/plone/foo...Foo...'
+  >>> browser.getLink('Foo')
+  <Link text='Foo' url='http://nohost/plone/foo'>
+
+Some content items, for example files and image, don't have an associated
+workflow state.  Hence they cannot provide data for a `review_state` index
+as well.  However, Plone's search results listing template (`search.pt`)
+contains the string expression "state-${result/review_state}", and the TAL
+engine will attempt to traverse `result` in case dictionary and attribute
+lookups for `review_state` weren't successful.  Let's make sure this
+behaviour won't break things:
+
+  >>> portal.invokeFactory('File', id='file', title='my first file')
+  'file'
+  >>> browser.open('http://nohost/plone/')
+  >>> browser.getControl('Search Site').value = 'my first file'
+  >>> browser.getForm(name='searchform').submit()
+  >>> browser.contents
+  '...Search results...1...items matching your search terms...
+   ...http://nohost/plone/file...my first file...'
+
+
+Wildcard searches
+-----------------
+
+Simple searches should be wildcard searches to reflect (and not change)
+Plone's default behaviour.  So at least for single words the search should
+be automatically adjusted:
+
+  >>> browser.open('http://nohost/plone/')
+  >>> browser.getControl('Search Site').value = 'Fo'
+  >>> browser.getForm(name='searchform').submit()
+  >>> browser.contents
+  '...Search results...2...items matching your search terms...
+   ...http://nohost/plone/foo...Foo...'
+  >>> browser.getLink('Foo')
+  <Link text='Foo' url='http://nohost/plone/foo'>
+
+
+Advanced Search
+---------------
+
+Plone's advanced search should also work.  However, we only test the default
+settings here in order to make sure including the extra query parameters
+doesn't lead to problems:
+
+  >>> browser.open('http://nohost/plone/search_form')
+  >>> browser.getControl(name='SearchableText', index=1).value = 'Foo'
+  >>> browser.getControl(name='submit').click()
+  >>> browser.contents
+  '...Search results...1...items matching your search terms...
+   ...http://nohost/plone/foo...Foo...'
+
+
+Batch padding
+-------------
+
+Searches which return one more result than the current batch size will
+skip the batching and show all results on one page instead (see `orphans`
+setting):
+
+  >>> for n in range(31):
+  ...   _ = self.portal.invokeFactory('Document', id='doc%d' % n, title='Bar')
+  >>> from transaction import commit
+  >>> commit()                        # indexing happens on commit
+
+  >>> browser.open('http://nohost/plone/search_form')
+  >>> browser.getControl(name='SearchableText', index=1).value = 'Bar'
+  >>> browser.getControl(name='submit').click()
+  >>> browser.contents
+  '...Search results...31...items matching your search terms...'
+
+The batching link should not show up:
+
+  >>> browser.getLink('Next')
+  Traceback (most recent call last):
+  ...
+  LinkNotFoundError

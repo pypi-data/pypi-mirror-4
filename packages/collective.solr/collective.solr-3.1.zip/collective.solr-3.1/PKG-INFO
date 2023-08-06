@@ -1,0 +1,1362 @@
+Metadata-Version: 1.1
+Name: collective.solr
+Version: 3.1
+Summary: Solr integration for external indexing and searching.
+Home-page: http://plone.org/products/collective.solr
+Author: Jarn AS
+Author-email: info@jarn.com
+License: GPL version 2
+Description: Introduction
+        ============
+        
+        .. image:: https://secure.travis-ci.org/collective/collective.solr.png
+        
+        collective.solr integrates the `Solr`_ search engine with `Plone`_.
+        
+        Apache Solr is based on Lucene and is *the* enterprise open source search
+        engine. It powers the search of sites like Twitter, the Apple and iTunes Stores,
+        Wikipedia, Netflix and many more.
+        
+        Solr does not only scale to any level of content, but provides rich search
+        functionality, like facetting, geospatial search, suggestions, spelling
+        corrections, indexing of binary formats and a whole variety of powerful tools to
+        configure custom search solutions. It has integrated clustering and
+        load-balancing to provide a high level of robustness.
+        
+        collective.solr comes with a default configuration and setup of Solr that makes
+        it extremely easy to get started, yet provides a vastly superior search quality
+        compared to Plone's integrated text search based on ZCTextIndex.
+        
+        
+        Current Status
+        ==============
+        
+        The code is used in production in many sites and considered stable. This
+        add-on can be installed in a `Plone`_ 4.1 (or later) site to enable indexing
+        operations as well as searching (site and live search) using `Solr`_. Doing so
+        will not only significantly improve search quality and performance -
+        especially for a large number of indexed objects, but also reduce the memory
+        footprint of your `Plone`_ instance by allowing you to remove the
+        ``SearchableText``, ``Description`` and ``Title`` indexes from the catalog. In
+        large sites with 100000 content objects and more, searches using ZCTextIndex
+        often taken 10 seconds or more and require a good deal of memory from ZODB
+        caches. Solr will typically answer these requests in 10ms to 50ms at which
+        point network latency and the rendering speed of Plone's page templates are a
+        more dominant factor.
+        
+        
+        Installation
+        ============
+        
+        The following buildout configuration may be used to get started quickly::
+        
+          [buildout]
+          extends =
+            buildout.cfg
+            https://github.com/Jarn/collective.solr/raw/master/buildout/solr.cfg
+        
+          [instance]
+          eggs += collective.solr
+        
+        After saving this to let's say ``solr.cfg`` the buildout can be run and the
+        `Solr`_ server and `Plone`_ instance started::
+        
+          $ python bootstrap.py
+          $ bin/buildout -c solr.cfg
+          ...
+          $ bin/solr-instance start
+          $ bin/instance start
+        
+        Next you should activate the ``collective.solr (site search)`` add-on in the
+        add-on control panel of Plone. After activation you should review the settings
+        in the new ``Solr Settings`` control panel. To index all your content in Solr
+        you can call the provided maintenance view::
+        
+          http://localhost:8080/plone/@@solr-maintenance/reindex
+        
+        Creating the initial index can take some considerably time. A typical indexing
+        rate for a Plone site running of a local disk is 20 index operations per second.
+        While Solr scales to orders of magnitude more than that, the limiting factor is
+        database access time in Plone.
+        
+        If you have an existing site with a large volume of content, you can create an
+        initial Solr index on a staging server or development machine, then rsync it
+        over to the live machine, enable Solr and call `@@solr-maintenance/sync`. The
+        sync will usually take just a couple of minutes for catching up with changes in
+        the live database. You can also use this approach when making changes to the
+        index structure or changing the settings of existing fields.
+        
+        Note that the example solr.cfg is bound to change. Always copy the file to your
+        local buildout. In general you should never rely on extending buildout config
+        files from servers that aren't under your control.
+        
+        
+        Features
+        ========
+        
+        Once installed and configured, this add-on introduces a number of end-user
+        features.
+        
+        Supported scripts and languages
+        -------------------------------
+        
+        In the default configuration all languages and scripts should be supported.
+        This broad support comes at the expense of avoiding any language specific
+        configuration.
+        
+        The default text analysis uses libraries based on ICU standards to fold and
+        normalize any text as well as find token boundaries - in most languages word
+        boundaries.
+        
+        Accented characters are folder into their unaccented base form and many other
+        characters are normalized. This normalization is similar to what Plone does when
+        generating url identifiers from titles. These changes are applied both to the
+        indexed text and the user provided search query, so in general there's a large
+        number of matches at the expense of specificity.
+        
+        Non-alphabetic characters like hyphens, dots and colons are interpreted as word
+        boundaries, while case changes and alphanumeric combinations are left intact;
+        for example `WiFi` or `IPv4` will only be lower-cased but not split.
+        
+        For any specific site, you likely know the supported content languages and could
+        further tune the text analysis. A common example is the use of stemming, to
+        generate base words for terms. This helps to avoid distinctions between singular
+        and plural forms of a word or it being used as an adjective. Stemming broadens
+        the found result even more, at a greater expense of specificity and needs to be
+        used carefully.
+        
+        There's a plethora of text analysis options available in Solr if you are
+        interested in the subject or have specific needs.
+        
+        
+        Exclude from search and elevation
+        ---------------------------------
+        
+        By default this add-on introduces two new fields to the default content types
+        or any custom type derived from ATContentTypes.
+        
+        The `showinsearch` boolean field lets you hide specific content items from the
+        search results, by setting the value to `false`.
+        
+        The `searchwords` lines field allows you to specify multiple phrases per content
+        item. A phrase is specified per line. User searches containing any of these
+        phrases will show the content item as the first result for the search. This
+        technique is also known as `elevation`.
+        
+        Both of these features depend on the default `search-pattern` to include the
+        required parts as included in the default configuration. The `searchwords`
+        approach to elevation doesn't depend on the Solr elevation feature, as that
+        would require maintaining a xml file as part of the Solr server configuration.
+        
+        
+        Facets
+        ------
+        
+        Plone's default search form is overridden to provide faceting support. The
+        available facets can be configured in the control panel. The provided search
+        form is currently more of an example and not used in many real world projects.
+        You likely want to override it with a custom implementation for your specific
+        site.
+        
+        Starting with Plone 4.2, Plone will contain a modernized search form whose UI
+        supports faceting more naturally. At some point `c.solr` will extend this new
+        search form rather than providing its own.
+        
+        
+        Indexing binary documents
+        -------------------------
+        
+        At this point collective.solr uses Plone's default capabilities to index binary
+        documents via `portal_transforms` and installing command line tools like `wv2`
+        or `pdftotext`. Work is under way to expose and use the `Apache Tika`_ Solr
+        integration available via the `update/extract` handler.
+        
+        Once finished this will speed up indexing of binary documents considerably, as
+        the extraction will happen out-of-process on the Solr server side. Apache Tika
+        also supports a much larger list of formats than can be supported by adding
+        external command line tools.
+        
+        There is room for more improvements in this area, as c.solr will still send the
+        binary data to Solr as part of the end-user request/transaction. To further
+        optimize this, Solr index operations can be stored in a task queue as provided
+        by `plone.app.async` or solutions build on top of `Celery`. This is currently
+        outside the scope of `collective.solr`.
+        
+        .. _`Apache Tika`: http://tika.apache.org/
+        
+        
+        Spelling checking / suggestions
+        -------------------------------
+        
+        Solr supports spell checking - or rather suggestions, as it doesn't contain a
+        formal dictionary but bases suggestions on the indexed corpus. The idea is to
+        present the user with alternative search terms for any query that is likely to
+        produce more or better results.
+        
+        Currently this is not yet exposed in the `collective.solr` API's even though
+        the Solr server as set up by the buildout recipe already contains the required
+        configuration for this.
+        
+        
+        Wildcard searches
+        -----------------
+        
+        Wildcard search support in Solr is rather poor. Unfortunately Plone's live
+        search uses this by default, so we have to support it. When doing wildcard
+        searches, Solr ignores any of the tokenizer and analyzer settings of the field
+        at query time. This often leads to a mismatch of the indexed data as modified
+        by those settings and the query term. In order to work around this, we try to
+        reproduce the essential parts of these analyzers on the `collective.solr` side.
+        The most common changes are lower-casing characters and folding non-ascii
+        characters to ascii as done by the `ICUFoldingFilterFactory`. Currently these
+        two changes are hard-wired and applied to all fields of type `solr.TextField`.
+        If you have different field settings you might need to overwrite
+        `collective.solr.utils.prepare_wildcard`.
+        
+        
+        Architecture
+        ============
+        
+        When working with Solr it's good to keep some things about it in mind. This
+        information is targeted at developers and integrators trying to use and extend
+        Solr in their Plone projects.
+        
+        Dependencies
+        ------------
+        
+        Currently we depend on `collective.indexing` as a means to hook into the normal
+        catalog machinery of Plone to detect content changes. `c.indexing` before
+        version two had some persistent data structures that frequently caused problems
+        when removing the add-on. These problems have been fixed in version two.
+        Unfortunately `c.indexing` still has to hook the catalog machinery in various
+        evil ways, as the machinery lacks the required hooks for its use-case. Going
+        forward it is expected for `c.indexing` to be merged into the underlying
+        `ZCatalog` implementation, at which point `collective.solr` can use those hooks
+        directly.
+        
+        Indexing
+        --------
+        
+        Solr is not transactional aware or supports any kind of rollback or undo. We
+        therefor only sent data to Solr at the end of any successful request. This is
+        done via collective.indexing, a transaction manager and an end request
+        transaction hook. This means you won't see any changes done to content inside a
+        request when doing Solr searches later on in the same request. Inside tests you
+        need to either commit real transactions or otherwise flush the Solr connection.
+        There's no transaction concept, so one request doing a search might get some
+        results in its beginning, than a different request might add new information to
+        Solr. If the first request is still running and does the same search again it
+        might get different results taking the changes from the second request into
+        account.
+        
+        Solr is not a real time search engine. While there's work under way to make Solr
+        capable of delivering real time results, there's currently always a certain
+        delay up to some minutes from the time data is sent to Solr to when it is
+        available in searches.
+        
+        Search results are returned in Solr by distinct search threads. These search
+        threads hold a great number of caches which are crucial for Solr to perform.
+        When index or unindex operations are sent to Solr, it will keep those in memory
+        until a commit is executed on its own search index. When a commit occurs, all
+        search threads and thus all caches are thrown away and new threads are created
+        reflecting the data after the commit. While there's a certain amount of cache
+        data that is copied to the new search threads, this data has to be validated
+        against the new index which takes some time. The `useColdSearcher` and
+        `maxWarmingSearchers` options of the Solr recipe relate to this aspect. While
+        cache data is copied over and validated for a new search thread, the searcher
+        is `warming up`. If the warming up is not yet completed the searcher is
+        considered to be `cold`.
+        
+        In order to get real good performance out of Solr, we need to minimize the
+        number of commits against the Solr index. We can achieve this by turning off
+        `auto-commit` and instead use `commitWithin`. So we don't sent a `commit`
+        to Solr at the end of each index/unindex request on the Plone side. Instead we
+        tell Solr to commit the data to its index at most after a certain time interval.
+        Values of 15 minutes to 1 minute work well for this interval. The larger you
+        can make this interval, the better the performance of Solr will be, at the cost
+        of search results lagging behind a bit. In this setup we also need to configure
+        the `autoCommitMaxTime` option of the Solr server, as `commitWithin` only works
+        for index but not unindex operations. Otherwise a large number of unindex
+        operations without any index operations occurring could not be reflected in the
+        index for a long time.
+        
+        As a result of all the above, the Solr index and the Plone site will always have
+        slightly diverging contents. If you use Solr to do searches you need to be aware
+        of this, as you might get results for objects that no longer exist. So any
+        `brain/getObject` call on the Plone side needs to have error handling code
+        around it as the object might not be there anymore and traversing to it can
+        throw an exception.
+        
+        When adding new or deleting old content or changing the workflow state of it,
+        you will also not see those actions reflected in searches right away, but only
+        after a delay of at most the `commitWithin` interval. After a `commitWithin`
+        operation is sent to Solr, any other operations happening during that time
+        window will be executed after the first interval is over. So with a 15 minute
+        interval, if document A is indexed at 5:15, B at 5:20 and C at 5:35, both A & B
+        will be committed at 5:30 and C at 5:50.
+        
+        Searching
+        ---------
+        
+        Information retrieval is a complex science. We try to give a very brief
+        explanation here, refer to the literature and documentation of Lucene/Solr for
+        much more detailed information.
+        
+        If you do searches in normal Plone, you have a search term and query the
+        SearchableText index with it. The SearchableText is a simple concatenation of
+        all searchable fields, by default title, description and the body text.
+        
+        The default ZCTextIndex in Plone uses a simplified version of the Okapi BM25
+        algorithm described in papers in 1998. It uses two metrics to score documents:
+        
+        - Term frequency: How often does a search term occur in a document
+        - Inverse document frequency: The inverse of in how many documents a term
+          occurs. Terms only occurring in a few documents are scored higher than those
+          occurring in many documents.
+        
+        It calculates the sum of all scores, for every term common to the query and any
+        document. So for a query with two terms, a document is likely to score higher
+        if it contains both terms, except if one of them is a very common term and the
+        other document contains the non-common term more often.
+        
+        The similarity function used in Solr/Lucene uses a different algorithm, based on
+        a combination of a boolean and vector space model, but taking the same
+        underlying metrics into account. In addition to the term frequency and inverse
+        document frequency Solr respects some more metrics:
+        
+        - length normalization: The number of all terms in a field. Shorter fields
+          contribute higher scores compared to long fields.
+        - boost values: There's a variety of boost values that can be applied, both
+          index-time document boost values as well as boost values per search field or
+          search term
+        
+        In its pre 2.0 versions, collective.solr used a naive approach and mirrored the
+        approach taken by ZCTextIndex. So it sent each search query as one query and
+        matched it against the full SearchableText field inside Solr. By doing that Solr
+        basically used the same algorithm as ZCTextIndex as it only had one field to
+        match with the entire text in it. The only difference was the use of the length
+        normalization, so shorter documents ranked higher than those with longer texts.
+        This actually caused search quality to be worse, as you'd frequently find
+        folders, links or otherwise rather empty documents. The Okapi BM25
+        implementation in ZCTextIndex deliberately ignores the document length for that
+        reason.
+        
+        In order to get good or better search quality from Solr, we have to query it in
+        a different way. Instead of concatenating all fields into one big text, we need
+        to preserve the individual fields and use their intrinsic importance. We get the
+        main benefit be realizing that matches on the title and description are more
+        important than matches on the body text or other fields in a document.
+        collective.solr 2.0+ does exactly that by introducing a `search-pattern` to be
+        used for text searches. In its default form it causes each query to work against
+        the title, description and full searchable text fields and boosts the title by
+        a high and the description by a medium value. The length normalization already
+        provides an improvement for these fields, as the title is likely short, the
+        description a bit longer and the full text even longer. By using explicit boost
+        values the effect gets to be more pronounced.
+        
+        If you do custom searches or want to include more fields into the full text
+        search you need to keep the above in mind. Simply setting the `searchable`
+        attribute on the schema of a field to `True` will only include it in the big
+        searchable text stream. If you for example include a field containing tags, the
+        simple tag names will likely 'drown' in the full body text. You might want to
+        instead change the search pattern to include the field and potentially put a
+        boost value on it - though it will be more important as it's likely to be
+        extremely short. Similarly extracting the full text of binary files and simply
+        appending them into the search stream might not be the best approach. You should
+        rather index those in a separate field and then maybe use a boost value of less
+        than one to make the field less important. Given two documents with the same
+        content, one as a normal page and one as a binary file, you'll likely want to
+        find the page first, as it's faster to access and read than the file.
+        
+        There's a good number of other improvements you can do using query time and
+        index time boost values. To provide index time boost values, you can provide
+        a skin script called `solr_boost_index_values` which gets the object to be
+        indexed and the data sent to Solr as arguments and returns a dictionary of field
+        names to boost values for each document. The safest is to return a boost value
+        for the empty string, which results in a document boost value. Field level boost
+        values don't work with all searches, especially wildcard searches as done by
+        most simple web searches. The index time boost allows you to implement policies
+        like boosting certain content types over others, taking into account ratings or
+        number of comments as a measure of user feedback or anything else that can be
+        derived from each content item.
+        
+        
+        Production
+        ==========
+        
+        Java settings
+        -------------
+        
+        Make sure you are using a `server` version of Java in production. The output
+        of::
+        
+          $ java -version
+        
+        should include `Java HotSpot(TM) Server VM` or
+        `Java HotSpot(TM) 64-Bit Server VM`. You can force the Java VM into server mode
+        by calling it with the `-server` command. Do not try to run Solr with versions
+        of OpenJDK or other non-official Java versions. They tend to not work well or
+        at all.
+        
+        Depending on the size of your Solr index, you need to configure the Java VM to
+        have enough memory. Good starting values are `-Xms128M -Xmx256M`, as a rule of
+        thumb keep `Xmx` double the size of `Xms`.
+        
+        You can configure these settings via the `java_opts` value in the
+        `collective.recipe.solrinstance` recipe section like::
+        
+          java_opts =
+            -server
+            -Xms128M
+            -Xmx256M
+        
+        
+        Monitoring
+        ----------
+        
+        Java has a general monitoring framework called JMX. You can use this to get
+        a huge number of details about the Java process in general and Solr in
+        particular. Some hints are at http://wiki.apache.org/solr/SolrJmx. The default
+        `collective.recipe.solrinstance` config uses `<jmx />`, so we can use command
+        line arguments to configure it. Our example `buildout/solr.cfg` includes all
+        the relevant values in its `java_opts` variable.
+        
+        To view all the available metrics, start Solr and then the `jconsole` command
+        included in the Java SDK and connect to the local process named `start.jar`.
+        Solr specific information is available from the MBeans tab under the `solr`
+        section. For example you'll find `avgTimePerRequest` within
+        `search/org.apache.solr.handler.component.SearchHandler` under `Attributes`.
+        
+        If you want to integrate with munin, you can install the JMX plugin at:
+        http://exchange.munin-monitoring.org/plugins/jmx/details
+        
+        Follow its install instructions and tweak the included examples to query the
+        information you want to track. To track the average time per search request,
+        add a file called `solr_avg_query_time.conf` into `/usr/share/munin/plugins`
+        with the following contents::
+        
+          graph_title Average Query Time
+          graph_vlabel ms
+          graph_category Solr
+        
+          solr_average_query_time.label time per request
+          solr_average_query_time.jmxObjectName solr/:type=search,id=org.apache.solr.handler.component.SearchHandler
+          solr_average_query_time.jmxAttributeName avgTimePerRequest
+        
+        Then add a symlink to add the plugin::
+        
+          $ ln -s /usr/share/munin/plugins/jmx_ /etc/munin/plugins/jmx_solr_avg_query_time
+        
+        Point the jmx plugin to the Solr process, by
+        opening `/etc/munin/plugin-conf.d/munin-node.conf` and adding something like::
+        
+          [jmx_*]
+          env.jmxurl service:jmx:rmi:///jndi/rmi://127.0.0.1:8984/jmxrmi
+        
+        The host and port need to match those passed via `java_opts` to Solr. To check
+        if the plugins are working do::
+        
+          $ export jmxurl="service:jmx:rmi:///jndi/rmi://127.0.0.1:8984/jmxrmi"
+          $ cd /etc/munin/plugins
+        
+        And call the plugin you configured directly, like for example::
+        
+          $ ./solr_avg_query_time
+          solr_average_query_time.value NaN
+        
+        We include a number of useful configurations inside the package, in the
+        `collective/solr/munin_config` directory. You can copy all of them into the
+        `/usr/share/munin/plugins` directory and create the symlinks for all of them.
+        
+        
+        Replication
+        -----------
+        
+        At this point Solr doesn't yet allow for a full fault tolerance setup. You can
+        read more about the `Solr Cloud`__ effort which aims to provide this.
+        
+        But we can setup a simple master/slave replication using Solr's built-in
+        `Solr Replication`__ support, which is a first step in the right direction.
+        
+          .. __: http://wiki.apache.org/solr/SolrCloud
+          .. __: http://wiki.apache.org/solr/SolrReplication
+        
+        In order to use this, you can setup a Solr master server and give it some
+        extra config::
+        
+          [solr-instance]
+          additional-solrconfig =
+            <requestHandler name="/replication" class="solr.ReplicationHandler" >
+              <lst name="master">
+                <str name="replicateAfter">commit</str>
+                <str name="replicateAfter">startup</str>
+                <str name="replicateAfter">optimize</str>
+              </lst>
+            </requestHandler>
+        
+        Then you can point one or multiple slave servers to the master. Assuming the
+        master runs on `solr-master.domain.com` at port `8983`, we could write::
+        
+          [solr-instance]
+          additional-solrconfig =
+            <requestHandler name="/replication" class="solr.ReplicationHandler" >
+              <lst name="slave">
+                <str name="masterUrl">http://solr-master.domain.com:8983/solr/replication</str>
+                <str name="pollInterval">00:00:30</str>
+              </lst>
+            </requestHandler>
+        
+        A poll interval of 30 seconds should be fast enough without creating too much
+        overhead.
+        
+        At this point `collective.solr` does not yet have support for connecting to
+        multiple servers and using the slaves as a fallback for querying. As there's no
+        master-master setup yet, fault tolerance for index changes cannot be provided.
+        
+        Development
+        ===========
+        
+        Releases can be found on the Python Package Index at
+        http://pypi.python.org/pypi/collective.solr. The code and issue trackers can be
+        found on GitHub at https://github.com/Jarn/collective.solr.
+        
+        For outstanding issues and features remaining to be implemented please see the
+        `to-do list`__ included in the package as well as it's `issue tracker`__.
+        
+          .. __: https://github.com/Jarn/collective.solr/blob/master/TODO.txt
+          .. __: https://github.com/Jarn/collective.solr/issues
+        
+        
+        Credits
+        =======
+        
+        This code was inspired by `enfold.solr`_ by `Enfold Systems`_ as well as `work
+        done at the snowsprint'08`__.  The `solr.py` module is based on the original
+        python integration package from `Solr`_ itself.
+        
+        Development was kindly sponsored by `Elkjop`_ and the
+        `Nordic Council and Nordic Council of Ministers`_.
+        
+          .. _`enfold.solr`: https://svn.enfoldsystems.com/trac/public/browser/enfold.solr/branches/snowsprint08-buildout/enfold.solr
+          .. _`Enfold Systems`: http://www.enfoldsystems.com/
+          .. __: http://tarekziade.wordpress.com/2008/01/20/snow-sprint-report-1-indexing/
+          .. _`Elkjop`: http://www.elkjop.no/
+          .. _`Nordic Council and Nordic Council of Ministers`: http://www.norden.org/en/
+          .. _`Solr`: http://lucene.apache.org/solr/
+          .. _`Plone`: http://www.plone.org/
+        
+        Changelog
+        =========
+        
+        3.1 - 2013-02-16
+        ----------------
+        
+        - Add optional plone.app.contentlisting/plone.app.search support
+          [do3cc][csenger]
+        
+        - Add datehandler support for python date objects.
+          [jcbrand]
+        
+        - Add inthandler support for not indexing Integers that are None.
+          [do3cc]
+        
+        
+        3.0 - 2012-02-06
+        ----------------
+        
+        - Ignore a batch start parameter when selecting a facet to filter on.
+          https://github.com/Jarn/collective.solr/issues/12
+          [mj]
+        
+        3.0b5 - 2011-12-07
+        ------------------
+        
+        - Removed `solr_dump_catalog` and `solr_import_dump` command line scripts.
+          They were too dependent on internals and had subtle bugs.
+          [hannosch]
+        
+        - Sort arguments in `buildQuery` to get a stable ordering for test output.
+          [hannosch]
+        
+        - Solr facet queries on unknown fields will now raise a SolrException.
+          [hannosch]
+        
+        - Update example configuration to Solr 3.5.
+          [hannosch]
+        
+        - Fix control panel adapter to save the search_pattern as utf-8.
+          [ggozad]
+        
+        3.0b4 - 2011-11-10
+        ------------------
+        
+        - Revert `unrestrictedSearchResults` change, as it breaks additional catalogs,
+          like the membrane catalogs.
+          [hannosch]
+        
+        3.0b3 - 2011-11-09
+        ------------------
+        
+        - Made maintenance sync view compatible with latest internals of field indexes.
+          [hannosch]
+        
+        - Also dispatch `unrestrictedSearchResults` to the Solr server.
+          https://github.com/Jarn/collective.solr/issues/5
+          [reinhardt, hannosch]
+        
+        - Tweak search form to better match sunburst proportions.
+          [elro]
+        
+        3.0b2 - 2011-10-05
+        ------------------
+        
+        - Facet titles can now be provided by specialized vocabularies. Register a named
+          IFacetTitleVocabularyFactory utility and it'll be used to get a vocabulary
+          for the facet field with the same name.
+          [mj]
+        
+        3.0b1 - 2011-09-27
+        ------------------
+        
+        - Extend the wildcard search term manipulation to do Unicode to ascii folding,
+          to keep up with the default field settings of the text field.
+          [hannosch, mj]
+        
+        3.0a5 - 2011-09-26
+        ------------------
+        
+        - Don't treat search terms ending in numbers as `simple`, as Solr doesn't deal
+          with wildcard searches for numbers.
+          [hannosch]
+        
+        - Include CMFCore's `permissions.zcml`.
+          [witekdev, hannosch]
+        
+        3.0a4 - 2011-08-22
+        ------------------
+        
+        * Fixed bug in `extender.searchwords` indexer - terms need to be lowercased
+          explicitly.
+          [hannosch]
+        
+        3.0a3 - 2011-08-22
+        ------------------
+        
+        * Fixed handling of intra-word hyphens to be taken literally instead of being
+          interpreted as syntax for text fields.
+          [hannosch]
+        
+        * Explicitly require Plone 4.1 / Zope 2.13.
+          [hannosch]
+        
+        * Depend on the new c.indexing 2.0a2.
+          [hannosch]
+        
+        * Added an `archetypes.schemaextender` dependency and register two fields for
+          all objects providing `IATContentType`. `showinsearch` is a boolean field that
+          can be used to hide specific content items from search results. `searchwords`
+          is a lines field, which lets you specify words that an object should be found
+          under.
+          [hannosch]
+        
+        * Standardize on `solr` as the i18n domain.
+          [hannosch]
+        
+        3.0a2 - 2011-07-10
+        ------------------
+        
+        * Adjust munin configs for query cache handlers to `c.r.solrinstance 3.5`
+          changes using `FastLRUCache`.
+          [hannosch]
+        
+        * Added munin configs for the `/update/extract`, the direct update handler,
+          query cache size and warmup time, admin file requests used to get the
+          Solr schema and the searcher warmup time.
+          [hannosch]
+        
+        * Added tests for splitting words on `:` and `-`.
+          [hannosch]
+        
+        * Update example configuration to Solr 3.3.
+          [hannosch]
+        
+        * Add `getRID` and `_unrestrictedGetObject` to our flare implementation.
+          [hannosch]
+        
+        * Added documentation on setting up a master-slave configuration using the
+          `SolrReplication` support.
+          [hannosch]
+        
+        * Adjust tests to work with latest `collective.recipe.solrinstance = 3.3` and
+          its new ICU-based text field.
+          [hannosch]
+        
+        3.0a1 - 2011-06-23
+        ------------------
+        
+        Upgrade notes
+        *************
+        
+        * Changed the names of the indexes used to emulate the `path` index. You need
+          to adjust your schema and rename `physicalPath` to `path_string`,
+          `physicalDepth` to `path_depth` and `parentPaths` to `path_parents`. This
+          also requires a full Solr reindex to pick up the new data.
+          [hannosch]
+        
+        Changes
+        *******
+        
+        * Added `object_provides` index to example schema, as it's used in the
+          collection portlet to find collections.
+          [hannosch]
+        
+        * Rewrote the `maintenance/sync` method for more performance, dropped the
+          optional `path` restriction from it and removed the `cache` argument. It
+          should be able to sync datasets in the 100,000 object range in the matter of
+          a couple minutes.
+          [hannosch]
+        
+        * Changed the `maintenance/reindex` method to only flush data to Solr but not
+          commit after each batch. Instead we only commit once at the end. You should
+          configure auto commit policies on the Solr server side or `commitWithin`.
+          [hannosch]
+        
+        * Adjusted the `mangleQuery` function to calculate extended path indexes from
+          the Solr schema instead of hardcoding `path`. If you have any additional
+          extended path indexes, you need to provide indexers with the same three
+          suffixes as we do ourselves in the `attributes` module for the `path` index
+          and add those to the Solr schema.
+          [hannosch]
+        
+        * Added documentation on Java process, monitoring production settings and
+          include a number of useful munin plugin configurations.
+          [hannosch]
+        
+        * Updated example config to include production settings and JMX.
+          [hannosch]
+        
+        * Updated example config to collective.recipe.solrinstance 3.1 and Solr 3.2.
+          [hannosch]
+        
+        2.0 - 2011-06-04
+        ----------------
+        
+        * Updated readme and project description, adding detailed information about how
+          Solr works and how we integrate with it.
+          [hannosch]
+        
+        2.0b2 - 2011-05-18
+        ------------------
+        
+        * Added optional support for the `Lazy` backports founds in catalogqueryplan.
+          [hannosch]
+        
+        * Fixed patch of LazyCat's `__add__` method to patch the base class instead, as
+          the method was moved.
+          [hannosch]
+        
+        * Updated test config to Solr 3.1, which should be supported but hasn't seen
+          extensive production use.
+          [hannosch]
+        
+        * Avoid using the deprecated `five:implements` directive.
+          [hannosch]
+        
+        2.0b1 - 2011-04-06
+        ------------------
+        
+        * Rewrite the `isSimpleSearch` function to use a less complex regular
+          expression, which doesn't have O(2**n) scaling properties.
+          [hannosch]
+        
+        * Use the standard libraries doctest module.
+          [hannosch]
+        
+        * Fix the pretty_title_or_id method from PloneFlare; the implementation
+          was broken, now delegates to the standard Plone implementation.
+          [mj]
+        
+        
+        2.0a3 - 2011-01-26
+        ------------------
+        
+        * In `solr_dump_catalog` correctly handle boolean values and empty text fields.
+          [hannosch]
+        
+        
+        2.0a2 - 2011-01-10
+        ------------------
+        
+        * Provide a dummy request in the `solr_dump_catalog` command.
+          [hannosch]
+        
+        
+        2.0a1 - 2011-01-10
+        ------------------
+        
+        * Handle utf-8 encoded data correctly in `utils.isWildCard`.
+          [hannosch]
+        
+        * Gracefully handle exceptions raised during index data retrieval.
+          [tom_gross, hannosch]
+        
+        * Added `zopectl.command` entry points for three new scripts.
+          `solr_clear_index` will remove all entries from Solr. `solr_dump_catalog`
+          will efficiently dump the content of the catalog onto the filesystem and
+          `solr_import_dump` will import the dump into Solr. This can be used to
+          bootstrap an empty Solr index or update it when the boost logic has changed.
+          All scripts will either take the first Plone site found in the database or
+          accept an unnamed command line argument to specify the id. The Solr server
+          needs to be running and the connection info needs to be configured in the
+          Plone site. Example use: ``bin/instance solr_dump_catalog Plone``. In this
+          example the data would be stored in `var/instance/solr_dump_plone`. The data
+          can be transferred between machines and calling `solr_dump_catalog` multiple
+          times will append new data to the existing dump. To get Solr up-to-date you
+          should still call `@@solr-maintenance/sync`.
+          [hannosch, witsch]
+        
+        * Changed search pattern syntax to use `str.format` syntax and make both
+          `{value}` and `{base_value}` available in the pattern.
+          [hannosch]
+        
+        * Add possibility to calculate site-specific boost values via a skin script.
+          [hannosch, witsch]
+        
+        * Fix wildcard searches for patterns other than just ending with an asterisk.
+          [hannosch, witsch]
+        
+        * Require Plone 4.x, declare package dependencies & remove BBB bits.
+          [hannosch, witsch]
+        
+        * Add configurable setting for custom search pattern for simple searches,
+          allowing to include multiple fields with specific boost values.
+          [hannosch, witsch]
+        
+        * Don't modify search parameters during indexing.
+          [hannosch, witsch]
+        
+        * Fixed auto-commit support to actually sent the data to Solr, but omit the
+          commit message.
+          [hannosch]
+        
+        * Added support for ``commitWithin`` support on add messages as per SOLR-793.
+          This feature requires a Solr 1.4 server.
+          [hannosch]
+        
+        * Split out 404 auto-suggestion tests into a separate file and disabled them
+          under Plone 4 - the feature is no longer part of Plone.
+          [hannosch]
+        
+        * Fixed error handling code to deal with different exception string
+          representations in Python 2.6.
+          [hannosch]
+        
+        * Made tests independent of the ``Large Folder`` content type, as it no longer
+          exists in Plone 4.
+          [hannosch]
+        
+        * Avoid using the incompatible TestRequest from zope.publisher inside Zope 2.
+          [hannosch]
+        
+        * Fixed undefined variables in ``search.pt`` for Plone 4 compatibility.
+          [hannosch]
+        
+        
+        1.1 - Released March 17, 2011
+        -----------------------------
+        
+        * Still index, if a field can't be accessed.
+          [tom_gross]
+        
+        * Fix the pretty_title_or_id method from PloneFlare; the implementation
+          was broken, now delegates to the standard Plone implementation.
+          [mj]
+        
+        
+        1.0 - Released September 14, 2010
+        ---------------------------------
+        
+        * Enable multi-field "fq" statements.
+          [tesdal, witsch]
+        
+        * Prevent logging of "unknown" search attributes for `use_solr` and the
+          infamous `-C` Zope startup parameter.
+          [witsch]
+        
+        
+        1.0rc3 - Released September 9, 2010
+        -----------------------------------
+        
+        * Add logging of queries without explicit "rows" parameter.
+          [witsch]
+        
+        * Add configuration to exclude user from ``allowedRolesAndUsers`` for
+          better cacheability.
+          [tesdal, witsch]
+        
+        * Add configuration for effective date steps.
+          [tesdal, witsch]
+        
+        * Handle python `datetime` and `date` objects.
+          [do3cc, witsch]
+        
+        * Fixed a grammar error in ``error.pt``.
+          [hannosch]
+        
+        
+        1.0rc2 - Released August 31, 2010
+        ---------------------------------
+        
+        * Fix regression about catalog fallback with required, but empty parameters.
+          [tesdal, witsch]
+        
+        
+        1.0rc1 - Released July 30, 2010
+        -------------------------------
+        
+        * Handle broken or timed out connections during schema retrieval gracefully.
+          Refs http://plone.org/products/collective.solr/issues/23
+          [ftoth, witsch]
+        
+        
+        1.0b24 - Released July 29, 2010
+        -------------------------------
+        
+        * Fix security issue with `getObject` on Solr flares, which used unrestricted
+          traversal on the entire path, potentially leading to information leaks.
+          Refs http://plone.org/products/collective.solr/issues/27
+          [pilz, witsch]
+        
+        * Add missing `CreationDate` method to flares.
+          This fixes http://plone.org/products/collective.solr/issues/16
+          [witsch]
+        
+        * Add logging for slow queries along with the query time as reported by Solr.
+          [witsch]
+        
+        * Limit number of matches looked up during live search for speedier replies.
+          [witsch]
+        
+        * Renamed the batch parameters to ``b_start`` and ``b_size`` to avoid
+          conflicts with index names and be consistent with existing template code.
+          [do3cc]
+        
+        * Added a new config option ``auto-commit`` which is enabled by default. You
+          can disable this, which avoids any explicit commit messages to be sent to
+          the Solr server by the client. You have to configure commit policies on
+          the server side instead.
+          [hannosch]
+        
+        * Added support for a special query key ``use_solr`` which forces queries to
+          be sent to Solr even though none of the required keys match. This can be
+          used to sent individual catalog queries to Solr.
+          [hannosch]
+        
+        
+        1.0b23 - Released May 15, 2010
+        ------------------------------
+        
+        * Add support for batching, i.e. only fetch and parse items from Solr,
+          which are part of the currently handled batch.
+          [witsch]
+        
+        * Fix quoting of operators for multi-word search terms.
+          [witsch]
+        
+        * Use the faster C implementations of `elementtree`/`xml.etree` if available.
+          [hannosch, witsch]
+        
+        * Grant restricted code access to the search results, e.g. skin scripts.
+          [do3cc, witsch]
+        
+        * Fix handling of 'depth' argument when querying multiple paths.
+          [reinhardt, witsch]
+        
+        * Don't break when filter queries should be used for all parameters.
+          [reinhardt, witsch]
+        
+        * Always provide values for all metadata columns like the catalog does.
+          [witsch]
+        
+        * Always fall back to portal catalog for "navtree" queries so the set of
+          required query parameters can be empty.
+          This refs http://plone.org/products/collective.solr/issues/18
+          [reinhardt, witsch]
+        
+        * Prevent parsing errors for dates from before 1000 A.D. in combination
+          with 32-bit systems and Solr 1.4.
+          [reinhardt, witsch]
+        
+        * Don't process content with its own indexing methods, e.g. ``reindexObject``,
+          via the `reindex` maintenance view.
+          [witsch]
+        
+        * Let query builder handle sets of possible boolean values as passed by
+          boolean topic criteria for example.
+          [hannosch, witsch]
+        
+        * Recognize new ``solr.TrieDateField`` field type and handle it in the same
+          way as we handle the older ``solr.DateField``.
+          [hannosch]
+        
+        * Warn about missing search indices and non-stored sort parameters.
+          [witsch]
+        
+        * Fix issue when reindexing objects with empty date fields.
+          [witsch]
+        
+        * Changed the default schema for ``is_folderish`` to store the value. The
+          reference browser search expects it on the brain.
+          [hannosch]
+        
+        * Changed the GenericSetup export/import handler for the Solr manager to
+          ignore non-persistent utilities.
+          [hannosch]
+        
+        * Add support for `LinguaPlone`.
+          [witsch]
+        
+        * Update sample Solr buildout configuration and documentation to recommend a
+          high enough default setting for maximum search results returned by Solr.
+          This refs http://plone.org/products/collective.solr/issues/20
+          [witsch]
+        
+        
+        1.0b22 - Released February 23, 2010
+        -----------------------------------
+        
+        * Split out a ``BaseSolrConnectionConfig`` class, to be used for registering a
+          non-persistent connection configuration.
+          [hannosch]
+        
+        * Fix bug regarding timeout locking.
+          [witsch]
+        
+        * Convert test setup to `collective.testcaselayer`.
+          [witsch]
+        
+        * Only apply timeout decorator when actually committing changes to Solr,
+          also re-enabling the use of query parameters for maintenance views again.
+          [witsch]
+        
+        * We also need to change the ``SearchDispatcher`` to use the original method
+          in case Solr isn't active.
+          [hannosch]
+        
+        * Changed the ``searchResults`` monkey to store and use the method found on
+          the class instead of assuming it comes from the base class.  This makes
+          things work with `LinguaPlone` which also patches this method.
+          [hannosch]
+        
+        * Add dutch translation.
+          [WouterVH]
+        
+        * Refactor buildout to allow running tests against Plone 4.x.
+          [witsch]
+        
+        * Optimize reindex behavior when populating the Solr index for the first time.
+          [hannosch, witsch]
+        
+        * Only register indexable attributes the old way on Plone 3.x.
+          [jcbrand]
+        
+        * Fix timeout decorator to work ttw.
+          [hannosch, witsch]
+        
+        * Add "z3c.autoinclude.plugin" entry point, so in Plone 3.3+ you can avoid
+          loading the ZCML file.
+          [hannosch]
+        
+        
+        1.0b21 - Released February 11, 2010
+        -----------------------------------
+        
+        * Fix unindexing to not fetch more data from the objects than necessary.
+          [witsch]
+        
+        * Use decorator to lock timeouts and make sure the lock is always released.
+          [witsch]
+        
+        * Fix maintenance views to work without setting up a Solr connection first.
+          [witsch]
+        
+        
+        1.0b20 - Released January 26, 2010
+        ----------------------------------
+        
+        * Fix reindexing to always provide data for all fields defined in the schema
+          as support for "updateable/modifiable documents" is only planned for Solr
+          1.5.  See https://issues.apache.org/jira/browse/SOLR-139 for more info.
+          [witsch]
+        
+        * Fix CSS issues regarding facet display on IE6.
+          [witsch]
+        
+        
+        1.0b19 - Released January 24, 2010
+        ----------------------------------
+        
+        * Fix partial reindexing to preserve data for indices that are not stored.
+          [witsch]
+        
+        * Help with improved logging of auto-flushes for easier performance tuning.
+          [witsch]
+        
+        
+        1.0b18 - Released January 23, 2010
+        ----------------------------------
+        
+        * Work around layout issue regarding facet counts on IE6.
+          [witsch]
+        
+        
+        1.0b17 - Released January 21, 2010
+        ----------------------------------
+        
+        * Don't confuse pre-configured filter queries with facet selections.
+          [witsch]
+        
+        * Always display selected facets, even, or especially, without search results.
+          [witsch]
+        
+        
+        1.0b16 - Released January 11, 2010
+        ----------------------------------
+        
+        * Remove `catalogSync` maintenance view since it would need to fetch
+          additional data (for non-stored indices) from the objects themselves in
+          order to work correctly.
+          [witsch]
+        
+        * Fix `reindex` maintenance view to preserve data that cannot be fetched from
+          Solr during partial indexing, i.e. indices that are not stored.
+          [witsch]
+        
+        * Use wildcard searches for simple search terms to reflect Plone's default
+          behaviour.
+          [witsch]
+        
+        * Fix drill-down for facet values containing white space.
+          [witsch]
+        
+        * Add support for partial syncing of catalog and solr indexes.
+          [witsch]
+        
+        
+        1.0b15 - Released October 12, 2009
+        ----------------------------------
+        
+        * Filter control characters from all input to prevent indexing errors.
+          This refs http://plone.org/products/collective.solr/issues/1
+          [witsch]
+        
+        
+        1.0b14 - Released September 17, 2009
+        ------------------------------------
+        
+        * Fix query builder to use explicit `OR`\s so that it becomes possible to
+          change Solr's default operator to `AND`.
+          [witsch]
+        
+        * Remove relevance information from search results as they don't make sense
+          to the user.
+          [witsch]
+        
+        
+        1.0b13 - Released August 20, 2009
+        ---------------------------------
+        
+        * Fix `reindex` and `catalogSync` maintenance views to not pass invalid data
+          back to Solr when indexing an explicit list of attributes.
+          [witsch]
+        
+        
+        1.0b12 - Released August 15, 2009
+        ---------------------------------
+        
+        * Fix `reindex` maintenance view to keep any existing data when indexing a
+          given list of attributes.
+          [witsch]
+        
+        * Add support for facet dependencies: Specifying a facet "foo" like "foo:bar"
+          only makes it show up when a value for "bar" has been previously selected.
+          [witsch]
+        
+        * Allow indexer methods to raise `AttributeError` to prevent an attribute
+          from being indexed.
+          [witsch]
+        
+        
+        1.0b11 - Released July 2, 2009
+        ------------------------------
+        
+        * Fix maintenance view for adding/syncing single indexes using catalog data.
+          [witsch]
+        
+        * Allow to configure query parameters for which filter queries should be
+          used (see http://wiki.apache.org/solr/FilterQueryGuidance for more info)
+          [fschulze, witsch]
+        
+        * Encode unicode strings when building facet links.
+          [fschulze, witsch]
+        
+        * Fix facet display to try to keep the given order of facets.
+          [witsch]
+        
+        * Allow facet values to be translated.
+          [witsch]
+        
+        
+        1.0b10 - Released June 11, 2009
+        -------------------------------
+        
+        * Range queries must not be quoted with the new query parser.
+          [witsch]
+        
+        * Disable socket timeouts during maintenance tasks.
+          [witsch]
+        
+        * Close the response object after searching in order to avoid
+          `ResponseNotReady` errors triggering duplicate queries.
+          [witsch]
+        
+        * Use proper way of accessing jQuery & fix IE6 syntax error.
+          [fschulze]
+        
+        * Format relevance value for search results.
+          [witsch]
+        
+        
+        1.0b9 - Released May 12, 2009
+        -----------------------------
+        
+        * Add safety net for using a translation map on unicode strings.
+          This fixes http://plone.org/products/collective.solr/issues/4
+          [witsch]
+        
+        * Add workaround for issue with `SearchableText` criteria in topics.
+          This fixes http://plone.org/products/collective.solr/issues/3
+          [witsch]
+        
+        * Add maintenance view for adding/syncing single indexes using already
+          existing data from the portal catalog.
+          [witsch]
+        
+        * Fix hard-coded unique key in maintenance view.
+          [witsch]
+        
+        
+        1.0b8 - Released May 4, 2009
+        ----------------------------
+        
+        * Fix indexing regarding Plone 3.3, `plone.indexer`_ & `PLIP 239`_.
+          This fixes http://plone.org/products/collective.solr/issues/6
+          [witsch]
+        
+          .. _`plone.indexer`: http://pypi.python.org/pypi/plone.indexer/
+          .. _`PLIP 239`: http://plone.org/products/plone/roadmap/239
+        
+        
+        1.0b7 - Released April 28, 2009
+        -------------------------------
+        
+        * Fix unintended (de)activation of the Solr integration during profile
+          (re)application.
+          [witsch]
+        
+        * Fix display of facet information with no active facets.
+          [witsch]
+        
+        * Register import and export steps using ZCML.
+          [witsch]
+        
+        
+        1.0b6 - Released April 20, 2009
+        -------------------------------
+        
+        * Add support for facetted searches.
+          [witsch]
+        
+        * Update code to comply to PEP8 style guide lines.
+          [witsch]
+        
+        * Expose additional information provided by Solr - for example about headers
+          and search facets.
+          [witsch]
+        
+        * Handle edge cases like invalid range queries by quoting
+          [tesdal]
+        
+        * Parse and quote the query to filter invalid query syntax.
+          [tesdal]
+        
+        * In solrSearchResults, if the passed in request is a dict, look up
+          request to enable adaptation into PloneFlare.
+          [tesdal]
+        
+        * Added support for objects with a 'query' attribute as search values.
+          [tmog]
+        
+        
+        1.0b5 - Released December 16, 2008
+        ----------------------------------
+        
+        * Fix and extend logging in "sync" maintenance view.
+          [witsch]
+        
+        
+        1.0b4 - Released November 23, 2008
+        ----------------------------------
+        
+        * Filter control characters to prevent indexing errors.  This fixes
+          http://plone.org/products/collective.solr/issues/1
+          [witsch]
+        
+        * Avoid using brains when getting all objects from the catalog for sync runs.
+          [witsch]
+        
+        * Prefix output from maintenance views with a time-stamp.
+          [witsch]
+        
+        
+        1.0b3 - Released November 12, 2008
+        ----------------------------------
+        
+        * Fix url fallback during schema retrieval.
+          [witsch]
+        
+        * Fix issue regarding quoting of white space when searching.
+          [witsch]
+        
+        * Make indexing operations more robust in case the schema is missing a
+          unique key or couldn't be parsed.
+          [witsch]
+        
+        
+        1.0b2 - Released November 7, 2008
+        ---------------------------------
+        
+        * Make schema retrieval slightly more robust to not let network failures
+          prevent access to the site.
+          [witsch]
+        
+        
+        1.0b1 - Released November 5, 2008
+        ---------------------------------
+        
+        * Initial release
+          [witsch]
+        
+Keywords: plone cmf zope indexing searching solr lucene
+Platform: Any
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Environment :: Web Environment
+Classifier: Framework :: Plone
+Classifier: Intended Audience :: Developers
+Classifier: Intended Audience :: System Administrators
+Classifier: Intended Audience :: Other Audience
+Classifier: License :: OSI Approved :: GNU General Public License (GPL)
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python
+Classifier: Programming Language :: Python :: 2.6
+Classifier: Programming Language :: Python :: 2.7
