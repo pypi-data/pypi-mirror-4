@@ -1,0 +1,40 @@
+=========
+drakeutil
+=========
+
+Utilities for making life easier in Python with Drake_ workflows.
+
+Installing
+==========
+
+Run ``pip install drakeutil``.
+
+Using
+=====
+
+For Python steps inside your workflow include the line::
+
+    from drakeutil import *
+
+This will populate the special family of variables ``INPUT``, ``OUTPUT`` from the environment. For example::
+
+    somefile.out <- somefile.in [python]
+        from drakeutil import *
+        with open(INPUT) as istream:
+            with open(OUTPUT) as ostream:
+                for l in istream:
+                    for word in l.split():
+                        print >> ostream, word
+
+In the future we might add more helpers. Can you think of any that would be useful?
+
+Changelog
+=========
+
+0.1.0
+-----
+
+- Support special ``INPUT`` and ``OUTPUT`` family of environment variables
+- Provide ``mysql_cursor`` helper when ``MySQLdb`` module is installed
+
+.. _Drake: https://github.com/Factual/drake
