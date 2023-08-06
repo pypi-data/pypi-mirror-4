@@ -1,0 +1,276 @@
+Metadata-Version: 1.1
+Name: z3c.breadcrumb
+Version: 2.0.0a1
+Summary: A pluggable breadcrumbs implementation based on adapters.
+Home-page: http://pypi.python.org/pypi/z3c.breadcrumb
+Author: Roger Ineichen,Stephan Richter and the Zope Community
+Author-email: zope3-dev@zope.org
+License: ZPL 2.1
+Description: The ``z3c.breadcrumb`` package provides base classes for breadcrumb
+        implementations. It allows you to write adapters for each content object which
+        provides it's own rules for providing the breadcrumb name, url and selection.
+        
+        
+        Detailed Documentation
+        **********************
+        
+        ======
+        README
+        ======
+        
+        The z3c.breadcrumb package provides base classes for breadcrumb
+        implementations. It allows you to write adapters for each content object which
+        provides it's own rule for providing the breadcrumb name, url and selection.
+        
+        Let's do some imports we will use later.
+        
+          >>> import zope.interface
+          >>> import zope.component
+          >>> from zope.publisher.interfaces.http import IHTTPRequest
+          >>> from zope.publisher.browser import TestRequest
+          >>> from zope.traversing.browser import absoluteURL
+          >>> from zope.container import contained
+          >>> from z3c.breadcrumb import interfaces
+          >>> from z3c.breadcrumb import browser
+        
+        
+        IBreadcrumb
+        -----------
+        
+        Let's define a interface and a content object.
+        
+          >>> class IOffice(zope.interface.Interface):
+          ...     """Office interface."""
+        
+          >>> @zope.interface.implementer(IOffice)
+          ... class Office(contained.Contained):
+          ...     def __init__(self, label):
+          ...         self.label = label
+          ...         self.activeURL = True
+        
+          >>> office = Office(u'Zope Foundation')
+          >>> office.__name__ = u'ZF'
+        
+        There is a generic breadcrumb implementation which is registered by
+        default. If we do not implement a custom IBreadcrumb the generic adapter will
+        return the ``title`` or ``__name__`` of the item. Let's register the default
+        adapter, this is normally done in ``configure.zcml``:
+        
+          >>> zope.component.provideAdapter(browser.GenericBreadcrumb)
+        
+        And see what we get:
+        
+          >>> request = TestRequest()
+          >>> breadcrumb = zope.component.getMultiAdapter((office, request),
+          ...     interfaces.IBreadcrumb)
+          >>> breadcrumb.name
+          u'ZF'
+        
+        We can also implement a custom ``IBreadcrumb`` adapter and provide another
+        name for the breadcrumb name:
+        
+          >>> @zope.interface.implementer(interfaces.IBreadcrumb)
+          ... @zope.component.adapter(IOffice, IHTTPRequest)
+          ... class BreadcrumbForOffice(object):
+          ...
+          ...     def __init__(self, context, request):
+          ...         self.context = context
+          ...         self.request = request
+          ...
+          ...     @property
+          ...     def name(self):
+          ...         return self.context.label
+          ...
+          ...     @property
+          ...     def url(self):
+          ...         return absoluteURL(self.context, self.request)
+          ...
+          ...     @property
+          ...     def activeURL(self):
+          ...         return self.context.activeURL
+        
+        Let's register the custom ``IBreadcrumb`` adapter for IOffice:
+        
+          >>> zope.component.provideAdapter(BreadcrumbForOffice)
+        
+        And check the new breadcrumb name:
+        
+          >>> breadcrumb = zope.component.getMultiAdapter((office, request),
+          ...     interfaces.IBreadcrumb)
+          >>> breadcrumb.name
+          u'Zope Foundation'
+        
+        
+        CustomNameBreadcrumb
+        --------------------
+        
+        Let's define another interface and a content object.
+        
+          >>> class IOfficeContainer(zope.interface.Interface):
+          ...     """Container of offices."""
+        
+          >>> @zope.interface.implementer(IOfficeContainer)
+          ... class OfficeContainer(contained.Contained):
+          ...     pass
+        
+          >>> offices = OfficeContainer()
+          >>> offices.__name__ = u'offices'
+        
+        If the custom name for this kind of object is always the same it would quickly
+        get tedious to write a full IBreadcrumb implementation.  As a shortcut you
+        can use CustomNameBreadcrumb to get an adapter that acts like
+        GenericBreadcrumb, but returns the name you want.
+        
+          >>> adapter = browser.CustomNameBreadcrumb(u'Offices')
+          >>> adapter
+          <class 'z3c.breadcrumb.browser.CustomNameBreadcrumb(u'Offices')'>
+          >>> zope.component.provideAdapter(adapter,
+          ...     adapts=(IOfficeContainer, IHTTPRequest))
+        
+          >>> breadcrumb = zope.component.getMultiAdapter((offices, request),
+          ...     interfaces.IBreadcrumb)
+          >>> breadcrumb.name
+          u'Offices'
+        
+        
+        IBreadcrumbs
+        ------------
+        
+        There is also a IBreadcrumbs adapter which knows how to collect breadcrumb
+        informations for each item he traverses. We need to setup a little bit of
+        infrastructure:
+        
+          >>> root = rootFolder
+          >>> root['office'] = office
+        
+        Register the IBreadcrumbs adapter:
+        
+          >>> zope.component.provideAdapter(browser.Breadcrumbs,
+          ...     (zope.interface.Interface, zope.interface.Interface),
+          ...     interfaces.IBreadcrumbs)
+        
+        
+        Now we can collect breadcrumbs for our items. You can see the url is correct
+        and the label ``Zope Foundation`` is collected by the custom IBreadcrumb
+        adapter:
+        
+          >>> breadcrumbs = zope.component.getMultiAdapter((office, request),
+          ...     interfaces.IBreadcrumbs)
+          >>> from pprint import pprint
+          >>> pprint(list(breadcrumbs.crumbs))
+          [{'activeURL': True,
+            'name': 'top',
+            'url': 'http://127.0.0.1'},
+           {'activeURL': True,
+            'name': 'Zope Foundation',
+            'url': 'http://127.0.0.1/office'}]
+        
+          >>> breadcrumbs.__parent__ is office
+          True
+        
+        Default breadcrumbs stops on virtual host root
+        
+          >>> request._vh_root = office
+          >>> pprint(list(breadcrumbs.crumbs))
+          [{'activeURL': True,
+            'name': 'Zope Foundation',
+            'url': 'http://127.0.0.1'}]
+        
+        If the breadcrumb of an item is a Null-adapter, then the item is ignored.
+        
+          >>> from zope.traversing.interfaces import IContainmentRoot
+          >>> zope.component.provideAdapter(
+          ...     lambda c, r: None,
+          ...     (IContainmentRoot, IHTTPRequest),
+          ...     interfaces.IBreadcrumb)
+        
+          >>> request = TestRequest()
+          >>> breadcrumbs = zope.component.getMultiAdapter(
+          ...     (office, request), interfaces.IBreadcrumbs)
+          >>> pprint(list(breadcrumbs.crumbs))
+          [{'activeURL': True,
+            'name': 'Zope Foundation',
+            'url': 'http://127.0.0.1/office'}]
+        
+        
+        =======
+        CHANGES
+        =======
+        
+        2.0.0a1 (2013-02-27)
+        --------------------
+        
+        - Added support for Python 3.3.
+        
+        - Moved ``zope.app.testing`` dependency to ``zope.site.testing``.
+        
+        - Moved ``zope.app.container`` dependency to ``zope.container``.
+        
+        - Replaced deprecated ``zope.interface.implements`` usage with equivalent
+          ``zope.interface.implementer`` decorator.
+        
+        - Dropped support for Python 2.4 and 2.5.
+        
+        
+        1.1.1 (2010-12-12)
+        ------------------
+        
+        - Added needed but not declated test dependency on ``zope.app.container``.
+        
+        - Using Python's ``doctest`` module instead of depreacted
+          ``zope.testing.doctest``.
+        
+        1.1.0 (2009-05-29)
+        ------------------
+        
+        - Feature: Added ability to register a Null-adapter as a breadcrumb. A
+          null-breadcrumb will cause the item not to be displayed in the breadcrumbs.
+        
+        1.0.3 (2008-12-13)
+        ------------------
+        
+        - Bug: Fixed ``IBreadcrumbs`` to match implementation.
+        - Clean up dependencies.
+        
+        
+        1.0.2 (2008-01-23)
+        ------------------
+        
+        - Bug: Fixed the package's long description.
+        
+        - Feature: Use the correct ``DocFileSuite`` class that counts tests properly.
+        
+        
+        1.0.1 (2007-01-21)
+        ------------------
+        
+        - Bug: Test coverage brought up to 100%.
+        
+        - Feature: Register default ``IBreadcrumbs`` adapter.
+        
+        - Bug: Default ``IBreadcrumbs`` stops only on virtual host root, not on
+          ``ISite`` object
+        
+        
+        1.0.0 (7/10/2007)
+        -----------------
+        
+        - Initial Release
+        
+Keywords: zope3 breadcrumb adapter
+Platform: UNKNOWN
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: Zope Public License
+Classifier: Programming Language :: Python
+Classifier: Programming Language :: Python :: 2
+Classifier: Programming Language :: Python :: 2.6
+Classifier: Programming Language :: Python :: 2.7
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.3
+Classifier: Programming Language :: Python :: Implementation :: CPython
+Classifier: Natural Language :: English
+Classifier: Operating System :: OS Independent
+Classifier: Environment :: Web Environment
+Classifier: Topic :: Internet :: WWW/HTTP
+Classifier: Framework :: Zope3
