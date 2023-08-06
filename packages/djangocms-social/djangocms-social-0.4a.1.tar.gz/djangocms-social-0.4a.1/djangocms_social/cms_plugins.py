@@ -1,0 +1,61 @@
+# -*- coding: utf-8 -*-
+from django.utils.translation import ugettext_lazy as _
+
+from cms.plugin_base import CMSPluginBase
+from cms.plugin_pool import plugin_pool
+
+from djangocms_social.models import Like, Mail, Links
+
+
+class LikePlugin(CMSPluginBase):
+    model = Like
+    name = _('Like Plugin')
+    render_template = 'djangocms_social/plugins/like.html'
+
+    module = 'Social'
+
+    fieldsets = (
+        (None, {
+            'fields': (('facebook', 'google',),)
+        }),
+        (_('Advanced'), {
+            'fields': ('title', 'description', 'image',)
+        }),
+    )
+
+plugin_pool.register_plugin(LikePlugin)
+
+
+class MailPlugin(CMSPluginBase):
+    model = Mail
+    name = _('Mail Plugin')
+    render_template = 'djangocms_social/plugins/mail.html'
+
+    module = 'Social'
+
+    def render(self, context, instance, placeholder):
+        context['instance'] = instance
+        context['subject'] = instance.subject.replace(' ', '%20')
+        context['body'] = instance.body.replace(' ', '%20')
+        return context
+
+plugin_pool.register_plugin(MailPlugin)
+
+
+class LinksPlugin(CMSPluginBase):
+    model = Links
+    name = _('Links')
+    render_template = 'djangocms_social/plugins/links.html'
+
+    module = 'Social'
+
+    def render(self, context, instance, placeholder):
+        context['instance'] = instance
+        context['links'] = {}
+        for link in instance.links:
+            value = getattr(instance, link, False)
+            if value:
+                context['links'][link] = value
+        return context
+
+plugin_pool.register_plugin(LinksPlugin)
