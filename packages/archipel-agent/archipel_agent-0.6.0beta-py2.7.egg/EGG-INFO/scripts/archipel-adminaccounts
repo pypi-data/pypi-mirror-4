@@ -1,0 +1,135 @@
+#!/usr/bin/python -W ignore::DeprecationWarning
+# -*- coding: utf-8 -*-
+#
+# archipel-adminaccounts.py
+#
+# Copyright (C) 2010 Antoine Mercadal <antoine.mercadal@inframonde.eu>
+# This file is part of ArchipelProject
+# http://archipelproject.org
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+import os
+import sys
+from optparse import OptionParser
+import xmpp
+import archipelcore.pubsub
+from archipelcore.scriptutils import *
+
+NODENAME_ADMINS = "/archipel/adminaccounts"
+
+def create(xmppclient, pubsubserver):
+    """
+    Create the pubsub node
+    """
+    config = {
+            archipelcore.pubsub.XMPP_PUBSUB_VAR_ACCESS_MODEL: archipelcore.pubsub.XMPP_PUBSUB_VAR_ACCESS_MODEL_OPEN,
+            archipelcore.pubsub.XMPP_PUBSUB_VAR_PUBLISH_MODEL: archipelcore.pubsub.XMPP_PUBSUB_VAR_ACCESS_MODEL_AUTHORIZE,
+            archipelcore.pubsub.XMPP_PUBSUB_VAR_DELIVER_NOTIFICATION: 1,
+            archipelcore.pubsub.XMPP_PUBSUB_VAR_MAX_ITEMS: 100,
+            archipelcore.pubsub.XMPP_PUBSUB_VAR_PERSIST_ITEMS: 1,
+            archipelcore.pubsub.XMPP_PUBSUB_VAR_NOTIFY_RECTRACT: 1,
+            archipelcore.pubsub.XMPP_PUBSUB_VAR_DELIVER_PAYLOADS: 1,
+            archipelcore.pubsub.XMPP_PUBSUB_VAR_SEND_LAST_PUBLISHED_ITEM: archipelcore.pubsub.XMPP_PUBSUB_VAR_SEND_LAST_PUBLISHED_ITEM_NEVER
+    }
+    create_pubsub(xmppclient, pubsubserver, NODENAME_ADMINS, config)
+
+
+def delete(xmppclient, pubsubserver):
+    """
+    Delete the pubsub node
+    """
+    delete_pubsub(xmppclient, pubsubserver, NODENAME_ADMINS)
+
+
+def insert_jid(xmppclient, pubsubserver, adminaccount):
+    """
+    add a new account as admin
+    """
+    item = xmpp.Node(tag="admin", attrs={"node": adminaccount.getNode(), "domain": adminaccount.getDomain()})
+    if publish_item(xmppclient, pubsubserver, NODENAME_ADMINS, item):
+        success("admin account %s has been added to admin list" % adminaccount)
+    else:
+        error("Unable to add %s to the admin list" % adminaccount)
+
+def remove_jid(xmppclient, pubsubserver, refID):
+    """
+    Remove admin account
+    """
+    if retract_item(xmppclient, pubsubserver, NODENAME_ADMINS, refID):
+        success("admin account referenced %s has been removed" % refID)
+    else:
+        error("Unable to remove admin acount with reference %s" % refID)
+
+def list_jid(xmppclient, pubsubserver):
+    """
+    List admin accounts
+    """
+    pubSubNode = get_pubsub(xmppclient, pubsubserver, NODENAME_ADMINS)
+    admins = pubSubNode.get_items()
+    if len(admins) == 0:
+        print "There is no admins accounts yet."
+    for admin in admins:
+        print "%s: %s@%s" % (admin.getAttr("id"), admin.getTag("admin").getAttr("node"), admin.getTag("admin").getAttr("domain"))
+
+if __name__ == "__main__":
+    parser = OptionParser()
+    parser.add_option("-j", "--jid",
+                        dest="jid",
+                        help="set the JID to use",
+                        metavar="user@domain")
+    parser.add_option("-p", "--password",
+                        dest="password",
+                        help="set the password associated to the JID",
+                        metavar="123456")
+    parser.add_option("-P", "--pubsubserver",
+                        dest="pubsubserver",
+                        help="set the pubsubserver to use. if not given it will be pubsub.[jid.getDomain()]",
+                        metavar="pubsub.domain",
+                        default=None)
+    parser.add_option("-c", "--create",
+                        action="store_true",
+                        dest="create",
+                        help="create the node")
+    parser.add_option("-d", "--delete",
+                        action="store_true",
+                        dest="delete",
+                        help="delete the node")
+    parser.add_option("-a", "--authorize",
+                        dest="authorize",
+                        help="insert a new admin JID",
+                        metavar="jid@domain")
+    parser.add_option("-u", "--unauthorize",
+                        dest="unauthorize",
+                        help="remove an admin JID identified by the item ID",
+                        metavar="jid@domain")
+    parser.add_option("-l", "--list",
+                        action="store_true",
+                        dest="list",
+                        help="list all existing JID")
+
+    options, args = parser.parse_args()
+
+    xmppclient = initialize(options)
+
+    if options.list:
+        list_jid(xmppclient, options.pubsubserver)
+    elif options.authorize:
+        insert_jid(xmppclient, options.pubsubserver, xmpp.JID(options.authorize))
+    elif options.unauthorize:
+        remove_jid(xmppclient, options.pubsubserver, options.unauthorize)
+    elif options.create:
+        create(xmppclient, options.pubsubserver)
+    elif options.delete:
+        delete(xmppclient, options.pubsubserver)
