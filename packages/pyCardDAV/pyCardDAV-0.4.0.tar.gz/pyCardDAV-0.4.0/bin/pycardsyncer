@@ -1,0 +1,83 @@
+#!/usr/bin/env python
+# vim: set ts=4 sw=4 expandtab sts=4:
+# Copyright (c) 2011-2012 Christian Geier, David Soulayrol
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+# NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+# LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+# OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+# WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+try:
+    import getpass
+    import logging
+    import sys
+
+    from pycarddav import Configuration, ConfigurationParser
+    from pycarddav import controllers
+    from pycarddav import capture_user_interruption
+
+    from netrc import netrc
+    from urlparse import urlsplit
+
+except ImportError as error:
+    sys.stderr.write(str(error))
+    sys.exit(1)
+
+
+class SyncConfigurationParser(ConfigurationParser):
+    """A specialized setup tool for synchronization."""
+    def __init__(self):
+        ConfigurationParser.__init__(self, "syncs the local db to the CardDAV server")
+        self.set_mandatory_options([(Configuration.SECTIONS.DAV, 'resource'),
+                                    (Configuration.SECTIONS.DB, 'path')])
+
+    def check(self, conf):
+        success = ConfigurationParser.check(self, conf)
+
+        if success and not conf.dav__passwd:
+            hostname = urlsplit(conf.dav__resource).hostname
+            auths = netrc().authenticators(hostname)
+            if auths:
+                if not conf.dav__user or auths[0] == conf.dav__user:
+                    logging.debug("Read password for user %s on %s in .netrc",
+                                  auths[0], hostname)
+                    conf.dav__user = auths[0]
+                    conf.dav__passwd = auths[2]
+                else:
+                    logging.error("User %s not found for %s in .netrc",
+                                  conf.dav__user, hostname)
+                    success = False
+            elif conf.dav__user:
+                conf.dav__passwd = getpass.getpass(prompt='CardDAV password: ')
+            else:
+                logging.error("Missing credentials for %s", hostname)
+                success = False
+
+        return success
+
+
+capture_user_interruption()
+
+# Read configuration.
+conf = SyncConfigurationParser().parse()
+if conf is None:
+    sys.exit(1)
+
+if conf.debug:
+    conf.dump()
+
+controllers.sync(conf)
