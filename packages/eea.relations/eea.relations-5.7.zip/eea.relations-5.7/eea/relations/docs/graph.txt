@@ -1,0 +1,179 @@
+Graph
+=====
+Generate relations graph using pydot (Graphviz).
+
+Set up
+------
+
+    >>> self.loginAsPortalOwner()
+    >>> from Products.CMFCore.utils import getToolByName
+    >>> rtool = getToolByName(portal, 'portal_relations')
+
+Cleanup default relations to avoid surprises
+
+    >>> rtool.manage_delObjects(rtool.objectIds())
+
+IGraph utility
+--------------
+This package provides an utility to generate .png image from pydot.Dot instances.
+
+    >>> from zope.component import queryUtility
+    >>> from eea.relations.interfaces import IGraph
+    >>> image = queryUtility(IGraph, 'png')
+    >>> image
+    <eea.relations.graph.graph.Graph object at ...>
+
+    >>> from pydot import Dot as PyGraph
+    >>> graph = PyGraph()
+    >>> png = image(graph)
+    >>> png[:10]
+    '\x89PNG...'
+
+
+INode adapters
+--------------
+Adapter to display objects as pydot.Node instances
+
+  Add ContentType
+
+    >>> name = rtool.invokeFactory('EEARelationsContentType', 'myFolder')
+    >>> ctype = rtool._getOb(name)
+    >>> ctype.setTitle('My Folder')
+
+  Adapt
+
+    >>> from zope.component import queryAdapter
+    >>> from eea.relations.interfaces import INode
+    >>> node = queryAdapter(ctype, INode)
+    >>> node()
+    <pydot.Node object at ...>
+
+    >>> repr(node)
+    '"node-myFolder" [label="My Folder"];'
+
+IEdge adapters
+--------------
+Adapter to display objects as pydot.Edge instances
+
+  Add Relation
+
+    >>> name = rtool.invokeFactory('EEARelationsContentType', 'myDocument')
+    >>> ctype2 = rtool._getOb(name)
+    >>> ctype2.setTitle('My Document')
+    >>> name = rtool.invokeFactory('EEAPossibleRelation', 'x')
+    >>> relation = rtool._getOb(name)
+    >>> relation.getField('from').getMutator(relation)('myFolder')
+    >>> relation.getField('to').getMutator(relation)('myDocument')
+
+  Adapt
+
+    >>> from eea.relations.interfaces import IEdge
+    >>> edge = queryAdapter(relation, IEdge)
+    >>> edge()
+    <pydot.Edge object at ...>
+
+    >>> repr(edge)
+    '"node-myFolder" -- "node-myDocument";'
+
+Browser
+-------
+
+    >>> from zope.component import getMultiAdapter
+    >>> name = rtool.invokeFactory('EEARelationsContentType', 'notConnected')
+    >>> ctype3 = rtool._getOb(name)
+    >>> ctype3.setTitle('NOT CONNECTED')
+
+  For portal_relations
+
+    >>> image = getMultiAdapter((rtool, rtool.REQUEST), name=u'graph.png')
+    >>> image
+    <Products.Five.metaclass.ToolGraph object at ...>
+
+    >>> image.graph
+    <pydot.Dot object at ...>
+
+    >>> print image.graph.to_string()
+    digraph G {
+    "node-myFolder" [label="My Folder"];
+    "node-myDocument" [label="My Document"];
+    "node-notConnected" [label="NOT CONNECTED"];
+    "node-myFolder" -> "node-myDocument";
+    }
+
+    >>> image()
+    '\x89PNG...'
+
+  For Content-Type
+
+    >>> image = getMultiAdapter((ctype, ctype.REQUEST), name=u'graph.png')
+    >>> image
+    <Products.Five.metaclass.ContentTypeGraph object at ...>
+
+    >>> image.graph
+    <pydot.Dot object at ...>
+
+    >>> print image.graph.to_string()
+    digraph G {
+    "node-myFolder" [label="My Folder"];
+    "node-myDocument" [label="My Document"];
+    "node-myFolder" -> "node-myDocument";
+    }
+
+    >>> image()
+    '\x89PNG...'
+
+    Not connected Content-Type
+
+    >>> image = getMultiAdapter((ctype3, ctype3.REQUEST), name=u'graph.png')
+    >>> print image.graph.to_string()
+    digraph G {
+    "node-notConnected" [label="NOT CONNECTED"];
+    }
+
+
+  For Relation
+
+    >>> image = getMultiAdapter((relation, relation.REQUEST), name=u'graph.png')
+    >>> image
+    <Products.Five.metaclass.RelationGraph object at ...>
+
+    >>> image.graph
+    <pydot.Dot object at ...>
+
+    >>> print image.graph.to_string()
+    digraph G {
+    "node-myFolder" [label="My Folder"];
+    "node-myDocument" [label="My Document"];
+    "node-myFolder" -> "node-myDocument";
+    }
+
+    >>> image()
+    '\x89PNG...'
+
+  Self relations
+
+    >>> name = rtool.invokeFactory('EEARelationsContentType', 'myX')
+    >>> ctype4 = rtool._getOb(name)
+    >>> ctype4.setTitle('My X')
+
+    >>> name = rtool.invokeFactory('EEAPossibleRelation', 'yoi')
+    >>> relation2 = rtool._getOb(name)
+    >>> relation2.getField('from').getMutator(relation2)('myX')
+    >>> relation2.getField('to').getMutator(relation2)('myX')
+
+    >>> image = getMultiAdapter((ctype4, ctype4.REQUEST), name=u'graph.png')
+    >>> print image.graph.to_string()
+    digraph G {
+    "node-myX" [label="My X"];
+    "node-myX" -> "node-myX";
+    }
+
+    >>> image = getMultiAdapter((relation2, relation2.REQUEST), name=u'graph.png')
+    >>> image.graph
+    <pydot.Dot object at ...>
+
+    >>> print image.graph.to_string()
+    digraph G {
+    "node-myX" [label="My X"];
+    "node-myX" -> "node-myX";
+    }
