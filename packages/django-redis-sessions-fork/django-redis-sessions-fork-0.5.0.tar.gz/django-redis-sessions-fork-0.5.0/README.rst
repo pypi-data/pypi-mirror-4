@@ -1,0 +1,39 @@
+django-redis-sessions-fork
+==========================
+:Info: Redis database backend for your sessions
+
+.. image:: https://api.travis-ci.org/hellysmile/django-redis-sessions-fork.png
+        :target: https://travis-ci.org/hellysmile/django-redis-sessions-fork
+
+------------
+Installation
+------------
+
+1. Run ``pip install django-redis-sessions-fork`` or alternatively
+download the tarball and run ``python setup.py install``,
+
+2. Set ``redis_sessions.session`` as your session engine, like so::
+
+    SESSION_ENGINE = 'redis_sessions.session'
+
+3. Optional settings::
+
+    SESSION_REDIS_HOST = 'localhost'
+    SESSION_REDIS_PORT = 6379
+    SESSION_REDIS_DB = 0
+    SESSION_REDIS_PASSWORD = 'password'
+    SESSION_REDIS_PREFIX = 'session'
+
+    # If you prefer domain socket connection
+    # you can just add this line instead of SESSION_REDIS_HOST and SESSION_REDIS_PORT
+
+    SESSION_REDIS_UNIX_DOMAIN_SOCKET_PATH = '/var/run/redis/redis.sock'
+
+4. That's it
+
+See: `django-redis-sessions-fork <http://pypi.python.org/pypi/django-redis-sessions-fork>`_ on pypi
+
+5. Tests::
+
+    pip install nose
+    nosetests
