@@ -1,0 +1,286 @@
+//Telecom Log Service, v1.1.1 - OMG IDL Summary File
+//Object Management Group, Inc.
+//
+//Copyright 1998, Alcatel Corporate Research Center
+//Copyright 1998, Cooperative Research Centre for Distributed Systems Technology
+//(DSTC)
+//Copyright 1998, Expersoft Corporation
+//Copyright 1998, Hewlett Packard Company
+//Copyright 1998, Nortel Technology
+//Copyright 1998, Telefónica Investigación y Desarrollo S.A. Unipersonal
+//
+//The companies listed above have granted to the Object Management Group, Inc. 
+//(OMG) a nonexclusive, royalty-free, paid up, worldwide license to copy and 
+//distribute this document and to modify this document and distribute copies of 
+//the modified version. Each of the copyright holders listed above has agreed 
+//that no person shall be deemed to have infringed the copyright in the included 
+//material of any such copyright holder by reason of having used the 
+//specification set forth herein or having conformed any computer software to 
+//the specification. 
+//
+//This file contains OMG IDL from the Telecom Log Service, v1.1 specification.
+//OMG regularly publishes a summary file that contains all the "code" parts of 
+//an OMG formal document. Every formal document line that is IDL, PIDL, or 
+//language code is included in the summary file. The reason for such a listing 
+//is to give readers an electronic version of the "code" so that they can 
+//extract pieces of it. Readers might want to test an example, include it in 
+//their own code, or use it for documentation purposes. Having the code lines 
+//available electronically means there is less likelihood of a transcription 
+//error. 
+//
+//DsLogAdmin Module
+
+#ifndef _DS_LOG_ADMIN_IDL_
+#define _DS_LOG_ADMIN_IDL_
+
+#include <TimeBase.idl> // CORBA Time Service
+
+#pragma prefix "omg.org"
+
+module DsLogAdmin
+{
+	exception InvalidParam { string details; };
+	exception InvalidThreshold {};
+	exception InvalidTime {};
+	exception InvalidTimeInterval {};
+	exception InvalidMask {};
+	exception LogIdAlreadyExists {};
+	exception InvalidGrammar {};
+	exception InvalidConstraint {};
+	exception LogFull { short n_records_written; };
+	exception LogOffDuty {};
+	exception LogLocked {};
+	exception LogDisabled {};
+	exception InvalidRecordId {};
+	exception InvalidAttribute { string attr_name; any value; };
+	exception InvalidLogFullAction {};
+
+	typedef unsigned long LogId;
+	typedef unsigned long long RecordId;
+	typedef sequence<RecordId> RecordIdList;
+
+	const string default_grammar = "EXTENDED_TCL";
+	typedef string Constraint;
+
+	typedef TimeBase::TimeT TimeT;
+
+	struct NVPair {
+		string name;
+		any    value;
+	};
+	typedef sequence<NVPair> NVList;
+
+	struct TimeInterval {
+		TimeT start;
+		TimeT stop;
+	};
+
+	struct LogRecord {
+		RecordId id;
+		TimeT    time;
+		NVList   attr_list; // attributes, optional
+	  	any      info;
+	};
+
+	typedef sequence<LogRecord> RecordList;
+	typedef sequence<any>       Anys;
+
+	// Iterator with bulk operation support; returned as a
+	// result of querying the Log
+	interface Iterator {
+		RecordList get(in  unsigned long position,
+		               in  unsigned long how_many)
+			raises(InvalidParam);
+	  	void destroy();
+	};
+
+	struct AvailabilityStatus {
+ 		boolean off_duty;
+		boolean log_full;
+	};
+  
+	typedef unsigned short LogFullActionType;
+
+	const LogFullActionType wrap = 0;
+	const LogFullActionType halt = 1;
+
+	struct Time24 {
+		unsigned short hour;	// 0-23
+		unsigned short minute;	// 0-59
+	};
+
+	struct Time24Interval {
+		Time24 start;
+		Time24 stop;
+	};
+
+	typedef sequence<Time24Interval> IntervalsOfDay;
+
+	const unsigned short Sunday    =  1;
+	const unsigned short Monday    =  2;
+	const unsigned short Tuesday   =  4;
+	const unsigned short Wednesday =  8;
+	const unsigned short Thursday  = 16;
+	const unsigned short Friday    = 32;
+	const unsigned short Saturday  = 64;
+
+	typedef unsigned short DaysOfWeek;	// Bit mask of week days
+
+	struct WeekMaskItem {
+		DaysOfWeek     days;
+		IntervalsOfDay intervals;
+	};
+
+	typedef sequence<WeekMaskItem> WeekMask; 
+
+	typedef unsigned short Threshold; // 0-100 %
+	typedef sequence<Threshold> CapacityAlarmThresholdList;
+
+	interface LogMgr;
+
+	enum OperationalState    { disabled, enabled };
+	enum AdministrativeState { locked, unlocked }; // logging on/off
+	enum ForwardingState     { on, off };
+
+	typedef unsigned short QoSType;
+	typedef sequence<QoSType> QoSList;
+	exception UnsupportedQoS { QoSList denied; };
+  
+	const QoSType QoSNone    = 0;
+	const QoSType QoSFlush	 = 1;
+	const QoSType QoSReliability = 2;
+	
+	interface Log
+	{
+		LogMgr my_factory();
+
+		LogId id();
+
+		QoSList get_log_qos();
+		void set_log_qos(in  QoSList qos)
+			raises(UnsupportedQoS);
+
+		// life in seconds (0 infinite)
+		unsigned long get_max_record_life();
+		void set_max_record_life(in  unsigned long life);
+
+		// size in octets
+		unsigned long long get_max_size();
+		void set_max_size(in  unsigned long long size)
+			raises (InvalidParam);
+
+		unsigned long long get_current_size(); // size in octets
+		unsigned long long get_n_records();    // number of records
+
+		LogFullActionType get_log_full_action();
+		void set_log_full_action(in  LogFullActionType action)
+			raises(InvalidLogFullAction);
+
+		AdministrativeState get_administrative_state();
+		void set_administrative_state(in  AdministrativeState state);
+
+		ForwardingState get_forwarding_state();
+		void set_forwarding_state(in  ForwardingState state);
+
+		OperationalState get_operational_state();
+
+		// log duration
+		TimeInterval get_interval();
+		void set_interval(in  TimeInterval interval)
+			raises (InvalidTime, InvalidTimeInterval);
+
+		// availability status
+		AvailabilityStatus get_availability_status();
+
+ 		// capacity alarm threshold
+		CapacityAlarmThresholdList get_capacity_alarm_thresholds();
+		void set_capacity_alarm_thresholds(in  CapacityAlarmThresholdList threshs)
+			raises (InvalidThreshold);
+
+		// weekly scheduling
+		WeekMask get_week_mask();
+		void set_week_mask(in  WeekMask masks)
+			raises (InvalidTime, InvalidTimeInterval, InvalidMask);
+
+		RecordList query(in  string grammar,
+		                 in  Constraint c,
+		                 out Iterator i)
+			raises(InvalidGrammar, InvalidConstraint);
+
+		// negative how_many indicates backwards retrieval
+		RecordList retrieve(in  TimeT from_time,
+		                    in  long how_many,
+		                    out Iterator i);
+
+		// returns number of records matching constraint
+		unsigned long match(in  string grammar,
+		                    in  Constraint c)
+			raises(InvalidGrammar, InvalidConstraint);
+
+		// returns number of records deleted
+		unsigned long delete_records(in  string grammar,
+		                             in  Constraint c)
+			raises(InvalidGrammar, InvalidConstraint);
+
+		unsigned long delete_records_by_id(in  RecordIdList ids);
+
+		void write_records(in  Anys records) 
+			raises(LogFull, LogOffDuty, LogLocked, LogDisabled);
+		void write_recordlist(in  RecordList list) 
+			raises(LogFull, LogOffDuty, LogLocked, LogDisabled);
+
+		// set single record attributes
+		void set_record_attribute(in  RecordId id,
+		                          in  NVList attr_list)
+			raises(InvalidRecordId, InvalidAttribute);
+   
+		// set all records that matches the constraints with same attr_list
+		// returns number of records whose attributes have been set
+		unsigned long set_records_attribute(in  string grammar, 
+		                                    in  Constraint c,
+		                                    in  NVList attr_list)
+			raises(InvalidGrammar, InvalidConstraint, InvalidAttribute); 
+
+		// get record attributes
+		NVList get_record_attribute(in  RecordId id)
+			raises(InvalidRecordId);
+
+		Log copy(out LogId id);
+		Log copy_with_id(in  LogId id)
+			raises (LogIdAlreadyExists);
+   
+		void flush() raises (UnsupportedQoS);
+	};
+
+	interface BasicLog : Log {
+		void destroy();
+	};
+
+	typedef sequence<Log> LogList;	
+	typedef sequence<LogId> LogIdList;
+
+	interface LogMgr
+	{
+		LogList list_logs();
+		Log find_log(in LogId id);
+		LogIdList list_logs_by_id();
+	};
+
+	interface BasicLogFactory : LogMgr
+	{
+		BasicLog create(
+			in  LogFullActionType full_action,
+			in  unsigned long long max_size,
+			out LogId id)
+			raises (InvalidLogFullAction);
+
+		BasicLog create_with_id(
+			in  LogId id,
+			in  LogFullActionType full_action,
+			in  unsigned long long max_size)
+			raises (LogIdAlreadyExists, InvalidLogFullAction);
+	};
+
+};
+
+#endif

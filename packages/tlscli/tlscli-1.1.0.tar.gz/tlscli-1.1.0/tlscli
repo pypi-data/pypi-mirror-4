@@ -1,0 +1,849 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+#
+# A Python Text User Interface client for CORBA Telecom Log Service.
+#
+# Copyright © 2010-2013, Thomas Girard <thomas.g.girard@free.fr>
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are
+# met:
+#
+# * Redistributions of source code must retain the above copyright
+#   notice, this list of conditions and the following disclaimer.
+# * Redistributions in binary form must reproduce the above copyright
+#   notice, this list of conditions and the following disclaimer in
+#   the documentation and/or other materials provided with the
+#   distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+# FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+# COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+# INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+# BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+# ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+#
+#
+# For more information on the CORBA Telecom Log Service, see:
+#   http://www.omg.org/spec/TLOG/
+#
+# Example:
+#   tlscli -ORBInitRef LogMgr=corbaname:iiop:1.2@localhost:1234#BasicLogFactory
+#   tlscli -ORBInitRef LogMgr=corbaloc:iiop:1.2@localhost:1234/BasicLogService
+#   tlscli -ORBInitRef LogMgr=IOR:...
+#
+# tlscli   create -> <id>
+#        | list -> 1 2 3
+#        | info <id> [ ... <id> ]
+#        | query <constraint> from <id> [ ... <id> ]
+#        | retrieve <count> before|after <date> from <id> [ ... <id> ]
+#        | delete <constraint> from <id> [ ... <id> ] -> <count>
+#        | write <text> [... <text> ] to <id>
+#
+
+"""tlscli -- A Text User Interface client for CORBA Telecom Log Service"""
+
+import os
+import sys
+import time
+
+
+def die(reason, error_code=1, help=False):
+    print >> sys.stderr, 'tlscli: %s' % (str(reason))
+    if help:
+        print HELP
+    sys.exit(error_code)
+
+
+def _v(tuple_version):
+    return '.'.join(map(str, tuple_version))
+
+
+# -- D Y N A M I C   S T U B   G E N E R A T I O N ---------------------------
+
+# We try omniORB first, then ORBit. Then we use the ORB specific mechanism to
+# load a single IDL file: DsNotifyLogAdmin.idl. This IDL pulls all the others.
+_using_ORBit = False
+_top_dir = os.path.dirname(sys.argv[0])
+if _top_dir.endswith('bin'):
+    _top_dir = os.path.dirname(_top_dir)
+    _idl_dir = os.path.join(_top_dir, 'share/idl/tlscli')
+else:
+    _idl_dir = os.path.join(_top_dir, 'idl')
+_idl_file = os.path.join(_idl_dir, 'DsNotifyLogAdmin.idl')
+
+try:
+    import omniORB
+    omniORB.importIDL(_idl_file, ['-I' + _idl_dir, '-D_PRE_3_0_COMPILER_'])
+    _orb_version = 'omniORBpy %s on omniORB %s' % (omniORB.__version__,
+                                                   omniORB.coreVersion())
+
+except ImportError:
+    try:
+        import ORBit
+        ORBit.load_file(_idl_file, '-I' + _idl_dir + ' -D_PRE_3_0_COMPILER_')
+        _using_ORBit = True
+        _orb_version = 'PyORBit %s on ORBit2 %s' % (_v(ORBit.__version__),
+                                                    _v(ORBit.orbit_version))
+
+    except ImportError:
+        die('missing dependency omniORBpy or PyORBit')
+
+import dateutil.parser
+from datetime import datetime
+
+import CORBA
+import DsLogAdmin
+import DsEventLogAdmin
+import DsNotifyLogAdmin
+
+# It seems constants are not generated when using ORBit.load_file, so add the
+# ones we use manually
+if _using_ORBit:
+    DsLogAdmin.wrap = 0
+    DsLogAdmin.halt = 1
+    DsLogAdmin.QoSNone = 0
+    DsLogAdmin.QoSFlush = 1
+    DsLogAdmin.QoSReliability = 2
+
+try:
+    from errno import EPIPE
+except ImportError:
+    EPIPE = -1
+
+# Change this after every release.
+_version = "1.1.0"
+
+
+# -- E X C E P T I O N S -----------------------------------------------------
+class TelcoLogError(Exception):
+    """Base class for exceptions in this module."""
+    pass
+
+
+class CORBAError(TelcoLogError):
+    def __init__(self, cause, context):
+        self._cause = cause
+        self._context = context
+
+    def __str__(self):
+        return 'an error occured when invoking %s: %s' % (self._context,
+                                                          self._cause)
+
+
+class StateError(TelcoLogError):
+    """Raised when the state of the log does not allow requested operation."""
+
+    def __init__(self, message):
+        TelcoLogError.__init__(self, message)
+
+
+class ArgumentError(Exception):
+    """Raised when there is a problem with an argument."""
+    pass
+
+
+class MissingArgumentError(ArgumentError):
+    """Raised when an argument is missing."""
+
+    def __init__(self, name):
+        ArgumentError.__init__(self, 'missing argument for `%s\'' % (name))
+
+
+class InvalidArgumentValueError(ArgumentError):
+    """Raised when an argument value is incorrect."""
+
+    def __init__(self, name, value):
+        """Create a new `InvalidArgumentValueError' exception.
+
+        Arguments:
+        name -- incorrect argument name
+        value -- incorrect argument value
+
+        """
+        ArgumentError.__init__(self, 'invalid value for `%s\': `%s\'' %
+                               (name, str(value)))
+
+
+class InvalidConstraintError(TelcoLogError):
+    """Raised when a constraint is not valid."""
+
+    def __init__(self, constraint):
+        TelcoLogError.__init__(self, 'invalid constraint: %s' % (constraint))
+
+
+class ObjectReferenceError(TelcoLogError):
+    """Raised when an object reference is not valid."""
+
+    def __init__(self, name):
+        TelcoLogError.__init__(self, 'object is not a valid %s reference!' %
+                               (name))
+
+
+class ConnectionFailureError(TelcoLogError):
+    """Exception raised when connections fails."""
+
+    CONNECTION_FAILURE = """cannot connect to remote Log or LogMgr.
+
+Use -ORBInitRef LogMgr=IOR:TEXT or
+    -ORBInitRef LogMgr=corbaloc:iiop:1.2@MACHINE:PORT/NAME or
+    -ORBInitRef LogMgr=corbaname:iiop:1.2@MACHINE:PORT#NAME or
+ to specify the address of the LogMgr.
+
+For help, invoke with --help."""
+
+    def __init__(self):
+        TelcoLogError.__init__(self, ConnectionFailureError.CONNECTION_FAILURE)
+
+
+class IdError(TelcoLogError):
+    """Raised when an id is not found."""
+
+    def __init__(self, id, type):
+        """Create a new `IdError' exception.
+
+        Arguments:
+        id   -- id that was not found
+        type -- type name
+
+        """
+        TelcoLogError.__init__(self, '%s with id %d not found!' % (type, id))
+
+
+# -- D E C O R A T O R S -----------------------------------------------------
+def corba_call(f):
+    """Decorator to wrap CORBA calls and catch CORBA exceptions.
+
+    See PEP 0318: http://www.python.org/dev/peps/pep-0318/
+    for details on decorators.
+
+    """
+    def new_f(*args, **kwds):
+        try:
+            return f(*args, **kwds)
+        except (CORBA.TRANSIENT, CORBA.OBJECT_NOT_EXIST):
+            raise ConnectionFailureError
+        except (CORBA.UserException, CORBA.SystemException), e:
+            raise CORBAError(e, f.func_name)
+
+    new_f.func_name = f.func_name
+    return new_f
+
+
+# -- C O R B A   U T I L I T Y   F U N C T I O N S ---------------------------
+def corba_to_unix_time(timestamp):
+    # CORBA Time to UNIX time, see:
+    # http://omniorb-support.com/pipermail/omniorb-list/2007-June/028657.html
+    UNIX_TO_UTC_OFFSET_SECS = 12219292800L
+
+    sinceunix = timestamp - (UNIX_TO_UTC_OFFSET_SECS * 10000000)
+    secs = sinceunix / 10000000.0
+
+    if secs < 0:
+        return '*** bogus time: %s ***' % (timestamp)
+    else:
+        return time.ctime(secs)
+
+
+def to_any(s):
+    return CORBA.Any(CORBA.TC_string, str(s))
+
+
+def from_any(a):
+    return str(a.value())
+
+
+# -- W R A P P E R   C L A S S E S -------------------------------------------
+class Record:
+    """Wrap a DsLogAdmin::LogRecord object reference.
+
+    Attributes:
+        _record -- the wrapped log record
+
+    """
+
+    FORMAT = 'id: %d\ntime: %s\ncorba-time: %d\nattributes: %s\ninfo: %s'
+
+    def __init__(self, record):
+        self._record = record
+
+    def __str__(self):
+        attributes = '; '.join(['%s: %s' % (r.name,
+                                            from_any(r.value))
+                                for r in self._record.attr_list])
+        return Record.FORMAT % (self._record.id,
+                                corba_to_unix_time(self._record.time),
+                                self._record.time,
+                                '[' + attributes + ']',
+                                str(from_any(self._record.info)))
+
+
+class RecordIterator:
+    """Iterator over log records.
+
+    Attributes:
+        _list     -- initial list of records
+        _offset   -- workaround TAO bug
+        _iterator -- iterator to retrieve next records
+        _how_many -- how many items to fetch at once (default 0: server call)
+    """
+
+    HOW_MANY = 0
+
+    def __init__(self, list, iterator, how_many=HOW_MANY):
+        self._list = list
+        self._offset = len(list)
+        self._iterator = iterator
+        self._how_many = how_many
+
+    @corba_call
+    def __iter__(self):
+        for record in self._list:
+            yield Record(record)
+
+        # Obey Python iterator protocol: do not allow anything to be returned
+        # after StopIteration was raised
+        self._list = []
+
+        if not self._iterator is None:
+            position = 0
+
+            while True:
+                try:
+                    rl = self._iterator.get(position, self._how_many)
+
+                # Work-around TAO bug in log iterators
+                except DsLogAdmin.InvalidParam:
+                    if position == 0:
+                        position = self._offset
+                        rl = self._iterator.get(position, self._how_many)
+                    else:
+                        raise
+
+                if len(rl) == 0:
+                    # We're done with the CORBA iterator; it will be
+                    # automatically destroyed on server side.
+                    # Honor Python iterator protocol.
+                    self._iterator = None
+                    break
+
+                else:
+                    for record in rl:
+                        yield Record(record)
+
+                    position += len(rl)
+
+        raise StopIteration
+
+
+class Log:
+    """Wrap a DsLogAdmin::Log object reference.
+
+    Attributes:
+        _log -- the wrapped log
+        _orb -- the ORB
+    """
+
+    GRAMMAR = 'EXTENDED_TCL'
+    FORMAT = """id: %d
+object-reference: %s
+QoS: %s
+max-record-life: %s
+max-size: %s
+current-size: %u bytes
+records: %u
+log-full-action: %s
+administrative-state: %s
+forwarding-state: %s
+operational-state: %s
+interval: %s
+availability-status: { %s }
+capacity-alarm-thresholds: %s
+week-mask: %s"""
+
+    QOS = {DsLogAdmin.QoSNone: 'none',
+           DsLogAdmin.QoSFlush: 'flush',
+           DsLogAdmin.QoSReliability: 'reliability'}
+
+    DAYS = {1: 'S',
+            2: 'M',
+            4: 'T',
+            8: 'W',
+            16: 'T',
+            32: 'F',
+            64: 'S'}
+
+    def __init__(self, log, orb):
+        if log is None:
+            raise ObjectReferenceError('DsLogAdmin::Log')
+
+        self._log = log
+        self._orb = orb
+
+    @corba_call
+    def qos(self):
+        list = self._log.get_log_qos()
+
+        return ', '.join([Log.QOS[e] for e in list])
+
+    @corba_call
+    def max_record_life(self):
+        life = self._log.get_max_record_life()
+
+        if life == 0:
+            return 'infinite'
+        else:
+            return '%d seconds' % (life)
+
+    @corba_call
+    def max_size(self):
+        """Pretty prints the maximum size of the log"""
+        size = self._log.get_max_size()
+
+        if size == 0:
+            return 'unlimited'
+        else:
+            return '%d bytes' % (size)
+
+    @corba_call
+    def log_full_action(self):
+        lfa = self._log.get_log_full_action()
+
+        if lfa == DsLogAdmin.wrap:
+            return 'wrap'
+        elif lfa == DsLogAdmin.halt:
+            return 'halt'
+        else:
+            return 'unknown'
+
+    @corba_call
+    def adm_state(self):
+        if self._log.get_administrative_state() == DsLogAdmin.locked:
+            return 'locked'
+        else:
+            return 'unlocked'
+
+    @corba_call
+    def fwd_state(self):
+        if self._log.get_forwarding_state() == DsLogAdmin.on:
+            return 'on'
+        else:
+            return 'off'
+
+    @corba_call
+    def op_state(self):
+        if self._log.get_operational_state() == DsLogAdmin.disabled:
+            return 'disabled'
+        else:
+            return 'enabled'
+
+    @corba_call
+    def write(self, content):
+        if isinstance(content, (tuple, list)):
+            array = map(lambda x: to_any(x), content)
+        else:
+            array = [to_any(content)]
+
+        try:
+            self._log.write_records(array)
+        except DsLogAdmin.LogFull, f:
+            raise StateError('Wrote only %d records out of %d: log is full' %
+                             (f.n_records_written, len(array)))
+        except DsLogAdmin.LogOffDuty:
+            raise StateError('Cannot write to log because it is off duty')
+        except DsLogAdmin.LogLocked:
+            raise StateError('Cannot write to log because it is locked')
+        except DsLogAdmin.LogDisabled:
+            raise StateError('Cannot write to log because it is disabled')
+
+    @corba_call
+    def query(self, constraint):
+        try:
+            list, iterator = self._log.query(Log.GRAMMAR, constraint)
+            return RecordIterator(list, iterator)
+        except DsLogAdmin.InvalidConstraint:
+            raise InvalidConstraintError(constraint)
+
+    @corba_call
+    def delete(self, constraint):
+        try:
+            return self._log.delete_records(Log.GRAMMAR, constraint)
+        except DsLogAdmin.InvalidConstraint:
+            raise InvalidConstraintError(constraint)
+
+    @staticmethod
+    def _str_to_time(date):
+        now = datetime.now()
+
+        if date == 'now':
+            dt = now
+        elif date == 'today':
+            dt = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        elif date == 'yesterday':
+            dt = now.replace(hour=0, minute=0, second=0, microsecond=0,
+                             day=now.day - 1)
+        elif date == 'tomorrow':
+            dt = now.replace(hour=0, minute=0, second=0, microsecond=0,
+                             day=now.day + 1)
+        else:
+            dt = dateutil.parser.parse(date)
+
+        return time.mktime(dt.timetuple())
+
+    @corba_call
+    def retrieve(self, count, date):
+        timestamp = Log._str_to_time(date)
+        ts_100_ns = ((timestamp * 10000000.0) +
+                     (Record.UNIX_TO_UTC_OFFSET_SECS * 10000000))
+        list, iterator = self._log.retrieve(long(ts_100_ns), count)
+        return RecordIterator(list, iterator)
+
+    @staticmethod
+    def _start_time(date):
+        if date == 0:
+            return 'now'
+        else:
+            return corba_to_unix_time(date)
+
+    @staticmethod
+    def _stop_time(date):
+        if date == 0:
+            return 'forever'
+        else:
+            return corba_to_unix_time(date)
+
+    @corba_call
+    def interval(self):
+        interval = self._log.get_interval()
+        return '%s - %s' % (Log._start_time(interval.start),
+                            Log._stop_time(interval.stop))
+
+    @corba_call
+    def availability_status(self):
+        status = self._log.get_availability_status()
+        return 'off-duty: %s; full: %s' % (str(status.off_duty),
+                                           str(status.log_full))
+
+    @corba_call
+    def capacity_alarm_thresholds(self):
+        return str(self._log.get_capacity_alarm_thresholds())
+
+    @staticmethod
+    def _time24_to_str(time24):
+        return '%02d:%02d' % (time24.hour, time24.minute)
+
+    @staticmethod
+    def _time24interval_to_str(interval):
+        return '%s - %s' % (Log._time24_to_str(interval.start),
+                            Log._time24_to_str(interval.stop))
+
+    @staticmethod
+    def _days_of_week_to_str(dow):
+        week = ''
+
+        for key, value in DAYS.iteritems():
+            if dow & key == key:
+                week += value
+            else:
+                week += '-'
+
+        return week
+
+    @staticmethod
+    def _week_mask_item_to_str(wmi):
+        return '%s: { %s }' % (Log._days_of_week_to_str(wmi.days),
+                               ';'.join([Log._time24interval_to_str(e)
+                                         for e in wmi.intervals]))
+
+    @corba_call
+    def week_mask(self):
+        list = self._log.get_week_mask()
+
+        return ', '.join([Log._week_mask_item_to_str(e) for e in list])
+
+    @corba_call
+    def __str__(self):
+        """Display information on this log"""
+        return Log.FORMAT % (self._log.id(),
+                             self._orb.object_to_string(self._log),
+                             self.qos(),
+                             self.max_record_life(),
+                             self.max_size(),
+                             self._log.get_current_size(),
+                             self._log.get_n_records(),
+                             self.log_full_action(),
+                             self.adm_state(),
+                             self.fwd_state(),
+                             self.op_state(),
+                             self.interval(),
+                             self.availability_status(),
+                             self.capacity_alarm_thresholds(),
+                             self.week_mask())
+
+
+class LogFactory:
+    """Wrap a DsLogAdmin::LogMgr.
+
+    Attributes:
+        _logmgr -- the wrapped log manager
+        _orb    -- the ORB
+    """
+
+    SUPPORTED_FACTORIES = {
+        'notify': DsNotifyLogAdmin.NotifyLogFactory,
+        'event': DsEventLogAdmin.EventLogFactory,
+        'basic': DsLogAdmin.BasicLogFactory}
+
+    def __init__(self, logmgr, orb):
+        if logmgr is None:
+            raise ObjectReferenceError('DsLogAdmin::LogMgr')
+
+        self._logmgr = logmgr
+        self._orb = orb
+
+    @corba_call
+    def list(self):
+        """Return a list of all logs id."""
+        return self._logmgr.list_logs_by_id()
+
+    @corba_call
+    def create(self, max_size=0, wrap=True, thresholds=[100]):
+        logfactory = None
+
+        for name, cls in LogFactory.SUPPORTED_FACTORIES.iteritems():
+            try:
+                logfactory = self._logmgr._narrow(cls)
+            except TypeError:
+                continue
+
+            if logfactory is not None:
+                break
+
+        if logfactory is None:
+            raise ObjectReferenceError('DsLogAdmin::BasicLogFactory')
+
+        if wrap:
+            fullaction = DsLogAdmin.wrap
+        else:
+            fullaction = DsLogAdmin.halt
+
+        if name == 'basic':
+            log, id = logfactory.create(fullaction, max_size)
+        elif name == 'event':
+            log, id = logfactory.create(fullaction, max_size, thresholds)
+        elif name == 'notify':
+            log, id = logfactory.create(fullaction, max_size, thresholds,
+                                        [], [])
+
+        return log
+
+    @corba_call
+    def _get(self, id):
+        log = self._logmgr.find_log(id)
+
+        if log is None:
+            raise IdError(id, 'log')
+
+        return log
+
+    def get(self, id):
+        return Log(self._get(id), self._orb)
+
+    @staticmethod
+    @corba_call
+    def connect(orb):
+        # Try to obtain a reference to the LogMgr
+        try:
+            obj = orb.resolve_initial_references('LogMgr')
+            log_mgr = obj._narrow(DsLogAdmin.LogMgr)
+        except CORBA.BAD_PARAM:
+            raise TelcoLogError('cannot resolve LogMgr initial reference')
+        except TypeError:
+            log_mgr = None
+
+        return LogFactory(log_mgr, orb)
+
+
+# -- M A I N   A N D   H E L P E R   F U N C T I O N S -----------------------
+VERSION = """TelecomLogServiceClient (tlscli) %s
+
+Copyright © 2010-2013 Thomas Girard <thomas.g.girard@free.fr>
+Hosted on: https://launchpad.net/tlscli
+Bug report: https://bugs.launchpad.net/tlscli/+filebug
+
+tlscli is free software; see LICENSE.txt for redistribution and use conditions.
+tlscli comes with ABSOLUTELY NO WARRANTY.
+""" % (_version)
+
+HELP = """Usage: tlscli ACTION
+  create\tcreate a new log and print its id
+  list  \tlist available log ids
+  info ID...\tdisplay information on logs with id ID
+  query CONSTRAINT from ID...
+        \tquery logs with id ID and display matching records
+  retrieve COUNT before|after DATE from ID...
+        \tretrieve COUNT records before or after DATE from logs with id ID
+  delete CONSTRAINT from ID...
+        \tdelete records matching CONSTRAINT from log with id ID
+  write TEXT... to ID
+        \twrite TEXT to log with id ID
+  help  \tdisplay help on this program
+  version\tdisplay version of this program
+
+To specify how to connect to the TelecomLogService, specify a LogMgr initial
+reference using one of the following syntaxes:
+  -ORBInitRef LogMgr=IOR:TEXT
+  -ORBInitRef LogMgr=corbaloc:iiop:1.2@MACHINE:PORT/NAME
+  -ORBInitRef LogMgr=corbaname:iiop:1.2@MACHINE:PORT#NAME
+
+For more information on the CORBA Telecom Log Service, see:
+  http://www.omg.org/spec/TLOG/
+"""
+
+SEPARATOR = '-' * 78
+
+
+def all_digits(sequence, what):
+    digits = filter(lambda x: x.isdigit(), sequence)
+
+    if len(digits) != len(sequence):
+        raise InvalidArgumentValueError(what, ' '.join(sequence))
+
+    return digits
+
+
+def drop_ORB_args(sequence):
+    # Remove simple -ORB arguments as well as -ORBInitRef key/value pairs
+    seq = []
+    skip_next = False
+
+    for arg in sequence:
+        if arg == '-ORBInitRef':
+            skip_next = True
+        else:
+            if not arg.startswith('-ORB') and not skip_next:
+                seq.append(arg)
+            skip_next = False
+
+    return seq
+
+
+if __name__ == '__main__':
+    # Initialize the ORB
+    orb = CORBA.ORB_init(sys.argv)
+
+    # ORBit does not eat -ORB args, so let's do it ourselves
+    if _using_ORBit:
+        sys.argv = drop_ORB_args(sys.argv)
+
+    # No default operation
+    if len(sys.argv) == 1:
+        die('missing action', help=True)
+
+    # Parse arguments
+    try:
+        if sys.argv[1] in ['help', '-h', '-?', '-help', '--help']:
+            print HELP
+            sys.exit(0)
+
+        elif sys.argv[1] in ['version', '-v', '-version', '--version']:
+            print VERSION
+            print 'Using:', _orb_version
+            sys.exit(0)
+
+        elif sys.argv[1] == 'list':
+            for id in LogFactory.connect(orb).list():
+                print id
+
+        elif sys.argv[1] == 'create':
+            print LogFactory.connect(orb).create().id()
+
+        elif sys.argv[1] == 'info':
+            if len(sys.argv) > 2:
+                logfactory = LogFactory.connect(orb)
+                for i in all_digits(sys.argv[2:], 'info'):
+                    print logfactory.get(long(i))
+                    print SEPARATOR
+            else:
+                raise MissingArgumentError('info')
+
+        elif sys.argv[1] == 'query':
+            if len(sys.argv) > 4 and sys.argv[3] == 'from':
+                logfactory = LogFactory.connect(orb)
+                for i in all_digits(sys.argv[4:], 'query'):
+                    for record in logfactory.get(long(i)).query(sys.argv[2]):
+                        print record
+                        print SEPARATOR
+            else:
+                raise MissingArgumentError('query')
+
+        elif sys.argv[1] == 'delete':
+            if len(sys.argv) > 4 and sys.argv[3] == 'from':
+                logfactory = LogFactory.connect(orb)
+                for i in all_digits(sys.argv[4:], 'delete'):
+                    print logfactory.get(long(i)).delete(sys.argv[2])
+            else:
+                raise MissingArgumentError('delete')
+
+        elif sys.argv[1] == 'write':
+            if len(sys.argv) > 4:
+                if not sys.argv[-1].isdigit():
+                    raise InvalidArgumentValueError('write', sys.argv[-1])
+                if not sys.argv[-2] == 'to':
+                    raise InvalidArgumentValueError('write', sys.argv[-2])
+
+                log = LogFactory.connect(orb).get(long(sys.argv[-1]))
+
+                for i in xrange(2, len(sys.argv) - 2):
+                    log.write(sys.argv[i])
+            else:
+                raise MissingArgumentError('write')
+
+        elif sys.argv[1] == 'retrieve':
+            if len(sys.argv) > 6:
+                if not sys.argv[2].isdigit():
+                    raise InvalidArgumentValueError('retrieve', sys.argv[2])
+                if not sys.argv[5] == 'from':
+                    raise InvalidArgumentValueError('retrieve', sys.argv[5])
+                if sys.argv[3] == 'before':
+                    count = -long(sys.argv[2])
+                elif sys.argv[3] == 'after':
+                    count = long(sys.argv[2])
+                else:
+                    raise InvalidArgumentValueError('retrieve', sys.argv[3])
+
+                logfactory = LogFactory.connect(orb)
+
+                for i in all_digits(sys.argv[6:], 'retrieve'):
+                    l = logfactory.get(long(i))
+                    for record in l.retrieve(count, sys.argv[4]):
+                        print record
+                        print SEPARATOR
+
+            else:
+                raise MissingArgumentError('retrieve')
+
+        else:
+            raise ArgumentError('unknown argument: ' + sys.argv[1])
+
+    except ArgumentError, e:
+        die(e, help=True)
+
+    except TelcoLogError, e:
+        die(e)
+
+    except IOError, e:
+        # Swallow EPIPE errors on platforms that support that. It makes it
+        # possible to use tlscli | less and press Q without Python stacktrace
+        if e.errno != EPIPE:
+            raise
+
+else:
+    raise ImportError('the tlscli script cannot be imported')
