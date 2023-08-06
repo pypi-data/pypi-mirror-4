@@ -1,0 +1,355 @@
+===================================================
+Content Delivery Network Resource Extraction Recipe
+===================================================
+
+The 'cdn' recipe can be used to extract and deploy resources defined within the
+p01.cdn package. Such resources can be served within nginx, apache or any other
+proxy server. The p01.cdn package offers ZCML directives for define such
+resources. The p01.recipe.cdn defines scripts which are able to extract such
+resources into an output folder. Such an output folder could be a simple
+package whcih can get deployed within the buildout concept or just a simple
+folder whcih you can deploy with FTP. AN FTP setup is also supported in this
+recipe.
+
+The p01.cdn package is based on a version manager which makes it very simple 
+to deploy different resource versions. See p01.cdn for more information about
+the concept.
+
+
+Details
+-------
+
+The p01.cdn package allows to define cdn resources supporting development and
+production urls for the same resource. The server configuration allows to
+override such urls too. This means the url for a resource is hardcoded depending
+on the used setup. It never got calculated during processing and is independent
+form the running aplication. Such resource urls can get extracted into a folder
+within this recipe. The recipe generates a folder structure related to the
+resource url configuration. Such extracted resources can served from a proxy
+server independent from the application and the application will implicit
+generate the right resource url (if the proxy server is configured correct).
+
+
+p01.recipe.cdn:cdn
+------------------
+
+
+Options
+~~~~~~~
+
+The 'cdn' recipe accepts the following options:
+
+eggs
+  The names of one or more eggs, with their dependencies that should
+  be included in the Python path of the generated scripts.
+
+layer
+  One or more layer which should be used to extract the resources from. The
+  dotted path name of the layer interface must be used.
+
+zcml
+  The zcml directive which should get loaded for extract the resources
+
+server (optional)
+  The FTP server if you like to deploy the resources with an ftp account. Note
+  we extract in some of our projects the cdn resources to a package and use
+  this package release (egg) in our nginx setup and extract the cdn resources
+  within our p01.recipe.setup:copy recipe.
+
+username (required if server is used)
+  The FTP server user name
+
+password (required if server is used)
+  The FTP server password
+
+uri (optional)
+  Defines the global uri used for all cdn resource where no uri is defined in
+  uris. Such an uri will get written to the environment as P01_CDN_URI value.
+
+uris (optional)
+  Defines an uri per filename. Such an uri get used instead of the global
+  defined uri. Such uris will get written to the environment using 
+  P01_CDN_URI_* as key where * is the registered resource name.
+
+registry (optional)
+  Defines a base registry name where we will lookup and apply to the site
+  manager if given. This allows to override resources at a base registry level
+  during extraction. See z3c.baseregistry for more information
+
+environment (optional)
+  The environement if needed by your application code loaded by zcml. If an
+  environment defines P01_CDN_URI or P01_CDN_URI_* keys the uri or uris
+  argument can get used for override them in the given environment.
+
+
+Test
+~~~~
+
+Lets define some (bogus) eggs that we can use in our application:
+
+  >>> mkdir('demo')
+  >>> write('demo', 'setup.py',
+  ... '''
+  ... from setuptools import setup
+  ... setup(name = 'demo')
+  ... ''')
+
+We'll create a `buildout.cfg` file that defines our application:
+
+  >>> write('buildout.cfg',
+  ... '''
+  ... [buildout]
+  ... develop = demo
+  ... parts = cdn
+  ...
+  ... [cdn]
+  ... recipe = p01.recipe.cdn:cdn
+  ... eggs = demo
+  ... layer = foo.bar.interfaces.IBrowserRequest
+  ... zcml = <include package="foo.bar" />
+  ... server = ftp.demo.tld
+  ... username = foo
+  ... password = password
+  ...
+  ... ''' % globals())
+
+Now, Let's run the buildout and see what we get:
+
+  >>> print system(join('bin', 'buildout')),
+  Develop: '/sample-buildout/demo'
+  Installing cdn.
+  Generated script '/sample-buildout/bin/cdnextract'.
+  Generated script '/sample-buildout/bin/cdnuris'.
+  Generated script '/sample-buildout/bin/cdnpaths'.
+  Generated script '/sample-buildout/bin/cdnoutput'.
+  Generated script '/sample-buildout/bin/cdndeploy'.
+  ...
+
+The bin folder contains the cdn scripts. Note each scripts is prefixed with the
+parts name. This allows u to have more thn one cdn resource extract/deploy
+recipe setup:
+
+  >>> ls('bin')
+  -  buildout
+  -  cdndeploy
+  -  cdnextract
+  -  cdnoutput
+  -  cdnpaths
+  -  cdnuris
+
+The cdnextract-script.py contains the resource extraction code:
+
+  >>> cat('bin', 'cdnextract-script.py')
+  <BLANKLINE>
+  import sys
+  sys.path[0:0] = [
+      ...
+      ]
+  <BLANKLINE>
+  <BLANKLINE>
+  import os
+  sys.argv[0] = os.path.abspath(sys.argv[0])
+  <BLANKLINE>
+  <BLANKLINE>
+  import p01.recipe.cdn.extract
+  <BLANKLINE>
+  if __name__ == '__main__':
+      sys.exit(p01.recipe.cdn.extract.main(['extract', 'foo.bar.interfaces.IBrowserRequest', '/sample-buildout/parts/cdn/configure.zcml', '', '', []]))
+
+The cdnuris-scrip.py contains the code for list all uris:
+
+  >>> cat('bin', 'cdnuris-script.py')
+  <BLANKLINE>
+  import sys
+  sys.path[0:0] = [
+      ...
+      ]
+  <BLANKLINE>
+  <BLANKLINE>
+  import os
+  sys.argv[0] = os.path.abspath(sys.argv[0])
+  <BLANKLINE>
+  <BLANKLINE>
+  import p01.recipe.cdn.extract
+  <BLANKLINE>
+  if __name__ == '__main__':
+      sys.exit(p01.recipe.cdn.extract.main(['uris', 'foo.bar.interfaces.IBrowserRequest', '/sample-buildout/parts/cdn/configure.zcml', '', '', []]))
+
+The cdnpaths-script.py contains the code for list all source paths:
+
+  >>> cat('bin', 'cdnpaths-script.py')
+  <BLANKLINE>
+  import sys
+  sys.path[0:0] = [
+      ...
+      ]
+  <BLANKLINE>
+  <BLANKLINE>
+  import os
+  sys.argv[0] = os.path.abspath(sys.argv[0])
+  <BLANKLINE>
+  <BLANKLINE>
+  import p01.recipe.cdn.extract
+  <BLANKLINE>
+  if __name__ == '__main__':
+      sys.exit(p01.recipe.cdn.extract.main(['paths', 'foo.bar.interfaces.IBrowserRequest', '/sample-buildout/parts/cdn/configure.zcml', '', '', []]))
+
+The cdnoutput-script.py contains the code for list all output paths:
+
+  >>> cat('bin', 'cdnoutput-script.py')
+  #!"C:\Python27\python.exe"
+  <BLANKLINE>
+  import sys
+  sys.path[0:0] = [
+      ...
+      ]
+  <BLANKLINE>
+  <BLANKLINE>
+  import os
+  sys.argv[0] = os.path.abspath(sys.argv[0])
+  <BLANKLINE>
+  <BLANKLINE>
+  import p01.recipe.cdn.extract
+  <BLANKLINE>
+  if __name__ == '__main__':
+      sys.exit(p01.recipe.cdn.extract.main(['output', 'foo.bar.interfaces.IBrowserRequest', '/sample-buildout/parts/cdn/configure.zcml', '', '', []]))
+
+The cdndeploy-script.py contains the code for deploy the resource to an FTP
+server:
+
+  >>> cat('bin', 'cdndeploy-script.py')
+  <BLANKLINE>
+  import sys
+  sys.path[0:0] = [
+      ...
+      ]
+  <BLANKLINE>
+  <BLANKLINE>
+  import os
+  sys.argv[0] = os.path.abspath(sys.argv[0])
+  <BLANKLINE>
+  <BLANKLINE>
+  import p01.recipe.cdn.deploy
+  <BLANKLINE>
+  if __name__ == '__main__':
+      sys.exit(p01.recipe.cdn.deploy.main(['', 'ftp.demo.tld', 'foo', 'password']))
+
+And the myapp folder contains the configure files:
+
+  >>> ls('parts', 'cdn')
+  -  configure.zcml
+
+
+ZRT usecase
+-----------
+
+This part explains how to use resources in ZRT resource files.
+
+Let's define a "sample.css" ZRT resource file with the following content:
+
+  /* zrt-replace: "fooImages" tal"string:${context/++resource++fooImages}" */
+  /* zrt-replace: "barImages" tal"string:${context/++resource++barImages}" */
+  #fooBackground {
+    background: url(fooImages/buttonBG.gif) repeat-x left top;
+  }
+  #barBackground {
+    background: url(barImages/buttonBG.gif) repeat-x left top;
+  }
+
+and register the ZRT resource file as:
+
+  <p01:cdnZRTResource
+      name="sample.css"
+      file="sample.css"
+      manager="your.cdnVersionManager"
+      layer="your.layer.IBaseLayer"
+     />
+
+Now, define two resource folders called ``fooImages`` and ``barImages``:
+
+  <p01:cdnDirectory
+      name="fooImages"
+      directory="fooImages"
+      manager="your.cdnVersionManager"
+      layer="your.layer.IBaseLayer"
+      />
+  <p01:cdnDirectory
+      name="barImages"
+      directory="barImages"
+      manager="your.cdnVersionManager"
+      layer="your.layer.IBaseLayer"
+      />
+
+and you need to define a cdn recipe like:
+
+  [cdn]
+  recipe = p01.recipe.cdn:cdn
+  eggs = mypackage
+  layer = your.layer.ILayer
+  zcml = <include package="mypackage" file="app.zcml" />
+  server = localhost
+  username = sample
+  password = password
+  output = ${buildout:directory}/externals/mypackage/src/mypackage/cdn
+  uris = fooImages http://foo.images.com
+         barImages http://bar.images.com
+
+After running buildout, you can extract the resources to the given
+output folder with bin/myextract and this will produce a CSS file whit the
+correct url for the different resource directories e.g.:
+
+  #fooBackground {
+    background: url(http://foo.images.com/myimage.gif) repeat-x left top;
+  }
+  #barBackground {
+    background: url(http://bar.images.com/myimage.gif) repeat-x left top;
+  }
+
+Also the folders ``fooImages`` and ``barImages`` will get extracted to the 
+ressource ouptut folder. Now you just need to deploy them to the server 
+providing the ``foo.images.com`` and ``bar.images.com`` domains.
+
+
+z3c.baseregistry
+----------------
+
+Resources also support the z3c.baseregistry. This means you can register
+a resource within the registerIn directive e.g.:
+
+  <configure
+      xmlns="http://namespaces.zope.org/browser"
+      xmlns:zope="http://namespaces.zope.org/zope"
+      i18n_domain="recruiter">
+
+    <zope:registerIn registry="my.baseregistry.MyBaseRegistry">
+
+      <p01:cdnZRTResource
+          name="some.css"
+          file="some.css"
+          layer="my.layer.ICDNBaseLayer"
+          />
+
+    </zope:registerIn>
+
+  </configure>
+
+If you use a baseregistry, you can register resources and in the global
+site managers component registry and you can register a resource manager
+in a base registry. If you do so, this means all resources given from the
+global registry will provide the uri given from the resource manager registred
+in the custom base registry. You only need to define the registry argument
+in the cdn extract recipe e.g.:
+
+  [testenv]
+  P01_CDN_PROJECT = http://cdn.foo.com/@@/*
+  P01_CDN_ANOTHER = http://another.foo.com/@@/another/*
+
+  [cdn-demo-]
+  recipe = p01.recipe.cdn:cdn
+  eggs = my
+  layer = my.layer.IMyBaseLayer
+  registry = mybaseregistry
+  zcml = <configure xmlns="http://namespaces.zope.org/zope">
+    <include package="my.setup" />
+    </configure>
+  environment = testenv
