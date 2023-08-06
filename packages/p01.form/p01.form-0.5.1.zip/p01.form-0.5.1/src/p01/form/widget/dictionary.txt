@@ -1,0 +1,106 @@
+=====================
+Dict Key Value Widget
+=====================
+
+The DictKeyValueWidget widget supports simple key value string editing for
+dict data:
+
+As for all widgets, the DictKeyValueWidget must provide the new ``IWidget``
+interface:
+
+  >>> import zope.schema
+  >>> import zope.interface
+  >>> from zope.interface.verify import verifyClass
+  >>> import z3c.form.browser
+  >>> import z3c.form.widget
+  >>> import z3c.form.interfaces
+  >>> from p01.form import interfaces
+  >>> from p01.form.widget.dictionary import DictKeyValueConverter
+  >>> from p01.form.widget.dictionary import DictKeyValueWidget
+  >>> from p01.form.widget.dictionary import getDictKeyValueWidget
+
+  >>> verifyClass(z3c.form.interfaces.IWidget, DictKeyValueWidget)
+  True
+
+  >>> verifyClass(interfaces.IDictKeyValueWidget, DictKeyValueWidget)
+  True
+
+The widget can be instantiated only using the request:
+
+  >>> from z3c.form.testing import TestRequest
+  >>> request = TestRequest()
+
+  >>> widget = DictKeyValueWidget(request)
+  >>> interfaces.IDictKeyValueWidget.providedBy(widget)
+  True
+
+Before rendering the widget, one has to set the name and id of the widget:
+
+  >>> widget.id = 'widget-id'
+  >>> widget.name = 'widget.name'
+
+We also need to register the template for at least the widget and request:
+
+  >>> import os.path
+  >>> from zope.publisher.interfaces.browser import IDefaultBrowserLayer
+  >>> from zope.pagetemplate.interfaces import IPageTemplate
+  >>> template = os.path.join(os.path.dirname(z3c.form.browser.__file__),
+  ...     'textarea_input.pt')
+  >>> factory = z3c.form.widget.WidgetTemplateFactory(template)
+  >>> zope.component.provideAdapter(factory,
+  ...     (zope.interface.Interface, IDefaultBrowserLayer, None, None, None),
+  ...     IPageTemplate, name='input')
+
+We also need our special converter and of corse the widget to field, widget
+covnerter lookup dispatcher:
+
+  >>> from z3c.form.converter import FieldWidgetDataConverter
+
+  >>> zope.component.provideAdapter(FieldWidgetDataConverter)
+  >>> zope.component.provideAdapter(DictKeyValueConverter)
+
+The field widget also needs a field:
+
+  >>> dictField = zope.schema.Dict(
+  ...     title=u'Dict Field',
+  ...     key_type=zope.schema.TextLine(),
+  ...     value_type=zope.schema.TextLine(),
+  ...     default={})
+
+  >>> widget = getDictKeyValueWidget(dictField, request)
+  >>> widget
+  <DictKeyValueWidget ''>
+
+  >>> interfaces.IDictKeyValueWidget.providedBy(widget)
+  True
+
+  >>> widget.id = 'id'
+  >>> widget.name = 'name'
+
+If we render the widget we get a simple textarea element:
+
+  >>> print widget.render()
+  <textarea id="id" name="name"
+            class="dict-key-value-widget textarea-widget"></textarea>
+
+If we render the widget with a value, we will see each dictionary entry
+in one line with key value separated with a double point:
+
+  >>> widget.value = {'key':'value'}
+  >>> print widget.render()
+  <textarea id="id" name="name"
+            class="dict-key-value-widget textarea-widget">{'key': 'value'}</textarea>
+
+Let's now make sure that we can extract user entered data from a widget:
+
+  >>> widget.request = TestRequest(form={'name': {'key': 'value'}})
+  >>> widget.update()
+  >>> widget.extract()
+  {'key': 'value'}
+
+If nothing is found in the request, the default is returned:
+
+  >>> widget.request = TestRequest()
+  >>> widget.update()
+  >>> widget.extract()
+  <NO_VALUE>
