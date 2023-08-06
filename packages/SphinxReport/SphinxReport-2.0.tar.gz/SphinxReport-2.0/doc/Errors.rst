@@ -1,0 +1,13 @@
+======
+Errors
+======
+
+.. errorlist::
+
+
+========
+Warnings
+========
+
+.. warninglist::
+
