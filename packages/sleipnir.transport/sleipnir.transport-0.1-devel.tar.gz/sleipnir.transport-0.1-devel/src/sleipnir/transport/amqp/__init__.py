@@ -1,0 +1,1 @@
+"""Sleipnir.Tansport.AMQP submodule"""
