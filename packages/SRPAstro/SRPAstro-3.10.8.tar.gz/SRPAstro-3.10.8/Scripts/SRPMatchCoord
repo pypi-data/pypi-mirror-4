@@ -1,0 +1,192 @@
+""" Code to match pair of coordinates.
+
+Context : SRP
+Module  : SRPMatchCoord.py
+Version : 1.3.2
+Status  : approved
+Author  : Stefano Covino
+Date    : 28/04/2011
+E-mail  : stefano.covino@brera.inaf.it
+URL:    : http://www.merate.mi.astro.it/~covino
+Purpose : Manage the matching of pair of coordinates.
+
+Usage   : SRPMatchCoord [-c arg1 arg2 arg3 arg4] [-h] [-j arg5] -m arg6 [-n arg7] -o arg8 -r arg9 -t arg10 [-v]
+            -c are the x,y column numbers for the reference table and the matching table
+            -j is the number of entries at the beginning of both tables to be skipped.
+            -m the matching table
+            -n the character to identify comment lines to skip
+            -o is the output file
+            -r reference table
+            -s the shift for coordinate match
+            -t is the maximum tolerance for a positive match.
+
+
+History : (27/12/2003) First version.
+        : (22/02/2004) Better matching and various corrections.
+        : (26/10/2004) Sequence of "ref" and "match" in output table.
+        : (03/02/2005) Optparse.
+        : (08/06/2005) Better row jumping.
+        : (25/06/2005) Better pai association algorithm.
+        : (27/04/2007) Input coordinates in hh:mm:ss and dd:mm:ss format too.
+        : (13/12/2007) Better management of jump option.
+        : (28/04/2011) Bug correction in jump.
+"""
+
+
+
+
+class Neigh:
+        def __init__ (self, dist, member):
+                self.D = dist
+                self.M = member
+
+        def __cmp__ (self, other):
+                if self.D > other.D:
+                        return 1
+                elif self.D == other.D:
+                        return 0
+                else:
+                        return -1
+
+
+
+
+import string, math, copy, os
+try:
+        from optparse import OptionParser
+except:
+        from optik import OptionParser
+import SRP.SRPConstants as SRPConstants
+import SRP.SRPFiles as SRPFiles
+import SRP.SRPUtil as SRPUtill
+import ephem
+import SRP.TimeAstro_algs as TimeAstro_algs
+
+
+
+def CoordDist (inp1,inp2):
+	a = math.fabs(inp2[0]-inp1[0])
+	b = math.fabs(inp2[1]-inp1[1])
+        i1 = TimeAstro_algs.deg_to_rad(inp1[0])
+        i2 = TimeAstro_algs.deg_to_rad(inp1[1])
+        i3 = TimeAstro_algs.deg_to_rad(inp2[0])
+        i4 = TimeAstro_algs.deg_to_rad(inp2[1])
+        c = ephem.separation((i1,i2), (i3,i4))
+        d = TimeAstro_algs.rad_to_deg(c)
+	return d,a,b
+
+
+parser = OptionParser(usage="usage: %prog [-c arg1 arg2 arg3 arg4] [-h] [-j arg5] -m arg6 [-n arg7] -o arg8 -r arg9 -t arg10 [-v]", version="%prog 1.3.2")
+parser.add_option("-c", "--columns", action="store", nargs=4, type="int", dest="col", default=(1,2,1,2), help="Columns for cordinates [i.e. (2 3 1 2)].")
+parser.add_option("-n", "--comment", action="store", nargs=1, type="string", dest="cmt", help="Comment character.")
+parser.add_option("-m", "--match", action="store", nargs=1, type="string", dest="match", help="Coordinate list to match.")
+parser.add_option("-r", "--ref", action="store", nargs=1, type="string", dest="ref", help="Reference coordinate list.")
+parser.add_option("-t", "--tolerance", action="store", nargs=1, type="float", dest="toler", help="Tolerance for matching.")
+parser.add_option("-v", "--verbose", action="store_true", dest="verbose", help="Fully describe operations.")
+parser.add_option("-j", "--jump", action="store", nargs=1, type="int", dest="jump", default=0, help="Number of header lines to jump.")
+parser.add_option("-o", "--out", action="store", nargs=1, type="string", dest="outf", help="Output file.")
+(options, args) = parser.parse_args()
+
+
+if options.match and options.ref and options.toler and options.outf:
+	sname = SRPFiles.getSRPSessionName()
+	if options.verbose:
+		print "Session name %s retrieved." % sname
+	f1 = SRPFiles.SRPFile(SRPConstants.SRPLocalDir,options.ref,SRPFiles.ReadMode)
+	f1.SRPOpenFile()
+	if options.verbose:
+		print "Opening %s file." % options.ref
+	if f1.f == None:
+		parser.error("Error in input file %s." % options.ref)
+	f2 = SRPFiles.SRPFile(SRPConstants.SRPLocalDir,options.match,SRPFiles.ReadMode)
+	f2.SRPOpenFile()
+	if options.verbose:
+		print "Opening %s file." % options.match
+	if f2.f == None:
+		parser.error("Error in input file %s." % options.match)
+	if options.toler <= 0.0:
+		parser.error("Tolerance %.2f must be positive." % options.toler)
+	if options.jump < 0:
+		parser.error("Header lines to jump %d must be positive." % options.jump)
+	try:
+		dt1 = f1.SRPReadTotFile()
+	except:
+		parser.error("Error in reading from file %s." % options.ref)
+	f1.SRPCloseFile()
+	try:
+		dt2 = f2.SRPReadTotFile()
+	except:
+		parser.error("Error in reading from file %s." % options.match)
+	f2.SRPCloseFile()
+	ddt1 = []
+	ddt2 = []    
+	for i in range(options.jump,len(dt1)):
+        	if options.cmt == None or (len(dt1) > 0 and dt1[i][0] != options.cmt[0]):
+            		ddt1.append(dt1[i])
+	for i in range(options.jump,len(dt2)):
+        	if options.cmt == None or (len(dt2) > 0 and dt2[i][0] != options.cmt[0]):
+            		ddt2.append(dt2[i])
+    	del dt1
+	del dt2
+	l1 = []
+	l2 = []
+	for i in range(len(ddt1)):
+                if ddt1[i].find(':') > 0:
+                        try:
+                                inp = string.split(ddt1[i])
+                                irad = SRPUtil.rad2deg(ephem.hours(inp[options.col[0]-1]))
+                                idec = SRPUtil.rad2deg(ephem.degrees(inp[options.col[1]-1]))
+                                l1.append((irad,idec,i))
+                        except:
+                                parser.error("Problem in extracting data from file %s." % options.ref)
+                else:
+                        try:
+                                inp = string.split(ddt1[i])
+                                l1.append((float(inp[options.col[0]-1]),float(inp[options.col[1]-1]),i))
+                        except:
+                        	parser.error("Problem in extracting data from file %s." % options.ref)
+	for i in range(len(ddt2)):
+                if ddt2[i].find(':') > 0:
+                        try:
+                                inp = string.split(ddt2[i])
+                                irad = SRPUtil.rad2deg(ephem.hours(inp[options.col[2]-1]))
+                                idec = SRPUtil.rad2deg(ephem.degrees(inp[options.col[3]-1]))
+                                l2.append((irad,idec,i))
+                        except:
+                                parser.error("Problem in extracting data from file %s." % options.match)
+                else:                
+                        try:
+                                inp = string.split(ddt2[i])
+                                l2.append((float(inp[options.col[2]-1]),float(inp[options.col[3]-1]),i))
+                        except:
+                        	parser.error("Problem in extracting data from file %s." % options.match)
+	if options.verbose:
+		print "Beginning iterations..."
+		print "Table %s contains %d objects." % (options.ref, len(l1))
+		print "Table %s contains %d objects." % (options.match, len(l2))
+        l3 = copy.copy(l1)
+        l4 = copy.copy(l2)
+        count = 0
+	o1 = SRPFiles.SRPFile(SRPConstants.SRPLocalDir,sname+options.outf,SRPFiles.WriteMode)
+	o1.SRPOpenFile()
+	for o in l3:
+                mdlist = []
+		for p in l4:
+			md, mx, my = CoordDist(o,p)
+			if md < options.toler:
+                                mdlist.append(Neigh(md,p))
+                if len(mdlist) > 0:
+                        mdlist.sort()
+                        minN = mdlist[0]
+		        if minN.D < options.toler:
+        		        count = count + 1
+			        l4.remove(minN.M)
+                                o1.SRPWriteFile(str(string.strip(ddt1[o[2]]))+SRPConstants.SRPTab+str(string.strip(ddt2[minN.M[2]]))+os.linesep)
+	o1.SRPCloseFile()
+	if options.verbose:
+		print "Found %d objects in common." % count
+	else:
+		print "%d" % (count)
+else:
+	parser.print_help()
+

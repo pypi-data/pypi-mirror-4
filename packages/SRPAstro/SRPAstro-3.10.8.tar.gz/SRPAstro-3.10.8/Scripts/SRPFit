@@ -1,0 +1,284 @@
+""" Code to perform multi-parametric fits.
+
+Context : SRP
+Module  : SRPFit.py
+Version : 1.2.2
+Author  : Stefano Covino
+Date    : 25/08/2011
+E-mail  : stefano.covino@merate.mi.astro.it
+URL:    : http://www.merate.mi.astro.it/~covino
+Purpose : Perform multi-parametric fit.
+
+Usage   : SRPFit -d arg1 [-e arg2] -f arg3 -g 'arg4' [-h] [-i 'arg5'] -m arg6 [-n arg7] [-o arg8] [-v]
+            -d Table containing data
+            -e ERR Error search and confidence level (i.e 90.0)
+            -g Guess values for parameters to fit [i.e. '2.2 15.2']
+            -i Min,max values for error search [i.e. '0 4 10 20']
+            -m File with function to fit (i.e. myfunc.py)
+            -n Number of trial for Montecarlo search (default 1000)
+            -o Output error file
+            -f Output function file
+ 
+
+History : (23/05/2005) First version.
+        : (07/06/2005) No automatic error estimate.
+        : (24/06/2005) Larger number of allowed iterations and function calls.
+        : (11/06/2009) Minor improvements and model output.
+        : (18/02/2010) Minor correction.
+        : (25/08/2011) Better cosmetics.
+"""
+
+
+import string, os, imp, math, random, sys, copy
+from optparse import OptionParser
+import SRP.SRPConstants as SRPConstants
+import SRP.SRPFiles as SRPFiles
+from scipy.optimize import optimize
+import SRP.stats as stats
+
+
+
+parser = OptionParser(usage="usage: %prog -d arg1 [-e arg2] -f arg3 -g 'arg4' [-h] [-i 'arg5'] -m arg6 [-n arg7] [-o arg8] [-v]", version="%prog 1.0.0")
+parser.add_option("-d", "--data", action="store", nargs=1, type="string", dest="table", help="Table containing data")
+parser.add_option("-e", "--error", action="store", nargs=1, type="float", dest="err", help="Error search and confidence level (i.e 90.0)")
+parser.add_option("-g", "--guess", action="store", type="string", dest="guess", help="Guess values for parameters to fit [i.e. '2.2 15.2']")
+parser.add_option("-i", "--interval", action="store", type="string", dest="ival", help="Min,max values for error search [i.e. '0 4 10 20']")
+parser.add_option("-m", "--myfunc", action="store", nargs=1, type="string", dest="myf", help="File with function to fit (i.e. myfunc.py)")
+parser.add_option("-n", "--ntrial", action="store", nargs=1, type="int", dest="ntrial", default=1000, help="Number of trial for Montecarlo search (default 1000)")
+parser.add_option("-o", "--out", action="store", nargs=1, type="string", dest="outf", help="Output error file")
+parser.add_option("-f", "--fun", action="store", nargs=1, type="string", dest="outfun", help="Output function file")
+parser.add_option("-v", "--verbose", action="store_true", dest="verbose", help="Fully describe operations")
+(options, args) = parser.parse_args()
+
+
+if options.table and options.guess and options.myf and options.outfun:
+        # Session name
+        sname = SRPFiles.getSRPSessionName()
+	if options.verbose:
+		print "Session name %s retrieved." % sname
+        # Open file
+	f1 = SRPFiles.SRPFile(SRPConstants.SRPLocalDir,options.table,SRPFiles.ReadMode)
+	f1.SRPOpenFile()
+	if options.verbose:
+		print "Opening %s file." % options.table
+	if f1.f == None:
+		parser.error("Error in input file %s." % options.table)
+        # Read file
+	try:
+		dt1 = f1.SRPReadTotFile()
+	except:
+		parser.error("Error in reading from file %s." % options.table)
+	f1.SRPCloseFile()
+	if options.verbose:
+		print "Read %d entries." % len(dt1)
+        # Extract columns
+	x = []
+        y = []
+        ey = []
+	for i in range(len(dt1)):
+		try:
+			inp = string.split(dt1[i])
+		except:
+			parser.error("Problem in extracting data from file %s." % options.table)
+                if len(inp) > 0:
+                        xi = []
+                        for l in range(len(inp)-2):
+                                try:
+                                        xi.append(float(inp[l]))
+                                except IndexError: 
+                                        parser.error("Problem with column %d at raw %d." % (l+1,i+1))
+                        x.append(xi)
+                        try:
+                                y.append(float(inp[-2]))
+                        except IndexError:
+                                parser.error ("Problem with column %d at raw %d." % (len(inp)-1,i+1))
+                        try:
+                                ey.append(float(inp[-1]))
+                        except IndexError:
+                                parser.error ("Problem with column %d at raw %d." % (len(inp), i+1))
+        # Check in input data
+        if (len(x) <> len(y)) or (len(x) <> len(ey)):
+                parser.error ("At least one raw is lacking data.")
+        # Now the function to fit
+        try:
+                fp, pathname, description = imp.find_module(os.path.splitext(options.myf)[0],[os.curdir])
+                inp = imp.load_module(os.path.splitext(options.myf)[0],fp,pathname,description)
+        except ImportError:
+                parser.error ("Problem in importing %s." % options.myf)
+        # Chi square
+        def chi2 (pars):
+                chi2 = 0.0
+                for i in range(len(x)):
+                        chi2 = chi2 + math.pow((inp.myfun(pars,x[i])-y[i]),2)/math.pow(ey[i],2)
+                return chi2
+
+        # Optimization
+        x0 = []
+        gl = string.split(options.guess)
+        for i in range(len(gl)):
+                try:
+                        x0.append(float(gl[i]))
+                except ValueError:
+                        parser.error ("Problem in guess values.")
+
+        if options.verbose:
+                par = optimize.fmin (chi2, x0, maxiter=100000, maxfun=100000)
+        else:
+                par = optimize.fmin (chi2, x0, maxiter=100000, maxfun=100000, disp=0)
+
+        if options.verbose:
+                for i in range(len(par)):
+                        print "\tPar. %d: %g" % (i+1,par[i])
+                print "\tChi square: %.1f for %d d.o.f. (%.2f)" % (chi2(par),len(dt1)-len(par),chi2(par)/(len(dt1)-len(par)))
+                print "\tChi square probability: %g" % stats.chisqprob(chi2(par),len(dt1)-len(par))
+        else:
+                op = ''
+                for i in range(len(par)):
+                        op = op + "%g " % par[i]
+                op = op + "%.2f %d %g " % (chi2(par),len(dt1)-len(par),stats.chisqprob(chi2(par),len(dt1)-len(par)))
+                print op
+        #
+        if options.verbose:
+                print "Output function file %s creation." % (sname+options.outfun)
+	        o1 = SRPFiles.SRPFile(SRPConstants.SRPLocalDir,sname+options.outfun,SRPFiles.WriteMode)
+	        o1.SRPOpenFile()
+                # Best fit
+                for i in range(len(x)):
+                        for l in range(len(x[i])):
+                            ops = ''
+                            ops = ops + "%g %g" % (x[i][l], inp.myfun(par,x[i]))
+                            o1.SRPWriteFile(ops+os.linesep)
+	        o1.SRPCloseFile()
+
+
+        # Error search
+        if options.err and options.outf and options.ival:
+                # Check interval values
+                ivl = string.split(options.ival)
+                if len(ivl) <> 2*len(gl):
+                        parser.error ("Number of interval values not corrected.")
+                givl = []
+                for i in range(len(ivl)):
+                        try:
+                                givl.append(float(ivl[i]))
+                        except ValueError:
+                                parser.error ("Problem in interval values.")
+                # Check number of trials
+                if options.ntrial <= 0:
+                        parser.error ("Number of trials must be positive.")
+                # Check confidence limit
+                if not 0.0 < options.err < 100.0:
+                        parser.error ("Confidence limit not allowed.")
+                # Delta Chi square estimate
+                alf = 100.0 - options.err
+                maxchi = 0.0
+#                while not alf-0.1 <= 100.0*stats.chisqprob(maxchi,(len(dt1)-len(par))) <= alf+0.1:
+#                        if 100.0*stats.chisqprob(maxchi,(len(dt1)-len(par))) > alf:
+#                                maxchi = maxchi + 0.01
+#                        else:
+#                                maxchi = maxchi - 0.01
+#                                if maxchi <= 0.0:
+#                                        maxchi = 0.0
+                while not alf-0.1 <= 100.0*stats.chisqprob(maxchi,(len(par))) <= alf+0.1:
+                        if 100.0*stats.chisqprob(maxchi,(len(par))) > alf:
+                                maxchi = maxchi + 0.01
+                        else:
+                                maxchi = maxchi - 0.01
+                                if maxchi <= 0.0:
+                                        maxchi = 0.0
+                if options.verbose:
+                        print "Delta Chi square: %.1f" % maxchi
+                #
+                if options.verbose:
+                        print "Montecarlo error search..."
+                # Write output 
+	        if options.verbose:
+		      print "Output error file %s creation." % (sname+options.outf)
+	        o1 = SRPFiles.SRPFile(SRPConstants.SRPLocalDir,sname+options.outf,SRPFiles.WriteMode)
+	        o1.SRPOpenFile()
+                # Best fit               
+                ivl = string.split(options.ival)
+                gpar = []
+                gwpar = []
+                for i in range(len(par)):
+                        gpar.append(par[i])
+                        gwpar.append(givl[2*i])
+                        gwpar.append(givl[2*i+1])
+                ops = ''
+                for i in range(len(par)):
+                        ops = ops + "%g " % gpar[i]
+                ops = ops + "%g " % chi2(gpar)
+                ops = ops + os.linesep
+	        o1.SRPWriteFile(ops)
+	        o1.SRPCloseFile()
+                # Montecarlo search
+                # Full search
+                tdata = []
+                o1 = SRPFiles.SRPFile(SRPConstants.SRPLocalDir,sname+options.outf,SRPFiles.AppendMode)
+                o1.SRPOpenFile()
+                random.seed(1)
+                for i in range(options.ntrial):
+                        for l in range(len(par)):
+                                gpar[l] = random.uniform(gwpar[2*l],gwpar[2*l+1])
+                        if chi2(gpar) < chi2(par):
+                                print "New minimum!"
+                                opn = ''
+                                for i in range(len(par)):
+                                        opn = opn + "%g " % gpar[i]
+                                opn = opn + "%g " % chi2(par)
+                                print opn        
+                                sys.exit(0)
+                        ops = ''
+                        for l in range(len(par)):
+                                ops = ops + "%g " % gpar[l]
+                        ops = ops + "%g " % chi2(gpar)
+                        ops = ops + os.linesep
+    	                o1.SRPWriteFile(ops)
+                        tdata.append(gpar+[chi2(gpar)])
+                o1.SRPCloseFile()
+                #
+                o1 = SRPFiles.SRPFile(SRPConstants.SRPLocalDir,sname+options.outf,SRPFiles.ReadMode)
+                o1.SRPOpenFile()
+        	if o1.f == None:
+        		parser.error("Error in input file %s." % sname+options.outf)
+                # Read file
+        	try:
+        		ot1 = o1.SRPReadTotFile()
+        	except:
+        		parser.error("Error in reading from file %s." % sname+options.outf)
+        	f1.SRPCloseFile()
+                otl1 = []
+                for i in ot1:
+                        otl = []
+                        il = string.split(i)
+                        for l in il:
+                                otl.append(float(l))
+                        otl1.append(otl)
+
+#                if options.verbose:
+#                        print "Error estimate..."
+#                otl1c = copy.copy(otl1)
+#                for i in otl1c:
+#                        if float(i[-1]) > chi2(par)+maxchi:
+#                                otl1.remove(i)
+#                #
+#                pr = []
+#                for i in range(len(par)):
+#                        pr.append([])
+#                for i in otl1:
+#                        for l in range(len(par)):
+#                                pr[l].append(float(i[l]))
+#                #
+#                for i in range(len(par)):
+#                        maxi = max(pr[i])
+#                        mini = min(pr[i])
+#                        if options.verbose:
+#                                print "Par. %d range. Up: %g, Down: %g" % (i+1,maxi-par[i],par[i]-mini)
+#                        else:
+#                                print "%d %g %g" % (i+1,maxi-par[i],par[i]-mini)
+
+        if options.verbose:
+                print "End of job."
+else:
+	parser.print_help()
+

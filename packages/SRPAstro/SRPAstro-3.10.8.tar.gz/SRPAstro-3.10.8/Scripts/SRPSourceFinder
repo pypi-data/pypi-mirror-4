@@ -1,0 +1,113 @@
+""" Code to extract sources from a fits frame
+
+Context : SRP
+Module  : SRPSourceFinder
+Version : 1.2.2
+Author  : Stefano Covino
+Date    : 07/08/2011
+E-mail  : stefano.covino@brera.inaf.it
+URL:    : http://www.merate.mi.astro.it/utenti/covino
+Purpose :
+
+Usage   : SRPSourceFinder -e/-n -f arg1 [-h] [-m arg2] [-S] [-t arg3] [-v]
+            -e Eclipse algorithm (default)
+            -f FITS file
+            -m Minimum number of connected pixel (for native only)
+            -n Native algorithm
+            -S Skycat output
+            -t Threshold for pixel selection
+
+
+History : (25/06/2010) First version.
+        : (24/08/2010) Output list sorted and minimum number of connected pixel selectable.
+        : (04/09/2010) Minor correction.
+        : (27/09/2010) Eclipse sources added.
+        : (18/10/2010) Import correction.
+        : (07/08/2011) Better cosmetics.
+"""
+
+
+from SRP.SRPFits.FitsImageClass import FitsImage
+from SRP.SRPFits import FitsConstants
+from SRP.SRPFits.IsFits import IsFits
+from optparse import OptionParser
+import os
+
+
+parser = OptionParser(usage="usage: %prog -e/-n -f arg1 [-h] [-m arg2] [-S] [-t arg3] [-v]", version="%prog 1.2.0")
+parser.add_option("-e", "--eclipse", action="store_true", dest="eclipse", help="Eclipse algorithm (default)")
+parser.add_option("-f", "--fits", action="store", nargs=1, type="string", dest="fits", help="FITS file")
+parser.add_option("-m", "--minpix", action="store", dest="minpix", type="int", help="Minimum number of connected pixel (for native only)")
+parser.add_option("-n", "--native", action="store_true", dest="native", help="Native algorithm")
+parser.add_option("-S", "--skycat", action="store_true", dest="skycat", help="Skycat output")
+parser.add_option("-t", "--threshold", action="store", type="float", dest="thre", help="Threshold for pixel selection")
+parser.add_option("-v", "--verbose", action="store_true", dest="verbose", help="Fully describe operations")
+(options, args) = parser.parse_args()
+
+
+
+if options.fits:
+    if not IsFits(options.fits):
+        parser.error("Fits file %s not found." % options.fits)
+    # No more than one algorithm
+    if options.native and options.eclipse:
+        parser.error("You can select one only algorithm.")
+    # If non chosen eclipse is the default
+    elif not (options.native or options.eclipse):
+        options.eclipse = True
+    # Threshold meaning depend on the algorithm
+    if not options.thre:
+        if options.native:
+            options.thre = 5.0
+        elif options.eclipse:
+            options.thre = 2.0
+    # Safety check on threshold
+    if options.thre < 0.0:
+        parser.error("Threshold must be positive.")
+    if options.verbose:
+        print "Threshold: %.2f" % options.thre
+    # Minpix meaningful only for native mode
+    if (not options.native) and options.minpix != None:
+        parser.error("--minpix parameter meaningful only for native algorithm.")
+    # Deafult for minpix if meaningful
+    if options.native and not options.minpix:
+        options.minpix = 3
+    # Safey check on minpix
+    if options.native and options.minpix < 1:
+        parser.error("Minimum number of pixel must be greater than 1.")
+    if options.native and options.verbose:
+        print "Minimum number of pixel: %d" % options.minpix
+    # Open file
+    if options.verbose:
+        print "Opening FITS file %s" % options.fits
+    d = FitsImage(options.fits)
+    if d == None:
+        parser.error("Problem in reading FITS file %s" % options.fits)
+
+    # Sources
+    if options.verbose:
+        print "Source extraction..."
+    if options.eclipse:
+        d.EclipseSources(options.thre)
+    elif options.native:
+        d.Sources(options.thre,options.minpix)
+    if options.verbose:
+            print "Source list sorting..."
+    d.SortSourceList()
+
+    # Save results
+    froot,fext = os.path.splitext(options.fits)
+    if options.skycat:
+        fname = froot+FitsConstants.SkyData
+    else:
+        fname = froot+FitsConstants.RegData
+    if options.verbose:
+        print "Output %s creation." % fname
+    f = file(fname,'w')
+    if options.skycat:
+        f.write(d.Skycat())
+    else:
+        f.write(str(d))
+    f.close()
+else:
+    parser.print_help()
