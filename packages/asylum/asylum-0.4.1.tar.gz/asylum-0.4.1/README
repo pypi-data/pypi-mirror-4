@@ -1,0 +1,202 @@
+Asylum 
+======= 
+
+Intro 
+------ 
+A lib to use the unshare/clone syscalls from linux directly. also 
+provides support for seccomp for applications that have been 
+specifically written to use it
+
+Quick start Guide
+------------------
+# Clone the repository
+$ hg clone http://code.pocketnix.org/asylum
+$ cd asylum
+
+# Built a temporary/Zero install enviroment
+$ virtualenv env
+$ . env/bin/activate
+$ python ./setup.py install
+
+# Launch the program
+$ sudo asylum start -HPMIN --hostname example.com #NOTE: needs root priviliges to run
+$ hostname
+
+hostname should now spit out 'example.org' in the asylum jail and remain 
+unchanged in another terminal. to confirm that asylum has fully isolated 
+the enviroment, try setting the hostname in the asylum jail and confirm
+that the hostname for your system has not changed
+
+Uses
+-----
+* Executing unsafe code
+* More advanced chrooting
+* OS virtualisation/bootstrapping
+* Network Simulation
+* Experimenting with different setups
+* Preinstallation steps for new machines
+* Vhosting
+* Performing MITM on locally running applications
+
+Goals
+------
+To provide several security and virtualisation primitives that can
+easily be integrated into python programs. 
+
+#. Provide Strong simple primitives to existing python programs
+   Where possible make these drop in replacements (eg PEP-3143)
+#. Provide a virtualenv like tool for creating and running virtual
+   environments
+#. Provide wrappers for low level syscalls
+
+Features
+---------
+* Direct setting of hostname
+* Direct mounting of filesystems without calling /sbin/mount
+* Setting and dropping of capabilities
+* Syscall wrapper generation for the brave
+* pivot_root support for full isolation
+* prctl syscall
+* clone/unshare syscall support
+
+Coming Soon
+------------
+Features that are planned but have not yet come to fruition
+* PEP-3143 daemon process support (http://www.python.org/dev/peps/pep-3143/)
+  increases the security of the chroot option
+* Recording of namespace state/status for querying (start/stop)
+* Optional management daemon
+* Optional web interface for management daemon
+* Basic image setup hooks
+* Command orientated cmdline args (similar to virtualenv)
+* Plugin support
+* Config file support
+* Reconnect to running namespace (setns)
+
+Requirements
+-------------
+* A recent linux kernel with cgroups and namespace support
+  (Tested on a 2.6.37 hand compiled kernel)
+* an x86 processor (32bit or 64bit), support for other archs is 
+  available on request. this syscall constants just need to be
+  updated
+
+* python >= 3.0
+* argparse module
+
+OR
+
+* python >= 3.2
+
+OR
+
+* python >= 2.7 
+
+OR
+
+* pypy >= 1.5
+
+
+Compiling a namespace capable Kernel
+-------------------------------------
+If your linux kernel does not have the required features then you may
+be able to compile your own kernel by downloading the source packages
+for your distribution and compiling a kernel yourself.
+
+if you are using a graphical tool (eg as launched by typing "make nconfig")
+then you will need to ensure the following options are enabled
+
+Namespaces
++++++++++++
+General Setup
+--> Namespaces Support
+    --> UTS Namespace
+    --> IPC Namespace
+    --> User Namespace
+    --> PID Namespace
+    --> Network Namespace
+
+Cgroups
+++++++++
+General Setup
+--> Control Group Support
+    --> Enable options as required
+
+if invoking "make config" to set the required options or editing an existing
+kernel config (eg one taken from /proc/config or /proc/config.gz) then the 
+config options you need to change can be obtained by running "asylum -d" to 
+perform auto detection of the settings and listing their name and current
+state
+
+you may wish to enable basic routing support (normmaly enabled by default)
+as well as etun and macvlan support. seccomp support
+
+Networking
++++++++++++
+Device Drivers
+--> Network device support
+    --> MAC-VLAN support
+    -->Virtual ethernet pair device
+
+Seccomp
+++++++++
+Processor type and features
+--> Enable seccomp to safely compute untrusted bytecode
+
+Notes
+------
+The kernel documentation/manpages do not always line up with exactly what linux
+does, some syscalls raise EPERM incorectly (eg pivot_root and EBUSY), where 
+posible i have tried to put all edge cases in the exception message or as 
+notes in the src however if you find new ones let me know asap at
+code@pocketnix.org
+
+Examples
+---------
+The following example shows how to create a namespace with its own 
+separate network and idea of the machines hostname and domain, you 
+can make changes to the hostname and interfaces without affecting 
+your main workspace. as these are lightweight you can easily create 
+100's of namespaces to perform things like creating virtual networks. 
+for creating network 'pipes' between namespaces take a look at vtun 
+or refer to the documents on http://www.pocketnix.org (coming soon). 
+to share the main Ethernet interface between multiple namespaces it 
+is recommended to use macvlan if you wish to use features such as 
+tcpdump or dhcp in the guest namespace, otherwise routing may suffice
+
+$ sudo ipython
+>>> import asylum
+# Here we enable IPC, UTS (kernel domain name) and NET namespaces
+>>> asylum.isolate(None, False, False, True, False, True, True)
+>>> !ip ad sh
+13: lo: <LOOPBACK> mtu 16436 qdisc noop state DOWN
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+14: sit0: <NOARP> mtu 1480 qdisc noop state DOWN
+    link/sit 0.0.0.0 brd 0.0.0.0
+
+>>> !hostname thisisatest
+>>> !domainname example.com
+
+# now go to a seperate terminal and enter the following
+$ hostname; domainname
+
+# Now go back to ipython and enter the following
+>>> import socket
+>>> socket.gethostname()
+'thisisatest'
+
+Getting Support
+----------------
+I am more than willing to help people get the code up and running or get
+up to speed on developing with the code, drop me a line #insane-asylum on 
+irc.freenode.net, xmpp://code@conference.pockentix.org or email
+code@pocketnix.org
+
+if you have bug reports send them in, i am happy to fix them. same goes
+for feature requests and comments on my code quality. 
+
+if you are using this in production let me know :D
+
+Links
+------
+* Documents on LXC and networking with unshare: http://www.pocketnix.org
