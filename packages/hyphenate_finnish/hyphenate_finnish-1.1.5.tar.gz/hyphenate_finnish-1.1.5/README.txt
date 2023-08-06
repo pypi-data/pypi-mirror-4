@@ -1,0 +1,32 @@
+=================
+hyphenate_finnish
+=================
+
+A simple but working Finnish language hyphenator.
+
+By Pyry Kontio a.k.a Drasa (Drasa@IRCnet, pyry.kontio@drasa.eu)
+
+Hyphenates Finnish text with Unicode soft hyphens. (U+00AD) Mainly intended for server-
+side-hyphenation of web sites.
+	
+Allows to set hyphenation-preventing character margins for words so that they won't
+break right at the start or the end. (For example, it'd be a bit silly - although certainly
+possible in Finnish language - to break a word like 'erikoinen' at 'e-rikoinen'.
+With default margin of 2, it breaks more stylistically pleasingly, 'eri-koinen'.)
+
+Hyphenated html tags break web sites, so there's the boolean argument skip_html.
+That enabled, it skips over all the words that are contained between "<" and ">" characters.
+	
+Usage:
+as a standalone script:
+
+hyphenate_finnish.py [margin] [text]
+
+or as a Python module:
+
+from hyphenate_finnish import hyphenate; hyphenate("some text but <html> isn't gonna get hyphenated!", margin=1, skip_html=True)
+
+It's that simple.
+By the way, written in Py3k, but it seems to work with 2.7 too.
+
+Licensed with LGPL.
