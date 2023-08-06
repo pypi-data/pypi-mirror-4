@@ -1,0 +1,206 @@
+#!/usr/bin/env python
+# Simple Cloud Files Uploader
+# Uploads a file or files to Rackspace Cloud Files
+# Author: David Wittman <david@wittman.com>
+
+import argparse
+import os
+import sys
+from contextlib import contextmanager
+from ssl import SSLError
+
+import cloudfiles
+
+DEFAULT_ENDPOINT = 'https://identity.api.rackspacecloud.com/v1.0'
+
+def main():
+    "Main execution thread"
+    
+    args = get_args()
+
+    # if sys.stdin.isatty = false, there is content in stdin
+    if len(args.files) is 0 and not sys.stdin.isatty():
+        if not args.destination:
+            die("Destination filename must be provided with -o")
+        files = [sys.stdin]
+    elif len(args.files) > 0:
+        if len(args.files) > 1 and args.destination:
+            die("Destination filename can only be provided for individual "
+                + "uploads")
+        files = args.files
+    else:
+        die(usage)
+
+    if not args.apikey or not args.user or not args.container:
+        die("Missing Cloud Files account information. Seek help.")
+
+    # Begin upload
+    with get_cloudfiles_container(args) as container:
+        # Disable CDN URL printing if the container is not public
+        if args.cdn_true and not container.is_public():
+            warn('This container is not public. Disabling CDN URL output.')
+            args.cdn_true = False
+
+        for _file in files:
+            upload_to_cloudfiles(container, _file, args)
+
+def usage():
+    sys.stderr.write("usage: %s [options] <filename>\n" % sys.argv[0])
+
+def get_env(value, default=''):
+    "Gets an environment variable"
+    return os.environ.get(value, default)
+
+def warn(warning):
+    sys.stderr.write("[WARN] %s\n" % warning)
+
+def die(error, code=1):
+    try:
+        error()
+    except TypeError:
+        sys.stderr.write("[ERROR] %s\n" % error)
+    sys.exit(code)
+
+def get_args():
+    desc = "Upload files to Rackspace Cloud Files or Openstack Swift."
+
+    parser = argparse.ArgumentParser(description=desc)
+
+    conngroup = parser.add_argument_group("Cloud Files Connection Information")
+    
+    conngroup.add_argument(
+        "-k", "--apikey", 
+        dest = "apikey", 
+        metavar = "<api key>", 
+        help = "API key. Defaults to env[CLOUD_FILES_APIKEY]",
+        default = get_env('CLOUD_FILES_APIKEY') )
+
+    conngroup.add_argument(
+        "-u", "--user", 
+        dest = "user", 
+        metavar = "<username>", 
+        help = "Username. Defaults to env[CLOUD_FILES_USERNAME]",
+        default = get_env('CLOUD_FILES_USERNAME') )
+        
+    conngroup.add_argument(
+        "-a", "--auth", 
+        dest = "auth_url", 
+        metavar = "<auth_url>", 
+        help = "Authentication endpoint. Defaults to env[CLOUD_FILES_AUTH_URL]",
+        default = get_env('CLOUD_FILES_AUTH_URL',
+                          DEFAULT_ENDPOINT) )
+
+    conngroup.add_argument(
+        "-s", "--snet",
+        action = "store_true",
+        dest = "servicenet",
+        help = "Use ServiceNet for connections",
+        default = False )
+
+    outputgroup = parser.add_argument_group("Output options")
+    
+    outputgroup.add_argument(
+        "-o", "--file", 
+        dest = "destination", 
+        metavar = "<filename>", 
+        help = "Destination filename in Cloud Files or Openstack Swift")
+
+    outputgroup.add_argument(
+        "-q", 
+        action = "store_true", 
+        dest = "quiet", 
+        help = "Silence output", 
+        default = False)
+        
+    outputgroup.add_argument(
+        "-c", "--cdn",
+        action = "store_true", 
+        dest = "cdn_true", 
+        help = "Print CDN URL to stdout", 
+        default = False)        
+
+    parser.add_argument(
+        "container",
+        help = "Container name in Cloud Files or Openstack Swift")
+
+    parser.add_argument(
+        "files",
+        help = "The file(s) to upload",
+        # Accept all of the remaining arguments as filenames
+        nargs = '*')
+
+    return parser.parse_args()
+
+@contextmanager
+def get_cloudfiles_container(args):
+    while True:
+        try:
+            connection = cloudfiles.get_connection(args.user, args.apikey,
+                                                   servicenet = args.servicenet,
+                                                   authurl = args.auth_url,
+                                                   timeout = 15)
+            yield connection.get_container(args.container)
+        except cloudfiles.errors.NoSuchContainer:
+            warn("Container %s does not exist. Creating it now."
+                 % args.container)
+            container = connection.create_container(args.container)
+            if args.cdn_true:
+                container.make_public()
+            continue
+        except cloudfiles.errors.AuthenticationFailed:
+            die("Authentication failed to %s" % args.auth_url)
+        except Exception as e:
+            die("Unknown error establishing connection to %s" % args.auth_url)
+        else:
+            del connection
+
+        break
+
+def retry_on(exception):
+    def decorator(fn):
+        def wrapper(*args, **kwargs):
+            while True:
+                try:
+                    fn(*args, **kwargs)
+                except exception:
+                    continue
+                break
+        return wrapper
+    return decorator
+
+@retry_on(SSLError)
+def upload_to_cloudfiles(container, filename, args):
+    """
+    Upload an object to Cloud Files or Openstack Swift.
+    
+    Args:
+        container: A cloudfiles container object
+        filename: A stream or path to the object to upload.
+        args: Arguments Namespace returned by ArgumentParser
+
+    """
+    
+    destination = args.destination and args.destination \
+                                   or  os.path.basename(filename)
+    cloudpath = container.create_object(destination)
+    success = True
+
+    # If it's iterable, use CF_storage_object's send method
+    if hasattr(filename, "read"):
+        cloudpath.send(filename)
+    # Upload file to Cloud Files using load_from_filename()
+    elif (os.path.exists(filename)):
+        cloudpath.load_from_filename(filename)
+    else:
+        warn("File %s not found" % filename)
+        success = False
+
+    if success and not args.quiet:
+        print("File %s uploaded successfully." % destination)
+        if args.cdn_true:
+            print("CDN URL: %s/%s" % (container.public_uri(), destination))
+
+if __name__ == '__main__':
+    main()
+
+# vim: set expandtab ts=4 sw=4 sts=4:
