@@ -1,0 +1,95 @@
+#!/usr/bin/env python
+"""
+Console-based access to the Gatherer Magic Card Database.
+
+Usage: %prog [options] [cardname]
+"""
+
+import sys
+import argparse
+
+from mtglib import __version__
+from mtglib.gatherer_request import SearchRequest
+from mtglib.card_extractor import CardExtractor
+from mtglib.card_renderer import CardRenderer
+from mtglib.constants import card_flags, separator, readme, random_url
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Search for magic cards')
+    search = parser.add_argument_group('search', 'Card search options')
+    display = parser.add_argument_group('display', 'Display options')
+
+    search.add_argument("-t", "--text",
+                      help="containing rules text TEXT", metavar="TEXT")
+    search.add_argument('--color', help='cards matching COLOR (w, u, b, r, g, c)')
+    search.add_argument('--type', help='cards matching TYPE or SUBTYPE (e.g. artifact, creature, legendary, snow, goblin, forest, plane)')
+    search.add_argument('--power',
+                        help='cards with power POWER (uses <, >, =)')
+    search.add_argument('--tough',
+                        help='cards with toughness TOUGHNESS (uses <, >, =)')
+    search.add_argument('--block',
+                        help='cards from block BLOCK')
+    search.add_argument('--set',
+                        help='cards matching expansion set SET (e.g. unlimited)')
+    search.add_argument('--rarity',
+                        help='cards matching rarity RARITY (c, u, r, m)')
+    search.add_argument('--cmc', help='cards with converted mana '
+                        'cost CMC (uses <, >, =)')
+    display.add_argument('-r', '--reminder', action='store_true',
+                         help='show reminder text')
+    display.add_argument('--hidesets', action='store_true',
+                        help='hide which sets the card was in')
+    display.add_argument('--rulings', action='store_true',
+                        help='show rulings for the card')
+    search.add_argument('--special', action='store_true',
+                        help='include special cards (e.g. planes, schemes)')
+    display.add_argument('--flavor', action='store_true',
+                        help='show flavor text')
+    search.add_argument('-x', '--exclude-other-colors', action='store_true',
+                        help='exclude colors not explicity specified')
+    search.add_argument('name', nargs='*', help='name of card (optional)')
+    parser.add_argument('--version', action='version', version=__version__)
+    parser.add_argument('--random', action='store_true', help='display a random card')
+
+    args = parser.parse_args()
+    if args.name: args.name =  ','.join(args.name)
+    if not (args.text or args.color or args.type or args.power or args.tough
+            or args.block or args.set or args.rarity or args.cmc or args.name
+            or args.random):
+        parser.error('Require at least one search option or card name.  '
+                     'Type "mtg --help" for more information.')
+
+    if args.random:
+        url = random_url
+    else:
+        request = SearchRequest(vars(args), special=args.special,
+                                exclude_other_colors=args.exclude_other_colors)
+        url = request.url
+
+    try:
+        cards = CardExtractor(url).cards
+    except KeyboardInterrupt:
+        return 0
+    except SyntaxError as e:
+        print('Could not parse options: {0}'.format(e.msg))
+        return 0
+
+    if not cards:
+        return 0
+    for card in cards:
+        print(separator)
+        renderer = CardRenderer(card, rulings=args.rulings, reminders=args.reminder,
+                                flavor=args.flavor, printings=not args.hidesets)
+        for line in renderer.render(): print(line)
+    num_results = len(cards)
+    if num_results < 25:
+        print('\n{0} result{1} found.'.format(num_results,
+                                              num_results != 1 and 's' or ''))
+    else:
+        print('\n{0}+ results found.  First 25 displayed, narrow search for '
+              'more.'.format(num_results))
+    return 0
+
+if __name__ == '__main__':
+    sys.exit(main())
