@@ -1,0 +1,152 @@
+Kit
+===
+
+A configurable, lightweight framework that integrates Flask_, SQLAlchemy_, and
+Celery_.
+
+Why use Kit?
+  
+  - 3 great tools, 1 YAML_ configuration file. Versioning and keeping track of
+    your different configuration options becomes almost fun.
+
+  - With the ``kit`` command line tool, switching configurations is as simple
+    as changing a flag: ``kit server -c dev.yaml`` vs.  ``kit server -c
+    prod.yaml``.
+
+  - Kit sets up the Flask, Celery and SQLAlchemy applications smartly, only
+    creating those you need. It also makes sure database connections are
+    correctly handled under the hood.
+
+Kit is under development. You can find the latest version on GitHub_.
+
+
+Installation
+------------
+
+.. code:: bash
+
+   $ pip install kit
+
+
+Quickstart
+----------
+
+Here is a minimalistic kit configuration file:
+
+.. code:: yaml
+
+   database_url: sqlite:///db.sqlite
+   flask:
+     debug: yes
+     testing: yes
+   engine:
+     echo: yes
+
+
+The ``flask`` and ``engine`` options are used to configure the Flask
+application and SQLAlchemy engine respectively (cf. Configuration_ for a full
+list of available options). The following code gives a sneak peak into how
+simple it then is to use these:
+
+.. code:: python
+
+   from kit import Kit
+
+   kit = Kit('/path/to/conf.yaml')
+
+   flask_app = kit.flask    # Flask app
+   celery_app = kit.celery  # Celery app
+   session = kit.session    # SQLAlchemy scoped session maker
+
+   # in this snippet we will only use flask_app
+
+   @flask_app.route('/')
+   def index():
+     return 'Hello World!'
+
+   if __name__ == '__main__':
+     flask_app.run()
+
+
+For a more detailed example, take a look at the simple page view tracker
+in `examples/view_tracker`_.
+
+
+Configuration
+-------------
+
+The following options are special in a kit configuration file:
+
+* ``database_url``: url to the database used.
+* ``flask``: any valid flask configuration option.
+* ``celery``: any valid celery configuration option.
+* ``engine``: any valid engine configuration option.
+* ``session``: any valid session maker configuration option.
+* ``commit_on_teardown``: if ``True``, the session will be committed after
+  each request or task executed in a worker, otherwise the session is simply
+  removed (default behavior).
+* ``modules``: the list of modules that belong to this kit. This is used by
+  the command line tool to know which modules to import.
+* ``root_folder``: the kit's root folder, the modules defines in ``modules``
+  should be importable from this folder (defaults to the configuration file's
+  directory).
+* ``flask_app_folder``: the root folder of the Flask application, relative to
+  ``root_folder`` (defaults to the same directory).
+* ``flask_static_folder``: the Flask application's static folder, relative to
+  ``flask_app_folder`` (defaults to ``static/``).
+* ``flask_template_folder``: the Flask application's template folder, relative
+  ``flask_app_folder`` (defaults to ``templates/``).
+
+You can of course include other options in this file, these will be
+available on the ``conf`` kit attribute.
+
+
+Command line tool
+-----------------
+
+Kit includes a command line tool from where you can:
+
+- Launch the Flask built in Werkzeug_ server: ``kit server -p 5050 -d`` will
+  start a server on port 5050 in debug mode.
+- Start Celery workers: ``kit worker`` will start a worker listening for tasks
+  sent from your application.
+- Run the Flower_ monitoring tool: ``kit flower -p 8000``
+- Run a shell in your project's context: ``kit shell``
+
+Help is available for each command by typing ``kit <command> -h``.
+
+
+Extensions
+----------
+
+Kit also comes with extensions for commonly needed functionalities:
+
+- Expanded SQLAlchemy models and queries
+- ReSTful API
+
+
+.. _Bootstrap: http://twitter.github.com/bootstrap/index.html
+.. _Flask: http://flask.pocoo.org/docs/api/
+.. _Flask-Script: http://flask-script.readthedocs.org/en/latest/
+.. _Flask-Login: http://packages.python.org/Flask-Login/
+.. _Flask-Restless: https://flask-restless.readthedocs.org/en/latest/
+.. _Jinja: http://jinja.pocoo.org/docs/
+.. _Celery: http://docs.celeryproject.org/en/latest/index.html
+.. _Flower: https://github.com/mher/flower
+.. _Datatables: http://datatables.net/examples/
+.. _SQLAlchemy: http://docs.sqlalchemy.org/en/rel_0_7/orm/tutorial.html
+.. _MySQL: http://dev.mysql.com/doc/
+.. _Google OAuth 2: https://developers.google.com/accounts/docs/OAuth2
+.. _Google API console: https://code.google.com/apis/console
+.. _jQuery: http://jquery.com/
+.. _jQuery UI: http://jqueryui.com/
+.. _Backbone-Relational: https://github.com/PaulUithol/Backbone-relational
+.. _FlaskRESTful: http://flask-restful.readthedocs.org/en/latest/index.html
+.. _GitHub pages: http://mtth.github.com/kit
+.. _GitHub: http://github.com/mtth/kit
+.. _IPython: http://ipython.org/
+.. _Werkzeug: http://werkzeug.pocoo.org/
+.. _Requests: http://docs.python-requests.org/en/latest/
+.. _examples/view_tracker: https://github.com/mtth/kit/tree/master/examples/view_tracker
+.. _YAML: http://www.yaml.org/
+
