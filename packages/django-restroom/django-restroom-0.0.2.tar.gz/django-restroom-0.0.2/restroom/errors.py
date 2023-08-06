@@ -1,0 +1,2 @@
+class RestroomValidationError(Exception):
+    pass
