@@ -1,0 +1,133 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+'Retrieve and pretty-print data from mongodb'
+
+import json
+import pymongo
+import argparse
+
+from ppmongo import actions, PPMongoError
+
+
+def get_db(connection, args):
+    """Return a database specified by args.db.
+    If no db is specified and there is only a single one, return that.
+    """
+
+    dbname = args.db
+    if dbname is None:
+        dbnames = connection.database_names()
+        if len(dbnames) == 0:
+            raise PPMongoError('MongoDB instance at {0.host}:{0.port}'
+                              ' has no databases.\n'.format(connection))
+        elif len(dbnames) == 1:
+            dbname = dbnames[0]
+        else:
+            raise PPMongoError('Please supply a database name'
+                               ' (ppmongo -D DBNAME). '
+                               'Available databases: {}.\n'
+                               .format(', '.join(dbnames)))
+
+    return connection[dbname]
+
+
+def get_collection(database, args):
+    """Return a collection from the database specified by args.collection.
+    If no collection is specified and there is a single one, return that.
+    """
+
+    cname = args.collection
+    if cname is None:
+        collections = database.collection_names()
+        cnames = [c for c in collections if not c.startswith('system.')]
+        if len(cnames) == 0:
+            raise PPMongoError('Database {} has no collections.\n'
+                               .format(database.name))
+        elif len(cnames) == 1:
+            cname = cnames[0]
+        elif len(cnames) < 100:
+            raise PPMongoError('Please supply a collection name'
+                               ' (ppmongo -C COLLECTION). '
+                               'Available collections: {}.\n'
+                               .format(', '.join(collections)))
+        else:
+            raise PPMongoError('Please supply a collection name'
+                               ' (ppmongo -C COLLECTION).\n')
+
+    return database[cname]
+
+
+def main():
+    "ppmongo main entry point"
+
+    parser = argparse.ArgumentParser(description=__doc__)
+
+    parser.add_argument('-H', '--host', dest='host', default=None,
+                        help='MongoDB host name')
+    parser.add_argument('-P', '--port', dest='port', default=None,
+                        help='MongoDB port')
+    parser.add_argument('-D', '--database', dest='db', default=None,
+                        help='database name')
+    parser.add_argument('-C', '--collection', dest='collection', default=None,
+                        help='MongoDB collection name')
+
+    parser.add_argument('-f', '--field', dest='fields', action='store',
+                        metavar='FIELDNAME', nargs='+', default=[],
+                        help='A list of fields that should be returned. ')
+
+    parser.add_argument('-j', '--json', dest='json',
+                        help='A SON object that results must match')
+
+    parser.add_argument('queries', nargs='*',
+                        metavar='FIELD=VALUE',
+                        help='A quick way to search by specific fields')
+
+    parser.add_argument('--count', dest='action',
+                        action='store_const', const=actions.count,
+                        default=actions.pprint,
+                        help='Count objects instead of displaying')
+
+    parser.add_argument('--analyze', dest='action',
+                        action='store_const', const=actions.analyze,
+                        default=actions.pprint,
+                        help='Analyze documents structure')
+
+    parser.add_argument('--flat', dest='action',
+                        action='store_const', const=actions.flat,
+                        default=actions.pprint,
+                        help='Output flat tab-separated of field values '
+                             'instead of pretty-printing objects. '
+                             'Requires a list of fields set with -f options.')
+
+    args = parser.parse_args()
+
+    connection = pymongo.Connection(host=args.host, port=args.port)
+    try:
+        database = get_db(connection, args)
+        collection = get_collection(database, args)
+
+        queryspec = {}
+
+        if args.fields:
+            fields = {k: 1 for k in args.fields}
+            fields['_id'] = 0
+        else:
+            fields = None
+
+        if args.json:
+            queryspec.update(json.loads(args.json))
+
+        for query in args.queries:
+            field, value = query.split('=')
+            if value == 'None':
+                value = None
+            queryspec[field] = value
+
+        cur = collection.find(queryspec, fields)
+        args.action(cur, args)
+
+    except PPMongoError as error:
+        parser.exit(1, str(error))
+
+if __name__ == '__main__':
+    main()
