@@ -1,0 +1,4 @@
+"""cubicweb-embed application package
+
+
+"""
