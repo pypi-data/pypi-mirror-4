@@ -1,0 +1,10 @@
+__version__ = "0.2.2"
+__git_commiter_name__ = "root"
+__git_commiter_email__ = "root@guyr-ubuntu.infinidat.com"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '4eeee80c20571247180c12a474792fad7c52f181'
+__git_head_subject__ = 'Finished release v0.2.2.'
+__git_head_message__ = '* release/v0.2.2:\n  TRIVIAL updated README.md\n  empty commit after version v0.2.1'
+__git_dirty_diff__ = ''
