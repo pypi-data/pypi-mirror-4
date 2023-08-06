@@ -1,0 +1,5 @@
+version = '0.5'
+author = 'Ole Streicher'
+email = 'python-cpl@liska.ath.cx'
+license_ = 'GPL'
+doc = 'Python interface for the Common Pipeline Library.\nThis module can list, configure and execute CPL-based recipes from Python.\nThe input, calibration and output data can be specified as FITS files\nor as pyfits objects in memory.\n\nThe Common Pipeline Library (CPL) comprises a set of ISO-C libraries that\nprovide a comprehensive, efficient and robust software toolkit. It forms a\nbasis for the creation of automated astronomical data-reduction tasks. One of\nthe features provided by the CPL is the ability to create data-reduction\nalgorithms that run as plugins (dynamic libraries). These are called "recipes"\nand are one of the main aspects of the CPL data-reduction development\nenvironment. More information about the CPL can be found here:\n\n  http://www.eso.org/sci/software/cpl/\n\nThe interface may be used to run ESO pipeline recipes linked to CPL \nversions 4.0 to 6.3.\n\n'
