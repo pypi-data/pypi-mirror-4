@@ -1,0 +1,10 @@
+__version__ = "0.3.17"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = 'aa4ce51464d1f85a9f30195c6f870008e5fb2d23'
+__git_head_subject__ = 'buildout.cfg: adding zc.buildout to requirements'
+__git_head_message__ = ''
+__git_dirty_diff__ = ''
