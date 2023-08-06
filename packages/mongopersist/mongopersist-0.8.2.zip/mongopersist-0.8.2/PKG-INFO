@@ -1,0 +1,957 @@
+Metadata-Version: 1.1
+Name: mongopersist
+Version: 0.8.2
+Summary: Mongo Persistence Backend
+Home-page: https://github.com/zopefoundation/mongopersist
+Author: Stephan Richter
+Author-email: stephan.richter@gmail.com
+License: ZPL 2.1
+Description: ======================
+        Mongo Data Persistence
+        ======================
+        
+        This document outlines the general capabilities of the ``mongopersist``
+        package. ``mongopersist`` is a Mongo storage implementation for persistent
+        Python objects. It is *not* a storage for the ZODB.
+        
+        The goal of ``mongopersist`` is to provide a data manager that serializes
+        objects to Mongo at transaction boundaries. The mongo data manager is a
+        persistent data manager, which handles events at transaction boundaries (see
+        ``transaction.interfaces.IDataManager``) as well as events from the
+        persistency framework (see ``persistent.interfaces.IPersistentDataManager``).
+        
+        An instance of a data manager is supposed to have the same life time as the
+        transaction, meaning that it is assumed that you create a new data manager
+        when creating a new transaction:
+        
+          >>> import transaction
+        
+        Note: The ``conn`` object is a ``pymongo.connection.Connection`` instance. In
+        this case our tests use the ``mongopersist_test`` database.
+        
+        Let's now define a simple persistent object:
+        
+          >>> import datetime
+          >>> import persistent
+        
+          >>> class Person(persistent.Persistent):
+          ...
+          ...     def __init__(self, name, phone=None, address=None, friends=None,
+          ...                  visited=(), birthday=None):
+          ...         self.name = name
+          ...         self.address = address
+          ...         self.friends = friends or {}
+          ...         self.visited = visited
+          ...         self.phone = phone
+          ...         self.birthday = birthday
+          ...         self.today = datetime.datetime.now()
+          ...
+          ...     def __str__(self):
+          ...         return self.name
+          ...
+          ...     def __repr__(self):
+          ...         return '<%s %s>' %(self.__class__.__name__, self)
+        
+        We will fill out the other objects later. But for now, let's create a new
+        person and store it in Mongo:
+        
+          >>> stephan = Person(u'Stephan')
+          >>> stephan
+          <Person Stephan>
+        
+        The datamanager provides a ``root`` attribute in which the object tree roots
+        can be stored. It is special in the sense that it immediately writes the data
+        to the DB:
+        
+          >>> dm.root['stephan'] = stephan
+          >>> dm.root['stephan']
+          <Person Stephan>
+        
+        Custom Persistence Collections
+        ------------------------------
+        
+        By default, persistent objects are stored in a collection having the Python
+        path of the class:
+        
+          >>> from mongopersist import serialize
+          >>> person_cn = serialize.get_dotted_name(Person)
+          >>> person_cn
+          '__main__.Person'
+        
+          >>> import pprint
+          >>> pprint.pprint(list(conn[DBNAME][person_cn].find()))
+          [{u'_id': ObjectId('4e7ddf12e138237403000000'),
+            u'address': None,
+            u'birthday': None,
+            u'friends': {},
+            u'name': u'Stephan',
+            u'phone': None,
+            u'today': datetime.datetime(2011, 10, 1, 9, 45),
+            u'visited': []}]
+        
+        As you can see, the stored document for the person looks very Mongo. But oh
+        no, I forgot to specify the full name for Stephan. Let's do that:
+        
+          >>> dm.root['stephan'].name = u'Stephan Richter'
+        
+        This time, the data is not automatically saved:
+        
+          >>> conn[DBNAME][person_cn].find_one()['name']
+          u'Stephan'
+        
+        So we have to commit the transaction first:
+        
+          >>> transaction.commit()
+          >>> conn[DBNAME][person_cn].find_one()['name']
+          u'Stephan Richter'
+        
+        Let's now add an address for Stephan. Addresses are also persistent objects:
+        
+          >>> class Address(persistent.Persistent):
+          ...     _p_mongo_collection = 'address'
+          ...
+          ...     def __init__(self, city, zip):
+          ...         self.city = city
+          ...         self.zip = zip
+          ...
+          ...     def __str__(self):
+          ...         return '%s (%s)' %(self.city, self.zip)
+          ...
+          ...     def __repr__(self):
+          ...         return '<%s %s>' %(self.__class__.__name__, self)
+        
+        MongoPersist supports a special attribute called ``_p_mongo_collection``,
+        which allows you to specify a custom collection to use.
+        
+          >>> stephan = dm.root['stephan']
+          >>> stephan.address = Address('Maynard', '01754')
+          >>> stephan.address
+          <Address Maynard (01754)>
+        
+        Note that the address is not immediately saved in the database:
+        
+          >>> list(conn[DBNAME]['address'].find())
+          []
+        
+        But once we commit the transaction, everything is available:
+        
+          >>> transaction.commit()
+          >>> pprint.pprint(list(conn[DBNAME]['address'].find()))
+          [{u'_id': ObjectId('4e7de388e1382377f4000003'),
+            u'city': u'Maynard',
+            u'zip': u'01754'}]
+        
+          >>> pprint.pprint(list(conn[DBNAME][person_cn].find()))
+          [{u'_id': ObjectId('4e7ddf12e138237403000000'),
+            u'address': DBRef(u'address',
+                              ObjectId('4e7ddf12e138237403000000'),
+                              u'mongopersist_test'),
+            u'birthday': None,
+            u'friends': {},
+            u'name': u'Stephan Richter',
+            u'phone': None,
+            u'today': datetime.datetime(2011, 10, 1, 9, 45)
+            u'visited': []}]
+        
+          >>> dm.root['stephan'].address
+          <Address Maynard (01754)>
+        
+        
+        Non-Persistent Objects
+        ----------------------
+        
+        As you can see, even the reference looks nice and uses the standard Mongo DB
+        reference construct. But what about arbitrary non-persistent, but picklable,
+        objects? Well, let's create a phone number object for that:
+        
+          >>> class Phone(object):
+          ...
+          ...     def __init__(self, country, area, number):
+          ...         self.country = country
+          ...         self.area = area
+          ...         self.number = number
+          ...
+          ...     def __str__(self):
+          ...         return '%s-%s-%s' %(self.country, self.area, self.number)
+          ...
+          ...     def __repr__(self):
+          ...         return '<%s %s>' %(self.__class__.__name__, self)
+        
+          >>> dm.root['stephan'].phone = Phone('+1', '978', '394-5124')
+          >>> dm.root['stephan'].phone
+          <Phone +1-978-394-5124>
+        
+        Let's now commit the transaction and look at the Mongo document again:
+        
+          >>> transaction.commit()
+          >>> dm.root['stephan'].phone
+          <Phone +1-978-394-5124>
+        
+          >>> pprint.pprint(list(conn[DBNAME][person_cn].find()))
+          [{u'_id': ObjectId('4e7ddf12e138237403000000'),
+            u'address': DBRef(u'address',
+                              ObjectId('4e7ddf12e138237403000000'),
+                              u'mongopersist_test'),
+            u'birthday': None,
+            u'friends': {},
+            u'name': u'Stephan Richter',
+            u'phone': {u'_py_type': u'__main__.Phone',
+                       u'area': u'978',
+                       u'country': u'+1',
+                       u'number': u'394-5124'},
+            u'today': datetime.datetime(2011, 10, 1, 9, 45)
+            u'visited': []}]
+        
+        As you can see, for arbitrary non-persistent objects we need a small hint in
+        the sub-document, but it is very minimal. If the ``__reduce__`` method returns
+        a more complex construct, more meta-data is written. We will see that next
+        when storing a date and other arbitrary data:
+        
+          >>> dm.root['stephan'].friends = {'roy': Person(u'Roy Mathew')}
+          >>> dm.root['stephan'].visited = (u'Germany', u'USA')
+          >>> dm.root['stephan'].birthday = datetime.date(1980, 1, 25)
+        
+          >>> transaction.commit()
+          >>> dm.root['stephan'].friends
+          {u'roy': <Person Roy Mathew>}
+          >>> dm.root['stephan'].visited
+          [u'Germany', u'USA']
+          >>> dm.root['stephan'].birthday
+          datetime.date(1980, 1, 25)
+        
+        As you can see, a dictionary key is always converted to unicode and tuples are
+        always maintained as lists, since BSON does not have two sequence types.
+        
+          >>> pprint.pprint(conn[DBNAME][person_cn].find_one(
+          ...     {'name': 'Stephan Richter'}))
+          {u'_id': ObjectId('4e7df744e138230a3e000000'),
+           u'address': DBRef(u'address',
+                             ObjectId('4e7df744e138230a3e000003'),
+                             u'mongopersist_test'),
+           u'birthday': {u'_py_factory': u'datetime.date',
+                         u'_py_factory_args': [Binary('\x07\xbc\x01\x19', 0)]},
+           u'friends': {u'roy': DBRef(u'__main__.Person',
+                                      ObjectId('4e7df745e138230a3e000004'),
+                                      u'mongopersist_test')},
+           u'name': u'Stephan Richter',
+           u'phone': {u'_py_type': u'__main__.Phone',
+                      u'area': u'978',
+                      u'country': u'+1',
+                      u'number': u'394-5124'},
+           u'today': datetime.datetime(2011, 9, 24, 11, 29, 8, 930000),
+           u'visited': [u'Germany', u'USA']}
+        
+        
+        Custom Serializers
+        ------------------
+        
+        As you can see, the serialization of the birthay is all but ideal. We can,
+        however, provide a custom serializer that uses the ordinal to store the data.
+        
+          >>> class DateSerializer(serialize.ObjectSerializer):
+          ...
+          ...     def can_read(self, state):
+          ...         return isinstance(state, dict) and \
+          ...                state.get('_py_type') == 'datetime.date'
+          ...
+          ...     def read(self, state):
+          ...         return datetime.date.fromordinal(state['ordinal'])
+          ...
+          ...     def can_write(self, obj):
+          ...         return isinstance(obj, datetime.date)
+          ...
+          ...     def write(self, obj):
+          ...         return {'_py_type': 'datetime.date',
+          ...                 'ordinal': obj.toordinal()}
+        
+          >>> serialize.SERIALIZERS.append(DateSerializer())
+          >>> dm.root['stephan']._p_changed = True
+          >>> transaction.commit()
+        
+        Let's have a look again:
+        
+          >>> dm.root['stephan'].birthday
+          datetime.date(1980, 1, 25)
+        
+          >>> pprint.pprint(conn[DBNAME][person_cn].find_one(
+          ...     {'name': 'Stephan Richter'}))
+          {u'_id': ObjectId('4e7df803e138230aeb000000'),
+           u'address': DBRef(u'address',
+                             ObjectId('4e7df803e138230aeb000003'),
+                             u'mongopersist_test'),
+           u'birthday': {u'_py_type': u'datetime.date', u'ordinal': 722839},
+           u'friends': {u'roy': DBRef(u'__main__.Person',
+                                      ObjectId('4e7df803e138230aeb000004'),
+                                      u'mongopersist_test')},
+           u'name': u'Stephan Richter',
+           u'phone': {u'_py_type': u'__main__.Phone',
+                      u'area': u'978',
+                      u'country': u'+1',
+                      u'number': u'394-5124'},
+           u'today': datetime.datetime(2011, 9, 24, 11, 32, 19, 640000),
+           u'visited': [u'Germany', u'USA']}
+        
+        Much better!
+        
+        
+        Persistent Objects as Sub-Documents
+        -----------------------------------
+        
+        In order to give more control over which objects receive their own collections
+        and which do not, the developer can provide a special flag marking a
+        persistent class so that it becomes part of its parent object's document:
+        
+          >>> class Car(persistent.Persistent):
+          ...     _p_mongo_sub_object = True
+          ...
+          ...     def __init__(self, year, make, model):
+          ...         self.year = year
+          ...         self.make = make
+          ...         self.model = model
+          ...
+          ...     def __str__(self):
+          ...         return '%s %s %s' %(self.year, self.make, self.model)
+          ...
+          ...     def __repr__(self):
+          ...         return '<%s %s>' %(self.__class__.__name__, self)
+        
+        The ``_p_mongo_sub_object`` is used to mark a type of object to be just part
+        of another document:
+        
+          >>> dm.root['stephan'].car = car = Car('2005', 'Ford', 'Explorer')
+          >>> transaction.commit()
+        
+          >>> dm.root['stephan'].car
+          <Car 2005 Ford Explorer>
+        
+          >>> pprint.pprint(conn[DBNAME][person_cn].find_one(
+          ...     {'name': 'Stephan Richter'}))
+          {u'_id': ObjectId('4e7dfac7e138230d3d000000'),
+           u'address': DBRef(u'address',
+                             ObjectId('4e7dfac7e138230d3d000003'),
+                             u'mongopersist_test'),
+           u'birthday': {u'_py_type': u'datetime.date', u'ordinal': 722839},
+           u'car': {u'_py_persistent_type': u'__main__.Car',
+                    u'make': u'Ford',
+                    u'model': u'Explorer',
+                    u'year': u'2005'},
+           u'friends': {u'roy': DBRef(u'__main__.Person',
+                                      ObjectId('4e7dfac7e138230d3d000004'),
+                                      u'mongopersist_test')},
+           u'name': u'Stephan Richter',
+           u'phone': {u'_py_type': u'__main__.Phone',
+                      u'area': u'978',
+                      u'country': u'+1',
+                      u'number': u'394-5124'},
+           u'today': datetime.datetime(2011, 9, 24, 11, 44, 7, 662000),
+           u'visited': [u'Germany', u'USA']}
+        
+        The reason we want objects to be persistent is so that they pick up changes
+        automatically:
+        
+          >>> dm.root['stephan'].car.year = '2004'
+          >>> transaction.commit()
+          >>> dm.root['stephan'].car
+          <Car 2004 Ford Explorer>
+        
+        
+        Collection Sharing
+        ------------------
+        
+        Since Mongo is so flexible, it sometimes makes sense to store multiple types
+        of (similar) objects in the same collection. In those cases you instruct the
+        object type to store its Python path as part of the document.
+        
+        Warning: Please note though that this method is less efficient, since the
+        document must be loaded in order to create a ghost causing more database
+        access.
+        
+          >>> class ExtendedAddress(Address):
+          ...
+          ...     def __init__(self, city, zip, country):
+          ...         super(ExtendedAddress, self).__init__(city, zip)
+          ...         self.country = country
+          ...
+          ...     def __str__(self):
+          ...         return '%s (%s) in %s' %(self.city, self.zip, self.country)
+        
+        In order to accomplish collection sharing, you simply create another class
+        that has the same ``_p_mongo_collection`` string as another (sub-classing will
+        ensure that).
+        
+        So let's give Stephan an extended address now.
+        
+          >>> dm.root['stephan'].address2 = ExtendedAddress(
+          ...     'Tettau', '01945', 'Germany')
+          >>> dm.root['stephan'].address2
+          <ExtendedAddress Tettau (01945) in Germany>
+          >>> transaction.commit()
+        
+        When loading the addresses, they should be of the right type:
+        
+          >>> dm.root['stephan'].address
+          <Address Maynard (01754)>
+          >>> dm.root['stephan'].address2
+          <ExtendedAddress Tettau (01945) in Germany>
+        
+        
+        Tricky Cases
+        ------------
+        
+        Changes in Basic Mutable Type
+        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        
+        Tricky, tricky. How do we make the framework detect changes in mutable
+        objects, such as lists and dictionaries? Answer: We keep track of which
+        persistent object they belong to and provide persistent implementations.
+        
+          >>> type(dm.root['stephan'].friends)
+           <class 'mongopersist.serialize.PersistentDict'>
+        
+          >>> dm.root['stephan'].friends[u'roger'] = Person(u'Roger')
+          >>> transaction.commit()
+          >>> sorted(dm.root['stephan'].friends.keys())
+          [u'roger', u'roy']
+        
+        The same is true for lists:
+        
+          >>> type(dm.root['stephan'].visited)
+           <class 'mongopersist.serialize.PersistentList'>
+        
+          >>> dm.root['stephan'].visited.append('France')
+          >>> transaction.commit()
+          >>> dm.root['stephan'].visited
+          [u'Germany', u'USA', u'France']
+        
+        
+        Circular Non-Persistent References
+        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        
+        Any mutable object that is stored in a sub-document, cannot have multiple
+        references in the object tree, since there is no global referencing. These
+        circular references are detected and reported:
+        
+          >>> class Top(persistent.Persistent):
+          ...     foo = None
+        
+          >>> class Foo(object):
+          ...     bar = None
+        
+          >>> class Bar(object):
+          ...     foo = None
+        
+          >>> top = Top()
+          >>> foo = Foo()
+          >>> bar = Bar()
+          >>> top.foo = foo
+          >>> foo.bar = bar
+          >>> bar.foo = foo
+        
+          >>> dm.root['top'] = top
+          Traceback (most recent call last):
+          ...
+          CircularReferenceError: <__main__.Foo object at 0x7fec75731890>
+        
+        
+        Circular Persistent References
+        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        
+        In general, circular references among persistent objects are not a problem,
+        since we always only store a link to the object. However, there is a case when
+        the circular dependencies become a problem.
+        
+        If you set up an object tree with circular references and then add the tree to
+        the storage at once, it must insert objects during serialization, so that
+        references can be created. However, care needs to be taken to only create a
+        minimal reference object, so that the system does not try to recursively
+        reduce the state.
+        
+          >>> class PFoo(persistent.Persistent):
+          ...     bar = None
+        
+          >>> class PBar(persistent.Persistent):
+          ...     foo = None
+        
+          >>> top = Top()
+          >>> foo = PFoo()
+          >>> bar = PBar()
+          >>> top.foo = foo
+          >>> foo.bar = bar
+          >>> bar.foo = foo
+        
+          >>> dm.root['ptop'] = top
+        
+        
+        Containers and Collections
+        --------------------------
+        
+        Now that we have talked so much about the gory details on storing one object,
+        what about mappings that reflect an entire collection, for example a
+        collection of people.
+        
+        There are many approaches that can be taken. The folowing implementation
+        defines an attribute in the document as the mapping key and names a
+        collection:
+        
+          >>> from mongopersist import mapping
+          >>> class People(mapping.MongoCollectionMapping):
+          ...     __mongo_collection__ = person_cn
+          ...     __mongo_mapping_key__ = 'short_name'
+        
+        The mapping takes the data manager as an argument. One can easily create a
+        sub-class that assigns the data manager automatically. Let's have a look:
+        
+          >>> People(dm).keys()
+          []
+        
+        The reason no person is in the list yet, is because no document has the key
+        yet or the key is null. Let's change that:
+        
+          >>> People(dm)['stephan'] = dm.root['stephan']
+          >>> transaction.commit()
+        
+          >>> People(dm).keys()
+          [u'stephan']
+          >>> People(dm)['stephan']
+          <Person Stephan Richter>
+        
+        Also note that setting the "short-name" attribute on any other person will add
+        it to the mapping:
+        
+          >>> dm.root['stephan'].friends['roy'].short_name = 'roy'
+          >>> transaction.commit()
+          >>> sorted(People(dm).keys())
+          [u'roy', u'stephan']
+        
+        
+        Write-Conflict Detection
+        ------------------------
+        
+        Since Mongo has no support for MVCC, it does not provide a concept of write
+        conflict detection. However, a simple write-conflict detection can be easily
+        implemented using a serial number on the document.
+        
+        Let's reset the database and create a data manager with enabled conflict
+        detection:
+        
+          >>> from mongopersist import conflict, datamanager
+          >>> conn.drop_database(DBNAME)
+          >>> dm2 = datamanager.MongoDataManager(
+          ...     conn,
+          ...     default_database=DBNAME,
+          ...     root_database=DBNAME,
+          ...     conflict_handler_factory=conflict.SimpleSerialConflictHandler)
+        
+        Now we add a person and see that the serial got stored.
+        
+          >>> dm2.root['stephan'] = Person(u'Stephan')
+          >>> dm2.root['stephan']._p_serial
+          '\x00\x00\x00\x00\x00\x00\x00\x01'
+          >>> pprint.pprint(dm2._conn[DBNAME][person_cn].find_one())
+          {u'_id': ObjectId('4e7fe18de138233a5b000009'),
+           u'_py_serial': 1,
+           u'address': None,
+           u'birthday': None,
+           u'friends': {},
+           u'name': u'Stephan',
+           u'phone': None,
+           u'today': datetime.datetime(2011, 9, 25, 22, 21, 1, 656000),
+           u'visited': []}
+        
+        Next we change the person and commit it again:
+        
+          >>> dm2.root['stephan'].name = u'Stephan <Unknown>'
+          >>> transaction.commit()
+          >>> pprint.pprint(dm2._conn[DBNAME][person_cn].find_one())
+          {u'_id': ObjectId('4e7fe18de138233a5b000009'),
+           u'_py_serial': 2,
+           u'address': None,
+           u'birthday': None,
+           u'friends': {},
+           u'name': u'Stephan <Unknown>',
+           u'phone': None,
+           u'today': datetime.datetime(2011, 9, 25, 22, 21, 1, 656000),
+           u'visited': []}
+        
+        Let's now start a new transaction with some modifications:
+        
+          >>> dm2.root['stephan'].name = u'Stephan Richter'
+        
+        However, in the mean time another transaction modifies the object. (We will do
+        this here directly via Mongo for simplicity.)
+        
+          >>> dm2._conn[DBNAME][person_cn].update(
+          ...     {'name': u'Stephan <Unknown>'},
+          ...     {'$set': {'name': u'Stephan R.', '_py_serial': 3}})
+          >>> pprint.pprint(dm2._conn[DBNAME][person_cn].find_one())
+          {u'_id': ObjectId('4e7fe1f4e138233ac4000009'),
+           u'_py_serial': 3,
+           u'address': None,
+           u'birthday': None,
+           u'friends': {},
+           u'name': u'Stephan R.',
+           u'phone': None,
+           u'today': datetime.datetime(2011, 9, 25, 22, 22, 44, 343000),
+           u'visited': []}
+        
+        Now our changing transaction tries to commit:
+        
+          >>> transaction.commit()
+          Traceback (most recent call last):
+          ...
+          ConflictError: database conflict error
+              (oid DBRef(u'__main__.Person',
+                         ObjectId('4e7ddf12e138237403000000'),
+                         u'mongopersist_test'),
+               class Person,
+               orig serial 2, cur serial 3, new serial 3)
+        
+          >>> transaction.abort()
+        
+        
+        =======
+        CHANGES
+        =======
+        
+        0.8.2 (2013-04-03)
+        ------------------
+        
+        - Fixed ``check_conflict``: make sure we use the same db and collection
+          as in the object
+        
+        
+        0.8.1 (2013-03-19)
+        ------------------
+        
+        - Fixed ``_p_changed`` setting on object loading which was caused by assigning
+          directly to ``__name__``. That caused all objects read from containers to be
+          marked changed on load. That wrecked cache performance too.
+        
+        
+        0.8.0 (2013-02-09)
+        ------------------
+        
+        - Feature: Added ``find_objects()`` and ``find_one_object()`` to the collection
+          wrapper, so that whenever you get a collection from the data manager, you
+          can load objects directly through the find API.
+        
+        - Feature: Added the ability for MongoContained objects to fully reference and
+          load their parents. This allows one to query mongo directly and create the
+          object from the doc without going through the right container, which you
+          might not know easily.
+        
+        
+        0.7.7 (2013-02-08)
+        ------------------
+        
+        - Bug: Do not fail if we cannot delete the parent and name attributes.
+        
+        
+        0.7.6 (2013-02-08)
+        ------------------
+        
+        - Feature: Switch to ``pymongo.MongoClient``, set default write concern values,
+          allow override of write concern values.
+        
+        
+        0.7.5 (2013-02-06)
+        ------------------
+        
+        - Tests: Added, cleaned tests
+        
+        - Bug: Re-release after missing files in 0.7.4
+        
+        0.7.4 (2013-02-05)
+        ------------------
+        
+        - Bug: Due to ``UserDict`` implementing ``dict`` comparison semantics, any
+          empty ``MongoContainer`` would equate to another empty one. This behavior
+          would cause object changes to not be properly recognzed by the mongo data
+          manager. The implemented solution is to implement default object comparison
+          behavior for mongo containers.
+        
+        
+        0.7.3 (2013-01-29)
+        ------------------
+        
+        - Feature: Update to latest package versions, specifically pymongo 2.4.x. In
+          this release, ``pymongo`` does not reexport ``objectid`` and ``dbref``.
+        
+        0.7.2 (2012-04-19)
+        ------------------
+        
+        - Bug: avoid caching MongoDataManager instances in mongo container to avoid
+          multiple MongoDataManagers in the single transaction in multithreaded
+          environment. Cache IMongoDataManagerProvider instead.
+        
+        0.7.1 (2012-04-13)
+        ------------------
+        
+        - Performance: Improved the profiler a bit by allowing to disable modification
+          of records as well.
+        
+        - Performance: Added caching of ``_m_jar`` lookups in Mongo Containers, since
+          the computation turned out to be significantly expensive.
+        
+        - Performance: Use lazy hash computation for DBRef. Also, disable support for
+          arbitrary keyword arguments. This makes roughly a 2-4% difference in object
+          loading time.
+        
+        - Bug: An error occurred when ``_py_serial`` was missing. This was possible
+          due to a bug in version 0.6. It also protects against third party software
+          which is not aware of our meta-data.
+        
+        - Performance: Switched to ``repoze.lru`` (from ``lru``), which is much
+          faster.
+        
+        - Performance: To avoid excessive hash computations, we now use the hash of
+          the ``DBRef`` references as cache keys.
+        
+        - Bug: ``ObjectId`` ids are not guaranteed to be unique across
+          collections. Thus they are a bad key for global caches. So we use full
+          ``DBRef`` references instead.
+        
+        0.7.0 (2012-04-02)
+        ------------------
+        
+        - Feature: A new ``IConflictHandler`` interface now controls all aspects of
+          conflict resolution. The following implementations are provided:
+        
+          * ``NoCheckConflictHandler``: This handler does nothing and when used, the
+            system behaves as before when the ``detect_conflicts`` flag was set to
+            ``False``.
+        
+          * ``SimpleSerialConflictHandler``: This handler uses serial numbers on each
+            document to keep track of versions and then to detect conflicts. When a
+            conflict is detected, a ``ConflictError`` is raised. This handler is
+            identical to ``detect_conflicts`` being set to ``True``.
+        
+          * ``ResolvingSerialConflictHandler``: Another serial handler, but it has the
+            ability to resolve a conflict. For this to happen, a persistent object
+            must implement ``_p_resolveConflict(orig_state, cur_state, new_state)``,
+            which returns the new, merged state. (Experimental)
+        
+          As a result, the ``detect_conflicts`` flag of the data manager was removed
+          and replaced with the ``conflict_handler`` attribute. One can pass in the
+          ``conflict_handler_factory`` to the data manager constructor. The factory
+          needs to expect on argument, the data manager.
+        
+        - Feature: The new ``IdNamesMongoContainer`` class uses the natural Mongo
+          ObjectId as the name/key for the items in the container. No more messing
+          around with coming up or generating a name. Of course, if you specified
+          ``None`` as a key in the past, it already used the object id, but it was
+          sotred again in the mapping key field. Now the object id is used directly
+          everywhere.
+        
+        - Feature: Whenever ``setattr()`` is called on a persistent object, it is
+          marked as changed even if the new value equals the old one. To minimize
+          writes to MongoDB, the latest database state is compared to the new state
+          and the new state is only written when changes are detected. A flag called
+          ``serialize.IGNORE_IDENTICAL_DOCUMENTS`` (default: ``True``) is used to
+          control the feature. (Experimental)
+        
+        - Feature: ``ConflictError`` has now a much more meaningful API. Instead of
+          just referencing the object and different serials, it now actual has the
+          original, current and new state documents.
+        
+        - Feature: Conflicts are now detected while aborting a transaction. The
+          implemented policy will not reset the document state, if a conflict is
+          detected.
+        
+        - Feature: Provide a flag to turn on MongoDB access logging. The flag is false
+          by default, since access logging is very expensive.
+        
+        - Feature: Added transaction ID to LoggingDecorator.
+        
+        - Feature: Added a little script to test performance. It is not very
+          sophisticated, but it is sufficient for a first round of optimizations.
+        
+        - Feature: Massively improved performance on all levels. This was mainly
+          accomplished by removing unnecessary database accesses, better caching and
+          more efficient algorithms. This results in speedups between 4-25 times.
+        
+          - When resolving the path to a class, the result is now cached. More
+            importantly, lookup failures are also cached mapping path ->
+            ``None``. This is important, since an optimization the ``resolve()``
+            method causes a lot of failing lookups.
+        
+          - When resolving the dbref to a type, we try to resolve the dbref early
+            using the document, if we know that the documents within the collection
+            store their type path. This avoids frequent queries of the name map
+            collection when it is not needed.
+        
+          - When getting the object document to read the class path, it will now read
+            the entire document and store it in the ``_latest_states`` dictionary, so
+            that other code may pick it up and use it. This should avoid superflous
+            reads from MongoDB.
+        
+          - Drastically improved performance for collections that store only one type
+            of object and where the documents do not store the type (i.e. it is
+            stored in the name map collection).
+        
+          - The Mongo Container fast load via find() did not work correctly, since
+            setstate() did not change the state from ghost to active and thus the
+            state was loaded again from MongoDB and set on the object. Now we use the
+            new ``_latest_states`` cache to lookup a document when ``setstate()`` is
+            called through the proper channels. Now this "fast load" method truly
+            causes O(1) database lookups.
+        
+          - Implemented several more mapping methods for the Mongo Container, so that
+            all methods getting the full list of items are fast now.
+        
+          - Whenever the Mongo Object Id is used as a hash key, use the hash of the id
+            instead. The ``__cmp__()`` method of the ``ObjectId`` class is way too
+            slow.
+        
+          - Cache collection name lookup from objects in the ``ObjectWriter`` class.
+        
+        - Bug: We have seen several occasions in production where we suddenly lost
+          some state in some documents, which prohibited the objects from being
+          loadable again. The cause was that the ``_original_states`` attribute did not
+          store the raw MongoDB document, but a modified one. Since those states are
+          used during abort to reset the state, however, the modified document got
+          stored making the affected objects inaccessible.
+        
+        - Bug: When a transaction was aborted, the states of all *loaded* objects were
+          reset. Now, only *modified* object states are reset. This should drastically
+          lower problems (by the ratio of read over modified objects) due to lack of
+          full MVCC.
+        
+        - Bug: When looking for an item by key/name (``find_*()`` methods) , you would
+          never get the right object back, but the first one found in the
+          database. This was due to clobbering the search filter with more general
+          parameters.
+        
+        
+        0.6.1 (2012-03-28)
+        ------------------
+        
+        - Feature: Added quite detailed debug logging around collection methods
+        
+        0.6.0 (2012-03-12)
+        ------------------
+        
+        - Feature: Switched to optimisitc data dumping, which approaches transactions
+          by dumping early and as the data comes. All changes are undone when the
+          transaction fails/aborts. See ``optimistic-data-dumping.txt`` for
+          details. Here are some of the new features:
+        
+          * Data manager keeps track of all original docs before their objects are
+            modified, so any change can be done.
+        
+          * Added an API to data manager (``DataManager.insert(obj)``) to insert an
+            object in the database.
+        
+          * Added an API to data manager (``DataManager.remove(obj)``) to remove an
+            object from the database.
+        
+          * Data can be flushed to Mongo (``DataManager.flush()``) at any point of the
+            transaction retaining the ability to completely undo all changes. Flushing
+            features the following characteristics:
+        
+            + During a given transaction, we guarantee that the user will always receive
+              the same Python object. This requires that flush does not reset the object
+              cache.
+        
+            + The ``_p_serial`` is increased by one. (Automatically done in object
+              writer.)
+        
+            + The object is removed from the registered objects and the ``_p_changed``
+              flag is set to ``False``.
+        
+            + Before flushing, potential conflicts are detected.
+        
+          * Implemented a flushing policy: Changes are always flushed before any query
+            is made. A simple wrapper for the ``pymongo`` collection
+            (``CollectionWrapper``) ensures that flush is called before the correct
+            method calls. Two new API methods ``DataManager.get_collection(db_name,
+            coll_name)`` and ``DataManager.get_collection_from_object(obj)``
+            allows one to quickly get a wrapped collection.
+        
+        - Feature: Renamed ``processSpec()`` to ``process_spec()`` to adhere to
+          package nameing convention.
+        
+        - Feature: Created a ``ProcessSpecDecorator`` that is used in the
+          ``CollectionWrapper`` class to process the specs of the ``find()``,
+          ``find_one()`` and ``find_and_modify()`` collection methods.
+        
+        - Feature: The ``MongoContainer`` class now removes objects from the database
+          upon container removal is ``_m_remove_documents`` is ``True``. The default
+          is ``True``.
+        
+        - Feature: When adding an item to ``MongoContainer`` and the key is ``None``,
+          then the OID is chosen as the key. Ids are perfect keys, because they are
+          guaranteed to be unique within the collection.
+        
+        - Feature: Since people did not like the setitem with ``None`` key
+          implementation, I also added the ``MongoContainer.add(value, key=None)``
+          method, which makes specifying the key optional. The default implementation
+          is to use the OID, if the key is ``None``.
+        
+        - Feature: Removed ``fields`` argument from the ``MongoContainer.find(...)``
+          and ``MongoContainer.find_one(...)`` methods, since it was not used.
+        
+        - Feature: If a container has N items, it took N+1 queries to load the list of
+          items completely. This was due to one query returning all DBRefs and then
+          using one query to load the state for each. Now, the first query loads all
+          full states and uses an extension to ``DataManager.setstate(obj, doc=None)``
+          to load the state of the object with the previously queried data.
+        
+        - Feature: Changed ``MongoContainer.get_collection()`` to return a
+          ``CollectionWrapper`` instance.
+        
+        
+        0.5.5 (2012-03-09)
+        ------------------
+        
+        - Feature: Moved ZODB dependency to test dependency
+        
+        - Bug: When an object has a SimpleContainer as attribute, then simply loading
+          this object would cause it to written at the end of the transaction. The
+          culprit was a persistent dictionary containing the SimpleContainer
+          state. This dictionary got modified during state load and caused it to be
+          registered as a changed object and it was marked as a ``_p_mongo_sub_object``
+          and had the original object as ``_p_mongo_doc_object``.
+        
+        
+        0.5.4 (2012-03-05)
+        ------------------
+        
+        - Feature: Added a hook via the IMongoSpecProcessor adapter that gets called
+          before each find to process/log spec.
+        
+        0.5.3 (2012/01/16)
+        ------------------
+        
+        - Bug: ``MongoContainer`` did not emit any Zope container or lifecycle
+          events. This has been fixed by using the ``zope.container.contained``
+          helper functions.
+        
+        0.5.2 (2012-01-13)
+        ------------------
+        
+        - Feature: Added an interface for the ``MongoContainer`` class describing the
+          additional attributes and methods.
+        
+        0.5.1 (2011-12-22)
+        ------------------
+        
+        - Bug: The ``MongoContainer`` class did not implement the ``IContainer``
+          interface.
+        
+        0.5.0 (2011-11-04)
+        ------------------
+        
+        - Initial Release
+        
+Keywords: mongo persistent
+Platform: UNKNOWN
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Developers
+Classifier: Programming Language :: Python
+Classifier: Programming Language :: Python :: 2
+Classifier: Programming Language :: Python :: 2.7
+Classifier: Framework :: ZODB
+Classifier: License :: OSI Approved :: Zope Public License
+Classifier: Natural Language :: English
+Classifier: Operating System :: OS Independent
