@@ -1,0 +1,343 @@
+# -*- coding: UTF-8 -*-
+## Copyright 2008-2013 Luc Saffre
+## This file is part of the Lino project.
+## Lino is free software; you can redistribute it and/or modify 
+## it under the terms of the GNU General Public License as published by
+## the Free Software Foundation; either version 3 of the License, or
+## (at your option) any later version.
+## Lino is distributed in the hope that it will be useful, 
+## but WITHOUT ANY WARRANTY; without even the implied warranty of
+## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the 
+## GNU General Public License for more details.
+## You should have received a copy of the GNU General Public License
+## along with Lino; if not, see <http://www.gnu.org/licenses/>.
+
+"""
+
+:class:`PropType`
+:class:`PropChoice`
+:class:`PropGroup`
+A :class:`PropOccurence` is when a certain "property owner" 
+has a certain :class:`Property`. 
+"Property owner" can be anything: 
+a person, a company, a product, an upload, 
+it depends on the implentation of :class:`PropOccurence`.
+For example :mod:`lino.apps.pcsw.models.PersonProperty`.
+
+A :class:`Property` defines the configuration of a property.
+
+This module would deserve more documentation.
+
+
+"""
+
+import os
+import cgi
+import datetime
+
+from django.db import models
+#~ from django.db.models import Q
+from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.utils.safestring import mark_safe
+from django.utils.translation import ugettext_lazy as _
+from django.utils.encoding import force_unicode 
+
+
+from lino import dd
+from lino.utils import babel
+#~ from lino.utils.babel import babelattr
+#~ from lino.utils import printable
+from lino import mixins
+#~ from lino import fields
+from lino.utils.choosers import chooser
+
+from lino.core.choicelists import get_choicelist, choicelist_choices
+
+MULTIPLE_VALUES_SEP = ','
+
+
+class DoYouLike(dd.ChoiceList):
+    """
+    A list of possible answers to questions of type "How much do you like ...?".
+    """
+    verbose_name = _("certainly not...very much")
+    
+add = DoYouLike.add_item
+add('0',_("certainly not"))
+add('1',_("rather not"))
+add('2',_("normally"),"default")
+add('3',_("quite much"))
+add('4',_("very much"))
+
+class HowWell(dd.ChoiceList):
+    """
+    A list of possible answers to questions of type "How well ...?":
+    "not at all", "a bit", "moderate", "quite well" and "very well" 
+    
+    which are stored in the database as '0' to '4',
+    and whose `__unicode__()` returns their translated text.
+
+    `lino.apps.pcsw.models.Languageknowledge.spoken` 
+    `lino.apps.pcsw.models.Languageknowledge.written` 
+    """
+    verbose_name = _("not at all...very well")
+    
+add = HowWell.add_item
+add('0',_("not at all"))
+add('1',_("a bit"))
+add('2',_("moderate"),"default")
+add('3',_("quite well"))
+add('4',_("very well"))
+
+
+
+
+
+class PropType(babel.BabelNamed):
+    """
+    The type of the values that a property accepts.
+    Each PropType may (or may not) imply a list of choices.
+    
+    Examples: of property types:
+    - Knowledge (Choices: "merely", "acceptable", "good", "very good",...)
+    - YesNo (no choices)
+    
+    """
+    class Meta:
+        verbose_name = _("Property Type")
+        verbose_name_plural = _("Property Types")
+        
+    #~ name = babel.BabelCharField(max_length=200,verbose_name=_("Designation"))
+    
+    choicelist = models.CharField(
+        max_length=50, blank=True,
+        verbose_name=_("Choices List"),
+        choices=choicelist_choices())
+    
+    default_value = models.CharField(_("default value"),
+        max_length=settings.LINO.propvalue_max_length,
+        blank=True)
+    """
+    The default value to set when creating a :class:`PropertyOccurence`.
+    This is currently used only in some fixture...
+    """
+        
+    limit_to_choices = models.BooleanField(_("Limit to choices"))
+    """
+    not yet supported
+    """
+    
+    multiple_choices = models.BooleanField(_("Multiple choices"))
+    """
+    not yet supported
+    """
+    
+    @chooser()
+    def default_value_choices(cls,choicelist):
+        if choicelist:
+            return get_choicelist(choicelist).get_choices()
+        return []
+        
+    def get_default_value_display(self,value):
+        return self.get_text_for_value(value)
+        
+    def get_text_for_value(self,value):
+        if not value:
+            return ''
+        if self.choicelist:
+            cl = get_choicelist(self.choicelist)
+            return cl.get_text_for_value(value)
+        l = []
+        for v in value.split(MULTIPLE_VALUES_SEP):
+            try:
+                pc = PropChoice.objects.get(value=v,type=self)
+                v = babel.babelattr(pc,'text')
+            except PropChoice.DoesNotExist:
+                pass
+            l.append(v)
+        return ','.join(l)
+        
+    #~ def __unicode__(self):
+        #~ return babel.babelattr(self,'name')
+        
+    def choices_for(self,property):
+        if self.choicelist:
+            return get_choicelist(self.choicelist).get_choices()
+        return [(pc.value, pc.text) for pc in 
+            PropChoice.objects.filter(type=self).order_by('value')]
+            
+class PropChoice(dd.Model):
+    """
+    A Choice for this PropType.
+    `text` is the text to be displayed in combo boxes.
+    
+    `value` is the value to be stored in :attr:`PropValue.value`, 
+    it must be unique for all PropChoices of a given PropType.
+    
+    Choices for a given PropType will be sorted on `value`
+    (we might make this more customizable if necessary by adding a new field `sort_text` 
+    and/or an option to sort on text instead of value) 
+    
+    When configuring your property choices, be aware of the fact tht existing 
+    property occurences will *not* change when you change the `value` 
+    of a property choice.
+    
+    
+    """
+    class Meta:
+        verbose_name = _("Property Choice")
+        verbose_name_plural = _("Property Choices")
+        unique_together = ['type', 'value']
+        
+    type = models.ForeignKey(PropType,verbose_name=_("Property Type"))
+    value = models.CharField(max_length=settings.LINO.propvalue_max_length,verbose_name=_("Value"))
+    text = babel.BabelCharField(max_length=200,verbose_name=_("Designation"),blank=True)
+    
+    def save(self,*args,**kw):
+        if not self.text:
+            self.text = self.value
+        r = super(PropChoice,self).save(*args,**kw)
+        return r
+        
+    def __unicode__(self):
+        return babel.babelattr(self,'text')
+
+class PropGroup(babel.BabelNamed):
+    """
+    A Property Group defines a list of Properties that fit together under a common name.
+    Examples of Property Groups: Skills, Soft Skills, Obstacles
+    There will be one menu entry per Group.
+    """
+    class Meta:
+        verbose_name = _("Property Group")
+        verbose_name_plural = _("Property Groups")
+        
+
+
+class Property(babel.BabelNamed):
+    class Meta:
+        verbose_name = _("Property")
+        verbose_name_plural = _("Properties")
+        
+    #~ name = babel.BabelCharField(max_length=200,verbose_name=_("Designation"))
+    group = models.ForeignKey(PropGroup,verbose_name=_("Property Group"))
+    type = models.ForeignKey(PropType,verbose_name=_("Property Type"))
+    
+    #~ def __unicode__(self):
+        #~ return babel.babelattr(self,'name')
+#~ add_babel_field(Property,'name')
+
+
+class PropertyOccurence(dd.Model):
+    """
+    A Property Occurence is when a Property occurs, possibly having a certain value.
+    
+    Abstract base class for 
+    | :class:`lino_welfare.modlib.cv.models.PersonProperty`,
+    | :class:`lino_welfare.modlib.cv.models.WantedProperty`,
+    | :class:`lino_welfare.modlib.cv.models.AvoidedProperty`,
+    | ...
+    
+    """
+    
+    class Meta:
+        abstract = True
+        
+    group = models.ForeignKey(PropGroup,
+        verbose_name=_("Property group"))
+    property = models.ForeignKey(Property,
+        verbose_name=_("Property")) # ,blank=True,null=True)
+    # property must be nullable?
+    value = models.CharField(_("Value"),
+        max_length=settings.LINO.propvalue_max_length,
+        blank=True)
+    
+    #~ def get_text(self):
+        #~ c = PropChoice.objects.get(type=self.property.type,value=self.value)
+        #~ return babel.babelattr(c,'name')
+    
+    @chooser()
+    def value_choices(cls,property):
+        if property is None:
+            return []
+        return property.type.choices_for(property)
+            
+    @chooser()
+    def property_choices(cls,group):
+        #~ print 20120212, group
+        if group is None:
+            return []
+        return Property.objects.filter(group=group).order_by('name')
+        
+    def get_value_display(self,value):
+        if self.property_id is None:
+            return value
+        return self.property.type.get_text_for_value(value)
+        
+        
+    def full_clean(self):
+        if self.property_id is not None:
+            self.group = self.property.group
+        super(PropertyOccurence,self).full_clean()
+        
+    def __unicode__(self):
+        if self.property_id is None:
+            return u"Undefined %s" % self.group
+        # 20111111 : call unicode() because get_text_for_value returns a Promise
+        return unicode(self.property.type.get_text_for_value(self.value))
+        
+    #~ def __unicode__(self):
+        #~ if self.property_id is None:
+            #~ return u"Undefined %s" % self.group
+        #~ return u'%s.%s=%s' % (
+            #~ self.group,self.property,
+            #~ self.property.type.get_text_for_value(self.value))
+    
+
+
+class PropGroups(dd.Table):
+    model = PropGroup
+    detail_layout = """
+    id name 
+    PropsByGroup
+    """
+
+class PropTypes(dd.Table):
+    model = PropType
+    detail_layout = """
+    id name choicelist default_value
+    ChoicesByType
+    PropsByType
+    """
+
+class Properties(dd.Table):
+    model = Property
+    order_by = ['name']
+    #~ column_names = "id name"
+    
+class PropsByGroup(Properties):
+    master_key = 'group'
+
+class PropsByType(Properties):
+    master_key = 'type'
+
+class PropChoices(dd.Table):
+    model = PropChoice
+    
+class ChoicesByType(PropChoices):
+    "Lists all PropChoices for a given PropType."
+    master_key = 'type'
+    order_by = ['value']
+    column_names = 'value text *'
+    
+
+def setup_config_menu(site,ui,profile,m): 
+    m = m.add_menu("props",_("Properties"))
+    m.add_action(PropGroups)
+    m.add_action(PropTypes)
+    for pg in PropGroup.objects.all():
+        m.add_action(
+            PropsByGroup,
+            params=dict(master_instance=pg),
+            label=pg.name)
