@@ -1,0 +1,10 @@
+__version__ = "0.5.8.post4.g07adcbb"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = 'develop'
+__git_remote_tracking_branch__ = 'origin/develop'
+__git_remote_url__ = 'git@infinigit:/host/projector.git'
+__git_head_hash__ = '07adcbb2aa3da91e0f7dc7c9d3c07538580a624a'
+__git_head_subject__ = 'HOSTDEV-659 adapting to changes in pkg_resources.parse_version'
+__git_head_message__ = ''
+__git_dirty_diff__ = ''
