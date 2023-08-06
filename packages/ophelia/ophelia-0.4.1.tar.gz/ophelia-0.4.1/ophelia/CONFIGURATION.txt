@@ -1,0 +1,216 @@
+===================
+Configuring Ophelia
+===================
+
+Configuring Ophelia involves a number of settings variables. They can be
+passed as a dictionary to the Ophelia WSGI application,
+``ophelia.wsgi.Application``, upon instantiation. The package also comes with
+a console script that runs a wsgiref-based server and reads the same settings
+variables from an ini-style configuration file, as well as a paste application
+factory that lets Ophelia be plugged into any WSGI server that can handle a
+paste "ini" file.
+
+Regardless of how the WSGI application is being served, all settings may also
+be overridden by accordingly named variables set in the WSGI environment of
+each individual request.
+
+The settings variables will end up in the environment namespace stored on the
+request object. It is possible to set any number of other variables that are
+not recognized by Ophelia using the same configuration mechanism. This allows
+configuring Python modules and scripts that belong to your site's content.
+
+The rest of this section contains a description of all variables as well as an
+example of a configuration file for the wsgiref server.
+
+
+Basic configuration
+===================
+
+Two variables must always be present:
+
+:template_root:
+    The file system path to the template root directory.
+
+:site:
+    The absolute URI of the Ophelia site's root, i.e. that part of a page's
+    URI that is the same for all pages served from the template directory.
+
+In addition, the variables described below may be specified in order to
+influence the request handler's behaviour. All of them have sensible default
+values.
+
+For boolean variables such as redirect_index, the values "on", "true", or
+"yes" (case-insensitive) are taken to mean True, anything else means False.
+
+:debug:
+    Whether to include debug information such as formatted tracebacks in error
+    responses. This option is turned off by default.
+
+
+Delivery of documents straight from disk
+========================================
+
+Generally, a site includes documents that are not assembled from templates.
+They reside within a directory tree of their own whose root needs to be
+configured if needed. Also, if Ophelia sits behind a reverse proxy, documents
+from disk may be delivered more efficiently by using something like the
+X-Sendfile mechanism:
+
+:document_root:
+    Optional, the file system path to the on-disk documents root directory.
+
+:xsendfile:
+    One of "standard", "nginx" or "serve". Defaults to "serve" which means
+    on-disk documents are delivered directly by the Ophelia application. The
+    "standard" value causes an X-Sendfile header to be sent (such as, e.g.,
+    Apache understands) while the "nginx" value causes an X-Accel-Redirect
+    header for consumption by an nginx reverse proxy to be sent instead. In
+    the latter case, the nginx server needs to have the ``/-internal-/``
+    location configured as an "internal" alias of the document root directory.
+
+
+URL canonicalization and redirection
+====================================
+
+If a requested URL points to a directory, Ophelia will try to find a template
+with a special file name and build the "index" page from that. There are two
+configuration options concerned with the index template:
+
+:index_name:
+    The name of the index template Ophelia looks for. It defaults to
+    "index.html".
+
+:redirect_index:
+    Whether to canonicalize the URL and redirect the browser if the path
+    portion of the URL ends with the default index page's name. This option is
+    turned off by default.
+
+
+Character encoding
+==================
+
+Input encoding
+--------------
+
+By default, Ophelia expects Python scripts and TAL templates it reads from
+input files to be in 7-bit ASCII encoding. There are several ways to override
+this default.
+
+You can declare a character encoding both for the Python script and the
+template, and the two encodings may differ. To specify the Python encoding,
+just start the script with a Python style encoding declaration like this::
+
+# -*- coding: utf-8 -*-
+
+The template's encoding is determined by looking at the "<?xml?>" tag::
+
+<?xml coding="utf-8" ?>
+
+specifies UTF-8 encoding for the template. The tag itself will be stripped
+from the template and will not appear in the rendered page.
+
+You may also specify a default encoding for any scripts and templates to be
+read later during traversal. In a Python script, just do something like
+
+::
+
+    __request__.splitter.script_encoding = "utf-8"
+    __request__.splitter.template_encoding = "utf-8"
+
+A site-wide default can be set through options:
+
+:script_encoding:
+    Encoding of Python scripts found in input files, defaults to "ascii".
+
+:template_encoding:
+    Encoding of TAL templates found in input files, defaults to "ascii".
+
+Response encoding
+-----------------
+
+Ophelia uses unicode internally, but an HTTP response consists of one-byte
+characters, so some encoding has to be applied in the end. This encoding is
+automatically declared in the page's XML declaration as well as the response
+headers. By default, Ophelia encodes responses using UTF-8.
+
+To set the response encoding to, say, latin-1 for a particular resource, do
+
+::
+
+    __request__.response_encoding = "latin-1"
+
+in a script. To affect the response encoding site-wide, set an option:
+
+:response_encoding:
+    Encoding of the HTTP response body, default to "utf-8".
+
+
+Processing of the result
+------------------------
+
+By default, the page body is encoded with the response encoding and prefixed
+with an XML declaration before being returned by Request.build(). This can be
+prevented by an option if the returned value is going to be processed further
+instead of being sent directly to the client:
+
+:immediate_result:
+    Whether to use the unprocessed result of template evaluation as the
+    response content.
+
+
+Example configuration for the included WSGI server
+==================================================
+
+First of all, note that the wsgiref-based server may be usable for development
+but certainly not for production. Therefore, its configuration mechanism is
+rather simplistic. Create a configuration file, say, ``wsgiref.cfg``,
+containing one section named "DEFAULT" that holds all the settings::
+
+    [DEFAULT]
+    host = 127.0.0.1
+    port = 8080
+    template_root = /var/example/templates
+    site = http://localhost:8080/
+
+and run the ophelia-wsgiref script on that file::
+
+    $ ophelia-wsgiref wsgiref.cfg
+
+As the example shows, the wsgiref server needs two pieces of additional
+information:
+
+:host:
+    The network interface to bind to.
+
+:port:
+    The TCP port to listen at on that interface.
+
+
+Example paste configuration
+===========================
+
+The simplest possible paste configuration will just run the paste HTTP server
+on the Ophelia WSGI application, without any middleware. Create a file, say,
+``paste.ini``::
+
+    [server:main]
+    use = egg:paste#http
+    host = 127.0.0.1
+    port = 8080
+
+    [app:main]
+    use = egg:ophelia
+    set template_root = /var/example/templates
+    set document_root = /var/example/documents
+    set site = http://localhost:8080/
+
+and run a paste server from it::
+
+    $ paster serve paste.ini
+    Starting server in PID 12345.
+    serving on http://127.0.0.1:8080
+
+
+.. Local Variables:
+.. mode: rst
+.. End:

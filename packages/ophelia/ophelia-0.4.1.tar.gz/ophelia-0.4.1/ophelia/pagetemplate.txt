@@ -1,0 +1,184 @@
+======================
+Ophelia page templates
+======================
+
+Ophelia page templates are Zope3 page templates which provide some convenience
+of usage.
+
+API differences to Zope3 page templates
+=======================================
+
+For one thing, the template text is passed directly to the page template upon
+instantiation:
+
+>>> from ophelia.pagetemplate import PageTemplate
+>>> pt = PageTemplate("""<h1 tal:content="title" />""")
+>>> pt._text
+'<h1 tal:content="title" />'
+
+Optionally, a file path may be given that is stored for reference:
+
+>>> pt = PageTemplate("""<h1 tal:content="title" />""", "/tmp/asdf")
+>>> pt.pt_source_file()
+'/tmp/asdf'
+
+As another optional parameter, a tuple of line offset and row offset
+(defaulting to ``(0, 0)``) may be passed that describes the template's
+starting point in the file from which it was read. These offsets will be used
+by traceback supplements that refer to a position in the template.
+
+>>> pt.offset
+(0, 0)
+>>> pt = PageTemplate(
+...     """<h1 tal:content="title" />""", "/tmp/asdf", offset=(5, 7))
+>>> pt.offset
+(5, 7)
+
+In order to render the page template, call it, passing the variables that
+should be available in the TALES namespace. The call takes any number of
+namespaces and name=value pairs as arguments, where names given earlier may be
+overridden by names given later:
+
+>>> pt({"title": "A title"})
+u'<h1>A title</h1>'
+
+>>> pt(title="The same title")
+u'<h1>The same title</h1>'
+
+>>> pt({"title": "A title"}, {"title": "A different title"})
+u'<h1>A different title</h1>'
+
+>>> pt({"title": "A title"}, title="Yet another title")
+u'<h1>Yet another title</h1>'
+
+If the template can't be compiled, it raises an exception as soon as
+compilation is attempted, which is on instantiation as well as on any update:
+
+>>> pt = PageTemplate("""<h1 tal:asdf="title" />""")
+Traceback (most recent call last):
+ValueError: There were errors in the page template text.
+
+>>> pt = PageTemplate("")
+>>> pt.write("""<h1 tal:asdf="title" />""")
+Traceback (most recent call last):
+ValueError: There were errors in the page template text.
+
+
+Traceback supplements
+=====================
+
+If an Ophelia page template can't be compiled or evaluated, the traceback of
+the exception raised includes supplementary information which can be made
+visible using Zope3's exception formatter.
+
+If evaluation fails, the Zope page templates' traceback supplement which
+includes the source file path is rendered in the traceback's text
+representation:
+
+>>> import sys
+>>> from zope.exceptions.exceptionformatter import print_exception
+>>> pt = PageTemplate("""<h1 tal:content="title" />""", "/tmp/asdf")
+>>> try:
+...     pt()
+... except Exception:
+...     print_exception(file=sys.stdout, *sys.exc_info())
+Traceback (most recent call last):
+   ...
+   - /tmp/asdf
+   - Line 1, Column 0
+   - Expression: <PathExpr standard:'title'>
+   - Names:
+      ...
+KeyError: 'title'
+
+If the template can't be compiled, the source file path is included along with
+detailed information on what error caused the first failure and where in the
+template text the problem occurred:
+
+>>> try:
+...     pt = PageTemplate("""\
+...     </body>
+...     <h1 tal:asdf="title" />
+...     """, "/tmp/asdf")
+... except Exception:
+...     print_exception(file=sys.stdout, *sys.exc_info())
+Traceback (most recent call last):
+   ...
+   - /tmp/asdf
+   - Warning: Compilation failed
+   - Warning: zope.tal.htmltalparser.NestingError:
+              No tags are open to match </body>, at line 1, column 5
+   1:     </body>
+   ->      ^
+   2:     <h1 tal:asdf="title" />
+ValueError: There were errors in the page template text.
+
+If the template starts at an offset from the start of the file from which it
+was read, the line numbers printed in front of the error's context lines (but
+not the line number reported by the warning) will be shifted accordingly:
+
+>>> try:
+...     pt = PageTemplate("""\
+...     <body>
+...     <h1 tal:asdf="title" />
+...     </body>
+...     """, "/tmp/asdf", offset=(5, 0))
+... except Exception:
+...     print_exception(file=sys.stdout, *sys.exc_info())
+Traceback (most recent call last):
+   ...
+   - /tmp/asdf
+   - Warning: Compilation failed
+   - Warning: zope.tal.taldefs.TALError:
+              bad TAL attribute: 'asdf', at line 2, column 5
+   6:     <body>
+   7:     <h1 tal:asdf="title" />
+   ->      ^
+   8:     </body>
+ValueError: There were errors in the page template text.
+
+Since a template doesn't have to start at the beginning of a line of the file
+(for example, if it is preceded by an XML declaration), an error position in
+the first line of the template causes the display of that line and the error
+pointer to be shifted by the row offset:
+
+>>> try:
+...     pt = PageTemplate("""\
+...     <h1 tal:asdf="title" />
+...     <p>foobar</p>
+...     """, "/tmp/asdf", offset=(5, 7))
+... except Exception:
+...     print_exception(file=sys.stdout, *sys.exc_info())
+Traceback (most recent call last):
+   ...
+   - /tmp/asdf
+   - Warning: Compilation failed
+   - Warning: zope.tal.taldefs.TALError:
+              bad TAL attribute: 'asdf', at line 1, column 5
+   6: .......    <h1 tal:asdf="title" />
+   ->             ^
+   7:     <p>foobar</p>
+ValueError: There were errors in the page template text.
+
+
+Evaluation context
+==================
+
+As seen above, a context namespace is passed to a page template when calling
+it to render itself. In addition to those variables, the Python built-in None
+is available by the name "None":
+
+>>> pt = PageTemplate("""<hr tal:attributes="class None" />""")
+>>> pt()
+u'<hr />'
+
+That predefined variable "None" can be overridden (not that that would be a
+great idea):
+
+>>> pt({"None": "asdf"})
+u'<hr class="asdf" />'
+
+
+.. Local Variables:
+.. mode: rst
+.. End:
