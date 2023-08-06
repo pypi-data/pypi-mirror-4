@@ -1,0 +1,319 @@
+Tags
+====
+
+Tags are custom functions you are able to use in your templates. 
+They provide an easy way to extend templates with your own Python functions.
+Tags are registered in tagconfig.py file in the collective.easytemplate package.
+
+Easy Template comes with several useful tags out of the box and they are explained below.
+
+explore
+-------
+
+Dump object methods and variables for developer consumption.
+
+**Warning**. This tag is not multiuser safe.
+You want to disable this tag on production site, since it is a read priviledge escalation.
+
+Explore tag helps you to build scripts by exposing the variables and methods insde the objects.
+It prints a tabular output of available methods and variables.
+
+**Parameters**:
+
+*object*: Object to explore
+
+Show the guts of current Templated Document object::
+
+	{{ explore(context) }}
+	
+Show what we have available in the portal root::
+
+	{{ explore(portal) }}
+	
+Show what was returned by a function which returns a list - take the first element::
+
+	{{ explore(query({"portal_type":"Folder})[0]) }}
+
+
+query
+-----
+
+Return site objects based on search criteria.
+
+Query returns the list of site objects as returned by portal_catalog
+search. The objects are catalog brains: dictionaries containing 
+metadata ids as key.
+
+See ZMI portal_catalog tool for avaiable query index and returned metadata fields.
+
+Key-value pairs are taken as the parameters and they are directly passed to 
+the portal_catalog search.
+
+The output is limited by the current user permissions.
+
+**Parameters**:
+
+- *searchParameters*: Python dictionary of portal_catalog query parameters. index->query mappings. Bad index id does not seem to raise any kind of an error.
+
+**Return value**:
+
+- List of ZCatalog brain objects. Brain objects have methods getURL, getPath and getObject and dictionary look up for catalog metadata columns.
+
+**Examples**
+
+Return the three most fresh News Item objects sorted by date::
+
+	{{ query({"portal_type":"News Item","sort_on":"Date","sort_order":"reverse","sort_limit":3,"review_state":"published"}) }}
+	
+Return items in a particular folder::
+
+	{{ query({path={"query" : "/folder", depth: 0}}) }}
+		
+	
+For more information about possible query formats see `this old document <http://www.zope.org/Documentation/Books/ZopeBook/2_6Edition/SearchingZCatalog.stx>`_.
+
+view
+----
+
+Render a browser:page based view. If there is no registered view for id, return a placeholder string.
+
+Parameter *name*: View id, as it appears in browser/configure.zcml.
+
+Parameter *function*: Optional. View instance method name to be called. If omitted, __call__() is used.
+
+Example (render sitemap)::
+
+   {{ view("sitemap_view", "createSiteMap") }}
+
+
+viewlet
+-------
+
+Render a viewlet. 
+
+Parameter *name*: Viewlet id as it appears on portal_view_customizations ZMI page.
+
+Example::
+
+   {{ viewlet("portal.logo") }}
+
+provider
+--------
+
+This is equivalent of TAL provider expressin which is used to render viewlet and portlet managers.
+
+To render all the left column portlets call::
+
+	{{ provider("plone.leftcolumn") }}
+
+rss_feed
+--------
+
+The function reads RSS feed. You can iterate manually through entries
+and format the output. This is mostly suitable when dealing with HTML
+source code.
+
+**Parameters**
+
+- *url*: URL to RSS or RSS
+
+- *cache_timeout*: Optional, default value 60. Seconds how often the HTTP GET request should be performed.
+
+**Return**
+
+- List of dictionaries with following keys: *title*, *summary*, *url*, *updated* and *friendly_date*.
+
+Example (raw HTML edit)::
+
+	{% for entry rss_feed("http://blog.redinnovation.com/feed/") %}
+		<p>
+			<b>Title:</b> 	
+			<span>{{ entry.title }}
+		</p>
+		
+		<p>
+			<b>Summary:</b> 	
+			<span>{{ entry.summary }}
+		</p>		
+	{% endfor %}
+	
+plone.app.portlets.rss.RSSFeed is used as the RSS reader backend.
+	
+list_folder
+-----------
+
+List folder content and return the output as <ul> tag. Mostly suitable for 
+simple folder output generating. 
+
+The formatting options offered here are not particular powerful. 
+You might want to use query() tag for more powerful output formatting.
+
+**Parameters**
+
+- *folder*: The path to the listed folder. Same as the URI path on the site.
+
+- *title*: Render this title for the listing as a subheading
+
+- *filters*: portal_catalog query parameters to be applied for the output. See query() below for examples.
+
+- *exclude_self*: If True do not render context Templated Document in the outpput
+
+- *extra_items*: String of comma separated entries of URIs which are outside the target folder, but should be appended to the listing.
+
+**Example (create a course module listing from a course folder)**::
+
+	{{ list_folder("courses/marketing/cim-professional-certificate-in-marketing", title="Other modules in this course:", filters={ "portal_type" : "Module"}) }}
+	
+latest_news
+-----------
+
+Render list of latest published news from the site. Uses *collective.easytemplate.tags/latest_news.pt* template.
+
+latest_news also serves as an example how to drop a custom view into the visual editor.
+
+**Parameters**
+
+- *count*: How many items are rendered
+
+**Example**::
+
+	{{ latest_news(3) }}
+
+
+translate
+---------
+
+Translation catalog look up with an message id. 
+
+Translates the message to another language. The function assumes 
+the translation is available in gettext po files.
+
+**Parameters**
+
+- *message*: gettext msgid to translate
+
+- *domain*: gettext domain where the message belongs, optional, defaults to "plone"
+
+- *language*: target language code, e.g. fi, optional, defaults to the currently selected language
+
+- *default*: The default value to be displayed if the msgid is missing for the selected language
+
+**Return**
+
+- translated string
+
+Examples::
+
+	{{ translate("missing_id", default="Foobar")  }}
+	
+	{{ translate("box_more_news_link", "plone", "fi")  }}
+	
+	
+For available default Plone msgids, see `PloneTranslations product source <https://dev.plone.org/collective/browser/PloneTranslations/trunk/i18n>`_
+	
+current_language
+----------------
+
+Get the current language for the user.
+
+This enables conditional showing based on the language.
+
+**Parameters**
+
+- No parameters
+
+**Return**
+
+- The current language code as a string, e.g. "fi"
+
+Example::
+
+	{% if current_language() == "fi" %}
+		Paivaa
+	{% else %}
+		Hello
+	{% endif %}
+
+
+Advanced examples
+=================
+
+News & blog table
+-----------------
+
+The following snippet will create a table with two columns. The
+left column is filled with a summary and link to all published news on the site.
+The right column is filled with links to external blog entries, taken from 
+a RSS feed. The news query is language sensitive - only news for the 
+current active language are shown.
+
+Both columns are limited to three entries.
+
+The text is translated and when the default Plone translation catalogs
+lack suitable msgids, a custom translation catalog *twinapex* is used.
+
+This example must be put into unfiltered template input box,
+since Kupu seems to insert unwanted &nbsp; characters into the code.
+
+Example::
+
+	<table class="front-page two-column">
+		<tbody>
+			<tr>
+				<td class="column-2">
+					<h2>
+						<a href="{{ portal_url() }}/news">
+							{{ translate("news", "twinapex") }}						
+						</a>
+					</h2>					
+					{% for item in query({"portal_type":"News Item", "review_state" : "published", "sort_on":"Date", "sort_order":"reverse", "sort_limit":3}) %}
+						<div class="fp-item">
+							<a href="{{ item.getURL() }}">{{ item.Title }}</a>
+							<p>
+								{{ item.Description }}
+							</p>
+							
+							<p class="timestamp">{{ item.Date }}</p>
+						</div>
+					{% endfor %}
+					
+					<p class="more">
+						<a class="more" href="{{ portal_url() }}/news">
+							{{ translate("box_more_news_link", default="More news...") }}
+						</a>				
+					</p>
+				</td>
+				<td class="column-2">
+					<h2>
+						<a href="{{ portal_url() }}/news">
+							{{ translate("blog", "twinapex") }}
+						</a>
+					</h2>									
+					{% for item in rss_feed("http://blog.redinnovation.com/feed/")[0:3] %}
+						<div class="fp-item">
+							<a href="{{ item.url }}">{{ item.title }}</a>
+							<p class="timestamp">{{ item.friendly_date }}</p>						
+						</div>
+					{% endfor %}
+	
+					<p class="more">
+						<a class="more" href="http://blog.twinapex.fi">
+							{{ translate("box_morelink", default="More...") }}
+						</a>
+					</p>
+				</td>
+			</tr>
+		</tbody>
+	</table>
+
+Debugging tips
+--------------
+
+If the template compilation fails you might have made copy-paste errors.
+Please view the template in raw HTML mode to track down the errors:
+
+* HTML tags inside a template expression
+
+* Hard line breaks inside a template expression
+
+
