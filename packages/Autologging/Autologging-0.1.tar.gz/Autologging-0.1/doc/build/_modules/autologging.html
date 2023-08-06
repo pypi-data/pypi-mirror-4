@@ -1,0 +1,558 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>autologging &mdash; Autologging 0.1 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/haiku.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/print.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <script type="text/javascript" src="../_static/theme_extras.js"></script>
+    <link rel="top" title="Autologging 0.1 documentation" href="../index.html" />
+    <link rel="up" title="Module code" href="index.html" /> 
+  </head>
+  <body>
+      <div class="header"><h1 class="heading"><a href="../index.html">
+          <span>Autologging 0.1 documentation</span></a></h1>
+        <h2 class="heading"><span>autologging</span></h2>
+      </div>
+      <div class="topnav">
+      
+        <p>
+        <a class="uplink" href="../index.html">Contents</a>
+        </p>
+
+      </div>
+      <div class="content">
+        
+        
+  <h1>Source code for autologging</h1><div class="highlight"><pre>
+<span class="c"># -*- coding: utf-8 -*-</span>
+
+<span class="c"># Copyright (c) 2013 Matthew Zipay &lt;mattz@ninthtest.net&gt;</span>
+<span class="c">#</span>
+<span class="c"># Permission is hereby granted, free of charge, to any person obtaining a copy</span>
+<span class="c"># of this software and associated documentation files (the &quot;Software&quot;), to deal</span>
+<span class="c"># in the Software without restriction, including without limitation the rights</span>
+<span class="c"># to use, copy, modify, merge, publish, distribute, sublicense, and/or sell</span>
+<span class="c"># copies of the Software, and to permit persons to whom the Software is</span>
+<span class="c"># furnished to do so, subject to the following conditions:</span>
+<span class="c">#</span>
+<span class="c"># The above copyright notice and this permission notice shall be included in</span>
+<span class="c"># all copies or substantial portions of the Software.</span>
+<span class="c">#</span>
+<span class="c"># THE SOFTWARE IS PROVIDED &quot;AS IS&quot;, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR</span>
+<span class="c"># IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,</span>
+<span class="c"># FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE</span>
+<span class="c"># AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER</span>
+<span class="c"># LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,</span>
+<span class="c"># OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE</span>
+<span class="c"># SOFTWARE.</span>
+
+<span class="n">__author__</span> <span class="o">=</span> <span class="s">&quot;Matthew Zipay &lt;mattz@ninthtest.net&gt;&quot;</span>
+<span class="n">__version__</span> <span class="o">=</span> <span class="s">&quot;0.1&quot;</span>
+
+<span class="kn">from</span> <span class="nn">functools</span> <span class="kn">import</span> <span class="n">wraps</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s">&quot;logged&quot;</span><span class="p">,</span>
+    <span class="s">&quot;TRACE&quot;</span><span class="p">,</span>
+    <span class="s">&quot;traced&quot;</span><span class="p">,</span>
+    <span class="s">&quot;TracedMethods&quot;</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="c">#: A custom tracing log level, lower in severity than :py:data:`logging.DEBUG`.</span>
+<span class="c">#: Autologging :func:`traced` and :func:`TracedMethods` create log records</span>
+<span class="c">#: with this custom level.</span>
+<span class="n">TRACE</span> <span class="o">=</span> <span class="mi">1</span>
+<span class="n">logging</span><span class="o">.</span><span class="n">addLevelName</span><span class="p">(</span><span class="n">TRACE</span><span class="p">,</span> <span class="s">&quot;TRACE&quot;</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="logged"><a class="viewcode-back" href="../autologging.html#autologging.logged">[docs]</a><span class="k">def</span> <span class="nf">logged</span><span class="p">(</span><span class="n">obj</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Add a named logger member to a decorated class.</span>
+
+<span class="sd">    The logger member always has a dot-separated name consisting of the</span>
+<span class="sd">    parent logger&#39;s name, followed by a dot (&#39;.&#39;), followed by the class</span>
+<span class="sd">    name.</span>
+
+<span class="sd">    If *obj* is a :py:class:`class`, then ``obj.__logger`` will have</span>
+<span class="sd">    the logger name &quot;module-name.class-name&quot;:</span>
+
+<span class="sd">    &gt;&gt;&gt; @logged</span>
+<span class="sd">    ... class Test:</span>
+<span class="sd">    ...     pass</span>
+<span class="sd">    ... </span>
+<span class="sd">    &gt;&gt;&gt; Test._Test__logger.name</span>
+<span class="sd">    &#39;autologging.Test&#39;</span>
+
+<span class="sd">    If *obj* is a :py:class:`logging.Logger` object, then that logger is</span>
+<span class="sd">    treated as the parent logger and the decorated class&#39;s ``__logger``</span>
+<span class="sd">    member will have the logger name &quot;parent-logger-name.class-name&quot;:</span>
+
+<span class="sd">    &gt;&gt;&gt; _logger = logging.getLogger(&quot;test.parent&quot;)</span>
+<span class="sd">    &gt;&gt;&gt; @logged(_logger)</span>
+<span class="sd">    ... class Test:</span>
+<span class="sd">    ...     pass</span>
+<span class="sd">    ... </span>
+<span class="sd">    &gt;&gt;&gt; Test._Test__logger.name</span>
+<span class="sd">    &#39;test.parent.Test&#39;</span>
+
+<span class="sd">    .. note::</span>
+
+<span class="sd">        The logger member is made &quot;private&quot; (i.e. ``__logger`` with</span>
+<span class="sd">        double underscore) to ensure that log messages that include the</span>
+<span class="sd">        *%(name)s* format placeholder are written with the correct</span>
+<span class="sd">        name.</span>
+
+<span class="sd">        Consider a subclass of a ``@logged``-decorated parent class. If</span>
+<span class="sd">        the subclass were **not** decorated with ``@logged`` and could</span>
+<span class="sd">        access the parent&#39;s logger member directly to make logging</span>
+<span class="sd">        calls, those log messages would display the name of the</span>
+<span class="sd">        **parent** class, not the subclass. </span>
+
+<span class="sd">        Therefore, subclasses of a ``@logged``-decorated parent class</span>
+<span class="sd">        that wish to use a provided ``self.__logger`` object **must**</span>
+<span class="sd">        themselves be decorated with ``@logged``.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">logging</span><span class="o">.</span><span class="n">Logger</span><span class="p">)):</span>
+        <span class="c"># decorated as `@logged(logger)&#39; - use logger as parent</span>
+        <span class="k">def</span> <span class="nf">logged_decorator</span><span class="p">(</span><span class="n">class_</span><span class="p">):</span>
+            <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s">.</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">obj</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">class_</span><span class="o">.</span><span class="n">__name__</span><span class="p">))</span>
+            <span class="nb">setattr</span><span class="p">(</span><span class="n">class_</span><span class="p">,</span> <span class="s">&quot;_</span><span class="si">%s</span><span class="s">__logger&quot;</span> <span class="o">%</span> <span class="n">class_</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="n">logger</span><span class="p">)</span>
+            <span class="c">#class_.__logger = logging.getLogger(&quot;%s.%s&quot; % (obj.name,</span>
+            <span class="c">#                                               class_.__name__))</span>
+            <span class="k">return</span> <span class="n">class_</span>
+        <span class="k">return</span> <span class="n">logged_decorator</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c"># decorated as `@logged&#39; - use module logger as parent</span>
+        <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s">.</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">obj</span><span class="o">.</span><span class="n">__module__</span><span class="p">,</span> <span class="n">obj</span><span class="o">.</span><span class="n">__name__</span><span class="p">))</span>
+        <span class="nb">setattr</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="s">&quot;_</span><span class="si">%s</span><span class="s">__logger&quot;</span> <span class="o">%</span> <span class="n">obj</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="n">logger</span><span class="p">)</span>
+        <span class="c">#obj.__logger = logging.getLogger(&quot;%s.%s&quot; % (obj.__module__,</span>
+        <span class="c">#                                            obj.__name__))</span>
+        <span class="k">return</span> <span class="n">obj</span>
+
+</div>
+<div class="viewcode-block" id="traced"><a class="viewcode-back" href="../autologging.html#autologging.traced">[docs]</a><span class="k">def</span> <span class="nf">traced</span><span class="p">(</span><span class="n">obj</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Add call/return tracing to an unbound function.</span>
+
+<span class="sd">    .. warning::</span>
+
+<span class="sd">        This decorator will not quite work as expected (or may fail</span>
+<span class="sd">        entirely) for class methods. To automatically trace class</span>
+<span class="sd">        method call/return, please see the :class:`TracedMethods`</span>
+<span class="sd">        metaclass factory.</span>
+
+<span class="sd">    In the following example, tracing log messages are written to a</span>
+<span class="sd">    log whose channel defaults to the function&#39;s module name:</span>
+
+<span class="sd">    &gt;&gt;&gt; import sys</span>
+<span class="sd">    &gt;&gt;&gt; logging.basicConfig(level=TRACE, stream=sys.stdout)</span>
+<span class="sd">    &gt;&gt;&gt; @traced</span>
+<span class="sd">    ... def my_function(arg, keyword=None):</span>
+<span class="sd">    ...     return &quot;%s and %s&quot; % (arg, keyword)</span>
+<span class="sd">    ... </span>
+<span class="sd">    &gt;&gt;&gt; my_function(&quot;spam&quot;, keyword=&quot;eggs&quot;)</span>
+<span class="sd">    TRACE:autologging:CALL my_function *(&#39;spam&#39;,) **{&#39;keyword&#39;: &#39;eggs&#39;}</span>
+<span class="sd">    TRACE:autologging:RETURN my_function &#39;spam and eggs&#39;</span>
+<span class="sd">    &#39;spam and eggs&#39;</span>
+
+<span class="sd">    In the following example, tracing log messages are written to</span>
+<span class="sd">    a user-named log:</span>
+
+<span class="sd">    &gt;&gt;&gt; import sys</span>
+<span class="sd">    &gt;&gt;&gt; logging.basicConfig(level=TRACE, stream=sys.stdout)</span>
+<span class="sd">    &gt;&gt;&gt; _logger = logging.getLogger(&quot;test.ing&quot;)</span>
+<span class="sd">    &gt;&gt;&gt; @traced(_logger)</span>
+<span class="sd">    ... def my_function(arg, keyword=None):</span>
+<span class="sd">    ...     return &quot;%s and %s&quot; % (arg, keyword)</span>
+<span class="sd">    ... </span>
+<span class="sd">    &gt;&gt;&gt; my_function(&quot;spam&quot;, keyword=&quot;eggs&quot;)</span>
+<span class="sd">    TRACE:test.ing:CALL my_function *(&#39;spam&#39;,) **{&#39;keyword&#39;: &#39;eggs&#39;}</span>
+<span class="sd">    TRACE:test.ing:RETURN my_function &#39;spam and eggs&#39;</span>
+<span class="sd">    &#39;spam and eggs&#39;</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">logging</span><span class="o">.</span><span class="n">Logger</span><span class="p">)):</span>
+        <span class="c"># decorated as `@traced(logger)&#39; - log to logger</span>
+        <span class="n">logger</span> <span class="o">=</span> <span class="n">obj</span>
+        <span class="k">def</span> <span class="nf">traced_decorator</span><span class="p">(</span><span class="n">function</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">_make_function_tracer</span><span class="p">(</span><span class="n">function</span><span class="p">,</span> <span class="n">logger</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">traced_decorator</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c"># decorated as `@traced&#39; - log to module logger</span>
+        <span class="n">function</span> <span class="o">=</span> <span class="n">obj</span>
+        <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="n">function</span><span class="o">.</span><span class="n">__module__</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">_make_function_tracer</span><span class="p">(</span><span class="n">function</span><span class="p">,</span> <span class="n">logger</span><span class="p">)</span>
+
+</div>
+<span class="k">def</span> <span class="nf">_make_function_tracer</span><span class="p">(</span><span class="n">function</span><span class="p">,</span> <span class="n">logger</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Return a tracing proxy function for *function*.</span>
+
+<span class="sd">    *function* is assumed to be an unbound, module-level function.</span>
+
+<span class="sd">    *logger* is a :py:class:`logging.Logger` object to which tracing</span>
+<span class="sd">    messages will be sent.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">logger_proxy</span> <span class="o">=</span> <span class="n">_LoggerCallerProxy</span><span class="p">(</span><span class="n">logger</span><span class="p">,</span> <span class="n">function</span><span class="p">)</span>
+    <span class="nd">@wraps</span><span class="p">(</span><span class="n">function</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">autologging_function_trace</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">keywords</span><span class="p">):</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">logger_proxy</span><span class="o">.</span><span class="n">isEnabledFor</span><span class="p">(</span><span class="n">TRACE</span><span class="p">)):</span>
+            <span class="n">logger_proxy</span><span class="o">.</span><span class="n">autologging_call</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> *</span><span class="si">%r</span><span class="s"> **</span><span class="si">%r</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">function</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span>
+                                          <span class="n">args</span><span class="p">,</span> <span class="n">keywords</span><span class="p">)</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="n">function</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">keywords</span><span class="p">)</span>
+            <span class="n">logger_proxy</span><span class="o">.</span><span class="n">autologging_return</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> </span><span class="si">%r</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">function</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">value</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">function</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">keywords</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">autologging_function_trace</span>
+
+
+<div class="viewcode-block" id="TracedMethods"><a class="viewcode-back" href="../autologging.html#autologging.TracedMethods">[docs]</a><span class="k">def</span> <span class="nf">TracedMethods</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Return a metaclass that enables call/return tracing for methods.</span>
+
+<span class="sd">    Only methods named **explicitly** in *args* will be traced.</span>
+
+<span class="sd">    If the **first** item in *args* is a :py:class:`logging.Logger`,</span>
+<span class="sd">    then that logger is treated as the parent logger, and method tracers</span>
+<span class="sd">    will use a logger with the name &quot;parent-logger-name.class-name&quot;.</span>
+<span class="sd">    Otherwise, method tracers will use a logger with the name</span>
+<span class="sd">    &quot;module-name.class-name&quot;.</span>
+
+<span class="sd">    .. note::</span>
+
+<span class="sd">        Regardless of whether a logger was explicitly passed in or not,</span>
+<span class="sd">        the logger used by the tracers is **not** made available to the</span>
+<span class="sd">        class or its instances.</span>
+
+<span class="sd">        This allows for logging configurations where tracing is sent to</span>
+<span class="sd">        a separate file/target than logging. For such a configuration,</span>
+<span class="sd">        simply configure a logger specifically for tracing and pass that</span>
+<span class="sd">        logger as the first argument to ``TracedMethods``.</span>
+
+<span class="sd">        Also note that a class may be decorated by :func:`logged`</span>
+<span class="sd">        **and** use ``TracedMethods`` as a metaclass without conflict.</span>
+
+<span class="sd">    In the following example, tracing log messages are written to a</span>
+<span class="sd">    log whose channel defaults to &quot;module-name.class-name&quot;:</span>
+
+<span class="sd">    &gt;&gt;&gt; import sys</span>
+<span class="sd">    &gt;&gt;&gt; logging.basicConfig(level=TRACE, stream=sys.stdout)</span>
+<span class="sd">    &gt;&gt;&gt; class MyClass(object,</span>
+<span class="sd">    ...               metaclass=TracedMethods(&quot;my_staticmethod&quot;,</span>
+<span class="sd">    ...                                       &quot;my_classmethod&quot;,</span>
+<span class="sd">    ...                                       &quot;my_instancemethod&quot;)):</span>
+<span class="sd">    ...     @staticmethod</span>
+<span class="sd">    ...     def my_staticmethod(arg, keyword=None):</span>
+<span class="sd">    ...         return &quot;%s and %s&quot; % (arg, keyword)</span>
+<span class="sd">    ...     @classmethod</span>
+<span class="sd">    ...     def my_classmethod(cls, arg, keyword=None):</span>
+<span class="sd">    ...         return &quot;%s and %s&quot; % (arg, keyword)</span>
+<span class="sd">    ...     def my_instancemethod(self, arg, keyword=None):</span>
+<span class="sd">    ...         return &quot;%s and %s&quot; % (arg, keyword)</span>
+<span class="sd">    ... </span>
+<span class="sd">    &gt;&gt;&gt; MyClass.my_staticmethod(&quot;spam&quot;, keyword=&quot;eggs&quot;)</span>
+<span class="sd">    TRACE:autologging.MyClass:CALL MyClass.my_staticmethod *(&#39;spam&#39;,) **{&#39;keyword&#39;: &#39;eggs&#39;}</span>
+<span class="sd">    TRACE:autologging.MyClass:RETURN MyClass.my_staticmethod &#39;spam and eggs&#39;</span>
+<span class="sd">    &#39;spam and eggs&#39;</span>
+<span class="sd">    &gt;&gt;&gt; MyClass.my_classmethod(&quot;green eggs&quot;, keyword=&quot;ham&quot;)</span>
+<span class="sd">    TRACE:autologging.MyClass:CALL MyClass.my_classmethod *(&#39;green eggs&#39;,) **{&#39;keyword&#39;: &#39;ham&#39;}</span>
+<span class="sd">    TRACE:autologging.MyClass:RETURN MyClass.my_classmethod &#39;green eggs and ham&#39;</span>
+<span class="sd">    &#39;green eggs and ham&#39;</span>
+<span class="sd">    &gt;&gt;&gt; instance = MyClass()</span>
+<span class="sd">    &gt;&gt;&gt; instance.my_instancemethod(&quot;Batman&quot;, keyword=&quot;Robin&quot;)</span>
+<span class="sd">    TRACE:autologging.MyClass:CALL MyClass.my_instancemethod *(&#39;Batman&#39;,) **{&#39;keyword&#39;: &#39;Robin&#39;}</span>
+<span class="sd">    TRACE:autologging.MyClass:RETURN MyClass.my_instancemethod &#39;Batman and Robin&#39;</span>
+<span class="sd">    &#39;Batman and Robin&#39;</span>
+
+<span class="sd">    In the following example, tracing log messages are written to</span>
+<span class="sd">    a user-named log:</span>
+
+<span class="sd">    &gt;&gt;&gt; import sys</span>
+<span class="sd">    &gt;&gt;&gt; logging.basicConfig(level=TRACE, stream=sys.stdout)</span>
+<span class="sd">    &gt;&gt;&gt; _logger = logging.getLogger(&quot;test.ing&quot;)</span>
+<span class="sd">    &gt;&gt;&gt; class MyClass(object,</span>
+<span class="sd">    ...               metaclass=TracedMethods(_logger, &quot;my_staticmethod&quot;,</span>
+<span class="sd">    ...                                       &quot;my_classmethod&quot;,</span>
+<span class="sd">    ...                                       &quot;my_instancemethod&quot;)):</span>
+<span class="sd">    ...     @staticmethod</span>
+<span class="sd">    ...     def my_staticmethod(arg, keyword=None):</span>
+<span class="sd">    ...         return &quot;%s and %s&quot; % (arg, keyword)</span>
+<span class="sd">    ...     @classmethod</span>
+<span class="sd">    ...     def my_classmethod(cls, arg, keyword=None):</span>
+<span class="sd">    ...         return &quot;%s and %s&quot; % (arg, keyword)</span>
+<span class="sd">    ...     def my_instancemethod(self, arg, keyword=None):</span>
+<span class="sd">    ...         return &quot;%s and %s&quot; % (arg, keyword)</span>
+<span class="sd">    ... </span>
+<span class="sd">    &gt;&gt;&gt; MyClass.my_staticmethod(&quot;spam&quot;, keyword=&quot;eggs&quot;)</span>
+<span class="sd">    TRACE:test.ing.MyClass:CALL MyClass.my_staticmethod *(&#39;spam&#39;,) **{&#39;keyword&#39;: &#39;eggs&#39;}</span>
+<span class="sd">    TRACE:test.ing.MyClass:RETURN MyClass.my_staticmethod &#39;spam and eggs&#39;</span>
+<span class="sd">    &#39;spam and eggs&#39;</span>
+<span class="sd">    &gt;&gt;&gt; MyClass.my_classmethod(&quot;green eggs&quot;, keyword=&quot;ham&quot;)</span>
+<span class="sd">    TRACE:test.ing.MyClass:CALL MyClass.my_classmethod *(&#39;green eggs&#39;,) **{&#39;keyword&#39;: &#39;ham&#39;}</span>
+<span class="sd">    TRACE:test.ing.MyClass:RETURN MyClass.my_classmethod &#39;green eggs and ham&#39;</span>
+<span class="sd">    &#39;green eggs and ham&#39;</span>
+<span class="sd">    &gt;&gt;&gt; instance = MyClass()</span>
+<span class="sd">    &gt;&gt;&gt; instance.my_instancemethod(&quot;Batman&quot;, keyword=&quot;Robin&quot;)</span>
+<span class="sd">    TRACE:test.ing.MyClass:CALL MyClass.my_instancemethod *(&#39;Batman&#39;,) **{&#39;keyword&#39;: &#39;Robin&#39;}</span>
+<span class="sd">    TRACE:test.ing.MyClass:RETURN MyClass.my_instancemethod &#39;Batman and Robin&#39;</span>
+<span class="sd">    &#39;Batman and Robin&#39;</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">class</span> <span class="nc">TracingMeta</span><span class="p">(</span><span class="nb">type</span><span class="p">):</span>
+        <span class="k">def</span> <span class="nf">__new__</span><span class="p">(</span><span class="n">meta</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">bases</span><span class="p">,</span> <span class="n">dict_</span><span class="p">):</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">args</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">logging</span><span class="o">.</span><span class="n">Logger</span><span class="p">)):</span>
+                <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s">.</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">name</span><span class="p">))</span>
+                <span class="n">method_names</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s">.</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span>
+                                           <span class="p">(</span><span class="n">dict_</span><span class="p">[</span><span class="s">&quot;__module__&quot;</span><span class="p">],</span> <span class="n">name</span><span class="p">))</span>
+                <span class="n">method_names</span> <span class="o">=</span> <span class="n">args</span>
+
+            <span class="c"># replace each named method with a tracing proxy method</span>
+            <span class="k">for</span> <span class="n">method_name</span> <span class="ow">in</span> <span class="n">method_names</span><span class="p">:</span>
+                <span class="n">dict_</span><span class="p">[</span><span class="n">method_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">_make_method_tracer</span><span class="p">(</span><span class="n">name</span><span class="p">,</span>
+                                                         <span class="n">dict_</span><span class="p">[</span><span class="n">method_name</span><span class="p">],</span>
+                                                         <span class="n">logger</span><span class="p">)</span>
+            <span class="k">return</span> <span class="nb">super</span><span class="p">(</span><span class="n">TracingMeta</span><span class="p">,</span> <span class="n">meta</span><span class="p">)</span><span class="o">.</span><span class="n">__new__</span><span class="p">(</span><span class="n">meta</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">bases</span><span class="p">,</span> <span class="n">dict_</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">TracingMeta</span>
+
+</div>
+<span class="k">def</span> <span class="nf">_make_method_tracer</span><span class="p">(</span><span class="n">classname</span><span class="p">,</span> <span class="n">method</span><span class="p">,</span> <span class="n">logger</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Return a tracing proxy method for *method*.</span>
+
+<span class="sd">    *method* can be an instance method, :py:class:`classmethod`, or</span>
+<span class="sd">    :py:class:`staticmethod`.</span>
+
+<span class="sd">    *logger* is a :py:class:`logging.Logger` object to which tracing</span>
+<span class="sd">    messages will be sent.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">method</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">staticmethod</span><span class="p">):</span>
+        <span class="n">make_tracer</span> <span class="o">=</span> <span class="n">_make_staticmethod_tracer</span>
+    <span class="k">elif</span> <span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">method</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">classmethod</span><span class="p">):</span>
+        <span class="n">make_tracer</span> <span class="o">=</span> <span class="n">_make_classmethod_tracer</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">make_tracer</span> <span class="o">=</span> <span class="n">_make_instancemethod_tracer</span>
+    <span class="k">return</span> <span class="n">make_tracer</span><span class="p">(</span><span class="n">classname</span><span class="p">,</span> <span class="n">method</span><span class="p">,</span> <span class="n">logger</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">_make_instancemethod_tracer</span><span class="p">(</span><span class="n">classname</span><span class="p">,</span> <span class="n">method</span><span class="p">,</span> <span class="n">logger</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Return a tracing proxy instance method for *method*.</span>
+
+<span class="sd">    *classname* is the simple name of the class to which *method*</span>
+<span class="sd">    belongs.</span>
+
+<span class="sd">    *method* must be an instance method of the class named by</span>
+<span class="sd">    *classname*.</span>
+
+<span class="sd">    *logger* is a :py:class:`logging.Logger` object to which tracing</span>
+<span class="sd">    messages will be sent.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">logger_proxy</span> <span class="o">=</span> <span class="n">_LoggerCallerProxy</span><span class="p">(</span><span class="n">logger</span><span class="p">,</span> <span class="n">method</span><span class="p">)</span>
+    <span class="n">dotted_name</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s">.</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">classname</span><span class="p">,</span> <span class="n">method</span><span class="o">.</span><span class="n">__name__</span><span class="p">)</span>
+    <span class="nd">@wraps</span><span class="p">(</span><span class="n">method</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">autologging_instancemethod_trace</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">keywords</span><span class="p">):</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">logger_proxy</span><span class="o">.</span><span class="n">isEnabledFor</span><span class="p">(</span><span class="n">TRACE</span><span class="p">)):</span>
+            <span class="n">logger_proxy</span><span class="o">.</span><span class="n">autologging_call</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> *</span><span class="si">%r</span><span class="s"> **</span><span class="si">%r</span><span class="s">&quot;</span><span class="p">,</span>
+                                          <span class="n">dotted_name</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">keywords</span><span class="p">)</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="n">method</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">keywords</span><span class="p">)</span>
+            <span class="n">logger_proxy</span><span class="o">.</span><span class="n">autologging_return</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> </span><span class="si">%r</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">dotted_name</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">value</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">method</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">keywords</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">autologging_instancemethod_trace</span>
+
+
+<span class="k">def</span> <span class="nf">_make_classmethod_tracer</span><span class="p">(</span><span class="n">classname</span><span class="p">,</span> <span class="n">descriptor</span><span class="p">,</span> <span class="n">logger</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Return a tracing proxy :py:class:`classmethod` for *descriptor*.</span>
+
+<span class="sd">    *classname* is the simple name of the class to which *descriptor*</span>
+<span class="sd">    belongs.</span>
+
+<span class="sd">    *descriptor* must be a ``classmethod`` descriptor of the class named</span>
+<span class="sd">    by *classname*.</span>
+
+<span class="sd">    *logger* is a :py:class:`logging.Logger` object to which tracing</span>
+<span class="sd">    messages will be sent.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">function</span> <span class="o">=</span> <span class="n">descriptor</span><span class="o">.</span><span class="n">__get__</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="n">descriptor</span><span class="p">)</span>
+    <span class="n">logger_proxy</span> <span class="o">=</span> <span class="n">_LoggerCallerProxy</span><span class="p">(</span><span class="n">logger</span><span class="p">,</span> <span class="n">function</span><span class="p">)</span>
+    <span class="n">dotted_name</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s">.</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">classname</span><span class="p">,</span> <span class="n">function</span><span class="o">.</span><span class="n">__name__</span><span class="p">)</span>
+    <span class="nd">@wraps</span><span class="p">(</span><span class="n">function</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">autologging_classmethod_trace</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">keywords</span><span class="p">):</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">logger_proxy</span><span class="o">.</span><span class="n">isEnabledFor</span><span class="p">(</span><span class="n">TRACE</span><span class="p">)):</span>
+            <span class="n">logger_proxy</span><span class="o">.</span><span class="n">autologging_call</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> *</span><span class="si">%r</span><span class="s"> **</span><span class="si">%r</span><span class="s">&quot;</span><span class="p">,</span>
+                                          <span class="n">dotted_name</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">keywords</span><span class="p">)</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="n">function</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">keywords</span><span class="p">)</span>
+            <span class="n">logger_proxy</span><span class="o">.</span><span class="n">autologging_return</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> </span><span class="si">%r</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">dotted_name</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">value</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">function</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">keywords</span><span class="p">)</span>
+    <span class="k">return</span> <span class="nb">classmethod</span><span class="p">(</span><span class="n">autologging_classmethod_trace</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">_make_staticmethod_tracer</span><span class="p">(</span><span class="n">classname</span><span class="p">,</span> <span class="n">descriptor</span><span class="p">,</span> <span class="n">logger</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Return a tracing proxy :py:class:`staticmethod` for *descriptor*.</span>
+
+<span class="sd">    *classname* is the simple name of the class to which *descriptor*</span>
+<span class="sd">    belongs.</span>
+
+<span class="sd">    *descriptor* must be a ``staticmethod`` descriptor of the class</span>
+<span class="sd">    named by *classname*.</span>
+
+<span class="sd">    *logger* is a :py:class:`logging.Logger` object to which tracing</span>
+<span class="sd">    messages will be sent.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">function</span> <span class="o">=</span> <span class="n">descriptor</span><span class="o">.</span><span class="n">__get__</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="n">descriptor</span><span class="p">)</span>
+    <span class="n">logger_proxy</span> <span class="o">=</span> <span class="n">_LoggerCallerProxy</span><span class="p">(</span><span class="n">logger</span><span class="p">,</span> <span class="n">function</span><span class="p">)</span>
+    <span class="n">dotted_name</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s">.</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">classname</span><span class="p">,</span> <span class="n">function</span><span class="o">.</span><span class="n">__name__</span><span class="p">)</span>
+    <span class="nd">@wraps</span><span class="p">(</span><span class="n">function</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">autologging_staticmethod_trace</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">keywords</span><span class="p">):</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">logger_proxy</span><span class="o">.</span><span class="n">isEnabledFor</span><span class="p">(</span><span class="n">TRACE</span><span class="p">)):</span>
+            <span class="n">logger_proxy</span><span class="o">.</span><span class="n">autologging_call</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> *</span><span class="si">%r</span><span class="s"> **</span><span class="si">%r</span><span class="s">&quot;</span><span class="p">,</span>
+                                          <span class="n">dotted_name</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">keywords</span><span class="p">)</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="n">function</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">keywords</span><span class="p">)</span>
+            <span class="n">logger_proxy</span><span class="o">.</span><span class="n">autologging_return</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> </span><span class="si">%r</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">dotted_name</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">value</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">function</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">keywords</span><span class="p">)</span>
+    <span class="k">return</span> <span class="nb">staticmethod</span><span class="p">(</span><span class="n">autologging_staticmethod_trace</span><span class="p">)</span>
+
+
+<span class="k">class</span> <span class="nc">_LoggerCallerProxy</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">getLoggerClass</span><span class="p">()):</span>
+    <span class="sd">&quot;&quot;&quot;A subclass that uses caller information from a proxied function.</span>
+
+<span class="sd">    .. note::</span>
+
+<span class="sd">        Without this subclass, tracing log messages would report caller</span>
+<span class="sd">        information (filename, function name, etc.) of the proxy</span>
+<span class="sd">        function rather than of the prox**ied** function.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">logger</span><span class="p">,</span> <span class="n">proxied_function</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Impersonate *logger* and extract caller info from</span>
+<span class="sd">        *proxied_function*.</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">_LoggerCallerProxy</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="n">logger</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+                                                 <span class="n">level</span><span class="o">=</span><span class="n">logger</span><span class="o">.</span><span class="n">level</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__dict__</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">logger</span><span class="o">.</span><span class="n">__dict__</span><span class="p">)</span>
+
+        <span class="c"># __code__ was backported to 2.7, but just to be safe...</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">proxied_function</span><span class="p">,</span> <span class="s">&quot;func_code&quot;</span><span class="p">,</span>
+                       <span class="nb">getattr</span><span class="p">(</span><span class="n">proxied_function</span><span class="p">,</span> <span class="s">&quot;__code__&quot;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_autologging_co_filename</span> <span class="o">=</span> <span class="n">code</span><span class="o">.</span><span class="n">co_filename</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_autologging_co_firstlineno</span> <span class="o">=</span> <span class="n">code</span><span class="o">.</span><span class="n">co_firstlineno</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_autologging_co_lastlineno</span> <span class="o">=</span> <span class="n">_find_last_line_number</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_autologging_co_name</span> <span class="o">=</span> <span class="n">code</span><span class="o">.</span><span class="n">co_name</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">findCaller</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">autologging_findCaller</span>
+
+    <span class="k">def</span> <span class="nf">autologging_call</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Log a :data:`TRACE`-level message that a function is called.</span>
+
+<span class="sd">        The *msg*, *args*, and *kwargs* arguments are the same as for</span>
+<span class="sd">        :py:func:`logging.Logger.log` (but note that the literal string</span>
+<span class="sd">        &quot;CALL &quot; will be automatically prepended to *msg*).</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">isEnabledFor</span><span class="p">(</span><span class="n">TRACE</span><span class="p">)):</span>
+            <span class="n">msg</span> <span class="o">=</span> <span class="s">&quot;CALL &quot;</span> <span class="o">+</span> <span class="n">msg</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_autologging_f_lineno</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_autologging_co_firstlineno</span>
+            <span class="nb">super</span><span class="p">(</span><span class="n">_LoggerCallerProxy</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">TRACE</span><span class="p">,</span> <span class="n">msg</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">autologging_return</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Log a :data:`TRACE`-level message that a function returned.</span>
+
+<span class="sd">        The *msg*, *args*, and *kwargs* arguments are the same as for</span>
+<span class="sd">        :py:func:`logging.Logger.log` (but note that the literal string</span>
+<span class="sd">        &quot;RETURN &quot; will be automatically prepended to *msg*).</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">isEnabledFor</span><span class="p">(</span><span class="n">TRACE</span><span class="p">)):</span>
+            <span class="n">msg</span> <span class="o">=</span> <span class="s">&quot;RETURN &quot;</span> <span class="o">+</span> <span class="n">msg</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_autologging_f_lineno</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_autologging_co_lastlineno</span>
+            <span class="nb">super</span><span class="p">(</span><span class="n">_LoggerCallerProxy</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">TRACE</span><span class="p">,</span> <span class="n">msg</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">autologging_findCaller</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">keywords</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return caller information used to construct a</span>
+<span class="sd">        :py:class:`logging.LogRecord`.</span>
+
+<span class="sd">        This method replaces :py:func:`logging.Logger.findCaller` to</span>
+<span class="sd">        provide the filename, line number, and function name of a</span>
+<span class="sd">        proxied function. (This information would be otherwise</span>
+<span class="sd">        unavailable to a logger because it is inaccessible from</span>
+<span class="sd">        stack frames.)</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c"># keyword &#39;stack_info&#39; was added in Python 3.2</span>
+        <span class="n">rv</span> <span class="o">=</span> <span class="nb">super</span><span class="p">(</span><span class="n">_LoggerCallerProxy</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">findCaller</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">keywords</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_autologging_co_filename</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_autologging_f_lineno</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_autologging_co_name</span><span class="p">)</span> <span class="o">+</span> <span class="n">rv</span><span class="p">[</span><span class="mi">3</span><span class="p">:]</span>
+
+
+<span class="k">def</span> <span class="nf">_find_last_line_number</span><span class="p">(</span><span class="n">func_code</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Return the last line number of a function.</span>
+
+<span class="sd">    *func_code* is a :py:class:`types.CodeType` object (as obtained from</span>
+<span class="sd">    ``some_function.__code__`` or ``some_function.func_code``).</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">last_line_number</span> <span class="o">=</span> <span class="n">func_code</span><span class="o">.</span><span class="n">co_firstlineno</span>
+    <span class="c"># co_lnotab is a sequence of 2-byte offsets (address offset, line number</span>
+    <span class="c"># offset), each relative to the previous; we only care about the line</span>
+    <span class="c"># number offsets here, so start at index 1 and increment by 2</span>
+    <span class="n">i</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">func_code</span><span class="o">.</span><span class="n">co_lnotab</span><span class="p">,</span> <span class="nb">str</span><span class="p">)):</span>
+        <span class="c"># co_lnotab is str in Python 2</span>
+        <span class="k">while</span> <span class="p">(</span><span class="n">i</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">func_code</span><span class="o">.</span><span class="n">co_lnotab</span><span class="p">)):</span>
+            <span class="n">last_line_number</span> <span class="o">+=</span> <span class="nb">ord</span><span class="p">(</span><span class="n">func_code</span><span class="o">.</span><span class="n">co_lnotab</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
+            <span class="n">i</span> <span class="o">+=</span> <span class="mi">2</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c"># co_lnotab is bytes in Python 3</span>
+        <span class="k">while</span> <span class="p">(</span><span class="n">i</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">func_code</span><span class="o">.</span><span class="n">co_lnotab</span><span class="p">)):</span>
+            <span class="n">last_line_number</span> <span class="o">+=</span> <span class="n">func_code</span><span class="o">.</span><span class="n">co_lnotab</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+            <span class="n">i</span> <span class="o">+=</span> <span class="mi">2</span>
+    <span class="k">return</span> <span class="n">last_line_number</span>
+</pre></div>
+
+      </div>
+      <div class="bottomnav">
+      
+        <p>
+        <a class="uplink" href="../index.html">Contents</a>
+        </p>
+
+      </div>
+
+    <div class="footer">
+        &copy; Copyright 2013, Matthew Zipay.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>
