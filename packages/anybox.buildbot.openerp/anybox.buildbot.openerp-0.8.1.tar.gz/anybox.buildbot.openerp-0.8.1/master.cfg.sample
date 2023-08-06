@@ -1,0 +1,104 @@
+# -*- python -*-
+# ex: set syntax=python:
+
+# This is the buildmaster config file for openerp buildout setups.
+# It must be installed as 'master.cfg' in your buildmaster's base directory.
+# It depends on anybox.buildout.openerp to create the configuration from
+# some other external files, which are supposed to be in base directory as
+# well.
+# Afterwards, the configuration dict can still be worked upon accorded to
+# buildbot standards.
+
+# Troubleshooting: to run buildbot in console with pdb
+#     $ twistd -b -y buildbot.tac
+# (http://trac.buildbot.net/wiki/DebuggingBuildbotWithPDB),
+# of course you need the twistd from the virtualenv
+
+# This is the dictionary that the buildmaster pays attention to. We also use
+# a shorter alias to save typing.
+c = BuildmasterConfig = {}
+
+# anybox.buildbot.openerp bootstrapping.
+
+# It would also possible to use several buildouts directories here, by passing
+# a list as manifest_paths keyword argument in configure_from_buildouts
+from anybox.buildbot.openerp import configure_from_buildouts
+configure_from_buildouts(basedir, BuildmasterConfig)
+
+# 'slavePortnum' defines the TCP port to listen on for connections from slaves.
+# This must match the value configured into the buildslaves (with their
+# --master option)
+c['slavePortnum'] = 9989
+
+####### CHANGESOURCES
+from anybox.buildbot.openerp.changes import SharedPBChangeSource
+
+# here repeating the manifest_paths in constructor is  mandatory if you
+# passed them to the configurator
+c['change_source'] = SharedPBChangeSource(port=9989, user='local',
+                                          passwd='local')
+
+####### SCHEDULERS
+
+from buildbot.schedulers.forcesched import ForceScheduler
+from buildbot.schedulers.forcesched import FixedParameter
+from buildbot.schedulers.forcesched import UserNameParameter
+
+c['schedulers'].append(ForceScheduler(
+        name='force',
+        revision=FixedParameter(name="revision", default=""),
+        repository=FixedParameter(name="repository", default=""),
+        project=FixedParameter(name="repository", default=""),
+        username=UserNameParameter(label="your name:<br>", size=80),
+        builderNames=[builder.name for builder in c['builders']],
+        ))
+
+####### STATUS TARGETS
+
+# 'status' is a list of Status Targets. The results of each build will be
+# pushed to these targets. buildbot/status/*.py has a variety to choose from,
+# including web pages, email senders, and IRC bots.
+
+c['status'] = []
+
+from buildbot.status import html
+from buildbot.status.web import authz, auth
+
+authz_cfg=authz.Authz(
+    # change any of these to True to enable; see the manual for more
+    # options
+    auth=auth.BasicAuth([("admin","admin")]), # GR TODO external or LDAP
+    gracefulShutdown = False,
+    forceBuild = True,
+    forceAllBuilds = False,
+    pingBuilder = False,
+    stopBuild = 'auth',
+    stopAllBuilds = False,
+    cancelPendingBuild = False,
+)
+c['status'].append(html.WebStatus(http_port=8010, authz=authz_cfg))
+
+####### PROJECT IDENTITY
+
+# the 'title' string will appear at the top of this buildbot
+# installation's html.WebStatus home page (linked to the
+# 'titleURL') and is embedded in the title of the waterfall HTML page.
+
+c['title'] = "Anybox openerp buildbot"
+c['titleURL'] = "http://anybox.fr"
+
+# the 'buildbotURL' string should point to the location where the buildbot's
+# internal web server (usually the html.WebStatus page) is visible. This
+# typically uses the port number set in the Waterfall 'status' entry, but
+# with an externally-visible host name which the buildbot cannot figure out
+# without some help.
+
+c['buildbotURL'] = "http://localhost:8010/" # TODO
+
+####### DB URL
+
+c['db'] = {
+    # This specifies what database buildbot uses to store its state.  You can leave
+    # this at its default for all but the largest installations.
+    'db_url' : "sqlite:///state.sqlite",
+}
