@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+#set -x
+
+# force a friendly umask
+umask 002
+
+# Runs on Linux
+#################################
+## GMVAULT Distribution home directory
+#################################
+#to be used on linux in case perl is not present ?
+#CDIR=`dirname "$(readlink -f $0)"`
+ABSPATH="$(perl -e "use Cwd 'abs_path'; print abs_path('$0')")"
+CDIR=`dirname "$ABSPATH"`
+HERE=$(unset CDPATH; cd "$CDIR"; pwd)
+GMVAULT_HOME=$(unset CDPATH; cd "$HERE/.."; pwd)
+
+#set trap to remove temp file
+trap "rm -f /tmp/gmvault.bootstrap.$$" EXIT
+
+#################################
+## setup PYTHON_BIN
+#################################
+#look as if it was the packaged binary distribution
+if [ -f "$GMVAULT_HOME/lib/python-lib/bin/python" ]; then
+    PYTHON_BIN="$GMVAULT_HOME/lib/python-lib/bin/python"
+    export PYTHONPATH="$GMVAULT_HOME/lib:$PYTHONPATH"
+    #set pythonhome but it should not be necessary
+    export PYTHONHOME="$GMVAULT_HOME/lib/python-lib"
+
+elif [ -f "$GMVAULT_HOME/bin/python" ]; then
+    #installed from src distribution (python bin is in the same dir as gmvault script)
+    PYTHON_BIN="$GMVAULT_HOME/bin/python"
+
+else
+    #look for python2.7 first otherwise try python2.6
+    PYTHON_BIN=`which python2.7 2>/dev/null`
+    if [ ! $PYTHON_BIN ]; then
+       PYTHON_BIN=`which python2.6 2>/dev/null`
+    fi 
+
+    echo "Odd. Use default python2.7.x or 2.6.x distribution."
+fi
+
+if [ ! "$PYTHON_BIN" ] || [ ! -f "$PYTHON_BIN" ]; then
+    echo "Error: Cannot find the python executable to set env var PYTHON_BIN."
+    echo "Please check where your python binary is."
+    exit 1
+fi
+
+###################################
+## create bootstrap and launch program
+## the bootstrap is always under
+## /tmp/rnpicker.bootstrap
+###################################
+
+# keep args in variables
+ARGS="$@"
+
+cat > /tmp/gmvault.bootstrap.$$ << EOF
+import gmv.gmv_cmd as runner
+runner.bootstrap_run()
+EOF
+
+#call gmvault bootstrap
+"$PYTHON_BIN" /tmp/gmvault.bootstrap.$$ "$@"
+res="$?"
+
+exit $res
