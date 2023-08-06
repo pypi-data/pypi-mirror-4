@@ -1,0 +1,328 @@
+Metadata-Version: 1.1
+Name: z3c.preference
+Version: 0.5
+Summary: UI for zope.preference using z3c.pagelet and z3c.form.
+Home-page: http://pypi.python.org/pypi/z3c.preference
+Author: Michael Howitz
+Author-email: zope-dev@zope.org
+License: ZPL 2.1
+Description: This packages provides a user interface for `zope.preference` using
+        `z3c.pagelet` and `z3c.form`.
+        
+        
+        .. contents::
+        
+        Changes
+        =======
+        
+        
+        0.5 (2013-03-09)
+        ----------------
+        
+        - Sorting preferences in ``CategoryEditForm`` by their `id` to stabialize
+          sort order.
+        
+        
+        0.4 (2012-04-20)
+        ----------------
+        
+        - Descriptions of preference groups are now rendered in the ``group-header``
+          slot of the form above the error messages for the group.
+        
+        - Fixed description of version `0.3`, it actually added descriptions for
+          preference categories, not preference groups.
+        
+        
+        0.3 (2012-03-15)
+        ----------------
+        
+        - Descriptions of preference categories are now rendered in the
+          ``extra-info`` slot of the form.
+        
+        
+        0.2 (2012-02-23)
+        ----------------
+        
+        - Added form for preference categories, see `Editing preference group trees`_.
+        
+        
+        0.1.1 (2010-07-17)
+        ------------------
+        
+        - Documented preconditions to use this package, see `Using
+          z3c.preference`_.
+        
+        0.1.0 (2010-07-10)
+        ------------------
+        
+        - Initial Release.
+        
+        
+        Overview
+        ========
+        
+        ``z3c.preference`` renders forms in the browser for the preference
+        sets which were defined using zope.preference_.
+        
+        .. _zope.preference: http://pypi.python.org/pypi/zope.preference
+        
+        Using z3c.preference
+        ====================
+        
+        There are some preconditions to use `z3c.preference`:
+        
+        * The views for the ``++preferences++`` namespace are registered for
+          the layer ``z3c.preference.interfaces.IPreferenceLayer``. So you
+          have to add this interface to the browser layer of your application.
+        
+        * Only users having the permission ``z3c.preference.EditPreference``
+          are allowed to access the the preference views. So you have to add this
+          permission to the users resp. roles which should be able to access
+          the preferences views.
+        
+        Editing preferences
+        ===================
+        
+        Set up for tests
+        ----------------
+        
+        At first we have to define a preference interface:
+        
+          >>> import zope.interface
+          >>> import zope.schema
+          >>> class IBackEndSettings(zope.interface.Interface):
+          ...     """Backend User Preferences"""
+          ...
+          ...     email = zope.schema.TextLine(
+          ...         title=u"E-mail Address",
+          ...         description=u"E-mail address used to send notifications")
+          ...
+          ...     skin = zope.schema.Choice(
+          ...         title=u"Skin",
+          ...         description=u"The skin that should be used for the back end.",
+          ...         values=['Hipp', 'Lame', 'Basic'],
+          ...         default='Basic')
+          ...
+          ...     showLogo = zope.schema.Bool(
+          ...         title=u"Show Logo",
+          ...         description=u"Specifies whether the logo should be displayed.",
+          ...         default=True)
+        
+        The interface must be registered for preferences:
+        
+          >>> from zope.configuration import xmlconfig
+          >>> import zope.preference
+          >>> context = xmlconfig.file('meta.zcml', zope.preference)
+        
+          >>> context = xmlconfig.string('''
+          ...     <configure
+          ...         xmlns="http://namespaces.zope.org/zope"
+          ...         i18n_domain="test">
+          ...
+          ...       <preferenceGroup
+          ...           id="BackEndSettings"
+          ...           title="Back End Settings"
+          ...           schema="z3c.preference.README.IBackEndSettings"
+          ...           />
+          ...
+          ...     </configure>''', context)
+        
+        
+        To access the forms a browser is needed, the user must be authorized as
+        the preferences are stored in the principal annotations:
+        
+        >>> from zope.app.wsgi.testlayer import Browser
+        >>> browser = Browser()
+        >>> browser.addHeader('Authorization', 'Basic mgr:mgrpw')
+        
+        
+        Editing preferences using browser
+        ---------------------------------
+        
+        There is a namespace to access the preferences. On the page a form is
+        displayed which shows the default values:
+        
+        >>> browser.open('http://localhost/++preferences++/BackEndSettings')
+        >>> browser.getControl('E-mail Address').value
+        ''
+        >>> browser.getControl('Skin').displayValue
+        ['Basic']
+        >>> browser.getControl('yes').selected
+        True
+        >>> browser.getControl('no').selected
+        False
+        
+        The values can be changed and submitting the form makes them persistent:
+        
+        >>> browser.getControl('E-mail Address').value = 'me@example.com'
+        >>> browser.getControl('Skin').displayValue = ['Hipp']
+        >>> browser.getControl('no').click()
+        >>> browser.getControl('Apply').click()
+        
+        After submitting the form gets displayed again and shows the changed values:
+        
+        >>> 'Data successfully updated.' in browser.contents
+        True
+        >>> browser.getControl('E-mail Address').value
+        'me@example.com'
+        >>> browser.getControl('Skin').displayValue
+        ['Hipp']
+        >>> browser.getControl('no').selected
+        True
+        
+        
+        Editing preference group trees
+        ==============================
+        
+        `zope.preference` has the concept of `preference group trees`_ and
+        `preference categories` to group preferences.
+        
+        .. _`preference group trees`: http://pypi.python.org/pypi/zope.preference#preference-group-trees
+        
+        If a `preference category` is displayed using `z3c.preference` automatically
+        all `preference groups` belonging to the category are rendered as groups in the
+        edit form (aka ``GroupForm``).
+        
+        **Note:** Currently only the preference category and its *direct* children
+        are rendered in the tree.
+        
+        
+        Set up
+        ------
+        
+        At first we have to define some preference interfaces presenting the tree. In
+        this example we think of a web application with some areas:
+        
+          >>> import zope.interface
+          >>> import zope.schema
+          >>> class IGeneralSettings(zope.interface.Interface):
+          ...     """General preferences"""
+          ...
+          ...     language = zope.schema.Choice(
+          ...         title=u"Language",
+          ...         description=u"The language which should be used for display.",
+          ...         values=['German', 'English', 'Russian'],
+          ...         default='German')
+        
+          >>> class IRSSSettings(zope.interface.Interface):
+          ...     """Preferences for the RSS area of the application."""
+          ...
+          ...     number = zope.schema.Int(
+          ...         title=u"Item count",
+          ...         description=u"Maximum number of items in each feed.")
+        
+          >>> class ISearchSettings(zope.interface.Interface):
+          ...     """Preferences for the search area of the application."""
+          ...
+          ...     store_searches = zope.schema.Bool(
+          ...         title=u"Store searches?",
+          ...         description=u"Should searches be kept for later use?",
+          ...         default=True)
+        
+        The interfaces must be registered for preferences:
+        
+          >>> from zope.configuration import xmlconfig
+          >>> import zope.preference
+          >>> context = xmlconfig.file('meta.zcml', zope.preference)
+        
+          >>> context = xmlconfig.string('''
+          ...     <configure
+          ...         xmlns="http://namespaces.zope.org/zope"
+          ...         i18n_domain="test">
+          ...
+          ...       <preferenceGroup
+          ...           id="app"
+          ...           title="General Settings"
+          ...           description="Settings for the whole app"
+          ...           schema="z3c.preference.categories.IGeneralSettings"
+          ...           category="true"
+          ...           />
+          ...
+          ...       <preferenceGroup
+          ...           id="app.search"
+          ...           title="Search Settings"
+          ...           schema="z3c.preference.categories.ISearchSettings"
+          ...           category="false"
+          ...           />
+          ...
+          ...       <preferenceGroup
+          ...           id="app.rss"
+          ...           title="RSS Settings"
+          ...           description="Settings for the RSS feeds"
+          ...           schema="z3c.preference.categories.IRSSSettings"
+          ...           category="false"
+          ...           />
+          ...
+          ...     </configure>''', context)
+        
+        
+        To access the forms a browser is needed, the user must be authorized as
+        the preferences are stored in the principal annotations:
+        
+        >>> from zope.app.wsgi.testlayer import Browser
+        >>> browser = Browser()
+        >>> browser.addHeader('Authorization', 'Basic mgr:mgrpw')
+        
+        The form displays the titles and descriptions of the categories:
+        
+        >>> browser.open('http://localhost/++preferences++/app')
+        >>> print browser.contents
+        <!DOCTYPE ...
+        ...General Settings...
+        ...Settings for the whole app...
+        ...RSS Settings...
+        ...Settings for the RSS feeds...
+        ...Search Settings...
+        
+        Editing preference group trees using browser
+        --------------------------------------------
+        
+        There is a namespace to access the preferences. On the page a form is
+        displayed which shows the default values:
+        
+        >>> browser.open('http://localhost/++preferences++/app')
+        >>> browser.getControl('Language').displayValue
+        ['German']
+        >>> browser.getControl('Item count').value
+        ''
+        >>> browser.getControl('yes').selected
+        True
+        >>> browser.getControl('no').selected
+        False
+        
+        The values can be changed and submitting the form makes them persistent:
+        
+        >>> browser.getControl('Language').displayValue = ['English']
+        >>> browser.getControl('Item count').value = '20'
+        >>> browser.getControl('no').click()
+        >>> browser.getControl('Apply').click()
+        
+        After submitting the form gets displayed again and shows the changed values:
+        
+        >>> 'Data successfully updated.' in browser.contents
+        True
+        >>> browser.getControl('Language').displayValue
+        ['English']
+        >>> browser.getControl('Item count').value
+        '20'
+        >>> browser.getControl('no').selected
+        True
+        
+        
+        To do
+        =======
+        
+        - Document how to use it in own projects. (ZCML and skin)
+        
+Keywords: zope3 bluebream z3c preference ui
+Platform: UNKNOWN
+Classifier: Development Status :: 3 - Alpha
+Classifier: Environment :: Web Environment
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved
+Classifier: License :: OSI Approved :: Zope Public License
+Classifier: Programming Language :: Python
+Classifier: Natural Language :: English
+Classifier: Operating System :: OS Independent
+Classifier: Topic :: Internet :: WWW/HTTP
+Classifier: Framework :: Zope3
