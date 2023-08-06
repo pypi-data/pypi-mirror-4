@@ -1,0 +1,407 @@
+=======================
+Resource Minifiy Recipe
+=======================
+
+The p01.recipe.cdn offers different minify scripts for minify javascript and
+CSS resource files based on a buildout recipe setup.
+
+
+Minify and CDN
+--------------
+
+Normaly you will minify such resources before you register them as CDN
+resources. See p01.cdn and p01.recipe.cdn for more information about 
+content delivery network resources.
+
+
+p01.recipe.cdn:minify
+---------------------
+
+Options
+~~~~~~~
+
+The 'minify' recipe accepts the following options:
+
+eggs
+  The names of one or more eggs, with their dependencies that should
+  be included in the Python path of the generated scripts.
+
+header
+  The header sting get included as is at the top of the output file. This could
+  be usefull for include zrt-resource comments or license information.
+  Note: the header is written to the output as given whcih means you don't
+  have to forget to quote comments or license info.
+  Note: quote a single $ as $$
+
+lib
+  The library name use for minify the source file(s). Currently the following
+  python libraries from pypi are supported:
+
+  jsmin: http://pypi.python.org/pypi/jsmin
+  lpjsmin: http://pypi.python.org/pypi/lpjsmin
+  slimit: http://pypi.python.org/pypi/slimit
+  cssmin: http://pypi.python.org/pypi/cssmin
+
+  You can define the used version of the minify library with buildout using
+  the versions section as usual since the library itself will get installed
+  within the recipe too. The library dependencies get injected by the buildout
+  recipe. This means you don't have to define any additional egg.
+
+  Note: jsmin removes all comments, iclude zrt-resource or license info with
+  the header argument, see above for more info about header
+
+  Note: cssmin, keps comments as is if you use an ! marker after the *
+  e.g. /*! comment */
+
+files
+  One or more source file path which will get minified. If more the one file
+  path is defined they will get bundeled into one file in the given order.
+  
+  You can define a relative path starting in your pacakge development root
+  location (normaly starting with src) e.g. src/my/package/js/my.js
+  Or you can define a relative path prefixed with a package name wraped with
+  brackets [] followed with an empty space and a relativ path to the resource
+  file e.g. [j01.dialog] js/j01.dialog.js
+
+libs
+  A list of filename, library name. Each file get minified using the given
+  library. if not defined the minify library defined in ``lib`` get used
+  e.g.
+  lib = jsmin
+  files = [j01.dialog] js/j01.dialog.js
+          [my.project] my/project/js/bar.js
+          [my.project] my/project/js/foo.js
+  libs = bar.js lpjsmin
+         foo.js slimit
+
+skip
+  file names listed in skip argupment will not get minified but included in
+  the given order
+
+output
+  The path where the minified file should get stored. Previous generated files
+  will get overriden.
+
+environment (optional)
+  The environement if needed by your application code loaded by zcml. If an
+  environment defines P01_CDN_URI or P01_CDN_URI_* keys the uri or uris
+  argument can get used for override them in the given environment.
+
+
+jsmin
+-----
+
+Lets define some (bogus) eggs and minification sources that we can use in our
+buildout:
+
+  >>> mkdir('demo')
+  >>> write('demo', 'setup.py',
+  ... '''
+  ... from setuptools import setup
+  ... setup(name = 'demo')
+  ... ''')
+
+  >>> write('foo.js',
+  ... '''
+  ... foo function() {
+  ...     alert("demo");
+  ... }
+  ... ''')
+
+  >>> write('demo', 'bar.js',
+  ... '''
+  ... foo function() {
+  ...     alert("demo");
+  ... }
+  ... ''')
+
+  >>> write('foo.css',
+  ... '''
+  ... #title {
+  ...     font-weight: bold;
+  ... }
+  ... .desription {
+  ...     font-size: 12px;
+  ... }
+  ... ''')
+
+  >>> write('demo', 'bar.css',
+  ... '''
+  ... #subtitle {
+  ...     font-weight: bold;
+  ... }
+  ... .more {
+  ...     font-size: 12px;
+  ... }
+  ... ''')
+
+We'll create a `buildout.cfg` file that defines our application:
+
+  >>> write('buildout.cfg',
+  ... '''
+  ... [buildout]
+  ... develop = demo
+  ... parts = jsmin
+  ...
+  ... [jsmin]
+  ... recipe = p01.recipe.cdn:minify
+  ... eggs = demo
+  ... files = foo.js
+  ...         [demo] bar.js
+  ... output = demo.js
+  ... lib = jsmin
+  ...
+  ... ''' % globals())
+
+Now, Let's run the buildout and see what we get:
+
+  >>> print system(join('bin', 'buildout')),
+  Develop: '/sample-buildout/demo'
+  Installing jsmin.
+  Generated script '/sample-buildout/bin/jsmin'.
+  ...
+
+The bin folder contains the new generated minify script:
+
+  >>> ls('bin')
+  -  buildout-script.py
+  -  buildout.exe
+  -  jsmin-script.py
+  -  jsmin.exe
+
+The minify-script.py contains the minification script code. This means you can
+run the minify script if you need them witout to run buildout again. You only
+need to generate the script again if you change your minify sources:
+
+  >>> cat('bin', 'jsmin-script.py')
+  import sys
+  sys.path[0:0] = [
+      ...
+      ]
+  import os
+  sys.argv[0] = os.path.abspath(sys.argv[0])
+  import p01.recipe.cdn.minify
+  if __name__ == '__main__':
+      sys.exit(p01.recipe.cdn.minify.main(['jsmin', '', '/sample-buildout/demo.js', [('foo.js', '/sample-buildout/foo.js'), ('bar.js', '/sample-buildout/demo/bar.js')], [], [], '', '', '']))
+
+lpjsmin
+-------
+
+Now let's test the js minification based on lpjsmin:
+
+  >>> write('buildout.cfg',
+  ... '''
+  ... [buildout]
+  ... develop = demo
+  ... parts = lpjsmin
+  ...
+  ... [lpjsmin]
+  ... recipe = p01.recipe.cdn:minify
+  ... eggs = demo
+  ... files = foo.js
+  ...         [demo] bar.js
+  ... output = demo.js
+  ... lib = lpjsmin
+  ...
+  ... ''' % globals())
+
+Now, Let's run the buildout and see what we get:
+
+  >>> print system(join('bin', 'buildout')),
+  Develop: '/sample-buildout/demo'
+  Uninstalling jsmin.
+  Installing lpjsmin.
+  Generated script '/sample-buildout/bin/lpjsmin'.
+  ...
+
+The bin folder contains the new generated minify script:
+
+  >>> ls('bin')
+  -  buildout-script.py
+  -  buildout.exe
+  -  lpjsmin-script.py
+  -  lpjsmin.exe
+
+Check the minification script:
+
+  >>> cat('bin', 'lpjsmin-script.py')
+  <BLANKLINE>
+  import sys
+  sys.path[0:0] = [
+      ...
+      ]
+  import os
+  sys.argv[0] = os.path.abspath(sys.argv[0])
+  import p01.recipe.cdn.minify
+  if __name__ == '__main__':
+      sys.exit(p01.recipe.cdn.minify.main(['lpjsmin', '', '/sample-buildout/demo.js', [('foo.js', '/sample-buildout/foo.js'), ('bar.js', '/sample-buildout/demo/bar.js')], [], [], '', '', '']))
+
+slimit
+------
+
+Now let's test the js minification based on slimit:
+
+  >>> write('buildout.cfg',
+  ... '''
+  ... [buildout]
+  ... develop = demo
+  ... parts = slimit
+  ...
+  ... [slimit]
+  ... recipe = p01.recipe.cdn:minify
+  ... eggs = demo
+  ... files = foo.js
+  ...         [demo] bar.js
+  ... output = demo.js
+  ... lib = slimit
+  ...
+  ... ''' % globals())
+
+Now, Let's run the buildout and see what we get:
+
+  >>> print system(join('bin', 'buildout')),
+  Develop: '/sample-buildout/demo'
+  Uninstalling lpjsmin.
+  Installing slimit.
+  Generated script '/sample-buildout/bin/slimit'.
+  ...
+
+The bin folder contains the new generated minify script:
+
+  >>> ls('bin')
+  -  buildout-script.py
+  -  buildout.exe
+  -  slimit-script.py
+  -  slimit.exe
+
+Check the minification script:
+
+  >>> cat('bin', 'slimit-script.py')
+  import sys
+  sys.path[0:0] = [
+    ...
+    ]
+  import os
+  sys.argv[0] = os.path.abspath(sys.argv[0])
+  import p01.recipe.cdn.minify
+  if __name__ == '__main__':
+      sys.exit(p01.recipe.cdn.minify.main(['slimit', '', '/sample-buildout/demo.js', [('foo.js', '/sample-buildout/foo.js'), ('bar.js', '/sample-buildout/demo/bar.js')], [], [], '', '', '']))
+
+cssmin
+------
+
+Now let's test the css minification based on cssmin:
+
+  >>> write('buildout.cfg',
+  ... '''
+  ... [buildout]
+  ... develop = demo
+  ... parts = cssmin
+  ...
+  ... [cssmin]
+  ... recipe = p01.recipe.cdn:minify
+  ... eggs = demo
+  ... files = foo.css
+  ...         [demo] bar.css
+  ... output = demo.css
+  ... lib = cssmin
+  ...
+  ... ''' % globals())
+
+Now, Let's run the buildout and see what we get:
+
+  >>> print system(join('bin', 'buildout')),
+  Develop: '/sample-buildout/demo'
+  Uninstalling slimit.
+  Installing cssmin.
+  Generated script '/sample-buildout/bin/cssmin'.
+  ...
+
+The bin folder contains the new generated minify script:
+
+  >>> ls('bin')
+  -  buildout-script.py
+  -  buildout.exe
+  -  cssmin-script.py
+  -  cssmin.exe
+
+Check the minification script:
+
+  >>> cat('bin', 'cssmin-script.py')
+  ...
+  import sys
+  sys.path[0:0] = [
+      ...
+      ]
+  import os
+  sys.argv[0] = os.path.abspath(sys.argv[0])
+  import p01.recipe.cdn.minify
+  if __name__ == '__main__':
+      sys.exit(p01.recipe.cdn.minify.main(['cssmin', '', '/sample-buildout/demo.css', [('foo.css', '/sample-buildout/foo.css'), ('bar.css', '/sample-buildout/demo/bar.css')], [], [], '', '', '']))
+
+
+options
+-------
+
+Now let's test the css minification with the more options e.g. libs and skip:
+
+  >>> write('buildout.cfg',
+  ... '''
+  ... [buildout]
+  ... develop = demo
+  ... parts = javascript
+  ...
+  ... [javascript]
+  ... recipe = p01.recipe.cdn:minify
+  ... eggs = demo
+  ... files = foo.js
+  ...         [demo] bar.js
+  ... lib = jsmin
+  ... skip = foo.js
+  ... libs = bar.js slimit
+  ... output = demo.js
+  ...
+  ... ''' % globals())
+
+Now, Let's run the buildout and see what we get:
+
+  >>> print system(join('bin', 'buildout')),
+  Develop: '...demo'
+  Uninstalling cssmin.
+  Installing javascript.
+  Generated script '...javascript'.
+  ...
+
+The bin folder contains the new generated minify script:
+
+  >>> ls('bin')
+  -  buildout-script.py
+  -  buildout.exe
+  -  javascript-script.py
+  -  javascript.exe
+
+Check the minification script:
+
+  >>> cat('bin', 'javascript-script.py')
+  <BLANKLINE>
+  import sys
+  sys.path[0:0] = [
+    '/sample-buildout/demo',
+    '/p01.recipe.cdn',
+    'd:\\home\\.buildout\\eggs\\jsmin-pyN.N.egg',
+    'd:\\home\\.buildout\\eggs\\slimit-pyN.N.egg',
+    'd:\\home\\.buildout\\eggs\\odict-pyN.N.egg',
+    'd:\\home\\.buildout\\eggs\\ply-pyN.N.egg',
+    '/sample-pyN.N.egg',
+    '/sample-pyN.N.egg',
+    '/sample-pyN.N.egg',
+    ]
+  <BLANKLINE>
+  import os
+  sys.argv[0] = os.path.abspath(sys.argv[0])
+  <BLANKLINE>
+  <BLANKLINE>
+  import p01.recipe.cdn.minify
+  <BLANKLINE>
+  if __name__ == '__main__':
+      sys.exit(p01.recipe.cdn.minify.main(['jsmin', '', '/sample-buildout/demo.js', [('foo.js', '/sample-buildout/foo.js'), ('bar.js', '/sample-buildout/demo/bar.js')], [('bar.js', 'slimit')], ['foo.js'], '', '', '']))
