@@ -1,0 +1,624 @@
+Comparing objects and sequences
+===============================
+
+.. currentmodule:: testfixtures
+
+Python's :mod:`unittest` package often fails to give very useful
+feedback when comparing long sequences or chunks of text. It also has
+trouble dealing with objects that don't natively support
+comparison. The functions and classes described here alleviate these
+problems.
+
+The compare function
+--------------------
+
+The :func:`compare` function can be used as a replacement for
+:meth:`~unittest.TestCase.assertEqual`. It raises an
+``AssertionError`` when its parameters are not equal, which will be
+reported as a test failure:
+
+>>> from testfixtures import compare
+>>> compare(1, 2)
+Traceback (most recent call last):
+ ...
+AssertionError: 1 != 2
+
+However, it allows you to specify a prefix for the message to be used
+in the event of failure:
+
+>>> compare(1, 2, prefix='wrong number of orders')
+Traceback (most recent call last):
+ ...
+AssertionError: wrong number of orders: 1 != 2
+
+This is recommended as it makes the reason for the failure more
+apparent without having to delve into the code or tests.
+
+The real strengths of this function come when comparing more complex
+data types. A number of common python data types will give more
+detailed output when a comparison fails as described below:
+
+sets
+~~~~
+ 
+Comparing sets that aren't the same will attempt to
+highlight where the differences lie:
+
+>>> compare(set([1, 2]), set([2, 3]))
+Traceback (most recent call last):
+ ...
+AssertionError: set not as expected:
+<BLANKLINE>
+in first but not second:
+[1]
+<BLANKLINE>
+in second but not first:
+[3]
+<BLANKLINE>
+<BLANKLINE>
+
+dicts
+~~~~~
+
+Comparing dictionaries that aren't the same will attempt to
+highlight where the differences lie:
+
+>>> compare(dict(x=1, y=2, a=4),dict(x=1, z=3, a=5))
+Traceback (most recent call last):
+ ...
+AssertionError: dict not as expected:
+<BLANKLINE>
+same:
+['x']
+<BLANKLINE>
+in first but not second:
+'y': 2
+<BLANKLINE>
+in second but not first:
+'z': 3
+<BLANKLINE>
+values differ:
+'a': 4 != 5
+<BLANKLINE>
+<BLANKLINE>
+
+lists and tuples
+~~~~~~~~~~~~~~~~
+
+Comparing lists or tuples that aren't the same will attempt to highlight
+where the differences lie:
+
+>>> compare([1, 2, 3], [1, 2, 4])
+Traceback (most recent call last):
+ ...
+AssertionError: Sequence not as expected:
+<BLANKLINE>
+same:
+[1, 2]
+<BLANKLINE>
+first:
+[3]
+<BLANKLINE>
+second:
+[4]
+
+generators
+~~~~~~~~~~
+
+When two generators are compared, they are both first unwound into
+tuples and those tuples are then compared.
+
+The :ref:`generator <generator>` helper is useful for creating a
+generator to represent the expected results:
+
+>>> from testfixtures import generator
+>>> def my_gen(t):
+...     i = 0
+...     while i<t:
+...         i += 1
+...         yield i
+>>> compare(generator(1, 2, 3), my_gen(2))
+Traceback (most recent call last):
+ ...
+AssertionError: Sequence not as expected:
+<BLANKLINE>
+same:
+(1, 2)
+<BLANKLINE>
+first:
+(3,)
+<BLANKLINE>
+second:
+()
+
+.. invisible-code-block: python
+   
+  from testfixtures.compat import xrange
+
+.. _comparison-generators:
+
+If only the first item passed to :func:`compare` is a generator, the
+second item will be cast into a generator. This is very useful for
+making assertions about return values that are iterable without
+actually being generators and without having to manually cast the
+value to something comparable, such as a tuple:
+
+>>> compare(generator(1, 2, 3), xrange(1, 4))
+<identity>
+
+.. warning::
+
+  If you wish to assert that a function returns a generator, say, for
+  performance reasons, then you should use 
+  :ref:`strict comparison <strict-comparison>`.
+  
+strings and unicodes
+~~~~~~~~~~~~~~~~~~~~
+
+Comparison of strings can be tricky, particularly when those strings
+contain multiple lines; spotting the differences between the expected
+and actual values can be hard.
+
+To help with this, long strings give a more helpful representation
+when comparison fails:
+
+>>> compare("1234567891011", "1234567789")
+Traceback (most recent call last):
+ ...
+AssertionError: 
+'1234567891011'
+!=
+'1234567789'
+
+Likewise, multi-line strings give unified diffs when their comparison
+fails:
+
+>>> compare("""
+...         This is line 1
+...         This is line 2
+...         This is line 3
+...         """,
+...         """
+...         This is line 1
+...         This is another line
+...         This is line 3
+...         """)
+Traceback (most recent call last):
+ ...
+AssertionError: 
+@@ -1,5 +1,5 @@
+<BLANKLINE>
+         This is line 1
+-        This is line 2
++        This is another line
+         This is line 3
+<BLANKLINE>
+
+Such comparisons can still be confusing as white space is taken into
+account. If you need to care about whitespace characters, you can make
+spotting the differences easier as follows:
+
+>>> compare("\tline 1\r\nline 2"," line1 \nline 2", show_whitespace=True)
+Traceback (most recent call last):
+ ...
+AssertionError: 
+@@ -1,2 +1,2 @@
+-'\tline 1\r\n'
++' line1 \n'
+ 'line 2'
+
+However, you may not care about some of the whitespace involved. To
+help with this, :func:`compare` has two options that can be set to
+ignore certain types of whitespace.
+
+If you wish to compare two strings that contain blank lines or lines
+containing only whitespace characters, but where you only care about
+the content, you can use the following:
+
+.. code-block:: python
+
+  compare('line1\nline2', 'line1\n \nline2\n\n',
+          blanklines=False)
+
+If you wish to compare two strings made up of lines that may have
+trailing whitespace that you don't care about, you can do so with the
+following: 
+
+.. code-block:: python
+
+  compare('line1\nline2', 'line1 \t\nline2   \n',
+          trailing_whitespace=False)
+
+providing your own comparers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When using :meth:`compare` frequently for your own complex objects,
+it can be beneficial to give more descriptive output when two objects
+don't compare as equal.
+
+.. note:: 
+
+    If you are reading this section as a result of needing to test
+    objects that don't natively support comparison, or as a result of
+    needing to infrequently compare your own subclasses of python
+    basic types, take a look at :ref:`comparison-objects` as this may
+    well be an easier solution.
+
+Providing a comparer can be particularly useful when the objects
+involved are instances of subclasses of python basic data types. 
+For example, suppose you're using a :func:`~collections.namedtuple`:
+
+.. invisible-code-block: python
+
+  # python2.5 doesn't have namedtuple
+  try:
+      from collections import namedtuple
+  except ImportError:
+      def namedtuple(name, *args):
+          class TheRow(tuple): 
+               def __new__(cls, *args):
+                   return super(TheRow, cls).__new__(cls, args)
+               def __repr__(self):
+                   name = self.__class__.__name__
+                   if len(self)==3:
+                       return name+"(x=%s, y=%s, z=%s)" % self
+                   elif len(self)==1:
+                       return name+"(x=%s)" % self
+                   else:
+                       return '<compat error>'
+          TheRow.__name__ = name
+          TheRow.__module__ = '__main__'
+          return TheRow
+
+.. code-block:: python
+
+ DataRow = namedtuple('DataRow', ('x', 'y', 'z'))
+
+.. invisible-code-block: python
+
+  from testfixtures.comparison import _registry
+  from testfixtures import Replacer
+  r = Replacer()
+  r.replace('testfixtures.comparison._registry', {})
+
+If this tuple contained many elements, you may want to use the
+:func:`~testfixtures.comparison.compare_sequence` function to show
+differences when two of these objects are not equal. This can be done
+as follows:
+
+>>> from testfixtures.comparison import register, compare_sequence
+>>> register(DataRow, compare_sequence)
+>>> compare(DataRow(1, 2, 3), DataRow(1, 2, 4))
+Traceback (most recent call last):
+ ...
+AssertionError: Sequence not as expected:
+<BLANKLINE>
+same:
+(1, 2)
+<BLANKLINE>
+first:
+(3,)
+<BLANKLINE>
+second:
+(4,)
+
+.. invisible-code-block: python
+
+  import testfixtures.comparison
+  assert testfixtures.comparison._registry == {DataRow: compare_sequence}
+
+A full list of the available comparers included can be found below the
+API documentation for :func:`compare`. If you wish to provide your own
+comparer, it should be a function that takes two positional arguments,
+the two objects to be compare, and, if necessary, keyword arguments to
+configure the comparison, which will be passed through from the
+:func:`compare` call. Comparers may do some processing and then decide
+that, for the purposes of the test, the two objects are equal. In this
+case, the comparer should return
+:data:`~testfixtures.identity` to indicate that no exception
+should be raised.
+
+For example, suppose you want to optionally compare only two of the
+three elements of the :func:`~collections.namedtuple` above; this
+could be implemented as follows:
+
+.. code-block:: python
+
+  from testfixtures import identity
+
+  def compare_DataRow(x, y, all=True):
+      cx, cy = x[:2], y[:2]
+      if not all and (cx==cy):
+          return identity
+      return '%r != %r' % (x, y)
+
+To use this, you'd do the following:
+
+>>> from testfixtures.comparison import register
+>>> register(DataRow, compare_DataRow)
+>>> compare(DataRow(1, 2, 3), DataRow(1, 2, 4))
+Traceback (most recent call last):
+ ...
+AssertionError: DataRow(x=1, y=2, z=3) != DataRow(x=1, y=2, z=4)
+>>> compare(DataRow(1, 2, 3), DataRow(1, 2, 4), all=False)
+<identity>
+
+.. invisible-code-block: python
+
+  assert testfixtures.comparison._registry == {DataRow: compare_DataRow}
+  r.restore()
+
+  # set up for the next test
+  r = Replacer()
+  r.replace('testfixtures.comparison._registry', {})
+
+Now, it may be that you only want to use a comparer or set of
+comparers for a particular test. If that's the case, you can pass in a
+registry to the compare function, which will be used instead of the
+global registry:
+
+>>> compare(DataRow(1, 2, 3), DataRow(1, 2, 4),
+...         registry={DataRow:compare_DataRow})
+Traceback (most recent call last):
+ ...
+AssertionError: DataRow(x=1, y=2, z=3) != DataRow(x=1, y=2, z=4)
+
+
+.. invisible-code-block: python
+
+  import testfixtures.comparison
+  assert testfixtures.comparison._registry == {}
+  r.restore()
+
+.. _strict-comparison:
+
+Strict comparison
+~~~~~~~~~~~~~~~~~
+
+If is it important that the two values being compared are of exactly
+the same type, rather than just being equal as far as python is
+concerned, then the scrict mode of :func:`compare` should be used.
+
+For example, these two instances will normally appear to be equal
+provided the elements within them are the same:
+
+>>> TypeA = namedtuple('A', 'x')
+>>> TypeB = namedtuple('B', 'x')
+>>> compare(TypeA(1), TypeB(1))
+<identity>
+
+If this type difference is important, then the `strict` parameter
+should be used:
+
+>>> compare(TypeA(1), TypeB(1), strict=True)
+Traceback (most recent call last):
+ ...
+AssertionError: A(x=1) (<class '__main__.A'>)!= B(x=1) (<class '__main__.B'>)
+
+.. _comparison-objects:
+
+Comparison objects
+------------------
+
+Another common problem with the checking in tests is that not all
+objects support comparison and nor should they need to. For this
+reason, TextFixtures provides the :class:`~testfixtures.Comparison`
+class.
+
+This class lets you instantiate placeholders that can be used to
+compare expected results with actual results where objects in the
+actual results do not support useful comparison.  
+
+Comparisons will appear to be equal to any object they are compared
+with that matches their specification. For example, take the following
+class: 
+
+.. code-block:: python
+
+  class SomeClass:
+
+      def __init__(self, x, y):
+         self.x, self.y = x, y
+
+Normal comparison doesn't work, which makes testing tricky:
+
+>>> SomeClass(1, 2) == SomeClass(1, 2)
+False
+
+Here's how this comparison can be done:
+
+>>> from testfixtures import Comparison as C
+>>> C(SomeClass, x=1, y=2) == SomeClass(1, 2)
+True
+
+Perhaps even more importantly, when a comparison fails, its
+representation changes to give information about what went wrong. The
+common idiom for using comparisons is in conjuction with
+:meth:`~unittest.TestCase.assertEqual` or
+:meth:`~testfixtures.compare`: 
+
+>>> compare(C(SomeClass, x=2), SomeClass(1, 2))
+Traceback (most recent call last):
+ ...
+AssertionError: 
+  <C(failed):...SomeClass>
+  x:2 != 1
+  y:2 not in Comparison
+  </C> != <...SomeClass...>
+
+The key is that the comparison object actually stores information
+about what it was last compared with. The following example shows this
+more clearly: 
+
+>>> c = C(SomeClass, x=2)
+>>> print(repr(c))
+<BLANKLINE>
+  <C:...SomeClass>
+  x:2
+  </C>
+>>> c == SomeClass(1, 2)
+False
+>>> print(repr(c))
+<BLANKLINE>
+  <C(failed):...SomeClass>
+  x:2 != 1
+  y:2 not in Comparison
+  </C>
+
+
+Types of comparison
+~~~~~~~~~~~~~~~~~~~
+
+There are several ways a comparison can be set up depending on what
+you want to check.
+
+If you only care about the class of an object, you can set up the
+comparison with only the class:
+
+>>> C(SomeClass) == SomeClass(1, 2)
+True
+
+This can also be achieved by specifying the type of the object as a
+dotted name:
+
+>>> import sys
+>>> C('types.ModuleType') == sys
+True
+
+Alternatively, if you happen to have a non-comparable object already
+around, comparison can be done with it:
+
+>>> C(SomeClass(1,2)) == SomeClass(1,2)
+True
+
+If you only care about certain attributes, this can also easily be
+achieved with the `strict` parameter: 
+
+>>> C(SomeClass, x=1, strict=False) == SomeClass(1, 2)
+True
+
+The above can be problematic if you want to compare an object with
+attibutes that share names with parameters to the :class:`~testfixtures.Comparison`
+constructor. For this reason, you can pass the attributes in a
+dictionary:
+
+>>> compare(C(SomeClass, {'strict':3}, strict=False), SomeClass(1, 2))
+Traceback (most recent call last):
+ ...
+AssertionError: 
+  <C(failed):...SomeClass>
+  strict:3 not in other
+  </C> != <...SomeClass...>
+
+Gotchas
+~~~~~~~
+
+There are a few things to be careful of when using comparisons:
+
+.. work around Manuel bug :-(
+.. invisible-code-block: python
+
+  class NoVars(object):
+      __slots__ = ['x']
+
+- The default strict comparison cannot be used with a class such as
+  the following:
+
+  .. code-block:: python
+
+    class NoVars(object):
+         __slots__ = ['x']
+
+  If you try, you will get an error that explains the problem:
+
+  >>> C(NoVars, x=1) == NoVars()
+  Traceback (most recent call last):
+   ...
+  TypeError: <NoVars object at ...> does not support vars() so cannot do strict comparison
+
+  Comparisons can still be done with classes that don't support
+  ``vars()``, they just need to be non-strict:
+
+  >>> nv = NoVars()
+  >>> nv.x = 1
+  >>> C(NoVars, x=1, strict=False) == nv
+  True
+  
+.. work around Manuel bug :-(
+.. invisible-code-block: python
+        class SomeModel:
+            def __eq__(self,other):
+                if isinstance(other,SomeModel):
+                    return True
+                return False
+
+- If the object being compared has an ``__eq__`` method, such as
+  Django model instances, then the :class:`~testfixtures.Comparison`
+  must be the first object in the equality check.
+
+  The following class is an example of this:
+
+  .. code-block:: python
+
+        class SomeModel:
+            def __eq__(self,other):
+                if isinstance(other,SomeModel):
+                    return True
+                return False
+  
+  It will not work correctly if used as the second object in the
+  expression:
+
+  >>> SomeModel()==C(SomeModel)
+  False
+
+  However, if the comparison is correctly placed first, then
+  everything will behave as expected:
+
+  >>> C(SomeModel)==SomeModel()
+  True
+
+- It probably goes without saying, but comparisons should not be used
+  on both sides of an equality check:
+
+  >>> C(SomeClass)==C(SomeClass)
+  False
+
+String Comparison objects
+-------------------------
+
+When comparing sequences of strings, particularly those comping from
+things like the python logging package, you often end up wanting to
+express a requirement that one string should be almost like another,
+or maybe fit a particular regular expression.
+
+For these situations, you can use :class:`StringComparison` objects
+wherever you would use normal strings, and they will compare equal to
+any string that matches the regular expression they are created with.
+
+Here's an example:
+
+.. code-block:: python
+
+  from testfixtures import compare, StringComparison as S
+
+  compare(S('Starting thread \d+'),'Starting thread 132356')
+
+Differentiating chunks of text
+------------------------------
+
+TextFixtures provides a function that will compare two strings and
+give a unified diff as a result. This can be handy as a third
+parameter to :meth:`~unittest.TestCase.assertEqual` or just as a
+general utility function for comparing two lumps of text.
+
+As an example:
+
+>>> from testfixtures import diff
+>>> print(diff('line1\nline2\nline3',
+...            'line1\nlineA\nline3'))
+@@ -1,3 +1,3 @@
+ line1
+-line2
++lineA
+ line3

@@ -1,0 +1,383 @@
+Mocking out objects and methods
+===============================
+
+Mocking is the process of replacing chunks of complex functionality
+that aren't the subject of the test with mock objects that allow you
+to check that the mocked out functionality is being used as expected. 
+
+In this way, you can break down testing of a complicated set of
+interacting components into testing of each individual component.
+The behaviour of components can then be tested individually, 
+irrespective of the behaviour of the components around it.
+
+There are many implementations of mock objects in the python world. An
+excellent example and the one recommended for use with TestFixtures is
+the Mock package: http://pypi.python.org/pypi/mock/
+
+Methods of replacement
+----------------------
+
+TestFixtures provides three different methods of mocking out
+functionality that can be used to replace functions, classes
+or even individual methods on a class. Consider the following module:
+
+.. topic:: testfixtures.tests.sample1
+   :class: module
+
+   .. literalinclude:: ../testfixtures/tests/sample1.py
+      :pyobject: X
+
+.. do the import quietly
+
+  >>> from testfixtures.tests.sample1 import X
+
+We want to mock out the ``y`` method of the ``X`` class, with,
+for example, the following function: 
+
+.. code-block:: python
+
+  def mock_y(self):
+       return 'mock y'
+
+The context manager
+~~~~~~~~~~~~~~~~~~~
+
+If you're using a version of Python where the ``with`` keyword is
+available, the context manager provided by TestFixtures can be used:
+
+.. code-block:: python
+
+  from testfixtures import Replacer
+  
+  def test_function():
+      with Replacer() as r:
+          r.replace('testfixtures.tests.sample1.X.y',mock_y)
+          print(X().y())
+
+For the duration of the ``with`` block, the replacement is used:
+
+>>> test_function()
+mock y
+
+The decorator
+~~~~~~~~~~~~~
+
+If you are working in a traditional :mod:`unittest` environment and
+want to replace different things in different test functions, you may
+find the decorator suits your needs better:
+
+.. code-block:: python
+
+  from testfixtures import replace
+  
+  @replace('testfixtures.tests.sample1.X.y',mock_y)
+  def test_function():
+      print(X().y())
+
+When using the decorator, the replacement is used for the duration of
+the decorated callable's execution:
+
+>>> test_function()
+mock y
+
+If you need to manipulate or inspect the object that's used as a
+replacement, you can add an extra parameter to your function. The
+decorator will see this and pass the replacement in it's place:
+
+.. code-block:: python
+
+  from mock import Mock
+  from testfixtures import compare,replace
+  
+  @replace('testfixtures.tests.sample1.X.y',Mock())
+  def test_function(m):
+      m.return_value = 'mock y'
+      print(X().y())
+      compare(m.call_args_list,[((), {})])
+
+The above still results in the same output:
+
+>>> test_function()
+mock y
+
+Manual usage
+~~~~~~~~~~~~
+
+If you want to replace something for the duration of a doctest or you
+want to replace something for every test in a
+:class:`~unittest.TestCase`, then you can use the
+:class:`~testfixtures.Replacer` manually.
+
+The instantiation and replacement are done in the ``setUp`` function
+of the :class:`~unittest.TestCase` or passed to the
+:class:`~doctest.DocTestSuite` constructor:
+
+>>> from testfixtures import Replacer
+>>> r = Replacer()
+>>> r.replace('testfixtures.tests.sample1.X.y',mock_y)
+
+The replacement then stays in place until removed:
+
+>>> X().y()
+'mock y'
+
+Then, in the ``tearDown`` function
+of the :class:`~unittest.TestCase` or passed to the
+:class:`~doctest.DocTestSuite` constructor, the replacement is
+removed:
+
+>>> r.restore()
+>>> X().y()
+'original y'
+
+Replacing more than one thing
+-----------------------------
+
+Both the :class:`~testfixtures.Replacer` and the
+:func:`~testfixtures.replace` decorator can be used to replace more
+than one thing at a time. For the former, this is fairly obvious:
+
+.. code-block:: python
+
+  def test_function():
+      with Replacer() as r:
+          r.replace('testfixtures.tests.sample1.X.y',Mock())
+          r.replace('testfixtures.tests.sample1.X.aMethod',Mock())
+          x = X()
+          print(x.y(),x.aMethod())
+
+.. the result:
+  
+   >>> test_function()
+   <...Mock...> <...Mock...>
+
+For the decorator, it's less obvious but still pretty easy:
+
+.. code-block:: python
+
+  @replace('testfixtures.tests.sample1.X.y',Mock())
+  @replace('testfixtures.tests.sample1.X.aMethod',Mock())
+  def test_function(mock_aMethod, mock_y):
+      x = X()
+      print(x.y(),x.aMethod())
+
+.. the result:
+  
+   >>> test_function()
+   <...Mock...> <...Mock...>
+
+You'll notice that you can still get access to the replacements, even
+though there are more than one of them.
+
+Replacing things that may not be there
+--------------------------------------
+
+The following code shows a situation where ``hpy`` may or may not be
+present depending on whether the ``guppy`` package is installed or
+not. 
+
+
+.. topic:: testfixtures.tests.sample2
+   :class: module
+
+   .. literalinclude:: ../testfixtures/tests/sample2.py
+      :lines: 11-19
+
+To test the behaviour of the code that uses ``hpy`` in both of
+these cases, regardless of whether or not the ``guppy`` package is
+actually installed, we need to be able to mock out both ``hpy`` and the
+``guppy`` global. This is done by doing non-strict replacement, as
+shown in the following :class:`~unittest.TestCase`:
+
+.. imports
+
+  >>> import unittest,sys
+
+.. code-block:: python
+
+    from testfixtures.tests.sample2 import dump
+
+    class Tests(unittest.TestCase):
+
+        @replace('testfixtures.tests.sample2.guppy',True)
+        @replace('testfixtures.tests.sample2.hpy',Mock(),strict=False)
+        def test_method(self,hpy):
+
+            dump('somepath')
+
+            compare(hpy.call_args_list,[((),{})])
+            hpy_i = hpy.return_value
+            compare(hpy_i.method_calls,[('heap',(),{})])
+            h = hpy_i.heap.return_value
+            compare(h.method_calls,[('stat.dump', ('somepath',),{})])
+
+        @replace('testfixtures.tests.sample2.guppy',False)
+        @replace('testfixtures.tests.sample2.hpy',Mock(),strict=False)
+        def test_method_no_heapy(self,hpy):
+
+            dump('somepath')
+
+            compare(hpy.call_args_list,[])
+
+.. the result:
+  
+   >>> from testfixtures.compat import StringIO
+   >>> suite = unittest.TestLoader().loadTestsFromTestCase(Tests)
+   >>> unittest.TextTestRunner(verbosity=0,stream=StringIO()).run(suite)
+   <unittest...TextTestResult run=2 errors=0 failures=0>
+
+
+The :meth:`~testfixtures.Replacer.replace` method also supports
+non-strict replacement using the same keyword parameter.
+
+Replacing items in dictionaries and lists
+-----------------------------------------
+
+Both the :class:`~testfixtures.Replacer` and the
+:func:`~testfixtures.replace` decorator can be used to replace items
+in dictionaries and lists.
+
+For example, suppose you have a data structure like the following:
+
+.. topic:: testfixtures.tests.sample1
+   :class: module
+
+   .. literalinclude:: ../testfixtures/tests/sample1.py
+      :lines: 52-55
+
+You can mock out the value associated with ``key`` and the second
+element in the ``complex_key`` list as follows:
+
+.. code-block:: python
+
+  from pprint import pprint
+  from testfixtures import Replacer
+  from testfixtures.tests.sample1 import someDict
+  
+  def test_function():
+      with Replacer() as r:
+          r.replace('testfixtures.tests.sample1.someDict.key','foo')
+          r.replace('testfixtures.tests.sample1.someDict.complex_key.1',42)
+          pprint(someDict)
+
+While the replacement is in effect, the new items are in place:
+
+>>> test_function()
+{'complex_key': [1, 42, 3], 'key': 'foo'}
+
+When it is no longer in effect, the originals are returned:
+
+>>> pprint(someDict)
+{'complex_key': [1, 2, 3], 'key': 'value'}
+
+.. _removing_attr_and_item:
+
+Removing attributes and dictionary items
+----------------------------------------
+
+The :class:`~testfixtures.Replacer` and
+:func:`~testfixtures.replace` decorator can be used to remove
+attributes from objects and remove items from dictionaries.
+
+For example, suppose you have a data structure like the following:
+
+.. topic:: testfixtures.tests.sample1
+   :class: module
+
+   .. literalinclude:: ../testfixtures/tests/sample1.py
+      :lines: 52-55
+
+If you want to remove the ``key`` for the duration of a test, you can
+do so as follows:
+
+.. code-block:: python
+
+  from testfixtures import Replacer, not_there
+  from testfixtures.tests.sample1 import someDict
+  
+  def test_function():
+      with Replacer() as r:
+          r.replace('testfixtures.tests.sample1.someDict.key',not_there)
+          pprint(someDict)
+
+While the replacement is in effect, ``key`` is gone:
+
+>>> test_function()
+{'complex_key': [1, 2, 3]}
+
+When it is no longer in effect, ``key`` is returned:
+
+>>> pprint(someDict)
+{'complex_key': [1, 2, 3], 'key': 'value'}
+
+If you want the whole ``someDict`` dictionary to be removed for the
+duration of a test, you would do so as follows:
+
+.. code-block:: python
+
+  from testfixtures import Replacer, not_there
+  from testfixtures.tests import sample1
+  
+  def test_function():
+      with Replacer() as r:
+          r.replace('testfixtures.tests.sample1.someDict', not_there)
+          print(hasattr(sample1, 'someDict'))
+
+While the replacement is in effect, ``key`` is gone:
+
+>>> test_function()
+False
+
+When it is no longer in effect, ``key`` is returned:
+
+>>> pprint(sample1.someDict)
+{'complex_key': [1, 2, 3], 'key': 'value'}
+
+
+Gotchas
+-------
+
+- Make sure you replace the object where it's used and not where it's
+  defined. For example, with the following code from the
+  ``testfixtures.tests.sample1`` package:
+
+  .. literalinclude:: ../testfixtures/tests/sample1.py
+     :lines: 26-28
+
+  You might be tempted to mock things as follows:
+
+  >>> r = Replacer()
+  >>> r.replace('time.time',Mock())
+  
+  But this won't work:
+
+  >>> from testfixtures.tests.sample1 import str_time
+  >>> type(float(str_time()))
+  <... 'float'>
+
+  You need to replace :func:`~time.time` where it's used, not where
+  it's defined:
+
+  >>> r.replace('testfixtures.tests.sample1.time',Mock())
+  >>> str_time()
+  "<...Mock...>"
+
+  .. cleanup  
+ 
+    >>> r.restore()
+
+  A corollary of this is that you need to replace *all* occurrences of
+  an original to safely be able to test. This can be tricky when an
+  original is imported into many modules that may be used by a
+  particular test.
+  
+- You can't replace whole top level modules, and nor should you want
+  to! The reason being that everything up to the last dot in the
+  replacement target specifies where the replacement will take place,
+  and the part after the last dot is used as the name of the thing to
+  be replaced:
+
+  >>> Replacer().replace('sys',Mock())
+  Traceback (most recent call last):
+   ...
+  ValueError: target must contain at least one dot!
