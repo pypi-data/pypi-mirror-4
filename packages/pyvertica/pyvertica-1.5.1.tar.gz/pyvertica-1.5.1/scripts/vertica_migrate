@@ -1,0 +1,171 @@
+#!/usr/bin/env python
+
+import ConfigParser
+import argparse
+import logging
+
+from logutils.dictconfig import dictConfig
+from pyvertica.migrate import VerticaMigrator
+
+parser = argparse.ArgumentParser(description='Vertica Migrator')
+parser.add_argument(
+    '--commit',
+    dest='commit',
+    action='store_true',
+    help='commit DDLS and copy data (without it will perform a dry-run)',
+)
+parser.add_argument(
+    '--log-level',
+    dest='log_level',
+    choices=['debug', 'info', 'warning', 'error', 'critical'],
+    default='info',
+    help='loglevel of loghandler (default: info)',
+)
+parser.add_argument(
+    '--skip-ddls',
+    dest='skip_ddls',
+    action='store_true',
+    help='Do not copy the DDLs over.',
+    default=False
+)
+parser.add_argument(
+    '--clever-ddls',
+    dest='clever_ddls',
+    action='store_true',
+    help=(
+        'If when copying a DDL an object with the same name already exists, '
+        'skip the copy.'
+    ),
+    default=False
+)
+parser.add_argument(
+    '--skip-data',
+    dest='skip_data',
+    action='store_true',
+    help='Do not copy the data over.',
+    required=False
+)
+parser.add_argument(
+    '--even-not-empty',
+    dest='even_not_empty',
+    action='store_true',
+    help='Do not stop if the target DB is not empty.',
+    default=False
+)
+parser.add_argument(
+    '--limit',
+    dest='limit',
+    default='ALL',
+    help='Limit the number of rows to copy over, per table.'
+)
+parser.add_argument(
+    '--truncate',
+    dest='truncate',
+    action='store_true',
+    default=False,
+    help='Truncate destination tables before copying data over.'
+)
+parser.add_argument(
+    '--source-not-reconnect',
+    dest='source_reconnect',
+    default=True,
+    action='store_false',
+    help='Do not try to avoid load balancer by reconnecting.'
+)
+parser.add_argument(
+    '--target-not-reconnect',
+    dest='target_reconnect',
+    default=True,
+    action='store_false',
+    help='Do not try to avoid load balancer by reconnecting.'
+)
+parser.add_argument(
+    '--config-path',
+    dest='config_path',
+    default=None,
+    required=True,
+    type=str,
+    help='Absolute path to a config file (useful for storing credentials).'
+)
+
+
+parser.add_argument(
+    'source',
+    type=str,
+    help='ODBC data source name',
+)
+parser.add_argument(
+    'target',
+    type=str,
+    help='ODBC data source name',
+)
+parser.add_argument(
+    'objects',
+    type=str,
+    nargs='*',
+    default=[],
+    help='List of objects (schemas or table) to migrate',
+)
+
+
+def setup_log_handler(args):
+    """
+    Setup log handler for displaying output in console.
+
+    :param args_obj:
+        Parsed args object (return of
+        :py:meth:`!argparse.ArgumentParser.parse_args`).
+
+    """
+    dictConfig({
+        'version': 1,
+        'disable_existing_loggers': False,
+        'root': {
+            'level': 'DEBUG',
+            'handlers': ['console'],
+        },
+        'formatters': {
+            'verbose': {'format':
+                '%(asctime)s %(levelname)s:%(name)s: %(message)s'}
+        },
+        'handlers': {
+            'console': {
+                'level': args.log_level.upper(),
+                'class': 'logging.StreamHandler',
+                'formatter': 'verbose',
+            }
+        }
+    })
+
+
+if __name__ == '__main__':
+    args = parser.parse_args()
+
+    if args.config_path:
+        # if config_path is set, parse the config values and add them as
+        # defaults to the argparser. Then, reparse the arguments.
+        config = ConfigParser.SafeConfigParser({
+            'target_user': '',
+            'target_pwd': '',
+            'target_host': '',
+            'source_user': '',
+            'source_pwd': '',
+            'source_host': '',
+        })
+        config.read(args.config_path)
+        config_dict = dict(config.items('vertica_migrate'))
+        parser.set_defaults(**config_dict)
+        args = parser.parse_args()
+
+    setup_log_handler(args)
+    logger = logging.getLogger(__name__)
+
+    migrator = VerticaMigrator(**vars(args))
+    if args.skip_ddls:
+        logger.info('Do not migrate DDLs.')
+    else:
+        migrator.migrate_ddls(args.objects)
+    if args.skip_data:
+        logger.info('Do not migrate data.')
+    else:
+        migrator.migrate_data(args.objects)
