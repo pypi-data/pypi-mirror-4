@@ -1,0 +1,1 @@
+This is a new Literature Curation Interface, based on the sgd1.0 database schema.
