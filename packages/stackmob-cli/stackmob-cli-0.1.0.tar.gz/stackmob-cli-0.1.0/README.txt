@@ -1,0 +1,1 @@
+Please see http://github.com/stackmob/stackmob-cli for information on this tool
