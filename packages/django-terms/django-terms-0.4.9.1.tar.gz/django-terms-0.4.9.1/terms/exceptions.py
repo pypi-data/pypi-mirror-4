@@ -1,0 +1,2 @@
+class HTMLValidationWarning(Warning):
+    pass
