@@ -1,0 +1,3 @@
+"""
+coopr.sucasa tests
+"""
