@@ -1,0 +1,64 @@
+#!/usr/bin/env python
+import sys
+import os
+import tempfile
+from optparse import OptionParser
+
+from update_ip import updater, configuration
+
+VERSION = '0.1'
+
+def error_exit(status_code, message):
+    sys.stderr.write(message+"\n")
+    sys.exit( status_code )
+
+def main():
+    # Parse command line options
+    usage = "usage: %prog [options] CFG_FILE"
+    parser = OptionParser(usage=usage, version='%prog version ' + VERSION)
+    parser.add_option(
+        "-c", "--clear",
+        action="store_true",
+        dest="clear",
+        help="Clear the currently stored IP address before running")
+    parser.add_option(
+        "-w", "--wizard",
+        action="store_true",
+        dest="wizard",
+        help="Generate a new configuration file using a wizard")
+    (options, args) = parser.parse_args()
+    
+    
+    if options.wizard:
+        configuration.configurationWizard()
+        sys.exit(0)
+    
+    if not args:
+        error_exit(1, 'Please provide a configuration file as an '
+        "argument. If you haven't created one yet, you may generate one "
+        'using the switch -w')
+    
+    try:
+        cfg= configuration.Configuration.read_from_file( args[0] )
+        svc_name = 'update_ip.services.' + cfg.service_name
+        try:
+            __import__(svc_name)
+        except ImportError:
+            error_exit(3, "Sorry, '%s' is not a valid service name." % args[0])
+        service = sys.modules[svc_name].service(cfg.service_username,
+                                                cfg.service_password)
+    except configuration.InvalidConfigFile as e:
+        error_exit(2, str(e))
+        
+        
+    # Run the update with the options provided
+    try:
+        ip_updater = updater.IPUpdater(service, cfg.cache_file)
+        if options.clear:
+            ip_updater.clear()
+        ip_updater.update(cfg.domains)
+    except updater.UpdaterError as e:
+        error_exit(4, str(e))
+
+if __name__ == '__main__':
+    main()
