@@ -1,0 +1,10 @@
+__version__ = "0.3.10"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '7d1a2fda4901e919ac1202dce14c4c8b7ce1c02b'
+__git_head_subject__ = 'Finished release v0.3.10.'
+__git_head_message__ = '* release/v0.3.10:\n  HOSTDEV-619 using a speicifc version of zc.buildout when bootstrapping\n  HOSTDEV-606 replacing signtool.exe from Windows 8 SDK\n  empty commit after version v0.3.9'
+__git_dirty_diff__ = ''
