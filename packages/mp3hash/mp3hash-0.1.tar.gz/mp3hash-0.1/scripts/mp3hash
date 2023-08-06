@@ -1,0 +1,107 @@
+#!/usr/bin/env python
+#-*- coding: utf-8 -*-
+
+import os
+import sys
+import errno
+import hashlib
+from optparse import OptionParser
+
+import mp3hash
+
+
+# hashlib.algorithms was included in python 2.7
+ALGORITHMS = getattr(
+    hashlib,
+    'algorithms',
+    ('md5', 'sha1', 'sha224', 'sha256', 'sha384', 'sha512')
+)
+
+
+def error(msg):
+    print(u'Error: ' + msg)
+
+
+def list_algorithms():
+    print(u'\n'.join(ALGORITHMS))
+
+
+def main():
+    opts, args, parser = parse_arguments()
+
+    if opts.output:
+        redirect_output(opts.output)
+
+    if not args and not opts.list_algorithms:
+        parser.print_help()
+        error(u"\nInsufficient arguments")
+        return errno.EINVAL
+
+    if opts.maxbytes is not None and opts.maxbytes <= 0:
+        parser.print_help()
+        error(u"\nInvalid value for --maxbytes it should be a positive integer")
+        return errno.EINVAL
+
+    if opts.list_algorithms:
+        list_algorithms()
+        return 0
+
+    if opts.algorithm not in ALGORITHMS:
+        error(u"Unknown '{0}' algorithm. Available options are: {1}"
+              .format(opts.algorithm, ", ".join(ALGORITHMS)))
+        return errno.EINVAL
+
+    for arg in args:
+        path = os.path.realpath(arg)
+        if not os.path.isfile(path):
+            print(u"File at '{0}' does not exist or it is not a regular file"
+                  .format(arg))
+            continue
+
+        hasher = hashlib.new(opts.algorithm)
+        hash = mp3hash.mp3hash(path, maxbytes=opts.maxbytes, hasher=hasher)
+
+        # display file hash or just the hash
+        filename = u'' if opts.hash else u' ' + os.path.basename(path)
+
+        print(hash + filename)
+
+
+def parse_arguments():
+    parser = OptionParser()
+
+    parser.add_option("-a", "--algorithm", default='sha1',
+                      help="Hash algorithm to use. Default sha1.  "
+                      "See --list-algorithms")
+
+    parser.add_option("-l", "--list-algorithms", action="store_true",
+                      default=False, help="List available algorithms")
+
+    parser.add_option("-q", "--hash", action="store_true", default=False,
+                      help="Print only hash information, no filename")
+
+    parser.add_option("-m", "--maxbytes", type=int, default=None,
+                      help="Max number of bytes of music to hash")
+
+    parser.add_option("-o", "--output", default=False,
+                      help="Redirect output to a file")
+
+    parser.set_usage("Usage: [options] FILE [FILE ..]")
+
+    (opts, args) = parser.parse_args()
+
+    return opts, args, parser
+
+
+def redirect_output(path):
+    stdout = sys.stdout
+    try:
+        sys.stdout = open(path, 'w')
+    except IOError as err:
+        sys.stdout = stdout
+        error(u"Couldn't open {0}: {1}".format(path, err))
+        sys.exit(errno.ENOENT)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
