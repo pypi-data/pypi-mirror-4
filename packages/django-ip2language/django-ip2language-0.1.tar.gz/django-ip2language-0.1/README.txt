@@ -1,0 +1,43 @@
+Ip2Language
+===========
+
+This package provides an easy way to use maxmind's API to set an appropriate language code. This is useful, if we want to avoid using a language selector and cookies.
+
+
+------------
+Installation
+------------
+
+Firstly, install the package. Usage of pip is recommended:
+    pip install ip2language
+
+Next, add the package to the INSTALLED_APPS setting:
+    INSTALLED_APPS = (
+    'ip2language',
+    ...
+    )
+
+Then we can add the middleware:
+    MIDDLEWARE_CLASSES = (
+    'ip2language.middleware.LanguagePreferenceMiddleware',
+    ...
+    )
+    
+And it's important to add a setting to specify what language codes should be mapped to what language codes. This allows us to arbitrarily assign different fallbacks for different languages:
+    GEOIP_LANGUAGES = {
+        'NL': 'nl',
+        'BE': 'fr',
+    }
+The keys in this dictionary should be a subset of the country codes supported by maxmind. For reference, this list can be viewed here:
+    http://dev.maxmind.com/geoip/codes/iso3166
+The corresponding values can be any language code that's valid in the django project. The middleware will end up using this code in the redirect url.
+
+Next, we will set a universal fallback:
+    GEOIP_FALLBACK_LANGUAGE = 'en'
+This means that any visitor who is not in one of the specified countries, will view the content associated with the 'en' language code.
+    
+* geoip dat file loc
+Lastly, we need to tell the module where it can find a valid geoip database:
+    GEOIP_DATABASE = '/usr/share/GeoIP.dat'
+
+that's all folks!
