@@ -1,0 +1,95 @@
+#!/usr/bin/python
+#
+# Copyright (c) 2012
+#  Adam Tauno Williams <awilliam@whitemice.org>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+#
+from coils.core  import *
+import getopt, sys, os
+
+def usage():
+    print """
+    --help      Display this helpful messages
+    --execute   Execute the fix.
+    """
+    return
+
+def main(argv):
+
+    # Process command line arguements
+    if not argv:
+        usage( )
+        sys.exit( 2 )
+    try:
+        opts, args = getopt.getopt( argv,
+                                    "he",
+                                    [ "help", "execute", ] )
+    except getopt.GetoptError, e:
+        print( e )
+        usage( )
+        sys.exit( 2 )
+
+    enable_fix = False
+    for opt, arg in opts:
+        if opt in ( "-h", "--help" ):
+            usage( )
+            sys.exit( 0 )
+        elif opt in ( "-e", "--execute" ):
+            enable_fix = True
+
+    # Initialize COILs
+    initialize_COILS( { 'log_file': '{0}/coils.log'.format( os.getenv( 'HOME' ) ) } )
+    ctx = AdministrativeContext( )
+
+    if not enable_fix:
+        print( 'Execution of fix not requested, see the --execute option.' )
+        sys.exit( 0 )
+
+    pids = { }
+
+    total_count = 0
+    orphan_size  = 0
+    orphan_count = 0
+    lost_count = 0
+    guids = BLOBManager.List( 'wf/m' )
+    for guid in guids:
+        total_count += 1
+        message = ctx.run_command( 'message::get', uuid=guid )        
+        if not message:
+            filename = 'wf/m/{0}'.format( guid )
+            rfile = BLOBManager.Open( filename )
+            if rfile:
+                rfile.seek( 0, 2 )
+                orphan_size += rfile.tell( )
+                BLOBManager.Close( rfile )
+                orphan_count += 1
+                BLOBManager.Delete( filename )
+        else:
+            if message.process_id in pids:
+                pids[ message.process_id ] += message.size
+            else:
+                pids[ message.process_id ] = message.size
+                
+    print( 'Total: {0} Orphans: {1} Size: {2} Lost: {3}'.format( total_count, orphan_count, orphan_size, lost_count ) )
+    sys.exit( 0 )
+
+if __name__ == '__main__':
+
+    main( sys.argv[1:] )
