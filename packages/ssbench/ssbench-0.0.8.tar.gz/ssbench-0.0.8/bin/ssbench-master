@@ -1,0 +1,191 @@
+#!/usr/bin/env python
+# Copyright (c) 2012-2013 SwiftStack, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import os
+import re
+import sys
+import math
+import logging
+import argparse
+import cPickle as pickle
+from datetime import datetime
+
+import eventlet
+beanstalkc = eventlet.import_patched('beanstalkc')
+
+from collections import Counter
+from ssbench.master import Master
+from ssbench.scenario import Scenario
+
+DEFAULT_OBJECTS_PER_CONTAINER = 1000
+DEFAULT_STATS_PATH = '/tmp/ssbench-results/%s.stat'
+
+
+def print_unixtime_histogram(results):
+    counted = Counter([int(item['completed_at']) for item in results])
+    print "unixtime,count"
+    for item in sorted(set(counted.elements())):
+        print "%s,%s" % (item, counted[item])
+
+
+def run_scenario(master, args):
+    container_count = int(args.container_count) \
+            if args.container_count != 'value from scenario' else None
+    user_count = int(args.user_count) \
+            if args.user_count != 'value from scenario' else None
+    scenario = Scenario(args.scenario_file, container_count=container_count,
+                        user_count=user_count)
+
+    # Possibly attempt open prior to benchmark run so we get errors earlier
+    # if there's a problem.
+    if args.stats_file == DEFAULT_STATS_PATH % '<scenario_name>':
+        munged_name = re.sub('[%s\s]+' % os.path.sep, '_', scenario.name)
+        args.stats_file = DEFAULT_STATS_PATH % munged_name
+        if not os.path.exists(os.path.dirname(args.stats_file)):
+            os.makedirs(os.path.dirname(args.stats_file))
+    args.stats_file = open(args.stats_file, 'w+')
+
+    results = master.run_scenario(auth_url=args.auth_url, user=args.user,
+                                  key=args.key, storage_url=args.storage_url,
+                                  token=args.token, scenario=scenario)
+
+    pickle.dump([scenario, results], args.stats_file)
+
+    if not args.no_default_report:
+        args.stats_file.flush()
+        args.stats_file.seek(0)
+        args.report_file = sys.stdout
+        args.rps_histogram = None
+        report_scenario(master, args)
+    args.stats_file.close()
+
+
+def report_scenario(master, args):
+    scenario, results = pickle.load(args.stats_file)
+    stats = master.calculate_scenario_stats(scenario, results)
+    args.report_file.write(master.generate_scenario_report(scenario, stats))
+    if args.rps_histogram:
+        master.write_rps_histogram(stats, args.rps_histogram)
+        # Note: not explicitly closing here in case it's redirected to STDOUT
+        # (i.e. "-")
+
+
+if __name__ == "__main__":
+    arg_parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        description='Benchmark your Swift installation')
+    arg_parser.add_argument('--qhost', default="localhost",
+                            help='beanstalkd host')
+    arg_parser.add_argument('--qport', default=11300, type=int,
+                            help='beanstalkd port')
+    arg_parser.add_argument('-v', '--verbose', action='store_true',
+                            default=False, help='Enable more verbose output.')
+
+    subparsers = arg_parser.add_subparsers()
+
+    run_scenario_arg_parser = subparsers.add_parser(
+        "run-scenario", help="""
+        Run CRUD scenario, saving statistics.
+
+        You must supply *either* the -A, -U, and -K options, or the -S and -T
+        options.
+        """.strip(),
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    run_scenario_arg_parser.add_argument(
+        '-A', '--auth-url', default=os.environ.get('ST_AUTH', None),
+        help='Auth URL for the Swift cluster under test.')
+    run_scenario_arg_parser.add_argument(
+        '-U', '--user', default=os.environ.get('ST_USER', None),
+        help='The X-Auth-User value to use for authentication.')
+    run_scenario_arg_parser.add_argument(
+        '-K', '--key', default=os.environ.get('ST_KEY', None),
+        help='The X-Auth-Key value to use for authentication.')
+    #
+    run_scenario_arg_parser.add_argument(
+        '-S', '--storage-url', help='A specific X-Storage-Url to use; mutually '
+        'exclusive with -A, -U, and -K; requires -T')
+    run_scenario_arg_parser.add_argument(
+        '-T', '--token', help='A specific X-Storage-Token to use; mutually '
+        'exclusive with -A, -U, and -K; requires -S')
+
+    run_scenario_arg_parser.add_argument(
+        '-c', '--container-count', default='value from scenario',
+        help='Override the container count specified in the scenario file.')
+    run_scenario_arg_parser.add_argument(
+        '-u', '--user-count', default='value from scenario',
+        help='Override the user count (concurrency) specified in the '
+        'scenario file.')
+    run_scenario_arg_parser.add_argument(
+        '-q', '--quiet', action='store_true', default=False,
+        help='Suppress most output (including progress characters during '
+        'run).')
+
+    run_scenario_arg_parser.add_argument(
+        '-f', '--scenario-file', required=True, type=str)
+    run_scenario_arg_parser.add_argument(
+        '-s', '--stats-file', type=str,
+        help='File into which benchmarking statistics will be saved',
+        default=DEFAULT_STATS_PATH % '<scenario_name>')
+    run_scenario_arg_parser.add_argument(
+        '-r', '--no-default-report', action='store_true', default=False,
+        help="Suppress the default immediate generation of a benchmark "
+        "report to STDOUT after saving stats-file")
+    run_scenario_arg_parser.set_defaults(func=run_scenario)
+
+    report_scenario_arg_parser = subparsers.add_parser(
+        "report-scenario",
+        help="Generate a report from saved scenario statistics",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    report_scenario_arg_parser.add_argument(
+        '-s', '--stats-file', type=argparse.FileType('r'), required=True,
+        help='An existing stats file from a previous '
+        '--run-scenario invocation')
+    report_scenario_arg_parser.add_argument(
+        '-f', '--report-file', type=argparse.FileType('w'), default=sys.stdout,
+        help='The file to which the report should be written (def: STDOUT)')
+    report_scenario_arg_parser.add_argument(
+        '-r', '--rps-histogram', type=argparse.FileType('w'),
+        help='Also write a CSV file with requests completed per second '
+        'histogram data')
+    report_scenario_arg_parser.set_defaults(func=report_scenario)
+
+    args = arg_parser.parse_args(sys.argv[1:])
+
+    if args.func == run_scenario:
+        if args.storage_url and args.token:
+            args.auth_url = None
+            args.user = None
+            args.key = None
+        elif not (args.auth_url and args.user and args.key):
+            print >>sys.stderr, 'Must specifiy -A, -U, -K or -S and -T.'
+            run_scenario_arg_parser.print_help(file=sys.stderr)
+            exit(1)
+    os.environ.pop('ST_AUTH', None)
+    os.environ.pop('ST_USER', None)
+    os.environ.pop('ST_KEY', None)
+
+    if args.verbose:
+        log_level = logging.DEBUG
+    elif args.func == run_scenario and args.quiet:
+        log_level = logging.WARNING
+    else:
+        log_level = logging.INFO
+    logging.basicConfig(level=log_level)
+
+    beanq = beanstalkc.Connection(host=args.qhost, port=args.qport)
+    master = Master(beanq, quiet=args.func == run_scenario and args.quiet)
+
+    args.func(master, args)
