@@ -1,0 +1,2 @@
+all:
+	elyse ./ _build/
