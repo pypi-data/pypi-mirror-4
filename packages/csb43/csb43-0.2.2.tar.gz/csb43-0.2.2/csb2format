@@ -1,0 +1,185 @@
+# -*- coding: utf-8 -*-
+#!/usr/bin/env python
+'''
+.. note::
+
+    license: GNU Lesser General Public License v3.0 (see LICENSE)
+
+Convert a **CSB norm 43** file to other file formats.
+
+Supported formats:
+
+- `OFX <http://www.ofx.net/>`_
+- `HomeBank CSV <http://homebank.free.fr/help/06csvformat.html>`_
+- *HTML*
+- *JSON*
+- *ODS*: OpenDocument spreadsheet
+- *CSV*, *TSV*: comma- or tab- separated values
+- *XLS*: Microsoft Excel spreadsheet
+- *XLSX*: OOXML spreadsheet
+- *YAML*
+
+Options:
+-----------
+
+::
+
+    usage: csb2format [-h] [-s] [-df] [-d DECIMAL]
+                    [-f {csv,homebank,html,json,ods,ofx,tsv,xls,xlsx,yaml}]
+                    [csbFile] [formatFile]
+
+    Convert a CSB43 file to another format
+
+    positional arguments:
+    csbFile               a csb43 file (stdin '-' by default)
+    formatFile            name for output file (stdout '-' by default)
+
+    optional arguments:
+    -h, --help            show this help message and exit
+    -s, --strict          strict mode
+    -df, --dayfirst       use DDMMYY as date format while parsing the csb43 file
+                            instead of YYMMDD
+    -d DECIMAL, --decimal DECIMAL
+                            set the number of decimal places for the currency type
+                            (default: 2)
+    -f {csv,homebank,html,json,ods,ofx,tsv,xls,xlsx,yaml}, --format {csv,homebank,html,json,ods,ofx,tsv,xls,xlsx,yaml}
+                            Format of the output file. Default: ofx
+
+Examples
+----------
+
+- Converting to OFX format:
+
+    ::
+
+        $ csb2format transactions.csb transactions.ofx
+
+        $ csb2format --format ofx transactions.csb transactions.ofx
+
+    or
+
+    ::
+
+        $ csb2format transactions.csb > transactions.ofx
+
+    From another app to file
+
+    ::
+
+        $ get_my_CSB_transactions | csb2format > transactions.ofx
+
+- Converting to XLSX spreadsheet format:
+
+    ::
+
+        $ csb2format --format xlsx transactions.csb transactions.xlsx
+
+Spreadsheets
+-------------
+
+*ODS* and *XLS* files are generated as books, with the first sheet containing the
+accounts information, and the subsequent sheets containing the transactions of
+each one of the accounts.
+
+In *XLSX* files all the information is flattened in just one sheet.
+
+'''
+
+from csb43 import __version__
+from csb43.utils import DECIMAL
+from csb43 import csb43 as csb_43, formats as sheet, homebank, ofx
+from csb43.i18n import tr as _
+
+import argparse
+import sys, os
+
+_FORMATS = sorted(list(set(['ofx','homebank']+sheet.FORMATS)))
+
+_DEFAULT_FORMAT = "ofx" if "ofx" in _FORMATS else _FORMATS[0]
+
+
+def get_options():
+
+    parser = argparse.ArgumentParser(description=_("Convert a CSB43 file to "
+                                    "another format").encode('utf-8'))
+    group1 = parser.add_argument_group("conversion arguments")
+    group1.add_argument('csbFile', nargs='?', type=argparse.FileType('rU'),
+                        default=sys.stdin,
+                        help=_("a csb43 file (stdin '-' by default)").encode('utf-8'))
+    group1.add_argument('formatFile', nargs='?', type=argparse.FileType('wb'),
+                        default=sys.stdout,
+                        help=_("name for output file (stdout '-' by default)").encode('utf-8'))
+    group1.add_argument('-s', '--strict', dest='strict', action='store_true',
+                        default=False, help=_('strict mode').encode('utf-8'))
+    group1.add_argument('-df', '--dayfirst', dest="yearFirst",
+                        action='store_false', default=True,
+                        help=_("use DDMMYY as date format while parsing the "
+                        "csb43 file instead of YYMMDD").encode('utf-8'))
+    group1.add_argument('-d', '--decimal', dest="decimal", type=int,
+                        default=DECIMAL,
+                        help=(_("set the number of decimal places for the "
+                        "currency type (default: %d)") % DECIMAL).encode('utf-8'))
+
+    group1.add_argument('-f', '--format', dest="format", type=str,
+                        choices=_FORMATS,
+                        default=_DEFAULT_FORMAT,
+                        help=(_("Format of the output file. Default: %s") % _DEFAULT_FORMAT).encode('utf-8'))
+
+    parser.add_argument('-v', '--version', dest="version", action='store_true',
+                        default=False, help=_('show version and exit').encode('utf-8'))
+
+    return parser.parse_args()
+
+
+def convert(args):
+    csb = csb_43.File(args.csbFile, strict=args.strict,
+                    decimal=args.decimal, yearFirst=args.yearFirst)
+
+    print >> sys.stderr, "*", _("File:").encode('utf-8'), args.csbFile.name
+
+    aFormat = args.format.lower()
+
+    csb_43.showInfo(csb, sys.stderr)
+
+    # OFX format
+    if aFormat == 'ofx':
+        data = ofx.convertFromCsb(csb)
+
+        args.formatFile.write(str(data))
+        args.formatFile.write('\n')
+    # Homebank csv format
+    elif aFormat == 'homebank':
+        for record in homebank.convertFromCsb(csb):
+            args.formatFile.write(str(record))
+            args.formatFile.write('\n')
+    # Dict and tabular formats
+    else:
+        data = sheet.convertFromCsb(csb, aFormat)
+
+        args.formatFile.write(getattr(data, aFormat))
+
+    try:
+        args.csbFile.close()
+    except:
+        pass
+
+    try:
+        args.formatFile.close()
+    except:
+        pass
+
+
+if __name__ == '__main__':
+
+    try:
+        args = get_options()
+
+        if args.version:
+            print os.path.basename(__file__), __version__
+        else:
+            convert(args)
+
+    except Exception, e:
+        #import traceback
+        print >> sys.stderr, str(e)
+        #traceback.print_exc(file=sys.stderr)
