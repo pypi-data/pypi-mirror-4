@@ -1,0 +1,249 @@
+#!/usr/bin/env python
+
+import getpass
+import os
+import requests
+import stat
+import subprocess
+import sys
+import time
+from Crypto.PublicKey import RSA
+from datetime import datetime
+
+try:
+    import json
+except:
+    try:
+        import simplejson as json
+    except:
+        print ''.join(["ERROR: This program requires simplejson.  Please try ",
+                       "'pip install simplejson'."])
+        sys.exit(1)
+
+
+class Logger():
+    def __init__(self):
+        self.filename = 'metrica_setup.log'
+        self.logfile = open(self.filename, 'w')
+
+    def log(self, message):
+        for line in message.split('\n'):
+            self.logfile.write('[' + str(datetime.now()) + '] ')
+            self.logfile.write(line)
+            self.logfile.write('\n')
+
+        self.logfile.flush()
+
+    def delete(self):
+        self.logfile.close()
+        os.remove(self.filename)
+
+
+logger = Logger()
+
+
+def ensureDir(path):
+    try:
+        os.mkdir(path)
+    except OSError as e:
+        if e.errno is not 17:
+            raise
+    return True
+
+
+def send_error_report(failed_request):
+    sys.stderr.write(str(r.status_code) + "\n")
+    sys.stderr.write(str(r.headers) + "\n")
+    sys.stderr.write(r.text)
+
+
+class Progress:
+    @staticmethod
+    def add(description):
+        logger.log(description)
+        print description
+
+    @staticmethod
+    def error(description):
+        logger.log('ERROR - ' + description)
+        sys.stderr.write(description)
+        sys.stderr.write("\n")
+
+    @staticmethod
+    def prompt(text):
+        logger.log('PROMPT - ' + text)
+        sys.stdout.write(text + ': ')
+        response = sys.stdin.readline()[:-1]
+        logger.log('RESPONSE - ' + response)
+        return response
+
+    @staticmethod
+    def prompt_password(text):
+        try:
+            return getpass.getpass(text + ': ')
+        except getpass.GetPassWarning:
+            pass
+
+
+class Config:
+    def __init__(self, path, **kwargs):
+        try:
+            config_file = open(path, 'r')
+            for line in config_file.readlines():
+                key, value = line.strip().split('=', 1)
+                self.__dict__[key] = value
+            config_file.close()
+        except IOError:
+            pass
+
+        for key in kwargs:
+            self.__dict__[key] = kwargs[key]
+
+        self.path = path
+
+    def write(self):
+        config_file = open(self.path, 'w')
+        for key in self.__dict__:
+            config_file.write('%s=%s\n' % (key, self.__dict__[key]))
+        config_file.close()
+
+
+def handle_error(failed_request):
+#    Progress.error(''.join(["Sorry!  We're having trouble connecting to the ",
+#                            "Metrica servers.  Would you like to send ",
+#                            "troubleshooting data to the Metrica support team?"
+#                            ]))
+#    send_report = Progress.prompt('[Y/n]')
+#    if send_report == '' or send_report.lower() == 'y':
+#        send_error_report(failed_request)
+
+    Progress.error(''.join(["Sorry!  We're having trouble connecting to the ",
+                            "Metrica servers.  Troubleshooting data has been "
+                            "logged to %s." % logger.filename,
+                            ]))
+    logger.log(str(r.status_code))
+    logger.log(str(r.headers))
+    logger.log(r.text)
+    sys.exit(1)
+
+base_path = os.path.join(os.environ['HOME'], '.metrica')
+config_path = os.path.join(base_path, 'config')
+ssh_path = os.path.join(base_path, 'ssh')
+pubkey_path = os.path.join(ssh_path, 'id_rsa.pub')
+privkey_path = os.path.join(ssh_path, 'id_rsa')
+
+Progress.add('Adding directories...')
+ensureDir(base_path)
+ensureDir(ssh_path)
+
+try:
+    os.stat(privkey_path)
+    with open(pubkey_path, 'r') as pubkey_file:
+        pubkey = '\n'.join(pubkey_file.readlines())
+    Progress.add('Found metrica keys')
+except OSError as e:
+    if e.errno == os.errno.ENOENT:
+        Progress.add('Generating keys...')
+        key = RSA.generate(2048, os.urandom)
+        pubkey = key.exportKey('OpenSSH')
+        with open(pubkey_path, 'w') as pubkey_file:
+            pubkey_file.write(pubkey)
+        with open(privkey_path, 'w') as privatekey_file:
+            privatekey_file.write(key.exportKey('PEM', pkcs=8))
+        os.chmod(privkey_path, stat.S_IRUSR | stat.S_IWUSR)
+        Progress.add('Key generated.')
+    else:
+        raise
+
+port = Progress.prompt('Port mongo is listening on')
+
+api_url = 'http://www.getmetrica.com/api/v1/'
+# api_url = 'http://test.getmetrica.com/api/v1/'
+# api_url = 'http://www.localhost.com:8000/api/v1/'
+
+use_auth = Progress.prompt('Does this mongo instance use authentication')
+use_auth = use_auth and use_auth.lower()[0] == 'y'
+if use_auth:
+    mongo_user = Progress.prompt('Mongo username')
+    mongo_password = Progress.prompt('Mongo password')
+
+success = False
+while not success:
+    username = Progress.prompt('Metrica username')
+    password = Progress.prompt_password('Metrica password')
+    auth = (username, password)
+    #TODO: Check for auth failures and ask to re-type
+    Progress.add('Sending data...')
+    data = {'ssh_key': pubkey,
+            'remote_port': port,
+            'use_auth': use_auth}
+    if use_auth:
+        data['remote_user'] = mongo_user
+        data['remote_password'] = mongo_password
+
+    headers = {'content-type': 'application/json'}
+    r = requests.post(api_url + 'server/', data=json.dumps(data), auth=auth,
+                      headers=headers)
+    if r.status_code >= 300:
+        if r.status_code == 401:
+            Progress.add("We couldn't log you in.  Please try again.")
+        else:
+            handle_error(r)
+    else:
+        success = True
+
+server_uri = r.headers['Location']
+r = requests.get(server_uri, auth=(username, password))
+if r.status_code >= 300:
+    handle_error(r)
+
+port = r.json['relay_port']
+relay_user = r.json['relay_user']
+relay_host = r.json['relay_host']
+
+c = Config(config_path, port=port, relay_user=relay_user,
+           relay_host=relay_host, server_uri=server_uri)
+c.write()
+
+Progress.add('SSH configured.  Testing now...')
+
+args = [
+    'ssh',
+    '-N',
+    '-R', '%d:127.0.0.1:27017' % port,
+    '-i', privkey_path,
+    '-p', '22',
+    '-o', 'StrictHostKeyChecking=no',
+    '-o', 'UserKnownHostsFile=/dev/null',
+    '%s@%s' % (relay_user, relay_host)]
+
+p = subprocess.Popen(args, stderr=subprocess.STDOUT)
+
+Progress.add('Establishing connection...')
+
+time.sleep(3)
+
+if p.poll():
+    #TODO: Handle SSH failure. Possible reasons:
+    # - Private key wasn't written correctly
+    # - Host is down.  Rotate through possible hosts?
+    # - Port was taken.  Rotate through possible ports?
+    # - Local network issue
+    # - Blocked by network administrator
+    pass
+
+r = requests.get(server_uri, auth=auth)
+if r.status_code >= 300:
+    handle_error(r)
+
+if r.json['connect_status'] == 'could_not_connect':
+    Progress.error(''.join([
+        "Looks like there's a problem connecting to your server.  Please ",
+        "check that mongod is running on the port you specified, and that ",
+        "this machine allows reverse ssh tunneling out of your network."]))
+    sys.exit(1)
+elif r.json['connect_status'] != 'success':
+    handle_error(r)
+else:
+    Progress.add('Connected successfully!')
+    logger.delete()

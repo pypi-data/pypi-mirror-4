@@ -1,0 +1,251 @@
+#!/usr/bin/env python
+
+import sys, os, time, atexit
+from signal import signal, SIGTERM
+import subprocess
+
+
+class Daemon:
+    """
+    A generic daemon class for POSIX systems.
+
+    Usage: subclass the Daemon class and override the run() method
+    """
+    def __init__(self, pidfile, stdin='/dev/null', stdout='/dev/null', stderr='/dev/null'):
+            self.stdin = stdin
+            self.stdout = stdout
+            self.stderr = stderr
+            self.pidfile = pidfile
+
+    def daemonize(self):
+        """
+        Do the UNIX double-fork magic, see Stevens' "Advanced
+        Programming in the UNIX Environment" for details (ISBN 0201563177)
+        Or there's a discussion here:
+        http://stackoverflow.com/questions/881388
+
+        Avoids the possibility that the session acquires a tty, which seems
+        pretty unlikely to me, but I guess this is best practice.
+        """
+        try:
+            pid = os.fork()
+            if pid > 0:
+                # exit first parent
+                sys.exit(0)
+        except OSError, e:
+            sys.stderr.write("fork #1 failed: %d (%s)\n" % (e.errno, e.strerror))
+            sys.exit(1)
+
+        # decouple from parent environment
+        os.chdir("/")
+        os.setsid()
+        os.umask(0)
+
+        # do second fork
+        try:
+            pid = os.fork()
+            if pid > 0:
+                # exit from second parent
+                sys.exit(0)
+        except OSError, e:
+            sys.stderr.write("fork #2 failed: %d (%s)\n" % (e.errno, e.strerror))
+            sys.exit(1)
+
+        # redirect standard file descriptors
+        sys.stdout.flush()
+        sys.stderr.flush()
+        si = file(self.stdin, 'r')
+        so = file(self.stdout, 'a+', 0)
+        se = file(self.stderr, 'a+', 0)
+        os.dup2(si.fileno(), sys.stdin.fileno())
+        os.dup2(so.fileno(), sys.stdout.fileno())
+        os.dup2(se.fileno(), sys.stderr.fileno())
+
+        # write pidfile
+        atexit.register(self.delpid)
+        signal(SIGTERM, lambda signum, stack_frame: exit(1))
+        pid = str(os.getpid())
+        print 'Started monitor. Pid = ', pid
+        file(self.pidfile, 'w+').write("%s\n" % pid)
+
+    def delpid(self):
+        os.remove(self.pidfile)
+
+    def start(self):
+        """
+        Start the daemon
+        """
+        # Check for a pidfile to see if the daemon already runs
+        try:
+            pf = file(self.pidfile,'r')
+            pid = int(pf.read().strip())
+            pf.close()
+            print 'Found pid file', self.pidfile, ', pid:', pid
+        except IOError:
+            pid = None
+
+        if pid:
+            try:
+                os.kill(pid, 0)
+                print 'Daemon at pid', pid, 'already started. Exiting.'
+                sys.exit(1)
+            except OSError:
+                pass
+
+        # Start the daemon
+        self.daemonize()
+        self.run()
+
+    def stop(self):
+        """
+        Stop the daemon
+        """
+        # Get the pid from the pidfile
+        try:
+            pf = file(self.pidfile, 'r')
+            pid = int(pf.read().strip())
+            pf.close()
+        except IOError:
+            pid = None
+
+        if not pid:
+            return  # not an error in a restart
+
+        # Try killing the daemon process
+        try:
+            while 1:
+                os.kill(pid, SIGTERM)
+                time.sleep(0.1)
+        except OSError, err:
+            err = str(err)
+            if err.find("No such process") > 0:
+                if os.path.exists(self.pidfile):
+                    os.remove(self.pidfile)
+            else:
+                print str(err)
+                sys.exit(1)
+
+    def restart(self):
+        """
+        Restart the daemon
+        """
+        self.stop()
+        self.start()
+
+    def run(self):
+        """
+        You should override this method when you subclass Daemon. It will be called after the process has been
+        daemonized by start() or restart().
+        """
+
+
+class Config:
+    def __init__(self, path, **kwargs):
+        self.path = path
+        try:
+            config_file = open(path, 'r')
+            for line in config_file.readlines():
+                key, value = line.strip().split('=', 1)
+                self.__dict__[key] = value
+            config_file.close()
+        except IOError:
+            pass
+
+        for key in kwargs:
+            self.__dict__[key] = kwargs[key]
+
+    def write(self):
+        config_file = open(self.path, 'w')
+        for key in self.__dict__:
+            config_file.write('%s=%s\n' % (key, self.__dict__[key]))
+        config_file.close()
+
+    def __getitem__(self, key):
+        return self.__dict__[key]
+
+
+base_path = os.path.join(os.environ['HOME'], '.metrica')
+config_path = os.path.join(base_path, 'config')
+log_path = os.path.join(base_path, 'connect.log')
+self_pid_path = os.path.join(base_path, 'monitor_pid')
+ssh_path = os.path.join(base_path, 'ssh')
+pubkey_path = os.path.join(ssh_path, 'id_rsa.pub')
+privkey_path = os.path.join(ssh_path, 'id_rsa')
+ssh_pid_path = os.path.join(ssh_path, 'pid')
+
+
+def kill_pid_and_remove_file(pid_path):
+    print 'Looking for ssh pid to kill at', pid_path
+    try:
+        pf = open(pid_path, 'r')
+        pid = int(pf.read().strip())
+        pf.close()
+    except:
+        pid = None
+
+    if pid:
+        try:
+            print 'Killing pid file', pid_path, ', pid:', pid
+            while 1:
+                os.kill(pid, SIGTERM)
+                time.sleep(0.1)
+        except OSError, err:
+            err = str(err)
+            if err.find("No such process") > 0:
+                print 'Killed.  Removing file.'
+                if os.path.exists(pid_path):
+                    os.remove(pid_path)
+            else:
+                print str(err)
+                sys.exit(1)
+
+
+class SshMonitor(Daemon):
+    def run(self):
+
+        kill_pid_and_remove_file(ssh_pid_path)
+
+        def clean_ssh():
+            kill_pid_and_remove_file(ssh_pid_path)
+
+        atexit.register(clean_ssh)
+
+        config = Config(config_path)
+
+        port = config['port']
+        relay_user = config['relay_user']
+        relay_host = config['relay_host']
+
+        args = [
+            'ssh',
+            '-N',
+            '-R', '%s:127.0.0.1:27017' % port,
+            '-i', privkey_path,
+            '-p', '22',
+            '-o', 'StrictHostKeyChecking=no',
+            '-o', 'UserKnownHostsFile=/dev/null',
+            '%s@%s' % (relay_user, relay_host)]
+
+        while 1:
+            print 'Starting ssh.'
+            p = subprocess.Popen(args, stderr=subprocess.STDOUT)
+            ssh_pid = p.pid
+            open(ssh_pid_path, 'w+').write("%s\n" % ssh_pid)
+            p.wait()
+
+sshMonitor = SshMonitor(self_pid_path, stderr=log_path, stdout=log_path)
+
+if os.getuid() != 0:
+    sys.stderr.write("Must be run as root.\n")
+    exit(1)
+
+command = sys.argv[1] if len(sys.argv) > 1 else 'start'
+if command == 'start':
+    sshMonitor.start()
+elif command == 'stop':
+    sshMonitor.stop()
+elif command == 'restart':
+    sshMonitor.restart()
+else:
+    sys.stderr.write('Unknown command: %s' % command)
+    sys.exit(1)
