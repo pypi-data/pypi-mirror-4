@@ -1,0 +1,74 @@
+import os
+import time
+import logging
+import transaction
+
+import pyll
+from pyll import tmpl_context as c, session
+from pyll.decorators import xml, xml_render, html, html_render, jsonify, authorize,\
+    credential, authenticated, redirect
+
+from ${package}.model import db, User, EmailAddress, Group
+from ..lib.forms import UserForm, validators
+from base import ControllerBase
+
+
+log = logging.getLogger(__name__)
+
+from simplejson import loads, dumps
+
+log = logging.getLogger(__name__)
+
+
+class API(ControllerBase):
+
+    @authorize(credential('admin'))
+    @jsonify
+    def add_user(self, *args, **kwargs):
+        schema = UserForm()
+        try:
+            res = schema.to_python(self.request.params)
+            user = User(first_name=res.get('first_name'),
+                        last_name=res.get('last_name'),
+                        username=res.get('username'))
+
+            user._set_password(res.get('password'))
+
+            # XXX: add more logic for groups
+            if res.get('user_group') == 'admin':
+                user.groups.append(Group.query.filter_by(id=2).first())
+            else:
+                user.groups.append(Group.query.filter_by(id=1).first())
+
+            user.email_addresses.append(EmailAddress(email=res.get('email'), name=res.get('email_type')))
+
+            db.add(user)
+            transaction.commit()
+
+        except validators.Invalid, error:
+            transaction.abort()
+            return {'result': 'FAILURE', 'heading': 'Add User Failed',
+                    'content': 'Validation Error: %s' % error,
+                    'timeout': 4000, 'sticky': True}
+
+
+        return {'result': 'SUCCESS', 'heading': 'Success',
+                'content': 'Successfully added '+str(res.get('username'))+'.',
+                'timeout': 4000, 'sticky': False}
+
+    @authorize(credential('admin'))
+    @jsonify
+    def users_json(self, *args, **kwargs):
+        items = []
+        users = User.query.all()
+
+        for row in users:
+            emails = []
+            for email_row in row.email_addresses:
+                emails.append(email_row.email)
+
+            items.append(dict({'id': row.id, 'first_name': row.first_name, 'username': row.username,
+                               'last_name': row.last_name, 'email': ','.join(emails),
+                               'permissions': row.permissions }))
+
+        return {"total":"1", "page":"1", "userdata":{}, "records":"2", "rows": items}
