@@ -1,0 +1,78 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# encoding: utf-8
+'''
+messages.py
+
+Processes messages utility library
+
+Created by SWS on 2012-09-11.
+Copyright (c) 2012 StoneWorkSolutions. All rights reserved.
+'''
+from django.conf import settings
+import re
+import logging
+import redis
+# import ooint.settings
+
+for log in settings.LOGGING['loggers']:
+	if log.find('.views') != -1:
+		logger = logging.getLogger(log)
+
+def processErrorsForm(form):
+	
+	message = ''
+	messages = []
+
+	for field in form:
+
+		if field.errors:
+			message = re.sub('</(.*)>', '', unicode(str(field.errors), 'utf-8'))
+			message = re.sub('<(.*)>', '', message)
+			message = field.html_name + ': ' + message
+			messages.append(message)
+
+	return messages
+	
+def processMessages(message, typeMessage, timeOut=10000):
+
+	msg = {}
+
+	if typeMessage == 'error':
+		try:
+			logger.error(message)
+		except:
+			pass
+		error = (message, timeOut)
+		msg['error'] = error
+
+	elif typeMessage == 'warning':
+		try:
+			logger.warning(message)
+		except:
+			pass
+		warning = (message, timeOut)
+		msg['warning'] = warning
+
+	elif typeMessage == 'success':
+		try:
+			logger.info(message)
+		except:
+			pass
+		success = (message, timeOut)
+		msg['success'] = success
+
+	elif typeMessage == 'info':
+		try:
+			logger.info(message)
+		except:
+			pass
+		info = (message, timeOut)
+		msg['info'] = info
+
+	return msg
+
+def sendMessages(message,channel='international'):
+	cr = redis.Redis(settings.REDIS_IP)
+	cr.publish(channel,message)
+	return True
