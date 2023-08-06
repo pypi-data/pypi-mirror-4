@@ -1,0 +1,174 @@
+#!/usr/bin/env python 
+#-*- coding: utf-8 -*-
+'''
+    git-play
+        by Ju-yeong Park <interruptz@gmail.com>
+'''
+
+import argparse
+import git
+import logging
+import os
+import re 
+import signal
+import subprocess
+import sys
+import time 
+import yaml
+
+
+# Parse arguments.
+parser = argparse.ArgumentParser(prog='git-play',description='Watch and deploy a repository')
+parser.add_argument('repository', default='.', nargs='?')
+parser.add_argument('directory', nargs='?', help='Specify the name of a newly created directory (default: the name of the repository)')
+parser.add_argument('--remote', '-r')
+parser.add_argument('--branch', '-b')
+parser.add_argument('--verbose', '-v', default=False, action='store_true', help='Makes the fetching more verbose/talkative. Mostly useful for debugging.')
+parser.add_argument('--log', '-l', default='./git-play.log', help='Specify log file path. (default: ./git-play.log)')
+parser.add_argument('--wait', '-i',  default=60, help='Wait n seconds between pulling from the remote repository. The default is to wait for 60 seconds between each pulling.')
+parser.add_argument('--config', '-c', default='.git-play.yml', help='Specify configuration file name. (default: .git-play.yml)')
+args = parser.parse_args(sys.argv[1:])
+
+# Default values
+_not_specified = not args.remote and not args.branch
+_repo = args.repository
+_remote = args.remote or 'origin' 
+_branch = args.branch or 'master'
+_workdir = args.directory or os.path.basename(re.sub(r'\/$', '', args.repository.split(':')[-1]))
+_verbose = args.verbose
+_logfile = args.log
+_wait = int(args.wait)
+_configfile = args.config
+
+try:
+    repo = git.Repo.clone_from(_repo, _workdir)
+    if _not_specified:
+        repo.git.checkout('%s/%s' % (_remote, _branch))
+    logging.info('Cloned.')
+except:
+    try:
+        repo = git.Repo(_workdir)
+        if _not_specified:
+            repo.git.checkout('%s/%s' % (_remote, _branch))
+    except:
+        logging.fatal('No such repository.')
+        exit(1)
+    repo.git.pull(_remote, _branch)
+    logging.info('Pulled.')
+
+
+# _workdir should be strict.
+_workdir = repo.working_dir
+
+# Logging setting
+logging.basicConfig(filename=_logfile,filemode='a+',level=logging.DEBUG if _verbose else logging.INFO)
+if _verbose:
+    logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
+
+logging.info('Git: %s, %s/%s' % (_repo, _remote, _branch))
+logging.info('Working directory: %s' % (_workdir,))
+
+# Utilities
+class Config(object):
+    def __init__(self, path):
+        self.path = path
+        self.env = os.environ.copy()
+        try:
+            self.config = yaml.load(open('%s/%s' %  (path, _configfile)))
+            if 'app' in self.config:
+                if 'env' in self.config['app']:
+                    for k in self.config['app']['env']:
+                        self.env[k] = str(self.config['app']['env'][k])
+        except:
+            self.config = {}
+            logging.error('Failed to read configurations.')
+    def setup(self):
+        if 'setup' in self.config:
+            logging.info('Setting up...')
+            os.system(("cd \"%s\";" % (self.path,)) + (';'.join(self.config['setup'])))
+    def teardown(self):
+        if 'teardown' in self.config:
+            logging.info('Tearing down...')
+            os.system(("cd \"%s\";" % (self.path,)) + (';'.join(self.config['teardown'])))
+    def app_spawn(self):
+        if 'app' in self.config:
+            if 'workdir' in self.config['app']:
+                path = os.path.join(self.path, self.config['app']['workdir'])
+            else:
+                path = self.path
+            if 'exec' in self.config['app']:
+                logging.info('Spawning an application...')
+                self.server = subprocess.Popen(self.config['app']['exec'], close_fds=True, preexec_fn=os.setsid, cwd=path, env=self.env, stdout=subprocess.PIPE, shell=True)
+            else:
+                logging.warning('`app.exec` is empty.')
+    def is_respawnable(self):
+        if 'app' in self.config:
+            if 'respawn' in self.config['app']:
+                if self.config['app']['respawn']:
+                    return self.config['app']['respawn']
+        return False
+    def app_respawn(self):
+        if self.is_respawnable():
+            logging.info('Re-spawning an application...')
+            if 'app' in self.config and 'workdir' in self.config['app']:
+                path = os.path.join(self.path, self.config['app']['workdir'])
+            else:
+                path = self.path
+            self.server = subprocess.Popen(self.config['app']['exec'], close_fds=True, preexec_fn=os.setsid, cwd=path, env=self.env, stdout=subprocess.PIPE, shell=True)
+    def app_terminate(self):
+        try:
+            logging.info('Killing the server...')
+            # Press Ctrl+C
+            os.killpg(self.server.pid, signal.SIGINT)
+            # 5 secs to clean up
+            for x in range(10):
+                if self.server.poll() != None:
+                    break
+                time.sleep(0.5)
+            else:
+                # Forcibly kill 
+                os.killpg(self.server.pid, signal.SIGKILL)
+        except:
+            logging.fatal("Couldn't kill the server")
+tick = 0
+
+# Initial start
+_conf = Config(_workdir)
+_conf.setup()
+_conf.app_spawn()
+
+print 'Spawned.'
+try:
+    while True:
+        time.sleep(1)
+        tick = (tick + 1) % _wait
+        if tick == _wait-1:
+            # Pull every minute.
+            logging.debug('Pulling from the remote repository...')
+            while True:
+                try:
+                    rst = repo.git.pull(_remote, _branch)
+                    break
+                except:
+                    logging.error('Failed to pull, retry...')
+            # See if something is changed.
+            if rst != 'Already up-to-date.':
+                # If it is,
+                logging.info('Something has changed. Applying...')
+                _conf.teardown()
+                _conf.app_terminate() 
+                _conf = Config(_workdir) 
+                _conf.setup()
+                _conf.app_spawn()
+        else:
+            # See if the process is dead
+            if _conf.is_respawnable():
+                if _conf.server.poll() != None:
+                    # Respawn.
+                    _conf.app_respawn()
+except KeyboardInterrupt:
+    # Ctrl+C
+    logging.info('Ctrl+C pressed.')
+    _conf.teardown()
+    _conf.app_terminate()
+
