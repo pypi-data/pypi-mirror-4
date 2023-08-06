@@ -1,0 +1,302 @@
+Metadata-Version: 1.1
+Name: repoze.who.plugins.cas
+Version: 0.2.0
+Summary: CAS plugin for repoze.who by Makina Corpus
+Home-page: http://github.com/kiorky/repoze.who.plugins.cas/
+Author: Simon Thepot, Mathieu Pasquet
+Author-email: dj.coin@laposte.net, kiorky@cryptelium.net
+License: BSD
+Description: Introduction
+        ============
+        
+        .. contents::
+        
+        ``repoze.who.plugins.cas`` is a plugin for the `repoze.who framework
+        <http://docs.repoze.org/who/>`_ that enables Single Sign-On (SSO)
+        for applications via a Central Authentication Service (CAS) server.
+        
+        .. image:: https://secure.travis-ci.org/kiorky/repoze.who.plugins.cas.png
+            :target: http://travis-ci.org/kiorky/repoze.who.plugins.cas
+        
+        
+        The plugin follows the protocols described
+        in the `official documentation <http://www.jasig.org/cas/protocol>`_ for
+        login, ticket validation, and logout. The plugin has been tested against
+        instances of CAS 3.0+ servers.
+        
+        Compatibility Note
+        ++++++++++++++++++
+        
+        Whilst the plugin supports both CAS 1.0- and CAS 2.0-style service ticket
+        validation, the plugin has currently only been tested against instances of
+        CAS 3.0+ servers.  Backwards compatibility is unknown at the point and
+        assistance testing this plugin is welcomed.
+        
+        Potential Applications
+        ++++++++++++++++++++++
+        
+        Applications which can be used :
+        
+        - Apps complying with the `simple_authentication WSGI specification
+          <http://wsgi.org/wsgi/Specifications/simple_authentication>`_, which take
+          advantage of the REMOTE_USER key in the WSGI environment.
+        - Custom applications that utilise the ``repoze.who`` environment
+          variables present within a WSGI request.
+        - Apps which can handle themselves the CAS mechanism (for example: phpBB
+          with the CAS patch, using ``wphp`` as a Paste filter for integration of
+          PHP with Python),
+        
+        Links
+        +++++
+        
+        - `Official link for CAS <http://www.jasig.org/cas>`_
+        
+        Development
+        +++++++++++
+        
+        To run the test suite, clone this project from source code hosting and
+        run the following::
+        
+            cd repoze.who.plugins.cas
+            python bootstrap.py
+            ./bin/buildout
+            ./bin/test
+        
+        Credits
+        +++++++
+        
+        |makinacom|_
+        
+        * `Planet Makina Corpus <http://www.makina-corpus.org>`_
+        * `Contact us <mailto:python@makina-corpus.org>`_
+        
+        .. |makinacom| image:: http://depot.makina-corpus.org/public/logo.gif
+        .. _makinacom:  http://www.makina-corpus.com
+        
+        
+        Documentation
+        =============
+        
+        
+        
+        
+        
+        Installing
+        ==========
+        
+        Requirement
+        ++++++++++++
+        
+        You must have a CAS server working and you will need to know the URL to your
+        CAS server.  Typically, this will be the part of the URL before your
+        ``/login`` or ``/logout`` URLs for CAS.  For example::
+        
+            https://example.edu/cas/
+        
+        All URLs for CAS login, validation, and logout will be built using this
+        address.
+        
+        CAS
+        +++
+        
+        You must ensure that logout is enabled on your CAS server.
+        Typically, this involves adding::
+        
+            <property name="followServiceRedirects" value="true" />
+        
+        into the ``LogoutController`` bean in your ``cas-servlet.xml`` file.
+        Ask your system administrator if you're unsure about the above.
+        
+        Attribute release
+        +++++++++++++++++
+        
+        If your CAS server supports it, this plugin can parse and capture 
+        user metadata attributes being released during the CAS ticket validation
+        process. By specifying an identifer for ``attributes_name`` in the plugin
+        configuration, attributes released from CAS will be stored into the
+        ``repoze.who`` identity within the given environment.  Given the way
+        CAS works, you will need to cache or store this information within your
+        application (or use another ``repoze.who`` plugin to do it for you), as 
+        this data is only associated with a user's initial CAS request.
+        
+        A suite of plugins exists for precisely this reason and can be found at
+        https://pypi.python.org/pypi/repoze.who.plugins.metadata_cache
+        
+        You can always customise your own method of managing this metadata, too.
+        As mentioned, you can find the retrieved attributes within the ``repoze.who``
+        identity within the specific request that triggers the CAS authentication.
+        
+        Your apps
+        +++++++++
+        
+        Nothing is required within your apps, just set them up and configure 
+        ``repoze.who`` accordingly.  You may like to follow the example 
+        configuration file as seen in the ``config_example/`` directory.
+        This is what the ``who.ini`` configuration file looks like::
+        
+            # IDENTIFIER
+            # @param :
+            # - cas_url : URL to your CAS server. Ensure your URL has a trailing slash.
+            # - cas_version : Version of your CAS server. Affects how the CAS protocol
+            #                 is followed.
+            # - rememberer_name : name of the plugin for remembering (delegate)
+            # - attributes_name : identifier for where to place CAS-sources metadata
+            #                     inside the ``repoze.who`` identity.
+            # - path_toskip : regex for URLs handling authentication to CAS separately
+            # - path_logout : regex for URLS that should be trigger a logout
+            #                 WARNING: you must include the path of logout even 
+            #                 it is present within ``path_toskip``.
+            [plugin:casauth]
+            use = repoze.who.plugins.cas.main_plugin:make_plugin
+            cas_url= https://servcas:8443/cas/
+            cas_version = 3.0
+            rememberer_name = auth_tkt
+            attributes_name = attributes
+            path_toskip = .*/phpbb/.*
+            path_logout = .*/logout.*
+                          .*mode=logout.*
+        
+            
+            # CHALLENGE DECIDER
+            # @param:
+            # - path_login : those regexp indicate which url should be redirected for a challenge 
+            #                e.g. : for CAS, will be redirected on a "/cas/login" like url
+            [plugin:decider]
+            use = repoze.who.plugins.cas.challenge_decider:make_plugin
+            path_login = 
+                        .*trac/login.*
+                        .*/login$ 
+        
+            
+            [plugin:auth_tkt]
+            # identification
+            use = repoze.who.plugins.auth_tkt:make_plugin
+            secret = secret
+            cookie_name = oatmeal
+            secure = False
+            include_ip = False
+            
+            [general]
+            request_classifier = repoze.who.classifiers:default_request_classifier
+            remote_user_key = REMOTE_USER
+            # trick : target the plugin whose name is the same
+            challenge_decider = decider
+            
+            
+            [identifiers]
+            # plugin_name;classifier_name:.. or just plugin_name (good for any)
+            plugins =
+                  casauth
+                  auth_tkt
+            
+            [authenticators]
+            # plugin_name;classifier_name.. or just plugin_name (good for any)
+            plugins =
+                  casauth
+            
+            
+            [challengers]
+            # plugin_name;classifier_name:.. or just plugin_name (good for any)
+            plugins =
+                  casauth
+            
+        Using the above configuration will see the given application receive the
+        remote user's name as the ``REMOTE_USER`` environment variable
+        
+        
+        To Do
+        =====
+        
+        * *More tests*: Add additional deployment scenarios for applications
+        * *Handle Single Sign-Out*: 
+        
+          At this point, this plugin does not handle Single Sign Out.
+          There may be several ways to achieve this:
+        
+          - A simple solution may be found by enabling the plugin to execute each
+            callable delivered by webapp whose purpose would be to logout the 
+            user from it (e.g: by redirecting the browser on the logout url, 
+            or deleting some cookies etc.).
+        
+          - Currently, CAS 3 and higher handle SSOut by triggering a POST 
+            request to all the web application registered. 
+        
+        * *Genericising the code*:  At the moment, the plugin relies on a CAS 
+          server.  However, CAS is simply a specific trusted third party (like
+          Kerberos etc.).  So, to avoid redundancy between plugins, abstract away
+          "trusted third party" authentication code and refactory.
+        
+        
+        
+        Known Issues
+        ============
+        
+        * None at present.
+        
+        
+        
+        Changes
+        =======
+        
+        0.2.0 (2013-04-24)
+        ++++++++++++++++
+        
+         - Review davidjb changes, cleanify the buildout infra, travis setup [kiorky]
+         - Support obtaining user attributes (metadata) via CAS 2.0 service 
+           validation (``/serviceValidation``) and parsing the XML response.
+           User attributes will be placed into the repoze.who identity
+           using the key ``attributes_name`` after the ticket validation 
+           process.  Due to how CAS works, the data must be either saved or cached
+           by another plugin to allow persistance beyond the request 
+           that triggered the ticket validation.  See documentation for more info.
+           [davidjb]
+         - Support specifying a CAS version. This will control what version of
+           the CAS protocol (http://www.jasig.org/cas/protocol) to use.
+           [davidjb]
+         - Precompile regex statements from configuration to avoid needing
+           to recompile during every request.
+           [davidjb]
+         - Clean up debug process. Debugging is now possible by configuring the
+           ``debug`` plugin keyword.
+           [davidjb]
+         - Clean up identification process to remove need for ``bhp`` in query
+           string.
+           [davidjb]
+         - Switch use of paste HTTPFound for webob, following repoze.who.
+           [davidjb]
+         - Add Buildout boostrap and configuration for running tests.
+           [davidjb]
+         - Documentation clean up for clarity.
+           [davidjb]
+         - Code spring cleaning and documentation expansion. Code now requires
+           Python 2.6 and works towards Python 3 compatibility (not guaranteed
+           at present).
+           [davidjb]
+        
+        0.1.2 (2012-01-13)
+        ++++++++++++++++++
+        
+         - Minor additions to example configuration about CAS URL and auth_tkt
+           plugin.
+           [davidjb]
+        
+        0.1 (2009-07-28)
+        ++++++++++++++++
+        Initial release.
+        
+         - Provides repoze.who plugins (i.e.: challenge, identifier, chalenge decider and
+           auth plugins) for enabling CAS
+         - Provides simple unit tests
+           
+        
+        
+Keywords: cas authentication server web wsgi repoze repoze.who sponsorised by Makina Corpus
+Platform: UNKNOWN
+Classifier: Development Status :: 2 - Pre-Alpha
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: BSD License
+Classifier: Natural Language :: English
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python
+Classifier: Topic :: Internet :: WWW/HTTP :: WSGI :: Middleware
+Classifier: Topic :: System :: Systems Administration :: Authentication/Directory
