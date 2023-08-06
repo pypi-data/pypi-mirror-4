@@ -1,0 +1,125 @@
+#!/usr/bin/env python
+
+import argparse
+
+import peachtree
+from peachtree import machine_description
+from peachtree import writers
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--qemu-data-dir", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--output-format",
+        choices=writers.writer_names(),
+        default="human",
+    )
+    
+    subparsers = parser.add_subparsers()
+    
+    for command_name, command_builder in _commands.iteritems():
+        command = command_builder()
+        subparser = subparsers.add_parser(command_name)
+        subparser.set_defaults(func=command.execute)
+        command.create_parser(subparser)
+    
+    args = parser.parse_args()
+    writer = writers.find_writer_by_name(args.output_format)
+    
+    provider = peachtree.qemu_provider(data_dir=args.qemu_data_dir)
+    args.func(provider, writer, args)
+
+
+class RunCommand(object):
+    def create_parser(self, subparser):
+        subparser.add_argument('image')
+        subparser.add_argument('--public-port', action='append', default=[])
+    
+    def execute(self, provider, writer, args):
+        public_ports = map(int, args.public_port)
+        machine = provider.start(args.image, public_ports=public_ports)
+        writer.write_result(_describe_machine(machine))
+
+
+class DescribeCommand(object):
+    def create_parser(self, subparser):
+        subparser.add_argument('identifier')
+    
+    def execute(self, provider, writer, args):
+        machine = provider.find_running_machine(args.identifier)
+        writer.write_result(_describe_machine(machine))
+
+
+class DescribeAllCommand(object):
+    def create_parser(self, subparser):
+        pass
+    
+    def execute(self, provider, writer, args):
+        machines = provider.list_running_machines()
+        writer.write_result(map(_describe_machine, machines))
+
+
+class ListCommand(object):
+    def create_parser(self, subparser):
+        pass
+    
+    def execute(self, provider, writer, args):
+        machines = provider.list_running_machines()
+        # TODO: use writer to format result
+        for machine in machines:
+            print machine.identifier, machine.image_name
+            
+            
+class StopCommand(object):
+    def create_parser(self, subparser):
+        subparser.add_argument('identifier')
+    
+    def execute(self, provider, writer, args):
+        machine = provider.find_running_machine(args.identifier)
+        if machine is not None:
+            machine.destroy()
+        
+            
+class CronCommand(object):
+    def create_parser(self, subparser):
+        pass
+    
+    def execute(self, provider, writer, args):
+        provider.cron()
+
+
+class PublicPortCommand(object):
+    def create_parser(serlf, subparser):
+        subparser.add_argument('identifier')
+        subparser.add_argument("port", type=int)
+    
+    def execute(self, provider, writer, args):
+        machine = provider.find_running_machine(args.identifier)
+        if machine is None:
+            external_port = None
+        else:
+            external_port = machine.public_port(args.port)
+        writer.write_result(external_port)
+        
+
+_commands = {
+    "run": RunCommand,
+    "describe": DescribeCommand,
+    "describe-all": DescribeAllCommand,
+    "list-running": ListCommand,
+    "stop": StopCommand,
+    "cron": CronCommand,
+    "public-port": PublicPortCommand,
+}
+
+
+def _describe_machine(machine):
+    if machine is None:
+        return None
+    else:
+        return machine_description.describe_machine(machine)
+
+
+if __name__ == "__main__":
+    main()
