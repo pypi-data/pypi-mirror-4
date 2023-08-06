@@ -1,0 +1,10 @@
+__version__ = "0.1.2.post3.g819592b"
+__git_commiter_name__ = "wiggin15"
+__git_commiter_email__ = "wiggin15@yahoo.com"
+__git_branch__ = 'develop'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '819592b09a2d49d1faabf50de7d458ff18e84264'
+__git_head_subject__ = 'very small changes to comments'
+__git_head_message__ = ''
+__git_dirty_diff__ = ''
