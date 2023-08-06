@@ -1,0 +1,263 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+#    This file is part of KTBS <http://liris.cnrs.fr/sbt-dev/ktbs>
+#    Copyright (C) 2011-2012 Pierre-Antoine Champin <pchampin@liris.cnrs.fr> /
+#    Françoise Conil <francoise.conil@liris.cnrs.fr> /
+#    Universite de Lyon <http://www.universite-lyon.fr>
+#
+#    KTBS is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU Lesser General Public License as published
+#    by the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    KTBS is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU Lesser General Public License for more details.
+#
+#    You should have received a copy of the GNU Lesser General Public License
+#    along with KTBS.  If not, see <http://www.gnu.org/licenses/>.
+
+# invalid module name #pylint: disable=C0103
+"""
+A simple collector program that populates the KTBS with collected obsels.
+"""
+
+import sys
+from os.path import abspath, dirname, join
+
+SOURCE_DIR = dirname(dirname(abspath(__file__)))
+LIB_DIR = join(SOURCE_DIR, "lib")
+sys.path.insert(0, LIB_DIR)
+
+from argparse import ArgumentParser
+
+from datetime import datetime
+
+from rdflib import Namespace
+
+from rdfrest.utils import coerce_to_uri, parent_uri, urisplit
+
+from ktbs.api.base import BaseMixin as KtbsBase
+from ktbs.api.trace import StoredTraceMixin as StoredTrace
+from ktbs.client import get_ktbs
+
+
+MODEL_URI = "http://liris.cnrs.fr/silex/2011/simple-trace-model"
+TRACE_ORIGIN = datetime.utcnow()  #"1970-01-01T00:00:00Z"
+MODEL_PREFIX = Namespace("http://liris.cnrs.fr/silex/2011/simple-trace-model#")
+OBSEL_TYPE = "#SimpleObsel"
+
+class ObselCollector(object):
+    """
+    A simple collector class that populates the KTBS with collected obsels.
+    """
+
+    def __init__(self):
+        """
+        Define simple collector parser and its command line options.
+        To begin, we just ask for a Trace URI which is mandatory.
+        """
+        self._parser = ArgumentParser(description="Fill a stored trace with "
+                                      "obsels.")
+        self._parser.add_argument("trace", nargs=1, 
+                                  help="Enter the uri of the trace that will "
+                                  "contain the collected obsels")
+        self._parser.add_argument("-m", "--model", nargs="?",
+                                  help="NOT IMPLEMENTED YET - Enter the model "
+                                  "uri if different from the default (%s), it "
+                                  "can be a relative URI." % MODEL_URI)
+        self._parser.add_argument("-t", "--type", nargs="?",
+                                  help="NOT IMPLEMENTED YET - Enter the obsel "
+                                  "type uri if different from the default "
+                                  "(%s), it can be a relative URI."
+                                  % OBSEL_TYPE)
+        self._parser.add_argument("-a", "--attribute", nargs="?",
+                                  help="NOT IMPLEMENTED YET - Enter the "
+                                  "attribute uri it can be a relative")
+        self._parser.add_argument("-e", "--empty", action="store_true",
+                                  help="Allow empty value for obsels")
+        self._parser.add_argument("-v", "--verbose", action="store_true",
+                                  help="Display print messages")
+
+        self._args = self._parser.parse_args()
+        #self.display("Parsed with argparse: %s" % str(self._args))
+
+        self.root_uri = "http://localhost:8001/"
+
+    def validate_entries(self):
+        """
+        Check user entries, the trace URI in fact.
+        """
+        # TODO Use rdfrest.utils.urisplit() to analyze and check Trace URI
+        # Then check the path component
+        # .rsplit("/",2) to get the last two items
+
+        split = urisplit(self._args.trace[0])
+
+        # Result for http://localhost:8001/Base/t01/
+        #SplitResult(scheme='http', netloc='localhost:8001', path='/Base/t01/', 
+        #            query=None, fragment=None)r
+
+        self.display("----- %s " % repr(split))
+
+        # Transform URI string to an rdflib URIRef
+        return (coerce_to_uri(self._args.trace[0]))
+
+    def display(self, msg):
+        """
+        Display the messages only in verbose mode.
+        """
+        if self._args.verbose:
+            print msg
+
+    def get_root(self):
+        """
+        Get the kTBS root from the trace uri.
+        """
+        self.root_uri = parent_uri(parent_uri(self._args.trace[0]))
+        self.display("----- root_uri: %s" % self.root_uri)
+
+    def get_base(self, trace_uri):
+        """
+        Get the kTBS Base object for the trace whose URI has been passed. 
+        If it does not exist, create it.
+        """
+
+        # Get a KTBS access 
+        root = get_ktbs(self.root_uri)
+        self.display("----- root.label: %s" % root.label)
+
+        base_uri = parent_uri(trace_uri)
+        tbase = root.get_base(base_uri)
+        if tbase is None:
+            self.display("----- No matching base found, creating ...")
+            tbase = root.create_base(base_uri)
+            # Add a default model
+            #tbase.create_model(id=MODEL_URI)
+
+        if tbase is not None:
+            self.display("----- base.label: %s" % tbase.label)
+
+        return tbase
+
+    def get_trace(self, base, trace_uri):
+        """
+        Get the KTBS StoredTrace object for the trace whose URI has been passed.
+        If found, check the model and the origin.
+        If it does not exist, create it.
+        """
+        ttrace = base.get(trace_uri)
+        if ttrace is not None: 
+            self.display("----- The trace %s already exists" % trace_uri)
+            assert isinstance(ttrace, StoredTrace)
+
+            ## the model may be unreachable
+            # model = ttrace.model
+            # if model is not None:
+            #     self.display("----- %s model uri: %s"
+            #                  % (ttrace.label, model.uri))
+            # else:
+            #     self.display("----- No model found for %s" % ttrace.label)
+
+            #     # TODO Check trace origin
+            #     self.display("----- %s origin: %s"
+            #                  % (ttrace.label, ttrace.origin))
+
+        else:
+            self.display("----- No matching trace found, creating ...")
+            # TODO Trace URI is already checked do the job
+            if parent_uri(trace_uri) != str(base.uri):
+                sys.exit("Invalid trace uri '%s': check this uri ends with a "
+                         "'/' character." % trace_uri)
+            ttrace = base.create_stored_trace(id=trace_uri,
+                                              model=MODEL_URI,
+                                              origin=TRACE_ORIGIN
+                                              #label="%s" % trace_name
+                                              )
+
+        return ttrace
+
+    def add_model(self, base):
+        """
+        Temporary method, waiting the definitive model to be ready ?
+        """
+        assert isinstance(base, KtbsBase)
+        self.display("----- No model found for %s, creating ..." % base.label)
+
+        model = base.create_model(id="model1")
+        if model is not None:
+            model.create_obsel_type(OBSEL_TYPE)
+        return model
+
+    def add_obsel(self, trace, value):
+        """
+        ce programme lit sur son entrée standard et pour chaque ligne lue, 
+        crée un obsel ayant les propriétés suivantes
+
+            ktbs:beginDT  le temps courant
+            ktbs:endDT    le temps courant
+            ktbs:subject  la valeur de la variable d'environnement USER
+            m:value       la ligne de texte lue
+
+        en supposant:
+            @prefix m: <http://liris.cnrs.fr/silex/2011/simple-trace-model#>
+        """
+        # TODO Accept empty value if -e or --empty option is set
+        if not self._args.empty and len(value) == 0:
+            return None
+
+        attributes = {}
+
+        # as the model may not be available, do not use it
+        # model = trace.get_model()
+        # if model is not None:
+        #     self.display("----- %s model uri: %s" % (trace.label, model.uri))
+        #     atypes = model.attribute_types
+        #     if len(atypes) > 0:
+        #         attributes[atypes[0]] = value
+
+        obsel = trace.create_obsel(type=MODEL_URI + OBSEL_TYPE,
+                                   #begin=datetime.now(),
+                                   #end=datetime.now(),
+                                   subject="me",
+                                   attributes=attributes)
+
+        return obsel
+
+def main():
+    """The main function of simple-collector"""
+    ocollector = ObselCollector()
+
+    turi =  ocollector.validate_entries() 
+
+    if turi is None:
+        sys.exit("No valid URI, programm stopped.")
+
+    ocollector.get_root()
+    tbase = ocollector.get_base(turi)
+
+    if tbase is None:
+        sys.exit("No valid base in URI, programm stopped.")
+
+    #if len(tbase.models) == 0:
+    #    ocollector.add_model(tbase)
+
+    ttrace = ocollector.get_trace(tbase, turi)
+
+    if ttrace is None:
+        sys.exit("Trace not created, programm stopped.")
+
+    while(True):
+        try:
+            value = raw_input("====> ")
+            ocollector.add_obsel(ttrace, value)
+        except EOFError, _ex:
+            ocollector.display("Sortie du programme")
+            break
+
+    sys.exit(0)
+
+if __name__ == "__main__":
+    main()
