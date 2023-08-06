@@ -1,0 +1,303 @@
+#!/usr/bin/env python
+"""
+Wraps upload.py with simpler commands for uploading and downloading reviews.
+- Remember the issue number for a branch when uploading new revisions 
+    (git rv review)
+- Download revisions into a new branch 
+    (git rv test)
+- Dependent branches
+  - Each branch should have one commit, but if it has multiple then take the
+      most recent commit as the title+description.
+  - Walk backwards (HEAD~X++) and show the branches that contain the commit at
+      each level (git branch -a --contains HEAD~1). If a new branch is seen,
+      the diff for this issue is between this branch and the newly seen branch.
+      If multiple new branches are found in a single step, pick the one that has
+      an existing issuenum. Stop when a commit is found in remotes/*.
+  - When checking out patchsets, base the new branch off of the base.
+
+Configuration is through a ".rietveld" file in the git root:
+
+{
+  email: <required>,
+  cc: <optional>,
+  server: <defaults to codereview.appspot.com>,
+  reviews: {
+    1234/2: "feature1",
+    5678/6: "feature2"
+  }
+}
+"""
+
+import json
+import urllib
+import tempfile
+import sys
+import os.path
+import review as upload
+
+class Config:
+  config_file = None
+  config = None
+  path = None
+
+  def __init__(self):
+    self.path = upload.RunShell(["git", "rev-parse", "--show-toplevel"]) \
+      .replace("\r", "").replace("\n", "")
+    try:
+      self.config_file = open(os.path.join(self.path, ".rietveld"), "r")
+      self.config = json.loads(self.config_file.read())
+    except IOError:
+      self.config = {
+        "email": "",
+        "cc": "",
+        "server": "codereview.appspot.com",
+        "reviews": {}
+      }
+      self.reconfigure()
+
+  def save(self):
+    self.config_file = open(os.path.join(self.path, ".rietveld"), "w+")
+    self.config_file.write(json.dumps(self.config))
+    self.config_file.close()
+
+  def get(self):
+    return self.config
+
+  def reconfigure(self):
+    config = self.get()
+    new_server = raw_input("Rietveld server [%s] " % config["server"])
+    if new_server:
+      config["server"] = new_server
+    new_email = raw_input("Email for %s [%s] " \
+      % (config["server"], config["email"]))
+    if new_email:
+      config["email"] = new_email
+    new_cc = raw_input("CC list for %s [%s] " \
+      % (config["server"], config["cc"]))
+    if new_cc:
+      config["cc"] = new_cc
+    self.save()
+
+def get_commit_info():
+  # return (subject, description) for the current commit
+  r = upload.RunShell(["git", "log", "--pretty=format:%s%n%b", "-n", "1"])
+  lines = r.split("\n")
+  if len(lines) > 2:
+    desc = "\n".join(lines[2:])
+  else:
+    desc = ""
+  return (lines[0], desc)
+
+def set_issue_info(config, issuenum, title, description):
+  # /<num>/fields
+  payload = json.dumps({
+    "subject": title,
+    "description": description
+  })
+
+  return rpc_server(config).Send("/" + issuenum + "/fields", 
+    payload=urllib.urlencode({
+    "fields": payload
+  }))
+
+def get_issue_info(config, issuenum):
+  # /<num>/fields?field=subject&field=description
+  return json.loads(rpc_server(config).Send("/api/" + issuenum))
+
+def close_issue(issuenum):
+  # /<num>/close
+  pass
+
+def get_patchset(config, info, patchnum):
+  diff = rpc_server(config).Send("/download/issue%d_%d.diff" % (info["issue"], 
+    info["patchsets"][int(patchnum)-1]))
+  tmp = tempfile.NamedTemporaryFile()
+  tmp.write(diff)
+  tmp.flush()
+  return tmp
+
+def rpc_server(options):
+  return upload.GetRpcServer(options["server"], options["email"], None, True, 
+    "GOOGLE")
+
+def get_branches(commit):
+  branches = set()
+  x = 0
+  output = upload.RunShell(["git", "branch", "-a", "--contains", commit])
+  for b in output.split("\n"):
+    b = b[2:]
+    branch = b.split(" ", 1)[0]
+    if branch:
+      branches.add(branch)
+  return branches
+
+def get_sha1(ref):
+  ret, err = upload.RunShellWithReturnCode(["git", "log", "--pretty=format:%H", 
+    "-n", "1", ref])
+  if err:
+    ret = None
+  return ret
+
+if __name__ == "__main__":
+  cfg = Config()
+  config = cfg.get()
+
+  branch = upload.RunShell(["git", "symbolic-ref", "--short", "-q", "HEAD"]) \
+    .replace("\r", "").replace("\n", "")
+
+  if len(sys.argv) > 1:
+    method = sys.argv[1]
+    args = sys.argv[2:]
+
+    if method == "review":
+      (title, description) = get_commit_info()
+      # find the base
+      base = False
+      x = 0
+      prev_branches = set([branch]) # the current branch is already seen
+      while not base:
+        ref = "HEAD~%s" % x
+        branches = set(get_branches(ref))
+        print x, branches
+        new_branches = branches - prev_branches
+        for b in new_branches:
+          if b.endswith("HEAD"):
+            continue
+          # is it a remote branch?
+          if b.startswith("remotes/"):
+            # look up the sha1
+            base = get_sha1(ref)
+            description += "\nRietveld-parent-commit: %s\n" % base
+            print "Basing issue off of commit %s" % base
+          # is it already an issue?
+          elif b in config["reviews"]:
+            base = b
+            i = config["reviews"][b]
+            description += "\nRietveld-parent-issue: %s\n" % i
+            print "Basing issue off of previous issue %s (%s)" % (base, i)
+        x += 1
+
+      # upload issue
+      description_file = tempfile.NamedTemporaryFile()
+      description_file.write(description)
+      description_file.flush()
+      options = ["upload.py", "-e", config["email"], 
+      "--cc", config.get("cc", ""), "--private", 
+      "--title", title,
+      "--file", description_file.name]
+      # check for existing review
+      if branch in config["reviews"]:
+        num = config["reviews"][branch].split("/", 1)[0]
+        options.extend(["-i", num])
+        print set_issue_info(config, num, title, description)
+      options.append(base)
+      print options
+      issuenum, patchset = upload.RealMain(options)
+      info = get_issue_info(config, issuenum)
+      patchnum = len(info["patchsets"])
+      config["reviews"][branch] = "%s/%s" % (issuenum, patchnum)
+      cfg.save()
+
+    elif method == "test":
+      # check current branch for uncommitted changes
+      uncomitted = upload.RunShell(["git", "diff"], silent_ok=True)
+      if len(uncomitted) > 0:
+        print "Unsaved changes on the current branch, commit them first"
+        sys.exit(-1)
+      issuenum = sys.argv[2]
+      if "/" in issuenum:
+        issuenum, patchnum = issuenum.split("/", 1)
+        info = get_issue_info(config, issuenum)
+      else:
+        info = get_issue_info(config, issuenum)
+        patchnum = len(info["patchsets"]) # use the latest patchset
+      
+      # update remotes/* so we have any parent commits required
+      upload.RunShell(["git", "fetch"], silent_ok=True)
+      # check dependent branch requirements
+      description = info["description"]
+      for line in description.split("\n"):
+        if line.startswith("Rietveld-parent-issue: "):
+          parent_issuenum = line.split(" ", 1)[1]
+          parent_issue = "issue/%s" % parent_issuenum
+          if parent_issue in config["reviews"]:            
+            ret, err = upload.RunShellWithReturnCode(["git", "checkout", 
+              parent_issue])
+            if not err:
+              print "Basing patch off of issue %s" % parent_issuenum
+              break
+            # issue branch was deleted on us
+            del config["reviews"][parent_issue]
+            cfg.save()
+          print "Issue branch %s not found in local repository!" \
+            % parent_issue
+          print "Download it first with 'git-rv test %s'" % parent_issuenum
+          sys.exit(-1)
+        if line.startswith("Rietveld-parent-commit: "):
+          parent_commit = line.split(" ", 1)[1] 
+          ret, code = upload.RunShellWithReturnCode(["git", "checkout", 
+            parent_commit])
+          if code:
+            print "Parent commit %s not found" % parent_commit
+            sys.exit(-1)
+          else:
+            print "Basing patch off of commit %s" % parent_commit
+          break
+      else:
+        print "No parent information for this patch, not created with git-rv"
+        sys.exit(-1)
+      print "Downloading %s/%s" % (issuenum, patchnum)
+      diff_file = get_patchset(config, info, patchnum)
+      # create a new branch off of origin/master
+      newbranch = "issue/%s/%s" % (issuenum, patchnum)
+      upload.RunShellWithReturnCode(["git", "branch", "-D", newbranch])
+      upload.RunShell(["git", "checkout", "-b", newbranch], silent_ok=True)
+      # git apply
+      print "git apply output" + 64*"-"
+      upload.RunShell(["git", "apply", "--index", diff_file.name], 
+        silent_ok=True, print_output=True)
+      print 80*"-"
+      # git commit (set author)
+      commitmsg_file = tempfile.NamedTemporaryFile()
+      commitmsg_file.write("%s\n\n%s" % (info["subject"], info["description"]))
+      commitmsg_file.flush()
+      author = "%s <%s>" % (info["owner"], info["owner_email"])
+      upload.RunShell(["git", "commit", "-a", "--author=%s" % author, 
+        "--date=%s" % info["modified"], "-F", commitmsg_file.name])
+      # set issue num for this branch in config file
+      config["reviews"][newbranch] = "%s/%s" % (issuenum, patchnum)
+      cfg.save()
+      print "Testing issue %s patch %s" % (issuenum, patchnum)
+    elif method == "accept":
+      # lookup the issue num for the current branch
+      # mark as closed
+      # ...
+      pass
+    elif method == "config":
+      # reconfigure the .rietveld file
+      cfg.reconfigure()
+  else:
+    if branch in config["reviews"]:
+      issuenum, patchnum = config["reviews"][branch].split("/")
+      info = get_issue_info(config, issuenum)
+      print "Rietveld issue %s/%s = %s" % (issuenum, patchnum, branch)
+      print "Status: %s" % ("CLOSED" if info["closed"] else "OPEN")
+      print "Author: %s <%s>" % (info["owner"], info["owner_email"])
+      print info["subject"]
+      print info["description"]
+      print "Created: %s" % info["created"]
+      print "Modified: %s" % info["modified"]
+    else:
+      print "This branch (%s) is not part of an issue" % branch
+      removed = []
+      for branch, num in config["reviews"].iteritems():
+        sha1 = get_sha1(branch)
+        if not sha1:
+          # issue branch was deleted
+          removed.append(branch)
+        else:
+          print "%15s %20s %s" % (num, branch, sha1)
+      if len(removed) > 0:
+        for branch in removed:
+          del config["reviews"][branch]
+        cfg.save()
