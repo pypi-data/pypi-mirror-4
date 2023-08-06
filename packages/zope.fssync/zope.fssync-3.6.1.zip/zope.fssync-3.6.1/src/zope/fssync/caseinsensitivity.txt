@@ -1,0 +1,252 @@
+============================
+Case-insensitive Filesystems
+============================
+
+Typical Zope objects have unicode names which are case sensitive. 
+If these names are used on case-insensitive filesystems it may happen 
+that objects are overwritten silently. To avoid this risk one has to
+ensure that normalized filenames are used and ambiguities are resolved
+before the data are written to a filesystem.
+
+Let's look at a basic ambiguity:
+
+    >>> from StringIO import StringIO
+    >>> from zope import interface
+    >>> from zope import component
+    >>> from zope import location
+    >>> from zope import traversing
+    >>> from zope.fssync import interfaces
+    >>> from zope.fssync import task
+    >>> from zope.fssync import synchronizer
+    >>> from zope.fssync import repository
+    >>> from zope.fssync import pickle
+    
+    >>> class Locatable(object):
+    ...     interface.implements(location.interfaces.ILocation)
+    ...     __name__ = __parent__ = None
+    >>> class File(Locatable):
+    ...     data = ''
+    >>> class RootDirectory(Locatable, dict):
+    ...     interface.implements(traversing.interfaces.IContainmentRoot)
+    >>> a = File()
+    >>> A = File()
+    >>> a.data = 'data of a'
+    >>> A.data = 'data of A'
+    >>> root = RootDirectory({u'a.txt': a, u'A.txt': A})
+    >>> root.__name__ = None
+    >>> root.__parent__ = None
+
+We must set up the names and parents and the necessary adapters to mimic
+Zope's behavior:
+
+    >>> from zope.location.traversing import LocationPhysicallyLocatable
+    >>> from zope.traversing.interfaces import IPhysicallyLocatable
+    >>> component.provideAdapter(LocationPhysicallyLocatable, None, IPhysicallyLocatable)
+    
+    >>> a.__parent__ = root; a.__name__ = u'a.txt'
+    >>> A.__parent__ = root; A.__name__ = u'A.txt'
+    >>> traversing.api.getPath(a)
+    u'/a.txt'
+    >>> traversing.api.getPath(A)
+    u'/A.txt'
+
+The default entry ids are also paths:
+
+    >>> component.provideAdapter(task.EntryId)
+
+We must register the serializers:
+
+    >>> class FileSynchronizer(synchronizer.Synchronizer):
+    ...     interface.implements(interfaces.IFileSynchronizer,
+    ...                             interfaces.IFileDeserializer)
+    ...     def dump(self, writeable):
+    ...         writeable.write(self.context.data)
+    ...     def load(self, readable):
+    ...         self.context.data = readable.read()
+
+    >>> component.provideUtility(FileSynchronizer, 
+    ...                             interfaces.ISynchronizerFactory,
+    ...                             name=synchronizer.dottedname(File))
+    >>> component.provideUtility(synchronizer.DirectorySynchronizer,
+    ...                             interfaces.ISynchronizerFactory,
+    ...                             name=synchronizer.dottedname(RootDirectory))
+
+    >>> component.provideAdapter(pickle.PathPersistentIdGenerator)
+
+A SnarfRepository is case sensitive by default and preserves the original
+names and paths:
+
+    >>> snarf = repository.SnarfRepository(StringIO())
+    >>> checkout = task.Checkout(synchronizer.getSynchronizer, snarf)
+    >>> checkout.perform(root, 'test')
+    >>> print snarf.stream.getvalue()
+    00000247 @@Zope/Entries.xml
+    <?xml version='1.0' encoding='utf-8'?>
+    <entries>
+      <entry name="test"
+             keytype="__builtin__.str"
+             type="zope.fssync.doctest.RootDirectory"
+             factory="zope.fssync.doctest.RootDirectory"
+             id="/"
+             />
+    </entries>
+    00000418 test/@@Zope/Entries.xml
+    <?xml version='1.0' encoding='utf-8'?>
+    <entries>
+      <entry name="A.txt"
+             keytype="__builtin__.unicode"
+             type="zope.fssync.doctest.File"
+             factory="zope.fssync.doctest.File"
+             id="/A.txt"
+             />
+      <entry name="a.txt"
+             keytype="__builtin__.unicode"
+             type="zope.fssync.doctest.File"
+             factory="zope.fssync.doctest.File"
+             id="/a.txt"
+             />
+    </entries>
+    00000009 test/A.txt
+    data of A00000009 test/a.txt
+    data of a
+
+If we use a case insensitive SnarfRepository the filenames are disambiguated.
+Note that the reference paths in the entries metdata sections are still
+the same:
+
+    >>> snarf = repository.SnarfRepository(StringIO(), case_insensitive=True)
+    >>> checkout = task.Checkout(synchronizer.getSynchronizer, snarf)
+    >>> checkout.perform(root, 'test')
+    >>> print snarf.stream.getvalue()
+    00000247 @@Zope/Entries.xml
+    <?xml version='1.0' encoding='utf-8'?>
+    <entries>
+      <entry name="test"
+             keytype="__builtin__.str"
+             type="zope.fssync.doctest.RootDirectory"
+             factory="zope.fssync.doctest.RootDirectory"
+             id="/"
+             />
+    </entries>
+    00000441 test/@@Zope/Entries.xml
+    <?xml version='1.0' encoding='utf-8'?>
+    <entries>
+      <entry name="A-1.txt"
+             keytype="__builtin__.unicode"
+             type="zope.fssync.doctest.File"
+             factory="zope.fssync.doctest.File"
+             key="A.txt"
+             id="/A.txt"
+             />
+      <entry name="a.txt"
+             keytype="__builtin__.unicode"
+             type="zope.fssync.doctest.File"
+             factory="zope.fssync.doctest.File"
+             id="/a.txt"
+             />
+    </entries>
+    00000009 test/A-1.txt
+    data of A00000009 test/a.txt
+    data of a
+
+After the registration of the necessary deserializers we can reimport the serialized
+data from the repository:
+    
+    >>> target = {}
+    >>> commit = task.Commit(synchronizer.getSynchronizer, snarf)
+    >>> commit.perform(target, 'root', 'test')
+    >>> sorted(target.keys())
+    ['root']
+    >>> sorted(target['root'].keys())
+    [u'A.txt', u'a.txt']
+    
+    >>> target['root']['a.txt'].data
+    'data of a'
+    
+    >>> target['root']['A.txt'].data
+    'data of A'
+    
+
+Plattform Issues
+================
+
+Mac OS X can work with several filesystems. Some of them case-sensitive, 
+some of them case-insensitive. The popular HFS+ can be configured to
+behave in a case-preserving, case-insensitive or case-sensitive manner.
+
+TODO: Unfortunally os.normcase cannot be used on OS X. This has still to be 
+fixed.
+
+Another Darwin-specific problem is the special utf-8 encoding which is used by OS X.
+Linux and (most?) other Unix-like operating systems use the normalization
+form C (NFC) for UTF-8 encoding by default but do not enforce this.
+Darwin, the base of Macintosh OSX, enforces normalization form D (NFD),
+where a few characters (especially umlauts) are encoded in a different way. 
+The NFD encoding basically says that an umlaut is encoded as a front vowel 
+followed by a backspace and a diaresis. '&auml;' for instance, is represented
+as '\xc3\xa4' in NFC and as 'a\xcc\x88' in NFD:
+
+    >>> nfd = u'a\u0308'
+    >>> nfd.encode('utf-8')
+    'a\xcc\x88'
+
+    >>> nfc = u'\xe4'
+    >>> nfc.encode('utf-8')
+    '\xc3\xa4'
+
+Both can live together in Python dics or Zope containers:
+
+    >>> root = RootDirectory({nfd: a, nfc: A})
+    >>> a.__parent__ = root; a.__name__ = nfd
+    >>> A.__parent__ = root; A.__name__ = nfc
+    >>> sorted(root.keys())
+    [u'a\u0308', u'\xe4']
+
+Let's see how these are stored in a NFD enforced SNARF archive:
+
+    >>> snarf = repository.SnarfRepository(StringIO())
+    >>> snarf.enforce_nfd = True
+    >>> snarf.case_insensitive = True
+    >>> checkout = task.Checkout(synchronizer.getSynchronizer, snarf)
+    >>> checkout.perform(root, 'test')
+
+    >>> sorted(snarf.files.keys())
+    ['@@Zope/Entries.xml', 'test/@@Zope/Entries.xml', u'test/a\u0308', u'test/a\u0308-1']
+
+    >>> metadata = snarf.getMetadata()
+
+The first entry keeps it's original name:
+
+    >>> pprint(metadata.getentry(u'test/a\u0308'))
+    {u'factory': u'zope.fssync.doctest.File',
+     u'id': u'/a\u0308',
+     u'keytype': u'__builtin__.unicode',
+     u'type': u'zope.fssync.doctest.File'}
+
+The second entry is disambiguated from the first:
+
+    >>> pprint(metadata.getentry(u'test/a\u0308-1'))
+    {u'factory': u'zope.fssync.doctest.File',
+     u'id': u'/\xe4',
+     u'key': u'\xe4',
+     u'keytype': u'__builtin__.unicode',
+     u'type': u'zope.fssync.doctest.File'}
+
+
+Now we write the data back:
+
+    >>> target = {}
+    >>> commit = task.Commit(synchronizer.getSynchronizer, snarf)
+    >>> commit.debug = True
+    >>> commit.perform(target, 'root', 'test')
+
+
+    >>> sorted(target.keys())
+    ['root']
+
+    >>> target['root'][u'a\u0308'].data
+    'data of a'
+
+    >>> target['root'][u'\xe4'].data
+    'data of A'
+

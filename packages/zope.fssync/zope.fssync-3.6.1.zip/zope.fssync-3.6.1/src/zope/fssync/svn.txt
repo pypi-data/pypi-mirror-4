@@ -1,0 +1,641 @@
+Synchronization with a Version Control System
+=============================================
+
+The synchronization of persistent content with a version control system
+can be used to support offline editing of documents in a collaborative 
+setting. It can also be used to save and restore versions of a site or 
+parts of a site.
+
+SVN is used as an example here since it is available to all Zope 
+programmers.
+
+The original motivation for the SVN support stems from the z3c.vcsync 
+package developed by Martijn Faassen. This doctest is an attempt to 
+show that the z3c.vcsync package can be easily reimplemented in 
+zope.fssync. See the README.txt in z3c.vcsync. At the same time this
+doctest shows that the use case of content management can be handled
+with zope.fssync although historically the original focus was on 
+site management and ttw development.
+
+The following lines are directly copied from Martijn Faassen's doctest.
+Code and comments are only modified as far as necessary.
+
+
+Synchronization with SVN
+------------------------
+
+The synchronization sequence is as follows (example given with SVN as
+the version control system):
+ 
+  1) save persistent state to svn checkout on the same machine as the
+     Zope application.
+
+  2) ``svn up``. Subversion merges in changed made by others users
+     that were checked into the svn server.
+
+  3) Any svn conflicts are automatically resolved.
+
+  4) reload changes in svn checkout into persistent Python objects
+
+  5) ``svn commit``.
+
+This is all happening in a single step. It can happen over and over
+again in a reasonably safe manner, as after the synchronization has
+concluded, the state of the persistent objects and that of the local
+SVN checkout will always be perfectly in sync.
+
+
+SVN difficulties
+----------------
+
+Changing a file into a directory with SVN requires the following
+procedure::
+  
+  * svn remove file
+
+  * svn commit file
+
+  * svn up
+
+  * mdkir file
+
+  * svn add file
+
+If during the serialization procedure a file changed into a directory,
+it would require an ``svn up`` to be issued during step 1. This is too
+early. As we see later, we instead ask the application developer to
+avoid this situation altogether.
+
+
+Serialization
+-------------
+
+In order to export content to a version control system, it first needs
+to be possible to serialize a content object to a text representation.
+
+For the purposes of this document, we have defined a simple item that
+just carries an integer payload attribute::
+
+  >>> class Item(object):
+  ...   def __init__(self, payload):
+  ...     self.payload = payload
+  >>> item = Item(payload=1)
+  >>> item.payload
+  1
+
+We will use an ISynchronizer adapter to serialize it to a file. Let's
+specialize the default sychronizer which saves no annotations and
+no extra attributes.
+
+  >>> from zope.fssync import synchronizer, interfaces
+  >>> class ItemSynchronizer(synchronizer.DefaultSynchronizer):
+  ...     def dump(self, f):
+  ...         f.write(str(self.context.payload))
+  ...         f.write('\n')
+  ...     def load(self, f):
+  ...         self.context.payload = int(f.read())
+
+Let's test our adapter::
+
+  >>> from StringIO import StringIO
+  >>> f= StringIO()
+  >>> ItemSynchronizer(item).dump(f)
+  >>> f.getvalue()
+  '1\n'
+
+Let's register the adapter factory as a named utility as described 
+in the README.txt::
+
+  >>> zope.component.provideUtility(ItemSynchronizer, 
+  ...       provides=interfaces.ISynchronizerFactory,
+  ...       name=synchronizer.dottedname(Item)) 
+
+We can now use the adapter::
+
+  >>> f = StringIO()
+  >>> synchronizer.getSynchronizer(item).dump(f)
+  >>> f.getvalue()
+  '1\n'
+
+
+Export persistent state to version control system checkout
+----------------------------------------------------------
+
+As part of the synchronization procedure we need the ability to export
+persistent python objects to the version control checkout directory in
+the form of files and directories. 
+ 
+Content is assumed to consist of two types of objects:
+
+* containers. These are represented as directories on the filesystem.
+
+* items. These are represented as files on the filesystem. The files
+  will have an extension to indicate the type of item.
+
+Let's imagine we have this object structure consisting of a container
+with some items and sub-containers in it::
+
+  >>> class Container(dict):
+  ...     pass
+  
+We can use the default container synchronizer as a base class. Our 
+container synchronizer adds a file extension to the filenames. 
+This extension is also taken into account on import::
+
+  >>> class ContainerSynchronizer(synchronizer.DirectorySynchronizer):
+  ...     def iteritems(self):
+  ...         for key, value in self.context.items():
+  ...             if isinstance(value, Container):
+  ...                 yield key, value
+  ...             else:
+  ...                 yield key + '.test', value
+  ...     def __setitem__(self, name, obj):
+  ...         if name.endswith('.test'):
+  ...             self.context[name[:-5]] = obj
+  ...         else:
+  ...             self.context[name] = obj
+  ...     def __delitem__(self, name):
+  ...         if name.endswith('.test'):
+  ...             del self.context[name[:-5]]
+  ...         else:
+  ...             del self.context[name]
+  
+  >>> zope.component.provideUtility(ContainerSynchronizer,
+  ...                             interfaces.ISynchronizerFactory,
+  ...                             name=synchronizer.dottedname(Container))
+
+Now we can build an example structure::
+
+  >>> data = Container()
+  >>> data['foo'] = Item(payload=1)
+  >>> data['bar'] = Item(payload=2)
+  >>> data['sub'] = Container()
+  >>> data['sub']['qux'] = Item(payload=3)
+
+This object structure has some test payload data::
+
+  >>> data['foo'].payload
+  1
+  >>> data['sub']['qux'].payload
+  3
+
+We have a SVN repository in testpath on the filesystem::
+
+  >>> from zope.fssync import svn, task
+  >>> checkoutdir = svn_test_checkout()
+  >>> svnrepository = svn.SVNRepository(checkoutdir)
+  
+  >>> export = task.Checkout(synchronizer.getSynchronizer, svnrepository)
+
+The object structure can now be saved into that repository::
+
+  >>> export.perform(data, 'root')
+
+The filesystem should now contain the right objects.
+
+Everything is always saved in a directory called ``root``:
+ 
+  >>> root = checkoutdir.join('root')
+  >>> root.check(dir=True)
+  True
+
+This root directory should contain the right objects::
+
+  >>> sorted([entry.basename for entry in root.listdir()])
+  ['bar.test', 'foo.test', 'sub']
+
+We expect the right contents in ``bar.test`` and ``foo.test``::
+
+  >>> root.join('bar.test').read()
+  '2\n'
+  >>> root.join('foo.test').read()
+  '1\n'
+
+``sub`` is a container so should be represented as a directory::
+
+  >>> sub_path = root.join('sub')
+  >>> sub_path.check(dir=True)
+  True
+
+  >>> sorted([entry.basename for entry in sub_path.listdir()])
+  ['qux.test']
+
+  >>> sub_path.join('qux.test').read()
+  '3\n'
+
+We know that no existing files or directories were deleted by this save,
+as the checkout was empty before this::
+
+  >>> svnrepository.changes().deleted
+  []
+
+We also know that certain files have been added::
+
+  >>> rel_paths(checkoutdir, svnrepository.changes().added)
+  ['/root', '/root/bar.test', '/root/foo.test', '/root/sub', '/root/sub/qux.test']
+
+
+Modifying an existing checkout
+------------------------------
+
+Now let's assume that the version control checkout is that as
+generated by step 1a). We will bring it to its initial state first::
+
+  >>> svnrepository.clear()
+
+We will now change some data in the ZODB again to test whether we
+detect additions and deletions (we need to inform the version control
+system about these).
+
+Let's add ``hoi``::
+  
+  >>> data['hoi'] = Item(payload=4)
+
+And let's delete ``bar``::
+
+  >>> del data['bar']
+
+Let's save the object structure again to the same checkout::
+  
+  >>> export.perform(data, 'root')
+
+The checkout will now know which files were added and deleted during
+the save::
+
+  >>> changes = svnrepository.changes()
+  >>> rel_paths(checkoutdir, changes.added)
+  ['/root/hoi.test']
+
+We also know which files got deleted::
+
+  >>> rel_paths(checkoutdir, changes.deleted)
+  ['/root/bar.test']
+  
+  >>> changes.accept()
+
+
+Modifying an existing checkout, some edge cases
+-----------------------------------------------
+
+Let's take our checkout as one fully synched up again::
+
+  >>> svnrepository.clear()
+
+The ZODB has changed again.  Item 'hoi' has changed from an item into
+a container::
+
+  >>> del data['hoi']
+  >>> data['hoi'] = Container()
+
+We put some things into the container::
+
+  >>> data['hoi']['something'] = Item(payload=15)
+
+We export again into the existing checkout (which still has 'hoi' as a
+file)::
+
+  >>> export.perform(data, 'root')
+
+The file ``hoi.test`` should now be removed::
+
+  >>> changes = svnrepository.changes()
+  >>> rel_paths(checkoutdir, changes.deleted)
+  ['/root/hoi.test']
+
+And the directory ``hoi`` should now be added::
+
+  >>> rel_paths(checkoutdir, changes.added)
+  ['/root/hoi', '/root/hoi/something.test']
+  
+Let's check the filesystem state::
+
+  >>> changes.accept()
+  >>> sorted([entry.basename for entry in root.listdir()])
+  ['foo.test', 'hoi', 'sub']
+
+We expect ``hoi`` to contain ``something.test``::
+
+  >>> hoi_path = root.join('hoi')
+  >>> something_path = hoi_path.join('something.test')
+  >>> something_path.read()
+  '15\n'
+
+Let's now consider the checkout synched up entirely again::
+
+  >>> svnrepository.clear()
+
+Let's now change the ZODB again and change the ``hoi`` container back
+into a file::
+
+  >>> del data['hoi']
+  >>> data['hoi'] = Item(payload=16)
+  >>> export.perform(data, 'root')
+
+The ``hoi`` directory (and everything in it) is now deleted::
+
+  >>> changes = svnrepository.changes()
+  >>> rel_paths(checkoutdir, changes.deleted)
+  ['/root/hoi', '/root/hoi/something.test']
+
+We have added ``hoi.test``::
+
+  >>> rel_paths(checkoutdir, changes.added)
+  ['/root/hoi.test']
+
+We expect to see a ``hoi.test`` but no ``hoi`` directory anymore::
+  
+  >>> changes.accept()
+  >>> sorted([entry.basename for entry in root.listdir()])
+  ['foo.test', 'hoi.test', 'sub']
+
+Let's be synched-up again::
+
+  >>> svnrepository.clear()
+
+Note: creating a container with the name ``hoi.test`` (using the
+``.test`` postfix) will lead to trouble now, as we already have a file
+``hoi.test``. ``svn`` doesn't allow a single-step replace of a file
+with a directory - as expressed earlier, an ``svn up`` would need to
+be issued first, but this would be too early in the process. Solving
+this problem is quite involved. Instead, we require the application to
+avoid creating any directories with a postfix in use by items. The
+following should be forbidden::
+
+  data['hoi.test'] = Container()
+
+
+loading a checkout state into python objects
+--------------------------------------------
+
+Since we have no metadata with factory declarations we rely solely
+on file extensions for the creation of content objects. To ensure this
+behavior we must provide our own IFileGenerator and IDirectoryGenerator
+utilities:
+
+  >>> class ItemGenerator(object):
+  ...    zope.interface.implements(interfaces.IFileGenerator)
+  ...    def create(self, location, name, extension):
+  ...        if extension == '.test':
+  ...            return Item(0)
+  ...        raise
+  ...    def load(self, obj, readable):
+  ...        obj.payload = int(readable.read())
+
+  >>> class ContainerGenerator(object):
+  ...    zope.interface.implements(interfaces.IDirectoryGenerator)
+  ...    def create(self, location, name):
+  ...        return Container()
+
+  >>> zope.component.provideUtility(ItemGenerator(),
+  ...    provides=interfaces.IFileGenerator)
+  >>> zope.component.provideUtility(ContainerGenerator(),
+  ...    provides=interfaces.IDirectoryGenerator)
+
+We have registered enough. Let's load up the contents from the
+filesystem now::
+
+  >>> container1 = Container()
+  
+  >>> load = task.Commit(synchronizer.getSynchronizer, svnrepository)
+  >>> load.perform(container1, 'root', 'root')
+
+  >>> container2 = container1['root']
+  >>> sorted(container2.keys())
+  ['foo', 'hoi', 'sub']
+
+We check whether the items contains the right information::
+
+  >>> isinstance(container2['foo'], Item)
+  True
+  >>> container2['foo'].payload
+  1
+  >>> isinstance(container2['hoi'], Item)
+  True
+  >>> container2['hoi'].payload
+  16
+  >>> isinstance(container2['sub'], Container)
+  True
+  >>> sorted(container2['sub'].keys())
+  ['qux']
+  >>> container2['sub']['qux'].payload
+  3
+
+
+version control changes a file
+------------------------------
+
+Now we synchronize our checkout by synchronizing the checkout with the
+central coordinating server (or shared branch in case of a distributed
+version control system). We do a ``svnrepository.up()`` that causes the
+text in a file to be modified.
+
+We monkey patch the ``svnrepository.up()`` method with a 
+``update_function`` during an update. This function should then
+simulate what might happen during a version control system ``update``
+operation. Let's define one here that modifies text in a file like 
+an original ``up``
+
+  >>> hoi_path = root.join('hoi.test')
+  >>> def update_function():
+  ...    hoi_path.write('200\n')
+  >>> svnrepository.up = update_function
+
+  >>> svnrepository.up()
+
+We will reload the checkout into Python objects::
+
+  >>> load.perform(container1, 'root', 'root')
+ 
+We expect the ``hoi`` object to be modified::
+
+  >>> container2['hoi'].payload
+  200
+
+
+version control adds a file
+---------------------------
+
+We update our checkout again and cause a file to be added::
+
+  >>> hallo = root.join('hallo.test').ensure()
+  >>> def update_function():
+  ...   hallo.write('300\n')
+  >>> svnrepository.up = update_function
+
+  >>> svnrepository.up()
+
+We will reload the checkout into Python objects again (we must create
+a new task.Commit instance to ensure that the metadata are up to date)::
+
+  >>> load = task.Commit(synchronizer.getSynchronizer, svnrepository)
+  >>> load.perform(container1, 'root', 'root')
+ 
+We expect there to be a new object ``hallo``::
+
+  >>> 'hallo' in container2.keys()
+  True
+
+
+version control removes a file
+------------------------------
+
+We update our checkout and cause a file to be removed (ToDo: on update
+we must ensure that the metadata entry is marked as removed)::
+
+  >>> def update_function():
+  ...   path = root.join('hallo.test')
+  ...   path.remove()
+ 
+  >>> svnrepository.up = update_function
+  >>> svnrepository.up()
+
+We will reload the checkout into Python objects::
+
+  >>> load = task.Commit(synchronizer.getSynchronizer, svnrepository)
+  >>> load.perform(container1, 'root', 'root')
+
+We expect the object ``hallo`` to be gone again::
+
+  >>> 'hallo' in container2.keys()
+  False
+
+
+version control adds a directory
+--------------------------------
+
+We update our checkout and cause a directory (with a file inside) to be
+added::
+
+  >>> newdir_path = root.join('newdir')
+  >>> def update_function():
+  ...   newdir_path.ensure(dir=True)
+  ...   newfile_path = newdir_path.join('newfile.test').ensure()
+  ...   newfile_path.write('400\n')
+  >>> svnrepository.up = update_function
+  
+  >>> svnrepository.up()
+
+Reloading this will cause a new container to exist::
+
+  >>> load = task.Commit(synchronizer.getSynchronizer, svnrepository)
+  >>> load.perform(container1, 'root', 'root')
+
+  >>> 'newdir' in container2.keys()
+  True
+  >>> isinstance(container2['newdir'], Container)
+  True
+  >>> container2['newdir']['newfile'].payload
+  400
+
+
+version control removes a directory
+-----------------------------------
+
+We update our checkout once again and cause a directory to be removed::
+
+  >>> def update_function():
+  ...   newdir_path.remove()
+  >>> svnrepository.up = update_function
+
+  >>> svnrepository.up()
+
+
+Reloading this will cause the new container to be gone again::
+
+  >>> load = task.Commit(synchronizer.getSynchronizer, svnrepository)
+  >>> load.perform(container1, 'root', 'root')
+  >>> 'newdir' in container2.keys()
+  False
+
+
+version control changes a file into a directory
+-----------------------------------------------
+
+Some sequence of actions by other users has caused a name that previously
+referred to a file to now refer to a directory::
+
+  >>> hoi_path2 = root.join('hoi')
+  >>> def update_function():
+  ...   hoi_path.remove()
+  ...   hoi_path2.ensure(dir=True)
+  ...   some_path = hoi_path2.join('some.test').ensure(file=True)
+  ...   some_path.write('1000\n')
+  >>> svnrepository.up = update_function
+
+  >>> svnrepository.up()
+
+Reloading this will cause a new container to be there instead of the file::
+
+  >>> load = task.Commit(synchronizer.getSynchronizer, svnrepository)
+  >>> load.perform(container1, 'root', 'root')
+  >>> isinstance(container2['hoi'], Container)
+  True
+  >>> container2['hoi']['some'].payload
+  1000
+
+
+version control changes a directory into a file
+-----------------------------------------------
+
+Some sequence of actions by other users has caused a name that
+previously referred to a directory to now refer to a file::
+
+  >>> def update_function():
+  ...   hoi_path2.remove()
+  ...   hoi_path = root.join('hoi.test').ensure()
+  ...   hoi_path.write('2000\n')
+  >>> svnrepository.up = update_function
+
+  >>> svnrepository.up()
+
+Reloading this will cause a new item to be there instead of the
+container::
+
+  >>> load = task.Commit(synchronizer.getSynchronizer, svnrepository)
+  >>> load.perform(container1, 'root', 'root')
+  >>> isinstance(container2['hoi'], Item)
+  True
+  >>> container2['hoi'].payload
+  2000
+
+
+
+Complete synchronization
+------------------------
+
+Let's now exercise the ``sync`` method directly. First we'll modify
+the payload of the ``hoi`` item::
+
+  >>> container2['hoi'].payload = 3000
+  
+Next, we will add a new ``alpha`` file to the checkout when we do an
+``up()``, so again we simulate the actions of our version control system::
+
+  >>> def update_function():
+  ...   alpha_path = root.join('alpha.test').ensure()
+  ...   alpha_path.write('4000\n')
+  ...   alpha_path.add()
+  >>> svnrepository.up = update_function
+
+Now we'll synchronize with the memory structure::
+
+  >>> sync = svn.SVNSyncTask(synchronizer.getSynchronizer, svnrepository)
+  >>> sync.perform(container1, 'root')
+
+We expect the checkout to reflect the changed state of the ``hoi`` object::
+
+  >>> root.join('hoi.test').read()
+  '3000\n'
+
+We also expect the database to reflect the creation of the new
+``alpha`` object::
+
+  >>> container2['alpha'].payload
+  4000
+
+
+To Dos
+------
+
+@@Zope files and directories should not be involved at all
+

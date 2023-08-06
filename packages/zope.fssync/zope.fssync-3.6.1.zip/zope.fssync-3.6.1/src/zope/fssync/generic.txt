@@ -1,0 +1,221 @@
+=================
+Generic Functions
+=================
+
+This is an experimental doctest which tries to figure out whether
+generic functions may be useful building blocks of serialization /
+deserialization adapters. Currently the implementation doesn't use 
+generic functions.
+
+The current synchronizer adapters have many methods since they are
+mainly focussing on the import/export use case. In this use case it is
+crucial to save the data as completely as possible. There are however
+use cases where completeness is less important. The goals might
+instead be to process the exported data and then do a re-import. This
+processing might be performed by humans or automated processes.
+Application specific, more human-readable formats are more important
+in this case. Much of the behavior in the current synchronizer may
+then be superfluous.
+ 
+Let's consider a use case where we want to write application specific
+XML files (and only XML files) to a SVN repository. In this case we
+need not save metadata in an entries.xml file since SVN handles these
+metadata already. Annotations may also be irrelevant if the
+application doesn't use DublinCore or other annotation services.  If
+we want to write synchronizers for this retricted application we
+should not depend on basic synchronizers which handle these aspects by
+default.
+
+This leads to a design of the fssync package where each aspect of 
+an object is handled by a generic function, e.g. metadata, annotions,
+fields, body, and leaves it to the application to control which aspects are 
+written in which part of the repository.
+
+A generic function in this sense is a multi-adapter with a single 
+__call__ method and thus can easily be replaced by other applications 
+without the need to specialize some powerful default adapters 
+(the current approach).
+
+
+Defining Generic Functions
+--------------------------
+
+So let's start with a rather broad definition of generic functions:
+
+    >>> class IGenericFunction(zope.interface.Interface):
+    ...     """Base interface for a generic function."""
+    ...     def __call__(*args, **kw):
+    ...         """A generic function is callable like any other function."""
+
+Since a generic function can use the component architecture its 
+definition can be extremely short if it uses the common adapter lookup
+mechanism to find the specific implementation of a function. Our 
+definition of generic function uses a multi-adapter if the function is
+called with more than one parameter and also provides a `when` 
+decorator to declare the required parameter types:
+
+    >>> class GenericFunction(object):
+    ...     """Basic implementation of a generic function."""
+    ...     zope.interface.implements(IGenericFunction)
+    ...     def __init__(self, provides=None):
+    ...         self.provides = provides
+    ...
+    ...     def __call__(self, *args):
+    ...         if len(args) > 1:
+    ...             return zope.component.queryMultiAdapter(args, self.provides)
+    ...         return self.provides(args[0], None)
+    ... 
+    ...     def when(self, *types):
+    ...         def decorator(f):
+    ...             f = zope.interface.implementer(self.provides)(f)
+    ...             f = zope.component.adapter(*types)(f)
+    ...             return f
+    ...         return decorator
+    ...
+    ...     def register(self):
+    ...         def decorator(f):
+    ...             zope.component.provideAdapter(f)
+    ...             return f
+    ...         return decorator
+    
+Let's take pretty printing as an example of a simple generic
+serialization function:
+
+    >>> class IPrettyPrint(zope.interface.Interface):
+    ...     """Interface for a generic pretty print function."""
+    
+    >>> pprint = GenericFunction(IPrettyPrint)
+    >>> IGenericFunction.providedBy(pprint)
+    True
+
+The above definition of generic function returns None without any further
+registered implementation:
+
+    >>> pprint(42) is None
+    True
+
+The component architecture already allows us to register functions 
+as adapters:
+
+    >>> @zope.interface.implementer(IPrettyPrint)
+    ... @zope.component.adapter(int)
+    ... def pprint_int(num):
+    ...     print num
+    >>> zope.component.provideAdapter(pprint_int)
+    >>> pprint(42)
+    42
+
+Using the equivalent `register`  and `when` decorators looks nicer. 
+Note that the order of decorators is important here. The register 
+decorator is useful in tests, if you want to extend or replace the
+implementations in your Zope3 application, you should of course use 
+the corresponding ZCML adapter statement:
+
+    >>> @pprint.register()
+    ... @pprint.when(list)
+    ... def pprint_list(l):
+    ...     for x in l:
+    ...         pprint(x)
+     
+    >>> pprint([1, 2, 3])
+    1
+    2
+    3
+    
+The interesting thing about generic functions is that their basic 
+behavior can be adapted to different purposes. If we want a 
+different, e.g. class-based lookup mechanisms as described in README.txt, 
+we simply overwrite the __call__ method. Whereas the above 
+implementation returns None if no function is registered, this 
+implementation throws an informative error if a function for a specific 
+class is missing:
+
+    >>> def dottedname(klass):
+    ...     return "%s.%s" % (klass.__module__, klass.__name__)
+    >>> class MissingImplementation(Exception):
+    ...     pass
+    >>> class ClassBasedGenericFunction(GenericFunction):
+    ...     def __call__(self, *args):
+    ...         name = dottedname(args[0].__class__)
+    ...         try:
+    ...             f = zope.component.getUtility(self.provides, name=name)
+    ...         except zope.component.ComponentLookupError:
+    ...             message = 'Missing %s implementation'\
+    ...                         ' for %s' % (dottedname(self.provides), name)
+    ...             raise MissingImplementation(message)
+    ...         return f(*args)
+    ...
+    ...     def register(self, klass):
+    ...         def decorator(f):
+    ...             zope.component.provideUtility(f,
+    ...                 self.provides,
+    ...                 name=dottedname(klass))
+    ...             return f
+    ...         return decorator
+    
+    >>> pprint2 = ClassBasedGenericFunction(IPrettyPrint)
+        
+Now we can be sure that a class-based function is looked up. We note no
+difference to the former implementation if we have a class specific
+implementation:
+
+    >>> @pprint2.register(list)
+    ... def print_list2(l):
+    ...     for x in l:
+    ...         print(x)
+    >>> pprint2([1, 2, 3])
+    1
+    2
+    3
+    
+But we get an informative exception indicating that we must
+provide a class-based implementation:
+
+    >>> class MyList(list):
+    ...     pass
+    >>> mylist = MyList([1, 2, 3])
+    >>> pprint(mylist)
+    1
+    2
+    3
+    >>> pprint2(mylist)
+    Traceback (most recent call last):
+    ...
+    MissingImplementation: Missing ...IPrettyPrint implementation for ...MyList
+    
+Sometimes it is more useful to have a fallback behavior and a 
+warning. This can also be achieved easily without changing the basic
+API:
+
+    >>> class FallbackGenericFunction(ClassBasedGenericFunction):
+    ...     def __call__(self, *args):
+    ...         name = dottedname(args[0].__class__)
+    ...         try:
+    ...             f = zope.component.getUtility(self.provides, name=name)
+    ...             return f(*args)
+    ...         except zope.component.ComponentLookupError:
+    ...             message = 'Missing %s implementation'\
+    ...                         ' for %s' % (dottedname(self.provides), name)
+    ...             self.warn(message)
+    ...             self.default(*args)
+    ...     def warn(self, message):
+    ...         print "Warning:", message
+
+    >>> pprint3 = FallbackGenericFunction(IPrettyPrint)
+    >>> def default_pprint(obj):
+    ...     print obj
+    >>> pprint3.default = default_pprint
+    
+    >>> @pprint3.register(list)
+    ... def print_list2(l):
+    ...     for x in l:
+    ...         print(x)
+    >>> pprint3([1, 2, 3])
+    1
+    2
+    3
+    >>> pprint3(mylist)
+    Warning: Missing ...IPrettyPrint implementation for ...MyList
+    [1, 2, 3]
+
+    
