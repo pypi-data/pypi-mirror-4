@@ -1,0 +1,1 @@
+from Products.ATVocabularyManager.tools.vocabularylib import VocabularyLibrary
