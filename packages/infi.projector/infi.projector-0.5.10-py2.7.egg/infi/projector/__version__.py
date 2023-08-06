@@ -1,0 +1,10 @@
+__version__ = "0.5.10"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '2f0cf274921d9d04ce1751862ee2ee4b4c4f920e'
+__git_head_subject__ = 'Finished release v0.5.10.'
+__git_head_message__ = '* release/v0.5.10:\n  Freezing dependencies\n  HOSTDEV-680 no need for empty commit in develop branch after release if it is not tagged\n  Unfreezing dependencies\n  empty commit after version v0.5.9'
+__git_dirty_diff__ = ''
