@@ -1,0 +1,251 @@
+import logging
+import re
+import dateutil.parser
+import json
+
+from time import mktime
+from mimetypes import guess_type
+
+from gdrivefs.conf import Conf
+from gdrivefs.utility import get_utility
+from gdrivefs.errors import ExportFormatError
+
+class NormalEntry(object):
+    __default_general_mime_type = Conf.get('default_mimetype')
+    __properties_extra = ('is_directory', 
+                          'is_visible', 
+                          'parents', 
+                          'download_types',
+                          'modified_date',
+                          'modified_date_epoch',
+                          'mtime_byme_date',
+                          'mtime_byme_date_epoch',
+                          'atime_byme_date',
+                          'atime_byme_date_epoch')
+    __directory_mimetype = Conf.get('directory_mimetype')
+
+    def __init__(self, gd_resource_type, raw_data):
+        # LESSONLEARNED: We had these set as properties, but CPython was 
+        #                reusing the reference between objects.
+
+        self.__log = logging.getLogger().getChild('NormalEntry')
+
+        self.__info = {}
+        self.__parents = []
+        self.__raw_data = raw_data
+        self.__cache_data = None
+        self.__cache_mimetypes = None
+        self.__cache_dict = {}
+
+        """Return True if reading from this file should return info and deposit 
+        the data elsewhere. This is predominantly determined by whether we can
+        get a file-size up-front, or we have to decide on a specific mime-type 
+        in order to do so.
+        """
+        requires_mimetype = (u'fileSize' not in self.__raw_data and \
+                             raw_data[u'mimeType'] != self.__directory_mimetype)
+
+        try:
+            self.__info['requires_mimetype']          = requires_mimetype
+            self.__info['title']                      = raw_data[u'title']
+            self.__info['mime_type']                  = raw_data[u'mimeType']
+            self.__info['labels']                     = raw_data[u'labels']
+            self.__info['id']                         = raw_data[u'id']
+            self.__info['last_modifying_user_name']   = raw_data[u'lastModifyingUserName']
+            self.__info['writers_can_share']          = raw_data[u'writersCanShare']
+            self.__info['owner_names']                = raw_data[u'ownerNames']
+            self.__info['editable']                   = raw_data[u'editable']
+            self.__info['user_permission']            = raw_data[u'userPermission']
+
+            self.__info['download_links']         = raw_data[u'exportLinks']          if u'exportLinks'           in raw_data else { }
+            self.__info['link']                   = raw_data[u'embedLink']            if u'embedLink'             in raw_data else None
+            self.__info['file_size']              = int(raw_data[u'fileSize'])        if u'fileSize'              in raw_data else 0
+            self.__info['file_extension']         = raw_data[u'fileExtension']        if u'fileExtension'         in raw_data else None
+            self.__info['md5_checksum']           = raw_data[u'md5Checksum']          if u'md5Checksum'           in raw_data else None
+            self.__info['image_media_metadata']   = raw_data[u'imageMediaMetadata']   if u'imageMediaMetadata'    in raw_data else None
+
+            if u'downloadUrl' in raw_data:
+                self.__info['download_links'][self.__info['mime_type']] = raw_data[u'downloadUrl']
+
+            # This is encoded for displaying locally.
+            self.__info['title_fs'] = get_utility().translate_filename_charset(self.__info['title'])
+
+            for parent in raw_data[u'parents']:
+                self.__parents.append(parent[u'id'])
+
+        except (KeyError) as e:
+            self.__log.exception("Could not normalize entry on raw key [%s]. Does not exist in source." % (str(e)))
+            raise
+
+    def __getattr__(self, key):
+        return self.__info[key]
+
+    def __str__(self):
+        return ("<NORMAL ID= [%s] MIME= [%s] NAME= [%s] URIS= (%d)>" % 
+                (self.id, self.mime_type, self.title, 
+                 len(self.download_links)))
+
+    def __repr__(self):
+        return str(self)
+
+    def normalize_download_mimetype(self, specific_mimetype=None):
+        """If a mimetype is given, return it if there is a download-URL 
+        available for it, or fail. Else, determine if a copy can downloaded 
+        with the default mime-type (application/octet-stream, or something 
+        similar), or return the only mime-type in the event that there's only 
+        one download format.
+        """
+
+        if self.__cache_mimetypes is None:
+            self.__cache_mimetypes = [[], None]
+        
+        if specific_mimetype is not None:
+            if specific_mimetype not in self.__cache_mimetypes[0]:
+                self.__log.debug("Normalizing mime-type [%s] for download.  "
+                                 "Options: %s" % (specific_mimetype, 
+                                                  self.download_types))
+
+                if specific_mimetype not in self.download_links:
+                    raise ExportFormatError("Mime-type [%s] is not available for "
+                                            "download. Options: %s" % 
+                                            (self.download_types))
+
+                self.__cache_mimetypes[0].append(specific_mimetype)
+
+            return specific_mimetype
+
+        if self.__cache_mimetypes[1] is None:
+            # Try to derive a mimetype from the filename, and see if it matches
+            # against available export types.
+            (mimetype_candidate, _) = guess_type(self.title_fs, True)
+            if mimetype_candidate is not None and \
+               mimetype_candidate in self.download_links:
+                mime_type = mimetype_candidate
+
+            elif NormalEntry.__default_general_mime_type in self.download_links:
+                mime_type = NormalEntry.__default_general_mime_type
+
+            # If there's only one download link, resort to using it (perhaps it was 
+            # an uploaded file, assigned only one type).
+            elif len(self.download_links) == 1:
+                mime_type = self.download_links.keys()[0]
+
+            else:
+                raise ExportFormatError("A correct mime-type needs to be "
+                                        "specified. Options: %s" % 
+                                        (self.download_types))
+
+            self.__cache_mimetypes[1] = mime_type
+
+        return self.__cache_mimetypes[1]
+
+    def __convert(self, data):
+        if isinstance(data, dict):
+            return {self.__convert(key): self.__convert(value) for key, value in data.iteritems()}
+        elif isinstance(data, list):
+            return [self.__convert(element) for element in data]
+        elif isinstance(data, unicode):
+            return data.encode('utf-8')
+        elif isinstance(data, (bool, float)):
+            return str(data)
+        else:
+            return data
+
+    def get_data(self):
+            original = dict([(key.encode('ASCII'), value) 
+                                for key, value 
+                                in self.__raw_data.iteritems()])
+            distilled = self.__info
+            extra = dict([(key, getattr(self, key)) 
+                                for key 
+                                in self.__properties_extra])
+
+            data_dict = {'original': original,
+                         #'distilled': distilled,
+                         'extra': extra}
+
+            return data_dict
+
+    @property
+    def xattr_data(self):
+        if self.__cache_data is None:
+            data_dict = self.get_data()
+
+            # Normalize any values that might pose problems during 
+            # serialization.            
+            data_dict = self.__convert(data_dict)
+            
+            attrs = {}
+            for a_type, a_dict in data_dict.iteritems():
+                for key, value in a_dict.iteritems():
+                    fqkey = ('user.%s.%s' % (a_type, key))
+                    attrs[fqkey] = json.dumps(value)
+                    
+            self.__cache_data = attrs
+        
+        return self.__cache_data
+
+    @property
+    def is_directory(self):
+        """Return True if we represent a directory."""
+        return (self.__info['mime_type'] == self.__directory_mimetype)
+
+    @property
+    def is_visible(self):
+        if [ flag 
+             for flag, value 
+             in self.labels.items() 
+             if flag in Conf.get('hidden_flags_list_local') and value ]:
+            return False
+        else:
+            return True
+
+    @property
+    def parents(self):
+        return self.__parents
+
+    @property
+    def download_types(self):
+        return self.download_links.keys()
+
+    @property
+    def modified_date(self):
+        if 'modified_date' not in self.__cache_dict:
+            self.__cache_dict['modified_date'] = \
+                dateutil.parser.parse(self.__raw_data[u'modifiedDate'])
+
+        return self.__cache_dict['modified_date']
+
+    @property
+    def modified_date_epoch(self):
+        return mktime(self.modified_date.timetuple())
+
+    @property  
+    def mtime_byme_date(self):
+        if 'modified_byme_date' not in self.__cache_dict:
+            self.__cache_dict['modified_byme_date'] = \
+                dateutil.parser.parse(self.__raw_data[u'modifiedByMeDate'])
+
+        return self.__cache_dict['modified_byme_date']
+
+    @property
+    def mtime_byme_date_epoch(self):
+        return mktime(self.mtime_byme_date.timetuple())
+
+    @property
+    def atime_byme_date(self):
+        if 'viewed_byme_date' not in self.__cache_dict:
+            self.__cache_dict['viewed_byme_date'] = \
+                dateutil.parser.parse(self.__raw_data[u'lastViewedByMeDate']) \
+                if u'lastViewedByMeDate' in self.__raw_data \
+                else None
+
+        return self.__cache_dict['viewed_byme_date']
+
+    @property
+    def atime_byme_date_epoch(self):
+        return mktime(self.atime_byme_date.timetuple()) \
+                if self.atime_byme_date \
+                else None
+
+
