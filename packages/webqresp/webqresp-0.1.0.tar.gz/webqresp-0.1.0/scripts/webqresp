@@ -1,0 +1,139 @@
+#!/usr/bin/python
+
+#### measure
+
+def measure(repeat=1, start=1, response_seconds=1, header=None, content=None, method='GET', url=None):
+
+    #### import
+
+    import gevent, time
+    from math import ceil
+    from requests import request
+    from traceback import print_exc
+
+    #### headers
+
+    headers = dict()
+    for name_value in (header or ()):
+        try:
+            name, value = name_value.split(':', 1)
+        except ValueError:
+            exit("Invalid header: '{header}'".format(header=name_value))
+        headers[name] = value
+
+    #### task
+
+    def task():
+        start = time.time()
+        response = request(headers=headers, data=content, method=method, url=url)
+        response.content # Time content transmition too.
+        this_response_seconds = time.time() - start
+        return (response, this_response_seconds)
+
+    #### repeat
+
+    results = []
+    for test_index in xrange(1, repeat + 1):
+        print('Test #{test_index}'.format(test_index=test_index))
+        result = 0
+        try:
+
+            #### increment concurrency
+
+            concurrency = start - 1
+            ok = True
+            while ok:
+                concurrency += 1
+                print(concurrency)
+
+                #### concurrent fetch
+
+                workers = [gevent.spawn(task) for _ in xrange(concurrency)]
+                gevent.joinall(workers)
+
+                #### process results
+
+                for worker in workers:
+
+                    response, this_response_seconds = worker.get()
+                    is_success = response.ok
+                    is_quick = (this_response_seconds <= response_seconds)
+
+                    #### ok
+
+                    if is_success and is_quick:
+                        result = concurrency
+                        continue
+
+                    #### not ok
+
+                    if not is_quick:
+                        print('Slow: {this_response_seconds} seconds.'.format(this_response_seconds=this_response_seconds))
+
+                    if not is_success:
+                        print('Failed: {status_code} {reason}'.format(status_code=response.status_code, reason=response.reason))
+                        print(response.content)
+
+                    ok = False
+                    break
+
+        except Exception:
+            print_exc()
+
+        finally:
+            results.append(result)
+
+    #### aggregated stats
+
+    if not results:
+        results = [0]
+
+    print('\nTests: {repeat}. Best: {best}. Average: {average}. Worst: {worst}.'.format(
+        repeat=repeat,
+        best=max(results),
+        average=int(ceil(float(sum(results)) / len(results))),
+        worst=min(results),
+    ))
+
+#### main
+
+def main():
+
+    #### parse command line arguments
+
+    from argparse import ArgumentParser, RawTextHelpFormatter
+    args_parser = ArgumentParser(
+        description='''Web load test measuring how many concurrent users will get response to their actions quickly - within a second.
+Hence name: WEB Quick RESPonse.
+''',
+        epilog='''
+Criterion:
+    Maximal number of concurrent requests to the slowest URL
+    while each request gets successful response within a second.
+
+webqresp version 0.1.0
+Copyright (C) 2013 by Denis Ryzhkov <denisr@denisr.com>
+MIT License, see http://opensource.org/licenses/MIT
+''',
+        formatter_class=RawTextHelpFormatter,
+    )
+    args_parser.add_argument('--repeat', type=int, default=1, help='Number of times to repeat the test, showing aggregated stats in the end. Default: 1.')
+    args_parser.add_argument('--start', type=int, default=1, help='Number of concurrent requests to start with. Default: 1.')
+    args_parser.add_argument('--response-seconds', type=float, default=1, help='Maximal response time in seconds for each request to pass the test. Default: 1.')
+    args_parser.add_argument('--header', action='append', help="Additional headers, e.g. --header='Content-Type: application/json' --header='X-Name: Value'.")
+    args_parser.add_argument('--content', help='''Content for POST, etc. E.g. 'name1=value1&name2=value2' or '{"name1": "value1", "name2": "value2"}'.''')
+    args_parser.add_argument('--method', default='GET', help='HTTP Method. Default: GET.')
+    args_parser.add_argument('url', help='URL to test, e.g. http://example.com/some/page')
+    args = args_parser.parse_args()
+
+    #### become cooperative
+
+    import gevent.monkey
+    gevent.monkey.patch_all()
+
+    #### measure
+
+    measure(**vars(args))
+
+if __name__ == '__main__':
+    main()
