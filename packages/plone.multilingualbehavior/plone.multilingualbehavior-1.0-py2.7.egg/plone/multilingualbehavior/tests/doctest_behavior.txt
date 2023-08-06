@@ -1,0 +1,101 @@
+plone.multilingualbehavior tests
+--------------------------------
+
+Just use the behavior ``plone.multilingualbehavior.interfaces.ITranslatable`` 
+
+Create a new Browser and connect it::
+
+    >>> from plone.app.testing import (
+    ...     SITE_OWNER_NAME,
+    ...     SITE_OWNER_PASSWORD,
+    ... )
+    >>> from plone.testing.z2 import Browser
+    >>> browser = Browser(layer['app'])
+    >>> browser.handleErrors = False
+    >>> browser.addHeader('Authorization', 'Basic %s:%s' %(SITE_OWNER_NAME, SITE_OWNER_PASSWORD))
+
+Now we should be able to create a new Samplecontente-object::
+
+    >>> portal = layer['portal']
+    >>> browser.open('%s/++add++samplecontent' %(portal.absolute_url()))
+    >>> browser.getControl(name='form.widgets.field_test').value = 'Blubb'
+    >>> browser.getControl(name='form.widgets.field_independent_test').value = 'Blubb'
+    >>> browser.getControl(name='form.buttons.save').click()
+
+We should be able to access the object, it should provide the marker
+interface ``plone.multilingual.interfaces.ITranslatable`` and 
+``plone.multilingual.interfaces.IDexterityTranslatable``::
+
+    >>> obj = portal.get('samplecontent')
+    >>> from plone.multilingual.interfaces import ITranslatable
+    >>> ITranslatable.providedBy(obj)
+    True
+
+    >>> from plone.multilingualbehavior.interfaces import IDexterityTranslatable
+    >>> IDexterityTranslatable.providedBy(obj)
+    True
+    
+We should also be able to access the adapter for ``plone.multilingual.interfaces.ILanguage``::
+
+    >>> from plone.multilingual.interfaces import ILanguage
+    >>> from zope.component import queryAdapter
+    >>> adapter = queryAdapter(portal.samplecontent, ILanguage)
+    >>> adapter == None
+    False
+
+Getting the default language ::
+
+    >>> adapter.get_language()
+    'en'
+
+setting the language ::
+
+    >>> adapter.set_language('ca')
+    >>> from zope.lifecycleevent import modified
+    >>> modified(portal.samplecontent)
+
+getting the language::
+
+    >>> adapter.get_language()
+    'ca'
+
+Translate the object::
+
+    >>> from plone.multilingual.interfaces import ITranslationManager
+    >>> ITranslationManager(portal.samplecontent).add_translation('en')
+    >>> obj_en = ITranslationManager(portal.samplecontent).get_translation('en')
+    >>> import transaction; transaction.commit()
+
+Check if the field has LanguageIndependentField marker interface::
+
+    >>> from zope.app.content import queryContentType
+    >>> from plone.multilingualbehavior.interfaces import ILanguageIndependentField
+    >>> schema = queryContentType(obj_en)
+    >>> ILanguageIndependentField.providedBy(schema['field_independent_test'])
+    True
+
+So let's change the language independent field from the EN object:
+    
+    >>> browser.open('%s/samplecontent/edit' %(portal.absolute_url()))
+    >>> browser.getControl(name='form.widgets.field_test').value = 'Blubb'
+    >>> browser.getControl(name='form.widgets.field_independent_test').value = 'BlubbChanged'
+    >>> browser.getControl(name='form.buttons.save').click()
+
+Check if the value of the language independent field is the same on all translations:
+
+    >>> obj_en.field_independent_test
+    u'BlubbChanged'
+
+    >>> obj.field_independent_test
+    u'BlubbChanged'
+
+Get the language dependent field::
+
+    >>> obj_en.field_test
+
+the cloner::
+
+    >>> from plone.multilingual.interfaces import ITranslationCloner
+    >>> cloner = ITranslationCloner(portal.samplecontent)
+    >>> cloner.__class__
+    <class 'plone.multilingualbehavior.cloner.Cloner'>
