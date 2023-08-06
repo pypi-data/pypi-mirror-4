@@ -1,0 +1,10 @@
+__version__ = "0.3.3"
+__git_commiter_name__ = "Guy Rozendorn"
+__git_commiter_email__ = "guy@rzn.co.il"
+__git_branch__ = '(Not currently on any branch)'
+__git_remote_tracking_branch__ = '(No remote tracking)'
+__git_remote_url__ = '(Not remote tracking)'
+__git_head_hash__ = '6cb05270412b20f74a0dd7362bcf0f3d0ad1f7b1'
+__git_head_subject__ = 'TRIVIAL fixiing self.is_relative_paths_option_set'
+__git_head_message__ = ''
+__git_dirty_diff__ = ''
