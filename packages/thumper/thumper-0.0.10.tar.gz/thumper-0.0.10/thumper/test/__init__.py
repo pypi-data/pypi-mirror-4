@@ -1,0 +1,1 @@
+from test_thumper import test_message_fidelity
