@@ -1,0 +1,513 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>loaddata &mdash; cobilib 1.0 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <script type="text/javascript" src="http://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="cobilib 1.0 documentation" href="../index.html" />
+    <link rel="up" title="Module code" href="index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../index.html">cobilib 1.0 documentation</a> &raquo;</li>
+          <li><a href="index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for loaddata</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">oh</span>
+<span class="sd">hai</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="n">number_of_codons</span> <span class="o">=</span> <span class="mi">21</span>
+
+<span class="kn">import</span> <span class="nn">doctest</span>
+<span class="kn">from</span> <span class="nn">Bio</span> <span class="kn">import</span> <span class="n">SeqIO</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">argparse</span>
+<span class="kn">import</span> <span class="nn">json</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">import</span> <span class="nn">itertools</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="kn">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">scipy</span> <span class="kn">as</span> <span class="nn">sp</span>
+<span class="kn">import</span> <span class="nn">scipy.linalg</span>
+<span class="kn">import</span> <span class="nn">scipy.sparse</span>
+<span class="kn">import</span> <span class="nn">scipy.sparse.linalg</span>
+<span class="kn">from</span> <span class="nn">Bio</span> <span class="kn">import</span> <span class="n">SeqIO</span>
+<span class="kn">import</span> <span class="nn">pylab</span> <span class="kn">as</span> <span class="nn">p</span>
+<span class="kn">import</span> <span class="nn">pprint</span>
+<span class="kn">from</span> <span class="nn">sklearn</span> <span class="kn">import</span> <span class="n">manifold</span>
+
+<span class="c"># make a codon table</span>
+<span class="n">bases</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;t&#39;</span><span class="p">,</span> <span class="s">&#39;c&#39;</span><span class="p">,</span> <span class="s">&#39;a&#39;</span><span class="p">,</span> <span class="s">&#39;g&#39;</span><span class="p">]</span>
+<span class="n">codons</span> <span class="o">=</span> <span class="p">[</span><span class="n">a</span> <span class="o">+</span> <span class="n">b</span> <span class="o">+</span> <span class="n">c</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">bases</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">bases</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">bases</span><span class="p">]</span>
+<span class="n">amino_acids</span> <span class="o">=</span> <span class="s">&#39;FFLLSSSSYY**CC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG&#39;</span>
+<span class="n">codon_table</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span> <span class="nb">zip</span><span class="p">(</span> <span class="n">codons</span><span class="p">,</span> <span class="n">amino_acids</span> <span class="p">)</span> <span class="p">)</span>
+<span class="n">amino_acids_unique</span> <span class="o">=</span> <span class="s">&#39;FLSY*CWPHQRIMTNKVADEG&#39;</span>
+<span class="n">amino_table_index</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span> <span class="nb">zip</span><span class="p">(</span> <span class="n">amino_acids_unique</span><span class="p">,</span> <span class="nb">range</span><span class="p">(</span> <span class="nb">len</span><span class="p">(</span> <span class="n">amino_acids_unique</span> <span class="p">)</span> <span class="p">)</span> <span class="p">)</span> <span class="p">)</span>
+<span class="c"># make a codon index hash</span>
+<span class="n">index</span> <span class="o">=</span> <span class="nb">range</span><span class="p">(</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">64</span> <span class="p">)</span>
+<span class="n">codon_hist_index</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span> <span class="nb">zip</span><span class="p">(</span> <span class="n">codons</span><span class="p">,</span> <span class="n">index</span> <span class="p">)</span> <span class="p">)</span>
+<span class="n">aa_hist_index</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span> <span class="nb">zip</span><span class="p">()</span> <span class="p">)</span>
+<span class="c"># reverse codon table</span>
+<span class="n">rev_codon_table</span> <span class="o">=</span> <span class="p">{}</span>
+<span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">codon_table</span><span class="o">.</span><span class="n">iteritems</span><span class="p">():</span>
+        <span class="n">rev_codon_table</span><span class="p">[</span><span class="n">v</span><span class="p">]</span> <span class="o">=</span> <span class="n">rev_codon_table</span><span class="o">.</span><span class="n">get</span><span class="p">(</span> <span class="n">v</span><span class="p">,</span> <span class="p">[]</span> <span class="p">)</span>
+        <span class="n">rev_codon_table</span><span class="p">[</span><span class="n">v</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span> <span class="n">k</span> <span class="p">)</span>
+
+
+<div class="viewcode-block" id="load_fasta"><a class="viewcode-back" href="../index.html#loaddata.load_fasta">[docs]</a><span class="k">def</span> <span class="nf">load_fasta</span><span class="p">(</span><span class="n">filename</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Loads a fasta file with filename as arg. Returns generator object with list of genes</span>
+
+
+<span class="sd">    Test</span>
+<span class="sd">    ----</span>
+
+<span class="sd">    The file must exist</span>
+
+<span class="sd">    &gt;&gt;&gt; load_fasta(&quot;yikes&quot;)</span>
+<span class="sd">    Open: yikes  failed</span>
+<span class="sd">    [Errno 2] No such file or directory: &#39;yikes&#39;</span>
+
+<span class="sd">    However, we use Biopython and the fasta file&#39;s syntax is not checked here!</span>
+
+<span class="sd">    &gt;&gt;&gt; load_fasta(&quot;testdata_fail.ffn&quot;) # doctest: +ELLIPSIS</span>
+<span class="sd">    &lt;generator object parse at ...&gt;</span>
+
+<span class="sd">    If everything is right, a generator object is returned</span>
+
+<span class="sd">    &gt;&gt;&gt; load_fasta(&quot;testdata.ffn&quot;) # doctest: +ELLIPSIS</span>
+<span class="sd">    &lt;generator object parse at ...&gt;</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">fi</span> <span class="o">=</span> <span class="n">SeqIO</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span> <span class="n">f</span><span class="p">,</span> <span class="s">&#39;fasta&#39;</span> <span class="p">)</span>
+            <span class="k">return</span> <span class="n">fi</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">error</span><span class="p">:</span>
+            <span class="k">print</span> <span class="s">&quot;import:&quot;</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="s">&quot; failed&quot;</span>
+            <span class="k">print</span> <span class="n">error</span>
+            <span class="k">return</span> <span class="bp">None</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">error</span><span class="p">:</span>
+        <span class="k">print</span> <span class="s">&quot;Open:&quot;</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="s">&quot; failed&quot;</span>
+        <span class="k">print</span> <span class="n">error</span>
+        <span class="k">return</span> <span class="bp">None</span>
+</div>
+<div class="viewcode-block" id="load_genbank"><a class="viewcode-back" href="../index.html#loaddata.load_genbank">[docs]</a><span class="k">def</span> <span class="nf">load_genbank</span><span class="p">(</span><span class="n">filename</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;loads a genbank file with filename as arg. Returns list of genes&quot;&quot;&quot;</span>
+    <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="load_plaintext"><a class="viewcode-back" href="../index.html#loaddata.load_plaintext">[docs]</a><span class="k">def</span> <span class="nf">load_plaintext</span><span class="p">(</span><span class="n">filename</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;loads a nucleotide file with plaintext sequence. filename as arg. Returns list of genes&quot;&quot;&quot;</span>
+    <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="make_codon_histogram"><a class="viewcode-back" href="../index.html#loaddata.make_codon_histogram">[docs]</a><span class="k">def</span> <span class="nf">make_codon_histogram</span><span class="p">(</span><span class="n">gene</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;returns codon_hist for one gene</span>
+
+<span class="sd">    The histogram should reproduce what www.kazusa.org.jp/codon/cgi-bin/countcodon.cgi computes</span>
+<span class="sd">    for the gene in testdata.ffn</span>
+<span class="sd">    UUU 12.6(     9)  UCU  9.8(     7)  UAU 15.4(    11)  UGU  4.2(     3)</span>
+<span class="sd">    UUC 21.1(    15)  UCC 16.9(    12)  UAC 11.2(     8)  UGC 12.6(     9)</span>
+<span class="sd">    UUA 15.4(    11)  UCA  8.4(     6)  UAA  0.0(     0)  UGA  1.4(     1)</span>
+<span class="sd">    UUG 12.6(     9)  UCG 12.6(     9)  UAG  0.0(     0)  UGG  5.6(     4)</span>
+<span class="sd">    CUU  8.4(     6)  CCU  4.2(     3)  CAU  9.8(     7)  CGU 22.5(    16)</span>
+<span class="sd">    CUC 15.4(    11)  CCC  5.6(     4)  CAC  7.0(     5)  CGC 25.3(    18)</span>
+<span class="sd">    CUA  4.2(     3)  CCA  1.4(     1)  CAA 11.2(     8)  CGA  2.8(     2)</span>
+<span class="sd">    CUG 53.4(    38)  CCG 23.9(    17)  CAG 19.7(    14)  CGG  5.6(     4)</span>
+<span class="sd">    AUU 36.5(    26)  ACU  5.6(     4)  AAU 28.1(    20)  AGU  7.0(     5)</span>
+<span class="sd">    AUC 16.9(    12)  ACC 23.9(    17)  AAC 19.7(    14)  AGC  8.4(     6)</span>
+<span class="sd">    AUA  0.0(     0)  ACA  0.0(     0)  AAA 26.7(    19)  AGA  0.0(     0)</span>
+<span class="sd">    AUG 29.5(    21)  ACG  9.8(     7)  AAG 14.0(    10)  AGG  1.4(     1)</span>
+<span class="sd">    GUU 25.3(    18)  GCU 25.3(    18)  GAU 37.9(    27)  GGU 28.1(    20)</span>
+<span class="sd">    GUC 19.7(    14)  GCC 32.3(    23)  GAC 18.3(    13)  GGC 28.1(    20)</span>
+<span class="sd">    GUA  8.4(     6)  GCA 12.6(     9)  GAA 47.8(    34)  GGA 12.6(     9)</span>
+<span class="sd">    GUG 32.3(    23)  GCG 35.1(    25)  GAG 18.3(    13)  GGG  9.8(     7)</span>
+<span class="sd">    in the first field. Remember, the order of codons in this package is given in the variable codons</span>
+
+<span class="sd">    &gt;&gt;&gt; make_codon_histogram( load_fasta(&quot;testdata.ffn&quot;).next() )</span>
+<span class="sd">    ([0.012640449438202247, 0.021067415730337078, 0.015449438202247191, 0.012640449438202247, 0.0098314606741573031, 0.016853932584269662, 0.0084269662921348312, 0.012640449438202247, 0.015449438202247191, 0.011235955056179775, 0.0, 0.0, 0.0042134831460674156, 0.012640449438202247, 0.0014044943820224719, 0.0056179775280898875, 0.0084269662921348312, 0.015449438202247191, 0.0042134831460674156, 0.053370786516853931, 0.0042134831460674156, 0.0056179775280898875, 0.0014044943820224719, 0.023876404494382022, 0.0098314606741573031, 0.0070224719101123594, 0.011235955056179775, 0.019662921348314606, 0.02247191011235955, 0.025280898876404494, 0.0028089887640449437, 0.0056179775280898875, 0.036516853932584269, 0.016853932584269662, 0.0, 0.029494382022471909, 0.0056179775280898875, 0.023876404494382022, 0.0, 0.0098314606741573031, 0.028089887640449437, 0.019662921348314606, 0.026685393258426966, 0.014044943820224719, 0.0070224719101123594, 0.0084269662921348312, 0.0, 0.0014044943820224719, 0.025280898876404494, 0.019662921348314606, 0.0084269662921348312, 0.032303370786516857, 0.025280898876404494, 0.032303370786516857, 0.012640449438202247, 0.0351123595505618, 0.037921348314606744, 0.018258426966292134, 0.047752808988764044, 0.018258426966292134, 0.028089887640449437, 0.028089887640449437, 0.012640449438202247, 0.0098314606741573031], [0.033707865168539325, 0.10955056179775281, 0.063202247191011238, 0.026685393258426966, 0.0014044943820224719, 0.016853932584269662, 0.0056179775280898875, 0.0351123595505618, 0.016853932584269662, 0.030898876404494381, 0.05758426966292135, 0.053370786516853931, 0.029494382022471909, 0.039325842696629212, 0.047752808988764044, 0.040730337078651688, 0.085674157303370788, 0.10533707865168539, 0.056179775280898875, 0.066011235955056174, 0.078651685393258425])</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+
+    <span class="n">codon_hist</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="mi">64</span> <span class="p">)</span>
+    <span class="n">aa_hist</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="mi">21</span> <span class="p">)</span>
+
+    <span class="n">sequence</span> <span class="o">=</span> <span class="n">gene</span><span class="o">.</span><span class="n">seq</span><span class="o">.</span><span class="n">tostring</span><span class="p">()</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">triplets</span> <span class="o">=</span> <span class="p">[</span> <span class="n">sequence</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">start</span> <span class="o">+</span> <span class="mi">3</span><span class="p">]</span> <span class="k">for</span> <span class="n">start</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span> <span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span> <span class="n">sequence</span> <span class="p">),</span> <span class="mi">3</span> <span class="p">)</span> <span class="p">]</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">error</span><span class="p">:</span>
+        <span class="k">print</span> <span class="s">&quot;Slicing of nucleotides into triplets failed&quot;</span>
+        <span class="k">print</span> <span class="n">error</span>
+        <span class="k">return</span> <span class="bp">None</span><span class="p">,</span><span class="bp">None</span>
+
+    <span class="k">for</span> <span class="n">codon</span> <span class="ow">in</span> <span class="n">triplets</span><span class="p">:</span>
+        <span class="n">codon</span> <span class="o">=</span> <span class="n">codon</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="n">aa</span> <span class="o">=</span> <span class="n">codon_table</span><span class="o">.</span><span class="n">get</span><span class="p">(</span> <span class="n">codon</span> <span class="p">)</span>
+
+        <span class="n">i</span> <span class="o">=</span> <span class="n">codon_hist_index</span><span class="o">.</span><span class="n">get</span><span class="p">(</span> <span class="n">codon</span> <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">i</span> <span class="o">!=</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">codon_hist</span><span class="p">[</span><span class="n">codon_hist_index</span><span class="o">.</span><span class="n">get</span><span class="p">(</span> <span class="n">codon</span> <span class="p">)]</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="n">j</span> <span class="o">=</span> <span class="n">amino_table_index</span><span class="o">.</span><span class="n">get</span><span class="p">(</span> <span class="n">aa</span> <span class="p">)</span>
+            <span class="n">aa_hist</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+
+    <span class="n">codon_hist</span> <span class="o">=</span> <span class="nb">map</span><span class="p">(</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span><span class="n">x</span> <span class="o">/</span> <span class="nb">float</span><span class="p">(</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span> <span class="n">codon_hist</span> <span class="p">)</span> <span class="p">),</span> <span class="n">codon_hist</span><span class="p">)</span>
+    <span class="n">aa_hist</span> <span class="o">=</span> <span class="nb">map</span><span class="p">(</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span><span class="n">x</span> <span class="o">/</span> <span class="nb">float</span><span class="p">(</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span> <span class="n">aa_hist</span> <span class="p">)</span> <span class="p">),</span> <span class="n">aa_hist</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="p">(</span><span class="n">codon_hist</span><span class="p">,</span> <span class="n">aa_hist</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="make_codon_histogram_dic"><a class="viewcode-back" href="../index.html#loaddata.make_codon_histogram_dic">[docs]</a><span class="k">def</span> <span class="nf">make_codon_histogram_dic</span><span class="p">(</span><span class="n">f</span><span class="p">):</span>
+
+    <span class="sd">&quot;&quot;&quot;returns codon_hist for all genes in a fasta file in form of a dictionary with fasta identifiers as keys</span>
+
+<span class="sd">    The histogram should reproduce what www.kazusa.org.jp/codon/cgi-bin/countcodon.cgi for the first gene in the testdata2.ffn</span>
+<span class="sd">    UUU 12.6(     9)  UCU  9.8(     7)  UAU 15.4(    11)  UGU  4.2(     3)</span>
+<span class="sd">    UUC 21.1(    15)  UCC 16.9(    12)  UAC 11.2(     8)  UGC 12.6(     9)</span>
+<span class="sd">    UUA 15.4(    11)  UCA  8.4(     6)  UAA  0.0(     0)  UGA  1.4(     1)</span>
+<span class="sd">    UUG 12.6(     9)  UCG 12.6(     9)  UAG  0.0(     0)  UGG  5.6(     4)</span>
+<span class="sd">    CUU  8.4(     6)  CCU  4.2(     3)  CAU  9.8(     7)  CGU 22.5(    16)</span>
+<span class="sd">    CUC 15.4(    11)  CCC  5.6(     4)  CAC  7.0(     5)  CGC 25.3(    18)</span>
+<span class="sd">    CUA  4.2(     3)  CCA  1.4(     1)  CAA 11.2(     8)  CGA  2.8(     2)</span>
+<span class="sd">    CUG 53.4(    38)  CCG 23.9(    17)  CAG 19.7(    14)  CGG  5.6(     4)</span>
+<span class="sd">    AUU 36.5(    26)  ACU  5.6(     4)  AAU 28.1(    20)  AGU  7.0(     5)</span>
+<span class="sd">    AUC 16.9(    12)  ACC 23.9(    17)  AAC 19.7(    14)  AGC  8.4(     6)</span>
+<span class="sd">    AUA  0.0(     0)  ACA  0.0(     0)  AAA 26.7(    19)  AGA  0.0(     0)</span>
+<span class="sd">    AUG 29.5(    21)  ACG  9.8(     7)  AAG 14.0(    10)  AGG  1.4(     1)</span>
+<span class="sd">    GUU 25.3(    18)  GCU 25.3(    18)  GAU 37.9(    27)  GGU 28.1(    20)</span>
+<span class="sd">    GUC 19.7(    14)  GCC 32.3(    23)  GAC 18.3(    13)  GGC 28.1(    20)</span>
+<span class="sd">    GUA  8.4(     6)  GCA 12.6(     9)  GAA 47.8(    34)  GGA 12.6(     9)</span>
+<span class="sd">    GUG 32.3(    23)  GCG 35.1(    25)  GAG 18.3(    13)  GGG  9.8(     7)</span>
+<span class="sd">    in the first field. Remember, the order of codons in this package is given in the variable codons</span>
+
+<span class="sd">    &gt;&gt;&gt; make_codon_histogram_dic( load_fasta(&quot;testdata2.ffn&quot;) )[0]</span>
+<span class="sd">    {&#39;fid|18348942|locus|VBIEscCol44059_0001|&#39;: [0.012640449438202247, 0.021067415730337078, 0.015449438202247191, 0.012640449438202247, 0.0098314606741573031, 0.016853932584269662, 0.0084269662921348312, 0.012640449438202247, 0.015449438202247191, 0.011235955056179775, 0.0, 0.0, 0.0042134831460674156, 0.012640449438202247, 0.0014044943820224719, 0.0056179775280898875, 0.0084269662921348312, 0.015449438202247191, 0.0042134831460674156, 0.053370786516853931, 0.0042134831460674156, 0.0056179775280898875, 0.0014044943820224719, 0.023876404494382022, 0.0098314606741573031, 0.0070224719101123594, 0.011235955056179775, 0.019662921348314606, 0.02247191011235955, 0.025280898876404494, 0.0028089887640449437, 0.0056179775280898875, 0.036516853932584269, 0.016853932584269662, 0.0, 0.029494382022471909, 0.0056179775280898875, 0.023876404494382022, 0.0, 0.0098314606741573031, 0.028089887640449437, 0.019662921348314606, 0.026685393258426966, 0.014044943820224719, 0.0070224719101123594, 0.0084269662921348312, 0.0, 0.0014044943820224719, 0.025280898876404494, 0.019662921348314606, 0.0084269662921348312, 0.032303370786516857, 0.025280898876404494, 0.032303370786516857, 0.012640449438202247, 0.0351123595505618, 0.037921348314606744, 0.018258426966292134, 0.047752808988764044, 0.018258426966292134, 0.028089887640449437, 0.028089887640449437, 0.012640449438202247, 0.0098314606741573031], &#39;fid|129049020348348942|locus|VBIEscCol44059_0001|&#39;: [0.012640449438202247, 0.021067415730337078, 0.015449438202247191, 0.012640449438202247, 0.0098314606741573031, 0.016853932584269662, 0.0084269662921348312, 0.012640449438202247, 0.015449438202247191, 0.011235955056179775, 0.0, 0.0, 0.0042134831460674156, 0.012640449438202247, 0.0014044943820224719, 0.0056179775280898875, 0.0084269662921348312, 0.015449438202247191, 0.0042134831460674156, 0.053370786516853931, 0.0042134831460674156, 0.0056179775280898875, 0.0014044943820224719, 0.023876404494382022, 0.0098314606741573031, 0.0070224719101123594, 0.011235955056179775, 0.019662921348314606, 0.02247191011235955, 0.025280898876404494, 0.0028089887640449437, 0.0056179775280898875, 0.036516853932584269, 0.016853932584269662, 0.0, 0.029494382022471909, 0.0056179775280898875, 0.023876404494382022, 0.0, 0.0098314606741573031, 0.028089887640449437, 0.019662921348314606, 0.026685393258426966, 0.014044943820224719, 0.0070224719101123594, 0.0084269662921348312, 0.0, 0.0014044943820224719, 0.025280898876404494, 0.019662921348314606, 0.0084269662921348312, 0.032303370786516857, 0.025280898876404494, 0.032303370786516857, 0.012640449438202247, 0.0351123595505618, 0.037921348314606744, 0.018258426966292134, 0.047752808988764044, 0.018258426966292134, 0.028089887640449437, 0.028089887640449437, 0.012640449438202247, 0.0098314606741573031]}</span>
+
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">codon_hist</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">aa_hist</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="k">for</span> <span class="n">gene</span> <span class="ow">in</span> <span class="n">f</span><span class="p">:</span>
+        <span class="sd">&quot;&quot;&quot;returns codon_hist for each gene in a file&quot;&quot;&quot;</span>
+        <span class="n">codon_hist</span><span class="p">[</span><span class="n">gene</span><span class="o">.</span><span class="n">id</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="mi">64</span> <span class="p">)</span>
+        <span class="n">aa_hist</span><span class="p">[</span><span class="n">gene</span><span class="o">.</span><span class="n">id</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="mi">21</span> <span class="p">)</span>
+
+        <span class="n">s</span> <span class="o">=</span> <span class="n">gene</span><span class="o">.</span><span class="n">seq</span><span class="o">.</span><span class="n">tostring</span><span class="p">()</span>
+        <span class="n">triplets</span> <span class="o">=</span> <span class="p">[</span> <span class="n">s</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">start</span> <span class="o">+</span> <span class="mi">3</span><span class="p">]</span> <span class="k">for</span> <span class="n">start</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span> <span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span> <span class="n">s</span> <span class="p">),</span> <span class="mi">3</span> <span class="p">)</span> <span class="p">]</span>
+
+        <span class="k">for</span> <span class="n">codon</span> <span class="ow">in</span> <span class="n">triplets</span><span class="p">:</span>
+            <span class="n">codon</span> <span class="o">=</span> <span class="n">codon</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+            <span class="n">aa</span> <span class="o">=</span> <span class="n">codon_table</span><span class="o">.</span><span class="n">get</span><span class="p">(</span> <span class="n">codon</span> <span class="p">)</span>
+
+            <span class="n">i</span> <span class="o">=</span> <span class="n">codon_hist_index</span><span class="o">.</span><span class="n">get</span><span class="p">(</span> <span class="n">codon</span> <span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">i</span> <span class="o">!=</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">codon_hist</span><span class="p">[</span><span class="n">gene</span><span class="o">.</span><span class="n">id</span><span class="p">][</span><span class="n">codon_hist_index</span><span class="o">.</span><span class="n">get</span><span class="p">(</span> <span class="n">codon</span> <span class="p">)]</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="n">j</span> <span class="o">=</span> <span class="n">amino_table_index</span><span class="o">.</span><span class="n">get</span><span class="p">(</span> <span class="n">aa</span> <span class="p">)</span>
+                <span class="n">aa_hist</span><span class="p">[</span><span class="n">gene</span><span class="o">.</span><span class="n">id</span><span class="p">][</span><span class="n">j</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+
+        <span class="n">codon_hist</span><span class="p">[</span><span class="n">gene</span><span class="o">.</span><span class="n">id</span><span class="p">]</span> <span class="o">=</span> <span class="nb">map</span><span class="p">(</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span><span class="n">x</span> <span class="o">/</span> <span class="nb">float</span><span class="p">(</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span> <span class="n">codon_hist</span><span class="p">[</span><span class="n">gene</span><span class="o">.</span><span class="n">id</span><span class="p">]</span> <span class="p">)</span> <span class="p">),</span> <span class="n">codon_hist</span><span class="p">[</span><span class="n">gene</span><span class="o">.</span><span class="n">id</span><span class="p">]</span> <span class="p">)</span>
+        <span class="n">aa_hist</span><span class="p">[</span><span class="n">gene</span><span class="o">.</span><span class="n">id</span><span class="p">]</span> <span class="o">=</span> <span class="nb">map</span><span class="p">(</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span><span class="n">x</span> <span class="o">/</span> <span class="nb">float</span><span class="p">(</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span> <span class="n">aa_hist</span><span class="p">[</span><span class="n">gene</span><span class="o">.</span><span class="n">id</span><span class="p">]</span> <span class="p">)</span> <span class="p">),</span> <span class="n">aa_hist</span><span class="p">[</span><span class="n">gene</span><span class="o">.</span><span class="n">id</span><span class="p">]</span> <span class="p">)</span>
+
+    <span class="k">return</span> <span class="p">(</span><span class="n">codon_hist</span><span class="p">,</span> <span class="n">aa_hist</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="calculate_RF_dic"><a class="viewcode-back" href="../index.html#loaddata.calculate_RF_dic">[docs]</a><span class="k">def</span> <span class="nf">calculate_RF_dic</span><span class="p">(</span><span class="n">codon_hist</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Calculates relative codon frequency for each gene in codon histogram</span>
+
+
+<span class="sd">    Test against run of testdata2.ffn and handcalculated for amino acid A (codons 52 - 55) should give 0.24,0.3066,0.12,0.33</span>
+
+<span class="sd">    &gt;&gt;&gt; calculate_RF_dic(  (make_codon_histogram_dic( load_fasta(&quot;testdata2.ffn&quot;)))[0] ) # doctest : +NORMALIZE_WHITESPACE</span>
+<span class="sd">    {&#39;fid|18348942|locus|VBIEscCol44059_0001|&#39;: array([ 0.375     ,  0.625     ,  0.14102564,  0.11538462,  0.15555556,</span>
+<span class="sd">            0.26666667,  0.13333333,  0.2       ,  0.57894737,  0.42105263,</span>
+<span class="sd">            0.        ,  0.        ,  0.25      ,  0.75      ,  1.        ,</span>
+<span class="sd">            1.        ,  0.07692308,  0.14102564,  0.03846154,  0.48717949,</span>
+<span class="sd">            0.12      ,  0.16      ,  0.04      ,  0.68      ,  0.58333333,</span>
+<span class="sd">            0.41666667,  0.36363636,  0.63636364,  0.3902439 ,  0.43902439,</span>
+<span class="sd">            0.04878049,  0.09756098,  0.68421053,  0.31578947,  0.        ,</span>
+<span class="sd">            1.        ,  0.14285714,  0.60714286,  0.        ,  0.25      ,</span>
+<span class="sd">            0.58823529,  0.41176471,  0.65517241,  0.34482759,  0.11111111,</span>
+<span class="sd">            0.13333333,  0.        ,  0.02439024,  0.29508197,  0.2295082 ,</span>
+<span class="sd">            0.09836066,  0.37704918,  0.24      ,  0.30666667,  0.12      ,</span>
+<span class="sd">            0.33333333,  0.675     ,  0.325     ,  0.72340426,  0.27659574,</span>
+<span class="sd">            0.35714286,  0.35714286,  0.16071429,  0.125     ]), &#39;fid|129049020348348942|locus|VBIEscCol44059_0001|&#39;: array([ 0.375     ,  0.625     ,  0.14102564,  0.11538462,  0.15555556,</span>
+<span class="sd">            0.26666667,  0.13333333,  0.2       ,  0.57894737,  0.42105263,</span>
+<span class="sd">            0.        ,  0.        ,  0.25      ,  0.75      ,  1.        ,</span>
+<span class="sd">            1.        ,  0.07692308,  0.14102564,  0.03846154,  0.48717949,</span>
+<span class="sd">            0.12      ,  0.16      ,  0.04      ,  0.68      ,  0.58333333,</span>
+<span class="sd">            0.41666667,  0.36363636,  0.63636364,  0.3902439 ,  0.43902439,</span>
+<span class="sd">            0.04878049,  0.09756098,  0.68421053,  0.31578947,  0.        ,</span>
+<span class="sd">            1.        ,  0.14285714,  0.60714286,  0.        ,  0.25      ,</span>
+<span class="sd">            0.58823529,  0.41176471,  0.65517241,  0.34482759,  0.11111111,</span>
+<span class="sd">            0.13333333,  0.        ,  0.02439024,  0.29508197,  0.2295082 ,</span>
+<span class="sd">            0.09836066,  0.37704918,  0.24      ,  0.30666667,  0.12      ,</span>
+<span class="sd">            0.33333333,  0.675     ,  0.325     ,  0.72340426,  0.27659574,</span>
+<span class="sd">            0.35714286,  0.35714286,  0.16071429,  0.125     ])}</span>
+
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">hist_rf</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">gene</span> <span class="ow">in</span> <span class="n">codon_hist</span><span class="p">:</span>
+        <span class="n">hist_rf</span><span class="p">[</span><span class="n">gene</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span> <span class="p">[</span><span class="mf">0.</span><span class="p">]</span> <span class="o">*</span> <span class="mi">64</span> <span class="p">)</span>
+        <span class="k">for</span> <span class="n">aminoacid</span> <span class="ow">in</span> <span class="n">rev_codon_table</span><span class="p">:</span>
+            <span class="n">entropy</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="n">n</span> <span class="o">=</span> <span class="mf">0.</span>
+            <span class="n">new_norm</span> <span class="o">=</span> <span class="mf">0.</span>
+            <span class="k">for</span> <span class="n">codon</span> <span class="ow">in</span> <span class="n">rev_codon_table</span><span class="p">[</span><span class="n">aminoacid</span><span class="p">]:</span>
+                <span class="n">new_norm</span> <span class="o">+=</span> <span class="n">codon_hist</span><span class="p">[</span><span class="n">gene</span><span class="p">][</span><span class="n">codon_hist_index</span><span class="o">.</span><span class="n">get</span><span class="p">(</span> <span class="n">codon</span> <span class="p">)]</span>
+
+            <span class="k">for</span> <span class="n">codon</span> <span class="ow">in</span> <span class="n">rev_codon_table</span><span class="p">[</span><span class="n">aminoacid</span><span class="p">]:</span>
+                <span class="k">if</span> <span class="n">new_norm</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="n">pi</span> <span class="o">=</span> <span class="n">codon_hist</span><span class="p">[</span><span class="n">gene</span><span class="p">][</span><span class="n">codon_hist_index</span><span class="o">.</span><span class="n">get</span><span class="p">(</span> <span class="n">codon</span> <span class="p">)]</span> <span class="o">/</span> <span class="n">new_norm</span>
+                    <span class="n">hist_rf</span><span class="p">[</span><span class="n">gene</span><span class="p">][</span><span class="n">codon_hist_index</span><span class="o">.</span><span class="n">get</span><span class="p">(</span> <span class="n">codon</span> <span class="p">)]</span> <span class="o">=</span> <span class="n">codon_hist</span><span class="p">[</span><span class="n">gene</span><span class="p">][</span><span class="n">codon_hist_index</span><span class="o">.</span><span class="n">get</span><span class="p">(</span> <span class="n">codon</span> <span class="p">)]</span> <span class="o">/</span> <span class="n">new_norm</span>
+                <span class="k">if</span> <span class="n">pi</span> <span class="o">&gt;</span> <span class="mf">0.0</span><span class="p">:</span>
+                    <span class="n">entropy</span> <span class="o">+=</span> <span class="n">pi</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">log2</span><span class="p">(</span> <span class="n">pi</span> <span class="p">)</span>
+                    <span class="n">n</span> <span class="o">+=</span> <span class="mf">1.</span>
+
+    <span class="k">return</span> <span class="n">hist_rf</span>
+</div>
+<div class="viewcode-block" id="calculate_RF"><a class="viewcode-back" href="../index.html#loaddata.calculate_RF">[docs]</a><span class="k">def</span> <span class="nf">calculate_RF</span><span class="p">(</span><span class="n">codon_hist</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Calculates relative codon frequency for a codon histogram&quot;&quot;&quot;</span>
+    <span class="k">print</span> <span class="s">&#39;not implemented yet&#39;</span>
+</div>
+<div class="viewcode-block" id="calculate_RSCU_dic"><a class="viewcode-back" href="../index.html#loaddata.calculate_RSCU_dic">[docs]</a><span class="k">def</span> <span class="nf">calculate_RSCU_dic</span><span class="p">(</span><span class="n">codon_hist</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;returns codon_rscu for each gene in codon histogram</span>
+
+<span class="sd">    test like calculate_rf and checked against genomes.urv.es/optimizer</span>
+
+<span class="sd">    &gt;&gt;&gt; calculate_RSCU_dic(  (make_codon_histogram_dic( load_fasta(&quot;testdata2.ffn&quot;)))[0] )</span>
+<span class="sd">    {&#39;fid|18348942|locus|VBIEscCol44059_0001|&#39;: array([ 0.75      ,  1.25      ,  0.84615385,  0.69230769,  0.93333333,</span>
+<span class="sd">            1.6       ,  0.8       ,  1.2       ,  1.15789474,  0.84210526,</span>
+<span class="sd">            0.        ,  0.        ,  0.5       ,  1.5       ,  3.        ,</span>
+<span class="sd">            1.        ,  0.46153846,  0.84615385,  0.23076923,  2.92307692,</span>
+<span class="sd">            0.48      ,  0.64      ,  0.16      ,  2.72      ,  1.16666667,</span>
+<span class="sd">            0.83333333,  0.72727273,  1.27272727,  2.34146341,  2.63414634,</span>
+<span class="sd">            0.29268293,  0.58536585,  2.05263158,  0.94736842,  0.        ,</span>
+<span class="sd">            1.        ,  0.57142857,  2.42857143,  0.        ,  1.        ,</span>
+<span class="sd">            1.17647059,  0.82352941,  1.31034483,  0.68965517,  0.66666667,</span>
+<span class="sd">            0.8       ,  0.        ,  0.14634146,  1.18032787,  0.91803279,</span>
+<span class="sd">            0.39344262,  1.50819672,  0.96      ,  1.22666667,  0.48      ,</span>
+<span class="sd">            1.33333333,  1.35      ,  0.65      ,  1.44680851,  0.55319149,</span>
+<span class="sd">            1.42857143,  1.42857143,  0.64285714,  0.5       ]), &#39;fid|129049020348348942|locus|VBIEscCol44059_0001|&#39;: array([ 0.75      ,  1.25      ,  0.84615385,  0.69230769,  0.93333333,</span>
+<span class="sd">            1.6       ,  0.8       ,  1.2       ,  1.15789474,  0.84210526,</span>
+<span class="sd">            0.        ,  0.        ,  0.5       ,  1.5       ,  3.        ,</span>
+<span class="sd">            1.        ,  0.46153846,  0.84615385,  0.23076923,  2.92307692,</span>
+<span class="sd">            0.48      ,  0.64      ,  0.16      ,  2.72      ,  1.16666667,</span>
+<span class="sd">            0.83333333,  0.72727273,  1.27272727,  2.34146341,  2.63414634,</span>
+<span class="sd">            0.29268293,  0.58536585,  2.05263158,  0.94736842,  0.        ,</span>
+<span class="sd">            1.        ,  0.57142857,  2.42857143,  0.        ,  1.        ,</span>
+<span class="sd">            1.17647059,  0.82352941,  1.31034483,  0.68965517,  0.66666667,</span>
+<span class="sd">            0.8       ,  0.        ,  0.14634146,  1.18032787,  0.91803279,</span>
+<span class="sd">            0.39344262,  1.50819672,  0.96      ,  1.22666667,  0.48      ,</span>
+<span class="sd">            1.33333333,  1.35      ,  0.65      ,  1.44680851,  0.55319149,</span>
+<span class="sd">            1.42857143,  1.42857143,  0.64285714,  0.5       ])}</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">hist_rscu</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">gene</span> <span class="ow">in</span> <span class="n">codon_hist</span><span class="p">:</span>
+        <span class="n">hist_rscu</span><span class="p">[</span><span class="n">gene</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span> <span class="p">[</span><span class="mf">0.</span><span class="p">]</span> <span class="o">*</span> <span class="mi">64</span> <span class="p">)</span>
+        <span class="k">for</span> <span class="n">aminoacid</span> <span class="ow">in</span> <span class="n">rev_codon_table</span><span class="p">:</span>
+            <span class="n">entropy</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="n">n</span> <span class="o">=</span> <span class="mf">0.</span>
+            <span class="n">new_norm</span> <span class="o">=</span> <span class="mf">0.</span>
+            <span class="k">for</span> <span class="n">codon</span> <span class="ow">in</span> <span class="n">rev_codon_table</span><span class="p">[</span><span class="n">aminoacid</span><span class="p">]:</span>
+                <span class="n">new_norm</span> <span class="o">+=</span> <span class="n">codon_hist</span><span class="p">[</span><span class="n">gene</span><span class="p">][</span><span class="n">codon_hist_index</span><span class="o">.</span><span class="n">get</span><span class="p">(</span> <span class="n">codon</span> <span class="p">)]</span>
+
+            <span class="k">for</span> <span class="n">codon</span> <span class="ow">in</span> <span class="n">rev_codon_table</span><span class="p">[</span><span class="n">aminoacid</span><span class="p">]:</span>
+                <span class="k">if</span> <span class="n">new_norm</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="n">pi</span> <span class="o">=</span> <span class="n">codon_hist</span><span class="p">[</span><span class="n">gene</span><span class="p">][</span><span class="n">codon_hist_index</span><span class="o">.</span><span class="n">get</span><span class="p">(</span> <span class="n">codon</span> <span class="p">)]</span> <span class="o">/</span> <span class="n">new_norm</span>
+                    <span class="n">hist_rscu</span><span class="p">[</span><span class="n">gene</span><span class="p">][</span><span class="n">codon_hist_index</span><span class="o">.</span><span class="n">get</span><span class="p">(</span> <span class="n">codon</span> <span class="p">)]</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">rev_codon_table</span><span class="p">[</span><span class="n">aminoacid</span><span class="p">])</span> <span class="o">*</span> <span class="n">codon_hist</span><span class="p">[</span><span class="n">gene</span><span class="p">][</span><span class="n">codon_hist_index</span><span class="o">.</span><span class="n">get</span><span class="p">(</span> <span class="n">codon</span> <span class="p">)]</span> <span class="o">/</span> <span class="n">new_norm</span>
+                <span class="k">if</span> <span class="n">pi</span> <span class="o">&gt;</span> <span class="mf">0.0</span><span class="p">:</span>
+                    <span class="n">entropy</span> <span class="o">+=</span> <span class="n">pi</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">log2</span><span class="p">(</span> <span class="n">pi</span> <span class="p">)</span>
+                    <span class="n">n</span> <span class="o">+=</span> <span class="mf">1.</span>
+
+    <span class="k">return</span> <span class="n">hist_rscu</span>
+</div>
+<div class="viewcode-block" id="calculate_RSCU"><a class="viewcode-back" href="../index.html#loaddata.calculate_RSCU">[docs]</a><span class="k">def</span> <span class="nf">calculate_RSCU</span><span class="p">(</span><span class="n">codon_hist</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;returns codon_rscu for a gene&quot;&quot;&quot;</span>
+    <span class="n">hist_rscu</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">hist_rscu</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span> <span class="p">[</span><span class="mf">0.</span><span class="p">]</span> <span class="o">*</span> <span class="mi">64</span> <span class="p">)</span>
+    <span class="k">for</span> <span class="n">aminoacid</span> <span class="ow">in</span> <span class="n">rev_codon_table</span><span class="p">:</span>
+        <span class="n">entropy</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">n</span> <span class="o">=</span> <span class="mf">0.</span>
+        <span class="n">new_norm</span> <span class="o">=</span> <span class="mf">0.</span>
+        <span class="k">for</span> <span class="n">codon</span> <span class="ow">in</span> <span class="n">rev_codon_table</span><span class="p">[</span><span class="n">aminoacid</span><span class="p">]:</span>
+            <span class="n">new_norm</span> <span class="o">+=</span> <span class="n">codon_hist</span><span class="p">[</span><span class="n">codon_hist_index</span><span class="o">.</span><span class="n">get</span><span class="p">(</span> <span class="n">codon</span> <span class="p">)]</span>
+
+        <span class="k">for</span> <span class="n">codon</span> <span class="ow">in</span> <span class="n">rev_codon_table</span><span class="p">[</span><span class="n">aminoacid</span><span class="p">]:</span>
+            <span class="k">if</span> <span class="n">new_norm</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">pi</span> <span class="o">=</span> <span class="n">codon_hist</span><span class="p">[</span><span class="n">codon_hist_index</span><span class="o">.</span><span class="n">get</span><span class="p">(</span> <span class="n">codon</span> <span class="p">)]</span> <span class="o">/</span> <span class="n">new_norm</span>
+                <span class="n">hist_rscu</span><span class="p">[</span><span class="n">codon_hist_index</span><span class="o">.</span><span class="n">get</span><span class="p">(</span> <span class="n">codon</span> <span class="p">)]</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">rev_codon_table</span><span class="p">[</span><span class="n">aminoacid</span><span class="p">])</span><span class="o">*</span><span class="n">codon_hist</span><span class="p">[</span><span class="n">codon_hist_index</span><span class="o">.</span><span class="n">get</span><span class="p">(</span> <span class="n">codon</span> <span class="p">)]</span> <span class="o">/</span> <span class="n">new_norm</span>
+            <span class="k">if</span> <span class="n">pi</span> <span class="o">&gt;</span> <span class="mf">0.0</span><span class="p">:</span>
+                <span class="n">entropy</span> <span class="o">+=</span> <span class="n">pi</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">log2</span><span class="p">(</span> <span class="n">pi</span> <span class="p">)</span>
+                <span class="n">n</span> <span class="o">+=</span> <span class="mf">1.</span>
+
+    <span class="k">return</span> <span class="n">hist_rscu</span>
+</div>
+<span class="k">def</span> <span class="nf">calculate_CAI</span><span class="p">():</span>
+    <span class="k">pass</span>
+
+<span class="k">def</span> <span class="nf">calculate_NC</span><span class="p">():</span>
+    <span class="k">pass</span>
+
+<div class="viewcode-block" id="highly_expressed_genes_by_file"><a class="viewcode-back" href="../index.html#loaddata.highly_expressed_genes_by_file">[docs]</a><span class="k">def</span> <span class="nf">highly_expressed_genes_by_file</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span><span class="n">hist</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;loads a list of highly expressed genes and returns and returns an index where 0 if no heg and 1 if heg is returned.</span>
+<span class="sd">       the format used is that from ecai/heg and it tries to find the id in the description of the histogram keys</span>
+<span class="sd"> &quot;&quot;&quot;</span>
+
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span> <span class="s">&#39;ecoli3.heg.txt&#39;</span> <span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="p">[</span> <span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">()</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">f</span> <span class="p">]</span>
+        <span class="n">heg</span> <span class="o">=</span> <span class="p">[</span><span class="n">x</span><span class="p">[</span><span class="mi">5</span><span class="p">]</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="p">(</span> <span class="n">data</span><span class="p">[</span><span class="mi">3</span><span class="p">:]</span> <span class="p">)</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span> <span class="n">x</span> <span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">]</span>
+        <span class="n">is_heg</span> <span class="o">=</span> <span class="p">[</span><span class="bp">False</span><span class="p">]</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span> <span class="n">hist</span> <span class="p">)</span>
+        <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">gene</span> <span class="ow">in</span> <span class="n">hist</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">test_heg</span> <span class="ow">in</span> <span class="n">heg</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">test_heg</span> <span class="ow">in</span> <span class="n">gene</span><span class="p">:</span>
+                    <span class="n">is_heg</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span>
+    <span class="k">return</span> <span class="n">is_heg</span>
+</div>
+<div class="viewcode-block" id="highly_expressed_genes_by_id"><a class="viewcode-back" href="../index.html#loaddata.highly_expressed_genes_by_id">[docs]</a><span class="k">def</span> <span class="nf">highly_expressed_genes_by_id</span><span class="p">(</span><span class="n">id_list</span><span class="p">,</span><span class="n">hist</span><span class="p">):</span>
+    <span class="n">heg</span> <span class="o">=</span> <span class="n">id_list</span>
+    <span class="n">is_heg</span> <span class="o">=</span> <span class="p">[</span><span class="bp">False</span><span class="p">]</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span> <span class="n">hist</span> <span class="p">)</span>
+    <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">for</span> <span class="n">gene</span> <span class="ow">in</span> <span class="n">hist</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">test_heg</span> <span class="ow">in</span> <span class="n">heg</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">test_heg</span> <span class="ow">in</span> <span class="n">gene</span><span class="p">:</span>
+                <span class="n">is_heg</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="bp">True</span>
+    <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span>
+    <span class="k">return</span> <span class="n">is_heg</span>
+</div>
+<span class="k">def</span> <span class="nf">mds</span><span class="p">(</span><span class="n">hist</span><span class="p">,</span><span class="n">n_components</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span><span class="n">max_iter</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span><span class="n">n_init</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span><span class="n">n_jobs</span><span class="o">=-</span><span class="mi">1</span><span class="p">):</span>
+    <span class="n">X</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span> <span class="n">hist</span><span class="o">.</span><span class="n">values</span><span class="p">()</span> <span class="p">)</span>
+    <span class="n">mds</span> <span class="o">=</span> <span class="n">manifold</span><span class="o">.</span><span class="n">MDS</span><span class="p">(</span> <span class="n">n_components</span><span class="p">,</span> <span class="n">max_iter</span> <span class="o">=</span> <span class="mi">300</span><span class="p">,</span> <span class="n">n_init</span> <span class="o">=</span> <span class="mi">8</span><span class="p">,</span> <span class="n">n_jobs</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span> <span class="p">)</span>
+    <span class="n">Y</span> <span class="o">=</span> <span class="n">mds</span><span class="o">.</span><span class="n">fit_transform</span><span class="p">(</span> <span class="n">X</span> <span class="p">)</span>
+    <span class="k">return</span> <span class="n">Y</span>
+
+<span class="k">def</span> <span class="nf">plot_mds</span><span class="p">(</span><span class="n">Y</span><span class="p">,</span><span class="n">n_components</span><span class="o">=</span><span class="mi">2</span><span class="p">):</span>
+    <span class="k">pass</span>
+
+
+<span class="k">def</span> <span class="nf">mds_from_fasta</span><span class="p">(</span><span class="n">filename</span><span class="p">):</span>
+    <span class="n">fasta</span> <span class="o">=</span> <span class="n">load_fasta</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+    <span class="n">codon_dic</span><span class="p">,</span><span class="n">aa_dic</span> <span class="o">=</span> <span class="n">make_codon_histogram_dic</span><span class="p">(</span><span class="n">fasta</span><span class="p">)</span>
+    <span class="n">rscu</span> <span class="o">=</span> <span class="n">calculate_RSCU_dic</span><span class="p">(</span><span class="n">codon_dic</span><span class="p">)</span>
+    <span class="n">Y</span><span class="o">=</span><span class="n">mds</span><span class="p">(</span><span class="n">rscu</span><span class="p">)</span>
+
+
+
+<div class="viewcode-block" id="setup_parser"><a class="viewcode-back" href="../index.html#loaddata.setup_parser">[docs]</a><span class="k">def</span> <span class="nf">setup_parser</span><span class="p">():</span>
+    <span class="sd">&quot;&quot;&quot;Setting up the parser for command line usage, returns args&quot;&quot;&quot;</span>
+    <span class="n">usage</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;</span><span class="si">%(prog)s</span><span class="s"> &lt;functional argument&gt; &lt;output target argument&gt;&quot;&quot;&quot;</span>
+    <span class="n">description</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;Codon Bias Simulation&quot;&quot;&quot;</span>
+
+    <span class="n">parser</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">(</span> <span class="n">usage</span> <span class="o">=</span> <span class="n">usage</span><span class="p">,</span> <span class="n">description</span> <span class="o">=</span> <span class="n">description</span> <span class="p">)</span>
+
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span> <span class="s">&#39;-f&#39;</span><span class="p">,</span> <span class="s">&#39;--gene&#39;</span><span class="p">,</span> <span class="n">action</span> <span class="o">=</span> <span class="s">&#39;store&#39;</span><span class="p">,</span> <span class="n">nargs</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span> <span class="n">dest</span> <span class="o">=</span> <span class="s">&#39;experimental_data_filenames&#39;</span><span class="p">,</span> <span class="n">help</span> <span class="o">=</span> <span class="s">&#39;File which contains Codon sequence of Genes which are to be used for calculating the amino acid frequencies&#39;</span> <span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span> <span class="s">&#39;-v&#39;</span><span class="p">,</span> <span class="s">&#39;--verbose&#39;</span><span class="p">,</span> <span class="n">action</span> <span class="o">=</span> <span class="s">&#39;store_true&#39;</span><span class="p">,</span> <span class="n">dest</span> <span class="o">=</span> <span class="s">&#39;verbose&#39;</span><span class="p">,</span> <span class="n">default</span> <span class="o">=</span> <span class="bp">False</span> <span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span> <span class="s">&#39;-s&#39;</span><span class="p">,</span> <span class="s">&#39;--fitness_matrix&#39;</span><span class="p">,</span> <span class="n">action</span> <span class="o">=</span> <span class="s">&#39;store&#39;</span><span class="p">,</span> <span class="n">nargs</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span> <span class="n">dest</span> <span class="o">=</span> <span class="s">&#39;fitness_matrix_names&#39;</span><span class="p">,</span> <span class="n">help</span> <span class="o">=</span> <span class="s">&#39;Fitness matrix, e.g. amino-acid similarity&#39;</span> <span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span> <span class="s">&#39;-i&#39;</span><span class="p">,</span> <span class="s">&#39;--fitness_functions&#39;</span><span class="p">,</span> <span class="n">action</span> <span class="o">=</span> <span class="s">&#39;append&#39;</span><span class="p">,</span> <span class="n">dest</span> <span class="o">=</span> <span class="s">&#39;fitness_functions_filenames&#39;</span><span class="p">,</span> <span class="n">help</span> <span class="o">=</span> <span class="s">&#39;Fitness functions&#39;</span> <span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span> <span class="s">&#39;-c&#39;</span><span class="p">,</span> <span class="s">&#39;--configfile&#39;</span><span class="p">,</span> <span class="n">action</span> <span class="o">=</span> <span class="s">&#39;store&#39;</span><span class="p">,</span> <span class="n">dest</span> <span class="o">=</span> <span class="s">&#39;config_filename&#39;</span><span class="p">,</span> <span class="n">help</span> <span class="o">=</span> <span class="s">&#39;Configuration file&#39;</span> <span class="p">)</span>
+
+    <span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="o">.</span><span class="n">append</span><span class="p">(</span> <span class="n">config</span> <span class="p">)</span>
+    <span class="n">args</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">()</span>
+
+    <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">config_filename</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="s">&quot;jsn&quot;</span> <span class="ow">in</span> <span class="n">args</span><span class="o">.</span><span class="n">config_filename</span><span class="p">:</span>
+            <span class="k">with</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span> <span class="nb">open</span><span class="p">(</span> <span class="n">args</span><span class="o">.</span><span class="n">config_filename</span> <span class="p">))</span> <span class="k">as</span> <span class="n">config</span><span class="p">:</span>
+                <span class="n">args</span><span class="o">.</span><span class="n">experimental_data_filenames</span> <span class="o">=</span> <span class="n">config</span><span class="p">[</span><span class="s">&quot;experimental_data_filenames&quot;</span><span class="p">]</span>
+                <span class="n">args</span><span class="o">.</span><span class="n">fitness_functions_filenames</span> <span class="o">=</span> <span class="n">config</span><span class="p">[</span><span class="s">&quot;fitness_functions_filenames&quot;</span><span class="p">]</span>
+                <span class="n">args</span><span class="o">.</span><span class="n">fitness_matrix_names</span> <span class="o">=</span> <span class="n">config</span><span class="p">[</span><span class="s">&quot;fitness_matrix_names&quot;</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">print</span> <span class="s">&#39;other config file formats not supported, use *.jsn ending please&#39;</span>
+            <span class="k">raise</span> <span class="ne">Exception</span>
+
+
+    <span class="k">return</span> <span class="n">args</span>
+
+</div>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">doctest</span><span class="o">.</span><span class="n">testmod</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../index.html">cobilib 1.0 documentation</a> &raquo;</li>
+          <li><a href="index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2013, Jan-Hendrik Trösemeier, Susanne Lipp, Christel Kamp.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>
