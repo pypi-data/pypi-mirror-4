@@ -1,0 +1,69 @@
+#!/usr/bin/env python
+
+import sys
+
+import h5py
+import pyfits
+import numpy as np
+
+arguments = sys.argv[1:]
+
+if '--physics' in arguments:
+    physics = True
+    arguments.remove('--physics')
+else:
+    physics = False
+
+if '--images' in arguments:
+    images = True
+    arguments.remove('--images')
+else:
+    images = False
+
+if not physics and not images:
+    print "Need to specify at least one of --images or --physics"
+    sys.exit(0)
+
+for filename in arguments:
+
+    try:
+        f = h5py.File(filename, 'r')
+    except IOError:
+        print "Reading %s failed" % filename
+        continue
+
+    if images:
+        if 'Peeled' in f or 'Binned' in f:
+            if 'Peeled' in f:
+                n_groups = len(f['Peeled'])
+                for ig in range(n_groups):
+                    group = f['Peeled/group_%05i' % (ig + 1)]
+                    if 'images' in group:
+                        image = np.array(group['images'])
+                        image = image.swapaxes(-1, -2)
+                        image = image.swapaxes(-2, -3)
+                        pyfits.writeto(filename.replace('.rtout', '_%05i_images.fits' % (ig + 1)),
+                                       image, clobber=True)
+            if 'Binned' in f:
+                group = f['Binned']
+                if 'images' in group:
+                    image = np.array(group['images'])
+                    image = image.swapaxes(-1, -2)
+                    image = image.swapaxes(-2, -3)
+                    pyfits.writeto(filename.replace('.rtout', '_binned_images.fits'),
+                                   image, clobber=True)
+        else:
+            print "No images in %s" % filename
+
+    if physics:
+        for group_name in f:
+            if 'iteration' in group_name:
+                iteration = int(group_name.split('_')[1])
+                for array_name in f[group_name]:
+                    pyfits.writeto(filename.replace('.rtout', '_%s_%05i.fits' % (array_name, iteration)),
+                                   np.array(f[group_name][array_name]), clobber=True)
+
+    try:
+        f.close()
+    except:
+        print "Error closing %s" % filename

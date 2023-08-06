@@ -1,0 +1,101 @@
+#!/usr/bin/env python
+
+import sys
+import subprocess
+import os
+
+if sys.version_info[0] == 2:
+    from ConfigParser import SafeConfigParser
+else:
+    from configparser import SafeConfigParser
+
+import h5py
+
+if (sys.version_info[0] == 2 and sys.version_info[1] < 7) or \
+   (sys.version_info[0] == 3 and sys.version_info[1] <= 1):
+    from optparse import OptionParser
+    parser = OptionParser()
+    parser.add_option("-m", dest="n_cores",
+                      help="use MPI code on n_cores cores",
+                      metavar="n_cores")
+    options, args = parser.parse_args()
+    n_cores = options.n_cores
+    input, output = args[0], args[1]
+else:
+    from argparse import ArgumentParser
+    parser = ArgumentParser(description="Run the Hyperion code")
+    parser.add_argument("-m", type=int, dest="n_cores",
+                       help="use MPI code on multiple cores",
+                       metavar="n_cores")
+    parser.add_argument('input', help='The input HDF5 file')
+    parser.add_argument('output', help='The output HDF5 file')
+    args = parser.parse_args()
+    n_cores = args.n_cores
+    input, output = args.input, args.output
+
+f = h5py.File(input, 'r')
+coord_type = f['Grid']['Geometry'].attrs['grid_type'].decode('utf-8')
+f.close()
+
+# Determine grid type
+if coord_type == 'cyl_pol':
+    suffix = 'cyl'
+elif coord_type == 'sph_pol':
+    suffix = 'sph'
+elif coord_type == 'car':
+    suffix = 'car'
+elif coord_type == 'amr':
+    suffix = 'amr'
+elif coord_type == 'oct':
+    suffix = 'oct'
+else:
+    raise Exception("Unexpected coordinate type: %s" % coord_type)
+
+
+# Determine binary command
+if n_cores is None:
+    command = 'hyperion_' + suffix
+else:
+
+    filename = os.path.expanduser('~/.hyperionrc')
+    config = SafeConfigParser()
+    config.read(filename)
+
+    if config.has_option('mpi', 'command'):
+
+        mpi_command = config.get('mpi', 'command')
+
+    else:
+
+        mpi_command = None
+
+        # Check whether mpirun or mpiexec are available
+        for dir in os.environ['PATH'].split(':'):
+            if os.path.exists(os.path.join(dir, 'mpirun')):
+                mpi_command = 'mpirun'
+                break
+            if os.path.exists(os.path.join(dir, 'mpiexec')):
+                mpi_command = 'mpiexec'
+                break
+
+        if mpi_command is None:
+            raise Exception("Cannot find mpirun or mpiexec")
+
+    command = '{0} -n {1} hyperion_{2}_mpi'.format(mpi_command,
+                                                   n_cores, suffix)
+
+returncode = subprocess.call('{0} {1} {2}'.format(command, input, output), shell=True)
+
+# If errors are raised by the fortran code, these are printed to stderr, but
+# the return code may still be zero. The easiest way to check whether the run
+# completed successfully is to try and read in the final attribute that was
+# written to the output file..
+try:
+    f = h5py.File(output, 'r')
+    f.attrs['date_ended']
+    f.close()
+except:
+    print("Run did not complete successfully: output file appears to be corrupt")
+    sys.exit(1)
+else:
+    sys.exit(returncode)
