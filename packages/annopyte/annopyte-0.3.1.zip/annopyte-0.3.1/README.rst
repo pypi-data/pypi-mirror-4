@@ -1,0 +1,77 @@
+.. -*- restructuredtext -*-
+
+========
+annopyte
+========
+Annotations and metadata processing for Python
+----------------------------------------------
+
+
+Overview
+========
+
+This is designed to add and process annotations to python objects, a-la `Java Annotations <http://docs.oracle.com/javase/tutorial/java/javaOO/annotations.html>`_.
+
+Annotations are just metadata, something that is not directly used by code itself but can be queried by other parts of the program.
+
+Python itself doesn't need special low-level implementations in order to support metadata, this library's target is just to provide
+a standard way of setting and querying metadata from python objects.
+
+Python 3 actually contains a basic version of metadata, but it's limited to the arguments and return values of functions; this library is designed to extend
+such support to other objects, so you can annotate a class, a function or any object with any kind of data.
+
+
+Current status
+==============
+
+Currently contains a `PEP-3107 <http://www.python.org/dev/peps/pep-3107/>`_ compatible signature annotation implementation
+for Python 2.x.
+
+Example code
+============
+
+Basic function annotation::
+
+    >>> from annopyte.annotations.signature import annotate_f
+    >>> @annotate_f("return_value_annotation", param1="asd", param2="fgh")
+    ... def myfunc(param1, param2=None):
+    ...     pass
+    ... 
+    >>> print myfunc.__annotations__
+    {'return': 'return_value_annotation', 'param2': 'fgh', 'param1': 'asd'}
+    >>>
+
+Prospective code ( to be done )
+===============================
+
+That's the basic idea I'd like to implement for metadata usage::
+
+    class Author(Annotation)
+        name = "default"
+
+    @Author(name="John Doe")
+    class MyClass(object):
+        pass
+
+    >>> query_for_metadata("mypackage", Author, name="John Doe")
+    [<class 'mypackage.subpackage.MyClass'>]
+    >>>
+
+That's it.
+
+Homepage
+========
+http://annopyte.franzoni.eu
+
+Support and discussions
+=======================
+
+pydenji-users@googlegroups.com
+
+https://groups.google.com/d/forum/pydenji-users
+
+Contact me
+==========
+
+Alan Franzoni <username *at* franzoni.eu>  (please note: write LITERALLY username in the email address!)
+
