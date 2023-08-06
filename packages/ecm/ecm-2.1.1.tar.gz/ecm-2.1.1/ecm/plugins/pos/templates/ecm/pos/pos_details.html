@@ -1,0 +1,515 @@
+{% extends "base.html" %}
+
+{% load i18n %}
+{% load static from staticfiles %}
+
+{% block headtitle %}{% trans 'POS Details' %} - {{ pos }}{% endblock %}
+
+{% block stylesheets %}
+<link rel="stylesheet" type="text/css" href="{% static 'pos/css/classes.css' %}" />
+{% endblock %}
+
+
+{% block main_content %}
+<div class="page-header{%if pos.state != 4%} error{%endif%}">
+  <h1>{{ pos.moon }}{%if pos.state != 4%} - {{pos.state_text}}{% endif %} <small id="custom_name" class="editable">{{ pos.custom_name|default_if_none:"" }}</small>
+  </h1>
+</div>
+
+<div class="row-fluid">
+  <div class="span2">
+    <img src="//image.eveonline.com/Render/{{pos.type_id}}_128.png" title="{{pos.type_name}}"/>
+  </div>
+  <div class="span4">
+    <h3>General Info</h3>
+    <dl class="table">
+      <dt{%if pos.state == 3%} class="error"{%endif%}>{% trans 'State' %}</dt>
+        <dd>{{pos.state_text}}{%if pos.state == 3%} until {{pos.state_timestamp|ecm_datetime}}{%endif%}</dd>
+      <dt>{% trans 'Online since' %}</dt>
+        <dd>{{pos.online_timestamp|ecm_datetime}}</dd>
+      <dt>{% trans 'POS type' %}</dt>
+        <dd>{{pos.type_name}}</dd>
+    </dl>
+  </div>
+  <div class="span6">
+    <h3><span class="dotlan">dotlan &copy;</span>{% trans 'Links' %}</h3>
+    <ul>
+      <li><a href="http://evemaps.dotlan.net/system/{{pos.location}}" target="_blank">{{pos.location}}</a></li>
+      <li><a href="http://evemaps.dotlan.net/system/{{pos.location}}/{{dotlanPOSLocation}}" target="_blank">{{pos.moon}}</a></li>
+    </ul>
+  </div>
+</div>
+
+<div class="row-fluid">
+  <div class="span5">
+      <h3>{% trans 'Access Control' %}</h3>
+      <dl class="table">
+        <dt>{% trans 'Allow corp members in force field' %}</dt>
+          <dd>{{pos.allow_corporation_members}}</dd>
+        <dt>{% trans 'Allow ally members in force field' %}</dt>
+          <dd>{{pos.allow_alliance_members}}</dd>
+        <dt>{% trans 'Can view fuel bay' %}</dt>
+          <dd>{{pos.fuel_bay_view_access|safe}}</dd>
+        <dt>{% trans 'Can take in fuel bay' %}</dt>
+          <dd>{{pos.fuel_bay_take_access|safe}}</dd>
+        <dt>{% trans 'Can anchor modules' %}</dt>
+          <dd>{{pos.anchor_access|safe}}</dd>
+        <dt>{% trans 'Can unanchor modules' %}</dt>
+          <dd>{{pos.unanchor_access|safe}}</dd>
+        <dt>{% trans 'Can online modules' %}</dt>
+          <dd>{{pos.online_access|safe}}</dd>
+        <dt>{% trans 'Can offline modules' %}</dt>
+          <dd>{{pos.offline_access|safe}}</dd>
+      </dl>
+  </div>
+  <div class="span4">
+      <h3>{% trans 'Combat Settings' %}</h3>
+      <dl class="table">
+        {%if pos.standings_threshold != 0.0%}
+        <dt>{% trans 'Attack when standing is below' %}</dt>
+          <dd>{{pos.standings_threshold}} ({% trans 'use standings from' %} {{use_standings_from}})</dd>
+        {%else%}
+        <dt>{% trans 'Attack on bad standing' %}</dt>
+          <dd>False</dd>
+        {%endif%}
+        {%if pos.security_status_threshold != 0.0%}
+        <dt>{% trans 'Attack when security status is below' %}</dt>
+          <dd>{{pos.security_status_threshold}}</dd>
+        {%else%}
+        <dt>{% trans 'Attack when security status is bad' %}</dt>
+          <dd>False</dd>
+        {%endif%}
+        <dt>{% trans 'Attack on concord flag' %}</dt>
+          <dd>{{pos.attack_on_concord_flag}}</dd>
+        <dt>{% trans 'Attack on aggression' %}</dt>
+          <dd>{{pos.attack_on_aggression}}</dd>
+        <dt>{% trans 'Attack war targets' %}</dt>
+          <dd>{{pos.attack_on_corp_war}}</dd>
+      </dl>
+  </div>
+</div>
+
+<h2>{% trans 'Fuel Levels' %}</h2>
+
+<table class="table table-bordered" id="fuel_table">
+  <thead>
+    <tr>
+      {% for col in fuel_columns %}
+      <th class="top" scope="col" >{{col}}</th>
+      {% endfor %}
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="{{columns|length}}" class="dataTables_empty">{% trans 'Loading data from server...' %}</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Silo Levels</h2>
+
+<table class="table table-bordered" id="silo_table">
+  <thead>
+    <tr>
+      {% for col in silo_columns %}
+      <th class="top" scope="col" >{{col}}</th>
+      {% endfor %}
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="{{columns|length}}" class="dataTables_empty">{% trans 'Loading data from server...' %}</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Asset's In System</h2>
+
+<div id="assets_tree"></div>
+
+<h2>POS Operators</h2>
+
+<!--  <form action="/pos/{{ pos.item_id }}/update_oper/" method="post"> -->
+<form action="" method=""  class="form-horizontal">
+	{% csrf_token %}
+	<select name="user" id="user_id">
+		{% for user in opers %}
+		<option value="{{ user.id }}">{{ user.username }}</option>
+		{% endfor %}
+	</select>
+	<button class="btn" type="submit" autocomplete="off" data-loading-text="imma Chargin mah laz0rs" id="btn_addremove_op"><i class="icon-plus"></i><i class="icon-minus"></i>{% trans 'Add/Remove' %}</button>
+</form>
+
+<table class="table table-bordered" id="oper_table">
+  <thead>
+    <tr>
+      {% for col in oper_columns %}
+      <th class="top" scope="col" >{{col}}</th>
+      {% endfor %}
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="{{columns|length}}" class="dataTables_empty">{% trans 'Loading data from server...' %}</td>
+    </tr>
+  </tbody>
+</table>
+{% endblock %}
+
+{% block compressed_javascripts %}
+<script type="text/javascript" src="{% static 'ecm/js/lib/jquery.jstree.js' %}"></script>
+<script>
+/*************************
+ * "POS" table setup *
+ *************************/
+/*POS_CSS_STATUS = {{posCSSStatus|safe}};
+POS_TEXT_STATUS = {{posTextStatus|safe}};*/
+DISPLAY_MODE = 'quantities'; /* default */
+ASSETS_URL = '/assets/'
+ASSET_PARAMS = {
+    stations: true,
+    space: true,
+    divisions: '{%for h in hangars%}{{h.hangarID}}{%if not forloop.last%},{%endif%}{%endfor%}',
+};
+$(document).ready(function() {
+    var table = $('#fuel_table').dataTable($.extend(true, {}, DATATABLE_DEFAULTS, {
+        iDisplayLength: 10, 		/* default display 25 items */
+        sAjaxSource: "/pos/{{ pos.item_id }}/fuel_data/",
+        aoColumns: [
+            { /* 0 Icon */      sWidth: "10%", sClass: "center", bSortable: false },
+            { /* 1 Name */      sWidth: "30%", bSortable: false  },
+            { /* 2 Quantity */  sWidth: "15%", bSortable: false  },
+            { /* 3 Cons/Hour */ sWidth: "15%", bSortable: false },
+            { /* 4 Cons/day */  sWidth: "15%", bSortable: false },
+            { /* 5 TimeLeft */  sWidth: "15%", bSortable: false },
+        ],
+        fnRowCallback: function( nRow, aData, iDisplayIndex, iDisplayIndexFull ) {
+            fuelTypeID = aData[0];
+            fuelTypeName = aData[1];
+            fuelImgUrl = '//image.eveonline.com/Type/' + fuelTypeID + '_32.png';
+            $('td:eq(0)', nRow).html('<img src="' + fuelImgUrl + '" title="' + fuelTypeName + '"/>');
+            for (i=2; i<6; i++) {
+                $('td:eq(' + i + ')', nRow).addClass('right');
+                if (aData[i] == '0' || aData[i] == '0h') {
+                    $('td:eq(' + i + ')', nRow).addClass('fuel-warning');
+                }
+            }
+            return nRow;
+        },
+
+    }));
+
+	var table = $('#silo_table').dataTable($.extend(true, {}, DATATABLE_DEFAULTS, {
+        iDisplayLength: 10, 		/* default display 25 items */
+        sAjaxSource: "/pos/{{ pos.item_id }}/silo_data/",
+        aoColumns: [
+            { /* 0 Icon */      sWidth: "25%", bSortable: false },
+            { /* 1 Name */      sWidth: "25%", bSortable: false },
+            { /* 2 Quantity */  sWidth: "25%", bSortable: false },
+            { /* 3 TimeLeft */  sWidth: "25%", bSortable: false },
+        ],
+        fnRowCallback: function( nRow, aData, iDisplayIndex, iDisplayIndexFull ) {
+            fuelTypeID = aData[0];
+            fuelTypeName = aData[1];
+            fuelImgUrl = '//image.eveonline.com/Type/' + fuelTypeID + '_32.png';
+            $('td:eq(0)', nRow).html('<img src="' + fuelImgUrl + '" title="' + fuelTypeName + '"/>');
+            for (i=2; i<6; i++) {
+                $('td:eq(' + i + ')', nRow).addClass('right');
+                if (aData[i] == '0' || aData[i] == '0h') {
+                    $('td:eq(' + i + ')', nRow).addClass('fuel-warning');
+                }
+            }
+            return nRow;
+        },
+
+    }));
+	
+	var oper_table = $('#oper_table').dataTable($.extend(true, {}, DATATABLE_DEFAULTS, {
+        iDisplayLength: 10, 		/* default display 25 items */
+        sAjaxSource: "/pos/{{ pos.item_id }}/oper_data/",
+        aoColumns: [
+            { /* 0 Name */      sWidth: "25%", bSortable: false },
+            { /* 1 Chars */     sWidth: "50%", bSortable: false },
+            { /* 2 Titles */    sWidth: "25%", bSortable: false },
+        ],
+        fnRowCallback: function( nRow, aData, iDisplayIndex, iDisplayIndexFull ) {
+            return nRow;
+        },
+
+    }));
+    /* disable multi column sorting */
+    $('#pos_table thead th').click(function(event) {
+        if (!$(event.target).hasClass('sorthandle')) {
+            event.shiftKey = false;
+        }
+    });
+
+    /* Apply a jEditable handler to the "Name" section */
+    $('#custom_name').editable( '/pos/{{ pos.item_id }}/update_name/', {
+        placeholder: '{% trans 'Click to Change Name...' %}',
+        style: 'inherit',
+        cssClass: 'edited',
+        callback: function( sValue, y ) {
+            $('#custom_name').html(sValue);
+        },
+        tooltip   : '{% trans 'Click to edit...' %}'
+    });
+    var buttonz = $('#btn_addremove_op'); 
+     $('#btn_addremove_op').click(function() {  
+    //alert (dataString);return false; 
+    var data = 'user=' + $("#user_id option:selected").val();
+	$('#btn_addremove_op').button('loading');
+    $.ajax({  
+      type: "POST",  
+      url: "/pos/{{ pos.item_id }}/update_oper/",  
+      data: data,
+      callback: function( sValue, y ) {
+            $('#custom_name').html(sValue);
+            oper_table.fnDraw();
+        },
+      success: function (reqCode) {
+      	oper_table.fnDraw();
+      	$('#btn_addremove_op').button('reset');
+      }  
+    });
+    return false;
+   }); 
+
+
+    $('#assets_tree').jstree({
+        plugins : [ 'themes' , 'json_data' , 'search' , 'adv_search' , 'ui',  'types' , 'sort' ],
+        core : {
+            animation : 150,
+            html_titles : true
+        },
+        ui : {
+            select_limit : 1
+        },
+        themes : {
+            url : '{{ STATIC_URL }}assets/css/jstree.css',
+            dots : false
+        },
+        search : {
+            case_insensitive: true,
+            show_only_matches: true,
+            ajax : {
+                url : function() {
+                    return ASSETS_URL + 'search/?' + decodeURIComponent(jQuery.param(ASSET_PARAMS));
+                }
+            }
+        },
+        types : {
+            max_depth : -2,
+            max_children : -2,
+            valid_children : [ 'system' ],
+            types : {
+                system : {
+                    class : 'system-row',
+                    icon : {
+                        image : '{{ STATIC_URL }}assets/img/system.png'
+                    },
+                    valid_children : [ 'celestial' ],
+                    max_depth : 6,
+                    open_node   : true,
+                    close_node  : true
+                },
+                celestial : {
+                    class : 'celestial-row',
+                    icon : {
+                        image : '{{ STATIC_URL }}assets/img/celestial.png'
+                    },
+                    valid_children : [ 'array', 'pos', 'station' ],
+                    max_depth : 5,
+                    open_node   : true,
+                    close_node  : true
+                },
+                array : {
+                    class : 'hangar-row',
+                    icon : {
+                        image : '{{ STATIC_URL }}assets/img/array.png'
+                    },
+                    valid_children : [ 'hangar' ],
+                    max_depth : 4,
+                    open_node   : true,
+                    close_node  : true
+                },
+                pos : {
+                    class : 'hangar-row',
+                    icon : {
+                        image : '{{ STATIC_URL }}assets/img/pos.png'
+                    },
+                    valid_children : [ 'hangar' ],
+                    max_depth : 4,
+                    open_node   : true,
+                    close_node  : true
+                },
+                station : {
+                    class : 'station-row',
+                    icon : {
+                        image : '{{ STATIC_URL }}assets/img/station.png'
+                    },
+                    valid_children : [ 'hangar' ],
+                    max_depth : 4,
+                    open_node   : true,
+                    close_node  : true
+                },
+                hangar : {
+                    class : 'hangar-row',
+                    icon : {
+                        image : '{{ STATIC_URL }}assets/img/hangar.png'
+                    },
+                    valid_children : [ 'can', 'mineral', 'ship',  'ammo', 'blueprint', 'item' ],
+                    max_depth : 3,
+                    open_node   : true,
+                    close_node  : true
+                },
+                ship : {
+                    icon : {
+                        image : '{{ STATIC_URL }}assets/img/ship.png'
+                    },
+                    valid_children : [ 'can', 'mineral', 'ship',  'ammo', 'blueprint', 'item' ],
+                    max_depth : 2,
+                    open_node   : true,
+                    close_node  : true
+                },
+                can : {
+                    icon : {
+                        image : '{{ STATIC_URL }}assets/img/can.png'
+                    },
+                    valid_children : [ 'can', 'mineral', 'ship',  'ammo', 'blueprint', 'item' ],
+                    max_depth : 1,
+                    open_node   : true,
+                    close_node  : true
+                },
+                item : {
+                    icon : {
+                        image : '{{ STATIC_URL }}assets/img/item.png'
+                    },
+                    valid_children : 'none',
+                    max_depth : 0,
+                    select_node : true,
+                    open_node   : true,
+                    close_node  : true,
+                    create_node : false,
+                    delete_node : false
+                },
+                mineral : {
+                    icon : {
+                        image : '{{ STATIC_URL }}assets/img/mineral.png'
+                    },
+                    valid_children : 'none',
+                    max_depth : 0,
+                    select_node : true,
+                    open_node   : true,
+                    close_node  : true,
+                    create_node : false,
+                    delete_node : false
+                },
+                blueprint : {
+                    icon : {
+                        image : '{{ STATIC_URL }}assets/img/blueprint.png'
+                    },
+                    valid_children : 'none',
+                    max_depth : 0,
+                    select_node : true,
+                    open_node   : true,
+                    close_node  : true,
+                    create_node : false,
+                    delete_node : false
+                },
+                ammo : {
+                    icon : {
+                        image : '{{ STATIC_URL }}assets/img/ammo.png'
+                    },
+                    valid_children : 'none',
+                    max_depth : 0,
+                    select_node : true,
+                    open_node   : true,
+                    close_node  : true,
+                    create_node : false,
+                    delete_node : false
+                },
+                skill : {
+                    icon : {
+                        image : '{{ STATIC_URL }}assets/img/skill.png'
+                    },
+                    valid_children : 'none',
+                    max_depth : 0,
+                    select_node : true,
+                    open_node   : true,
+                    close_node  : true,
+                    create_node : false,
+                    delete_node : false
+                },
+                added : {
+                    icon : {
+                        image : '{{ STATIC_URL }}assets/img/plus-tree-icon.png'
+                    },
+                    valid_children : 'none',
+                    max_depth : 0,
+                    select_node : true,
+                    open_node   : true,
+                    close_node  : true,
+                    create_node : false,
+                    delete_node : false
+                },
+                removed : {
+                    icon : {
+                        image : '{{ STATIC_URL }}assets/img/minus-tree-icon.png'
+                    },
+                    valid_children : 'none',
+                    max_depth : 0,
+                    select_node : true,
+                    open_node   : true,
+                    close_node  : true,
+                    create_node : false,
+                    delete_node : false
+                }
+            }
+        },
+        json_data : {
+            ajax : {
+                url : function(node) {
+                    if (node == '-1') {
+                    	var url = ASSETS_URL + '{{system}}/';
+                    } else {
+                    	var url = ASSETS_URL;
+                    }
+                    url += node.attr ? node.attr('id').replace(/_/g, '/') : '';
+                    url += 'data/'
+                    return url + '?' +  decodeURIComponent(jQuery.param(ASSET_PARAMS));
+                }
+            }
+        },
+        sort : function (a, b) {
+            if ('sort_key' in a.attributes && 'sort_key' in b.attributes) {
+                var key_a = +a.attributes.sort_key.value;
+                var key_b = +b.attributes.sort_key.value;
+                if (isNaN(key_a)) {
+                    key_a = a.attributes.sort_key.value;
+                }
+                if (isNaN(key_b)) {
+                    key_b = b.attributes.sort_key.value;
+                }
+                if (key_a > key_b) {
+                    return 1;
+                } else {
+                    return -1;
+                }
+            } else {
+                return 0;
+            }
+        }
+    });
+    $('#assets_tree').delegate('a', 'click', function (event, data) { 
+        event.preventDefault(); 
+    });
+
+    $('#assets_tree').delegate('a', 'dblclick', function(e) {
+        $('#assets_tree').jstree('open_node', $(this).parent());
+    });
+});
+
+</script>
+{% endblock %}
+

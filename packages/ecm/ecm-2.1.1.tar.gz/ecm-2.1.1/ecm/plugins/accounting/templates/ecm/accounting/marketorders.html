@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{% load i18n %}
+{% load static from staticfiles %}
+
+{% block stylesheets %}
+<link rel="stylesheet" type="text/css" href="{% static 'ecm/css/jquery-ui-1.8.13.custom.css' %}" />
+<link rel="stylesheet" type="text/css" href="{% static 'accounting/css/classes.css' %}" />
+<link rel="stylesheet" type="text/css" href="{% static 'hr/css/classes.css' %}" />
+{% endblock %}
+
+{% block headtitle %}{% trans 'Market Orders' %}{% endblock %}
+
+
+
+{% block main_content %}
+<div class="page-header">
+  <h1>Market Orders <small>last update {{ scan_date|ecm_datetime }}</small></h1>
+</div>
+
+<form id="search_form" class="form-search form-inline">
+  <div class="btn-toolbar" >
+    <input type="text" id="search_text" class="input-medium search-query" value="" />
+    <div class="btn-group">
+      <a class="btn btn-small" id="search_button"><i class="icon-search"></i>{% trans 'Search' %}</a>
+      <a class="btn btn-small" id="clear_search">{% trans 'Reset' %}</a>
+    </div>
+    <div class="control-group success" style="display: inline;">
+      <span class="label label-success">{% trans 'State' %}</span>
+      <select id="state_selector">{% for s in states %}
+            <option value="{{ s.stateID }}"{% if s.selected %} selected{% endif %}>{{ s.name }}</option>
+      {% endfor %}</select>
+    </div>
+    <div class="control-group success" style="display: inline;">
+      <span class="label label-success">{% trans 'Type' %}</span>
+      <select id="type_selector">{% for t in types %}
+            <option value="{{ t.typeID }}"{% if t.selected %} selected{% endif %}>{{ t.name }}</option>
+      {% endfor %}</select>
+    </div>
+  </div>
+</form>
+
+<table class="table table-bordered table-condensed" id="order_table">
+  <thead>
+    <tr>{% for name, width, sortable, css, type in columns %}
+      <th>{{name}}</th>
+    {% endfor %}</tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="12" class="dataTables_empty">{% trans 'Loading data from server...' %}</td>
+    </tr>
+  </tbody>
+  <tfoot>
+    <tr>{% for name, width, sortable, css, type in columns %}
+      <th id="footer-{{name|slugify}}">{{name}}</th>
+    {% endfor %}</tr>
+  </tfoot>
+
+</table>
+{% endblock %}
+
+
+
+
+
+{% block compressed_javascripts %}
+<script type="text/javascript" src="{% static 'ecm/js/lib/jquery.ui.js' %}"></script>
+<script type="text/javascript">
+$(document).ready(function() {
+    var table = $('#order_table').dataTable($.extend(true, {}, DATATABLE_DEFAULTS, {
+        sAjaxSource: '/accounting/marketorders/data/',
+        asSorting: [[1,'desc']],
+        aoColumns: [{% for name, width, sortable, css, type in columns %}
+            { /* {{name}} */ sWidth: '{{width}}', sType: '{{type}}', bSortable: {{sortable}}, sClass: '{{css}}' },
+        {%endfor%}],
+
+        /* this function will be called when the table has to query data to be displayed */
+        fnServerData: function ( sSource, aoData, fnCallback ) {
+            /* Add some extra variables to the url */
+            aoData.push( {
+                name: 'stateID',
+                value: $('#state_selector option:selected').val()
+            },{
+                name: 'typeID',
+                value: $('#type_selector option:selected').val()
+            } );
+
+            $.getJSON( sSource, aoData, function (json) {
+                fnCallback(json)
+            } );
+        },
+	fnFooterCallback: function( nFoot, aData, iStart, iEnd, aiDisplay ) {
+	    var iPageTotal = 0;
+	    for ( var i=0 ; i<aData.length ; i++ )
+            {
+		var tmp = aData[ i ][4]
+		var formatted = tmp.replace(/,/g, "").replace(/\./g, ".")
+                iPageTotal += parseFloat(formatted);
+            }
+	    iPageTotal += '';
+	    x = iPageTotal.split('.');
+	    x1 = x[0];
+	    x2 = x.length > 1 ? '.' + x[1] : '';
+	    var rgx = /(\d+)(\d{3})/;
+	    while (rgx.test(x1)) {
+		x1 = x1.replace(rgx, '$1' + ',' + '$2');
+	    }
+	    result = x1 + x2;
+   	    nFoot.getElementsByTagName('th')[4].innerHTML = "Total: " + result + " ISK";
+    	}
+    }));
+
+  /* trigger the search when pressing return in the text field */
+    $('#search_form').submit(function(event) {
+        event.preventDefault();
+        table.fnFilter($('#search_text').val());
+    });
+
+    /* trigger the search when clicking the 'search' button */
+    $('#search_button').click(function() {
+        table.fnFilter($('#search_text').val());
+    });
+
+    /* reset the search when clicking the 'reset' button */
+    $('#clear_search').click(function() {
+        $('#search_text').val('');
+        table.fnFilter('');
+    });
+
+    $('#state_selector').change(function () {
+        table.fnDraw();
+    });
+
+    $('#type_selector').change(function () {
+        table.fnDraw();
+    });
+
+    /* disable multi column sorting */
+    $('#contract_table thead th').click(function(event) {
+        if (!$(event.target).hasClass('sorthandle')) {
+            event.shiftKey = false;
+        }
+    });
+
+} );
+</script>
+{% endblock %}
+
+

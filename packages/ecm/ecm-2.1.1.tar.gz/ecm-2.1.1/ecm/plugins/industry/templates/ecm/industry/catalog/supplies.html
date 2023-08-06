@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+
+{% load i18n %}
+{% load static from staticfiles %}
+
+{% block headtitle %}{% trans 'Supplies Catalog' %}{% endblock %}
+
+{% block stylesheets %}
+<link rel="stylesheet" type="text/css" href="{% static 'industry/css/industry.css' %}" />
+{% endblock %}
+
+
+
+
+{% block main_content %}
+<div class="page-header"><h1>{% trans 'Supplies Catalog' %}</h1></div>
+
+<form id="search_form" class="form-search form-inline">
+  <div class="btn-toolbar" >
+    <input type="text" id="search_text" class="input-medium search-query" value="" />
+    <div class="btn-group">
+      <a class="btn btn-small" id="search_button"><i class="icon-search"></i>{% trans 'Search' %}</a>
+      <a class="btn btn-small" id="clear_search">{% trans 'Reset' %}</a>
+    </div>
+    <span class="label label-info">{% trans 'Display' %}</span>
+    <div class="btn-group" data-toggle="buttons-radio" id="display_buttons">
+      <button class="btn btn-small btn-info" id="display_all">{% trans 'All Supplies' %}</button>
+      <button class="btn btn-small btn-info" id="display_manual">{% trans 'Only Manual-Update' %}</button>
+      <button class="btn btn-small btn-info" id="display_auto">{% trans 'Only Auto-Update' %}</button>
+    </div>
+    <div class="control-group error inline" style="display: inline;">
+      <span class="label label-important">{% trans 'Filter' %}</span>
+      <select id="filter_selector">
+        {% for name, key, _ in filters %}
+        <option value="filter_{{key}}"{%if key == 'minerals'%} selected{%endif%}>{{name}}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+</form>
+
+<table class="table table-bordered table-condensed" id="supplies_table">
+  <thead>
+    <tr>
+      {%for col in columns%}
+      <th class="top" scope="col" >{{col}}</th>
+      {%endfor%}
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="{{columns|length}}" class="dataTables_empty">{% trans 'Loading data from server...' %}</td>
+    </tr>
+  </tbody>
+  <tfoot>
+    <tr>
+      {%for col in columns%}
+      <th>{{col}}</th>
+      {%endfor%}
+    </tr>
+  </tfoot>
+</table>
+{% endblock %}
+
+
+
+{% block javascripts %}
+<script type="text/javascript">
+SUPPLY_SOURCES = '<select>'{%for source in supply_sources%}
+  + '<option value="{{source.location_id}}">{{source.name}}</option>'{%endfor%}
+  + '</select>';
+CURRENT_FILTER = 'minerals';
+DISPLAY_MODE = 'all';
+REFRESH_BUTTON = '<button class="btn btn-small pull-right" title="{% trans 'Update price' %}"><i class="icon-refresh"></i></button>';
+var SELECT_SOURCE;
+</script>
+{% endblock %}
+
+{% block compressed_javascripts %}
+<script>
+$(document).ready(function() {
+    var table = $('#supplies_table').dataTable($.extend(true, {}, DATATABLE_DEFAULTS, {
+        sAjaxSource: '/industry/catalog/supplies/data/',
+        aoColumns: [
+            { /* 0 Item */          sWidth: "40%", bSortable: false },
+            { /* 1 Price */         sWidth: "15%", bSortable: false  },
+            { /* 2 Auto-Update */   sWidth: "10%", bSortable: false, sClass: 'center' },
+            { /* 3 Source */        sWidth: "35%", bSortable: false, sClass: 'center'},
+            { /* 4 typeID hidden */  bVisible: false},
+        ],
+        fnRowCallback: function( nRow, aData, iDisplayIndex, iDisplayIndexFull ) {
+            var item_id = aData[4];
+
+            $('td:eq(1)', nRow).attr('id', item_id);
+            $('td:eq(1)', nRow).addClass('price editable right');
+            /* Apply jEditable handlers to the cells each time we redraw the table */
+            $('td:eq(1)', nRow).editable( '/industry/catalog/supplies/price/', {
+                cssclass: 'edited',
+                style: 'inherit',
+                tooltip: 'Click to edit...',
+                loadurl: '/industry/catalog/supplies/price/',
+                callback: function( sValue, y ) {
+                    var aPos = oTable.fnGetPosition( this );
+                    oTable.fnUpdate( sValue, aPos[0], aPos[1] );
+                },
+            } );
+
+            var autoUpdate = aData[2];
+            var checked = '';
+            if (autoUpdate) {
+                checked += 'checked ';
+            }
+            $('td:eq(2)', nRow).html('<input id="' + item_id + '" type="checkbox" ' + checked + '/>');
+            $('td:eq(2) input', nRow).click(function () {
+                var params = {
+                    id: $(this).attr('id'),
+                    value: $(this).is(':checked')
+                };
+                $.post('/industry/catalog/supplies/auto_update/', params);
+            });
+
+            $('td:eq(3)', nRow).html(SUPPLY_SOURCES + REFRESH_BUTTON);
+            $('td:eq(3) select', nRow).val(aData[3]);
+            $('td:eq(3) select', nRow).attr('id', item_id);
+            $('td:eq(3) select', nRow).change(function () {
+                var params = {
+                    id: $(this).attr('id'),
+                    value: $(this).val()
+                };
+                $.post('/industry/catalog/supplies/supply_source_id/', params);
+            });
+
+            $('td:eq(3) button', nRow).attr('id', item_id);
+            $('td:eq(3) button', nRow).click(function () {
+                var _this = $(this);
+                _this.attr('disabled', 'disabled');
+                var id = _this.attr('id');
+                var oldPrice = $('#' + id + '.price').html();
+                $('#' + id + '.price').html('<img src="{% static 'ecm/img/throbber.gif' %}"/>');
+                $.get('/industry/catalog/supplies/' + id + '/updateprice/')
+                 .success(function (data) {
+                    $('#' + id + '.price').html(data);
+                 })
+                 .error(function (data) {
+                    $('#' + id + '.price').html(oldPrice);
+                 })
+                 .complete(function () {
+                     _this.removeAttr('disabled');
+                 });
+            });
+
+            $('td:eq(4)', nRow).hide();
+            return nRow;
+        },
+
+        /* this function will be called when the table has to query data to be displayed */
+        fnServerData: function ( sSource, aoData, fnCallback ) {
+            /* Add some extra variables to the url */
+            aoData.push( {
+                name: 'displayMode',
+                value: DISPLAY_MODE
+            }, {
+                name: 'filter',
+                value: CURRENT_FILTER
+            } );
+            $.getJSON( sSource, aoData, function (json) {
+                fnCallback(json)
+            } );
+        },
+
+        /* the search field being outside the table object, we need to save its status
+         * explicitly here in order to restore it with the rest */
+        fnStateSaveParams: function (oSettings, oData) {
+            oData.sFilter = $("#search_text").val()
+            oData.displayMode = DISPLAY_MODE;
+            oData.filter = CURRENT_FILTER;
+        },
+
+        /* restore the search field content */
+        fnStateLoadParams: function (oSettings, oData) {
+            $("#search_text").val(oData.sFilter);
+            if ('displayMode' in oData) {
+                DISPLAY_MODE = oData.displayMode;
+                updateDisplayModeButtons();
+            }
+            if ('filter' in oData) {
+                CURRENT_FILTER = oData.filter;
+                $('#filter_selector').val('filter_' + CURRENT_FILTER);
+            }
+            return true;
+        }
+
+    }));
+
+    /* trigger the search when pressing return in the text field */
+    $("#search_form").submit(function(event) {
+        event.preventDefault();
+        table.fnFilter($("#search_text").val());
+    });
+
+    /* trigger the search when clicking the "search" button */
+    $("#search_button").click(function() {
+        table.fnFilter($("#search_text").val());
+    });
+
+    /* reset the search when clicking the "reset" button */
+    $("#clear_search").click(function() {
+        $("#search_text").val("");
+        table.fnFilter("");
+    });
+    /* disable multi column sorting */
+    $('#supplies_table thead th').click(function(event) {
+        if (!$(event.target).hasClass('sorthandle')) {
+            event.shiftKey = false;
+        }
+    });
+
+
+    /* Display mode buttons */
+    var dispButtons = $('#display_buttons button');
+    for (var i = 0; i < dispButtons.length; i++) {
+        $(dispButtons[i]).click(function () {
+            var mode = $(this).attr('id').substr('display_'.length);
+            if (DISPLAY_MODE != mode) {
+                DISPLAY_MODE = mode;
+                table.fnDraw();
+            }
+        });
+    }
+    /* Filter buttons */
+    $('#filter_selector').change(function () {
+        var filter = $(this).val().substr('filter_'.length);
+        if (CURRENT_FILTER != filter) {
+            CURRENT_FILTER = filter;
+            table.fnDraw();
+        }
+    });
+
+});
+
+
+
+
+function updateDisplayModeButtons() {
+    var buttons = $('#display_buttons button');
+    for (var i = 0; i < buttons.length; i++) {
+        if (endsWith(buttons[i].id, DISPLAY_MODE)) {
+            $(buttons[i]).addClass('active');
+        } else {
+            $(buttons[i]).removeClass('active');
+        }
+    }
+}
+
+function endsWith(str, suffix) {
+    return str.indexOf(suffix, str.length - suffix.length) !== -1;
+}
+</script>
+{% endblock %}

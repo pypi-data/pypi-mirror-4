@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+
+{% load i18n %}
+{% load static from staticfiles %}
+
+
+{% block headtitle %}{% trans 'POS' %} - {{ posViewMode }}{% endblock %}
+
+{% block stylesheets %}
+<link rel="stylesheet" type="text/css" href="{% static 'pos/css/classes.css' %}" />
+{% endblock %}
+
+
+
+{% block main_content %}
+<div class="page-header">
+  <h1>POS <small>{{ posViewMode }}</small></h1>
+</div>
+
+<form id="search_form" class="form-search form-inline">
+  <div class="btn-toolbar" >
+    <input type="text" id="search_text" class="input-medium search-query" value="" />
+    <div class="btn-group">
+      <a class="btn btn-small" id="search_button"><i class="icon-search"></i>{% trans 'Search' %}</a>
+      <a class="btn btn-small" id="clear_search">{% trans 'Reset' %}</a>
+    </div>
+    <span class="label label-info">{% trans 'Display mode' %}</span>
+    <div class="btn-group" data-toggle="buttons-radio">
+      <button class="btn btn-small btn-info" id="quantities_button"
+              title="{% trans 'Show remaining fuel quantities' %}">{% trans 'Quantities' %}</button>
+      <button class="btn btn-small btn-info" id="days_button"
+              title="{% trans 'Show remaining fuel time (in days)' %}">{% trans 'Days' %}</button>
+      <button class="btn btn-small btn-info" id="hours_button"
+              title="{% trans 'Show remaining fuel time (in hours)' %}">{% trans 'Hours' %}</button>
+    </div>
+  </div>
+</form>
+
+<table class="table table-bordered table-condensed" id="pos_table">
+  <thead>
+    <tr>
+      {% for col, title in columns %}
+      <th class="top" scope="col" title="{{title}}">{{col|safe}}</th>
+      {% endfor %}
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td colspan="{{columns|length}}" class="dataTables_empty">{% trans 'Loading data from server...' %}</td>
+    </tr>
+  </tbody>
+  <tfoot>
+    <tr>
+      {% for col, title in columns %}
+      <th title="{{title}}">{{col|safe}}</th>
+      {% endfor %}
+    </tr>
+  </tfoot>
+</table>
+{% endblock %}
+
+
+
+{% block post_javascripts %}
+<script>
+POS_CSS_STATUS = {{posCSSStatus|safe}};
+POS_TEXT_STATUS = {{posTextStatus|safe}};
+DISPLAY_MODE = 'days'; /* default */
+$(document).ready(function() {
+    var table = $('#pos_table').dataTable($.extend(true, {}, DATATABLE_DEFAULTS, {
+        sAjaxSource: '/pos/data/',
+        aaSorting: [[5, 'asc']],/* sort ascending using column 5 */
+        aoColumns: [
+            { /* 0 Location */ sWidth: '6%' },
+            { /* 1 Name */     sWidth: '6%', bSortable: false },
+            { /* 2 Type */     sWidth: '1%', sClass: 'center' },
+            { /* 3 status */   sWidth: '1%', sClass: 'center', bSortable: false },
+            { /* 4 Time */ 	   sWidth: '2%', sClass: 'right', bSortable: false },
+            { /* 5 Blocks */   sWidth: '4%', sClass: 'right' },
+            { /* 6 Stront */   sWidth: '4%', sClass: 'right' },
+            { /* 7 Name HIDDEN */  bVisible: false, bSortable: false },
+            { /* 8 hours_int HIDDEN */  bVisible: false, bSortable: false }
+        ],
+        fnRowCallback: function( nRow, aData, iDisplayIndex, iDisplayIndexFull ) {
+            posTypeID = aData[2];
+            posImgUrl = '//image.eveonline.com/Type/' + posTypeID + '_32.png';
+            $('td:eq(2)', nRow).html('<img src="' + posImgUrl + '" title="' + aData[7] + '"/>');
+
+            posState = aData[3];
+            hoursLeft = aData[8];
+            
+            $('td:eq(3)', nRow).addClass(POS_CSS_STATUS[posState]);
+            $('td:eq(3)', nRow).attr('title', POS_TEXT_STATUS[posState]);
+            $('td:eq(3)', nRow).html('');
+            
+            time_until_next_cycle = aData[4];
+            if (time_until_next_cycle < 5) {
+            	$('td:eq(4)', nRow).addClass('cycle-warning');
+            }
+            $('td:eq(4)', nRow).html(time_until_next_cycle + ' min.');
+            
+            if (posState == 3) { /* REINFORCED */
+            	$('td', nRow).addClass('reinforced-alert');
+            } else {
+	            if (hoursLeft <= 48 && hoursLeft > 24) {
+	                $('td', nRow).addClass('fuel-warning');
+	            } else if (hoursLeft <= 24) {
+	                $('td', nRow).addClass('fuel-alert');
+	            };
+            };
+
+            $('td:eq(7)', nRow).hide();
+            $('td:eq(8)', nRow).hide();
+            return nRow;
+        },
+
+        /* this function will be called when the table has to query data to be displayed */
+        fnServerData: function ( sSource, aoData, fnCallback ) {
+            /* Add some extra variables to the url */
+            aoData.push( {
+                name: 'displayMode',
+                value: DISPLAY_MODE
+            } );
+            $.getJSON( sSource, aoData, function (json) {
+                fnCallback(json)
+            } );
+        },
+
+        /* the search field being outside the table object, we need to save its status
+         * explicitly here in order to restore it with the rest */
+        fnStateSaveParams: function (oSettings, oData) {
+            oData.sFilter = $('#search_text').val()
+            oData.displayMode = DISPLAY_MODE;
+        },
+        /* restore the search field content */
+        fnStateLoadParams: function (oSettings, oData) {
+            $('#search_text').val(oData.sFilter);
+            if ('displayMode' in oData) {
+                DISPLAY_MODE = oData.displayMode;
+                if (DISPLAY_MODE == 'quantities') {
+                    $('#quantities_button').button('toggle');
+                } else if (DISPLAY_MODE == 'days') {
+                    $('#days_button').button('toggle');
+                } else if (DISPLAY_MODE == 'hours') {
+                    $('#hours_button').button('toggle');
+                }
+            }
+            return true;
+        }
+
+    }));
+
+    /* trigger the search when pressing return in the text field */
+    $('#search_form').submit(function(event) {
+        event.preventDefault();
+        table.fnFilter($('#search_text').val());
+    });
+
+    /* trigger the search when clicking the "search" button */
+    $('#search_button').click(function() {
+        table.fnFilter($('#search_text').val());
+    });
+
+    /* reset the search when clicking the "reset" button */
+    $('#clear_search').click(function() {
+        $('#search_text').val('');
+        table.fnFilter('');
+    });
+    /* disable multi column sorting */
+    $('#pos_table thead th').click(function(event) {
+        if (!$(event.target).hasClass('sorthandle')) {
+            event.shiftKey = false;
+        }
+    });
+
+    /* Button to select quatities values */
+    $('#quantities_button').click(function() {
+        if (DISPLAY_MODE != 'quantities') {
+            DISPLAY_MODE = 'quantities';
+            table.fnDraw();
+        }
+    });
+    $('#days_button').click(function() {
+        if (DISPLAY_MODE != 'days') {
+            DISPLAY_MODE = 'days';
+            table.fnDraw();
+        }
+    });
+    $('#hours_button').click(function() {
+        if (DISPLAY_MODE != 'hours') {
+            DISPLAY_MODE = 'hours';
+            table.fnDraw();
+        }
+    });
+});
+</script>
+{% endblock %}
